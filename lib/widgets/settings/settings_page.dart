@@ -121,45 +121,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadCurrentBrightness();
   }
 
-  Future<void> _confirmResetAllSettings() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text(
-          'إعادة التعيين إلى الافتراضي',
-          textDirection: TextDirection.rtl,
-        ),
-        content: const Text(
-          'هل تريد إعادة جميع الإعدادات إلى وضعها الافتراضي؟\nالعلامات المرجعية والملفات المنزَّلة لن تُحذف.',
-          textDirection: TextDirection.rtl,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text(
-              'إعادة التعيين',
-              style: TextStyle(color: Color(0xFFCC4444)),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    await widget.onResetAllSettings();
-    try {
-      await ScreenBrightness().resetApplicationScreenBrightness();
-    } catch (_) {}
-    if (!mounted) return;
-    // Close the settings page: its local toggle states are now stale, and
-    // reopening shows the restored defaults.
-    Navigator.pop(context);
-  }
-
   Future<void> _loadCurrentBrightness() async {
     try {
       final value = await ScreenBrightness().application;
@@ -1043,15 +1004,6 @@ class _SettingsPageState extends State<SettingsPage> {
                               ],
                             ),
                           ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      SettingsCard(
-                        child: ActionTile(
-                          title: 'إعادة التعيين إلى الافتراضي',
-                          subtitle: 'تُعاد جميع الإعدادات إلى وضعها الافتراضي. العلامات المرجعية والملفات المنزَّلة لا تُحذف.',
-                          icon: Icons.settings_backup_restore_rounded,
-                          onTap: _confirmResetAllSettings,
                         ),
                       ),
                     ],

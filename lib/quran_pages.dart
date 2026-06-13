@@ -1865,14 +1865,6 @@ class _QuranPagesState extends State<QuranPages>
                     ),
                   ),
                 ),
-                // Center drag grip.
-                const Center(
-                  child: Icon(
-                    Icons.drag_handle_rounded,
-                    color: Color(0xFF8D7A50),
-                    size: 22,
-                  ),
-                ),
                 // Invert/reverse toggle on the right edge (opposite the close
                 // button) — flips between reveal and blocker modes.
                 Positioned(
