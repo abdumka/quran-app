@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7b3e22"/>
+      <stop offset="100%" stop-color="#4c2010"/>
+    </linearGradient>
+    <linearGradient id="silver3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#efe4c6"/>
+      <stop offset="50%" stop-color="#d7c29b"/>
+      <stop offset="100%" stop-color="#f7f0d8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg3)"/>
+  <rect x="48" y="48" width="928" height="928" rx="24" fill="none" stroke="url(#silver3)" stroke-width="10"/>
+  <rect x="96" y="96" width="832" height="832" rx="18" fill="none" stroke="url(#silver3)" stroke-width="3"/>
+
+  <g opacity="0.18" fill="#f5ebd2">
+    <path d="M150 150h724v724H150z"/>
+  </g>
+
+  <text x="512" y="282" text-anchor="middle" direction="rtl"
+    font-family="Amiri, 'Scheherazade New', serif" font-size="80" font-weight="700" fill="#fff7df">
+    مُصْحَفُ الجَمَاهِيرِيَّةِ
+  </text>
+
+  <text x="512" y="404" text-anchor="middle" direction="rtl"
+    font-family="Amiri, 'Scheherazade New', serif" font-size="56" font-weight="700" fill="#f0dfbf">
+    بِرِوَايَةِ الإِمَامِ قَالُونَ
+  </text>
+
+  <text x="512" y="544" text-anchor="middle" direction="rtl"
+    font-family="Amiri, 'Scheherazade New', serif" font-size="38" font-weight="700" fill="#f4e8cb">
+    وَالرَّسْمِ العُثْمَانِيِّ عَلَى مَا اخْتَارَهُ
+  </text>
+
+  <text x="512" y="604" text-anchor="middle" direction="rtl"
+    font-family="Amiri, 'Scheherazade New', serif" font-size="38" font-weight="700" fill="#f4e8cb">
+    الحَافِظُ أَبُو عَمْرٍو الدَّانِي
+  </text>
+
+  <g stroke="#efe4c6" fill="none" opacity="0.95">
+    <path d="M260 176c42 30 84 30 126 0c42 30 84 30 126 0c42 30 84 30 126 0c42 30 84 30 126 0" stroke-width="4"/>
+    <path d="M260 730c42-30 84-30 126 0c42-30 84-30 126 0c42-30 84-30 126 0c42-30 84-30 126 0" stroke-width="4"/>
+  </g>
+</svg>

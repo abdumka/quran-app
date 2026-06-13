@@ -1,0 +1,19 @@
+﻿
+> backups\extracted\lib\quran_pages.dart:54:  static const Map<int, String> _sajdaNotices = <int, String>{
+  backups\extracted\lib\quran_pages.dart:55:    175: 'سجدة: وله يسجدون',
+  backups\extracted\lib\quran_pages.dart:56:    250: 'سجدة: وظلالهم بالغدو والآصال',
+  backups\extracted\lib\quran_pages.dart:57:    271: 'سجدة: ويفعلون ما يؤمرون',
+  backups\extracted\lib\quran_pages.dart:58:    292: 'سجدة: ويزيدهم خشوعا',
+  backups\extracted\lib\quran_pages.dart:59:    308: 'سجدة: خروا سجدا وبكيا',
+  backups\extracted\lib\quran_pages.dart:60:    333: 'سجدة: إن الله يفعل ما يشاء',
+  backups\extracted\lib\quran_pages.dart:61:    364: 'سجدة: وزادهم نفورا',
+  backups\extracted\lib\quran_pages.dart:62:    378: 'سجدة: رب العرش العظيم',
+  backups\extracted\lib\quran_pages.dart:63:    415: 'سجدة: وهم لا يستكبرون',
+  backups\extracted\lib\quran_pages.dart:64:    452: 'سجدة: وخر راكعا وأناب',
+  backups\extracted\lib\quran_pages.dart:65:    478: 'سجدة: إن كنتم إياه تعبدون',
+  backups\extracted\lib\quran_pages.dart:66:  };
+  backups\extracted\lib\quran_pages.dart:67:
+  backups\extracted\lib\quran_pages.dart:68:  static const Map<int, String> _hizbProgressNotices = <int, String>{
+  backups\extracted\lib\quran_pages.dart:69:    5: 'ربع الحزب 1',
+
+

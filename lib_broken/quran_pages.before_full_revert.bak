@@ -1,0 +1,2072 @@
+﻿import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+
+import 'continuous_quran_view.dart';
+import 'quran_constants.dart';
+import 'quran_reading_coordinator.dart';
+import 'surah_data.dart';
+import 'services/theme_service.dart';
+import 'surah_index_page.dart';
+import 'utils/responsive_helper.dart';
+import 'widgets/bottom_overlay_menu.dart';
+import 'widgets/hizb_index_page.dart';
+import 'widgets/top_overlay_bar.dart';
+
+class QuranPages extends StatefulWidget {
+  const QuranPages({super.key});
+
+  @override
+  State<QuranPages> createState() => _QuranPagesState();
+}
+
+class _QuranPagesState extends State<QuranPages> {
+  static const String _portraitScrollModePrefKey = 'portraitScrollMode';
+  static const String _sajdaDua =
+      'سجد وجهي للذي خلقه وشق سمعه وبصره بحوله وقوته، فتبارك الله أحسن الخالقين.';
+  static const String _dawudSajdaDua =
+      'اللهم اكتب لي بها عندك أجرا، وضع عني بها وزرا، واجعلها لي عندك ذخرا، وتقبلها مني كما تقبلتها من عبدك داوود.';
+
+  static const Map<int, String> _sajdaNotices = <int, String>{
+    175: 'سجدة: وله يسجدون',
+    250: 'سجدة: وظلالهم بالغدو والآصال',
+    271: 'سجدة: ويفعلون ما يؤمرون',
+    292: 'سجدة: ويزيدهم خشوعا',
+    308: 'سجدة: خروا سجدا وبكيا',
+    333: 'سجدة: إن الله يفعل ما يشاء',
+    364: 'سجدة: وزادهم نفورا',
+    378: 'سجدة: رب العرش العظيم',
+    415: 'سجدة: وهم لا يستكبرون',
+    452: 'سجدة: وخر راكعا وأناب',
+    478: 'سجدة: إن كنتم إياه تعبدون',
+  };
+
+  static const Map<int, String> _hizbProgressNotices = <int, String>{
+    5: 'ربع الحزب 1',
+    7: 'نصف الحزب 1',
+    9: 'ثلاثة أرباع الحزب 1',
+    14: 'ربع الحزب 2',
+    17: 'نصف الحزب 2',
+    19: 'ثلاثة أرباع الحزب 2',
+    24: 'ربع الحزب 3',
+    27: 'نصف الحزب 3',
+    29: 'ثلاثة أرباع الحزب 3',
+    34: 'ربع الحزب 4',
+    37: 'نصف الحزب 4',
+    39: 'ثلاثة أرباع الحزب 4',
+    44: 'ربع الحزب 5',
+    46: 'نصف الحزب 5',
+    49: 'ثلاثة أرباع الحزب 5',
+    54: 'ربع الحزب 6',
+    56: 'نصف الحزب 6',
+    59: 'ثلاثة أرباع الحزب 6',
+    64: 'ربع الحزب 7',
+    67: 'نصف الحزب 7',
+    69: 'ثلاثة أرباع الحزب 7',
+    74: 'ربع الحزب 8',
+    77: 'نصف الحزب 8',
+    79: 'ثلاثة أرباع الحزب 8',
+    84: 'ربع الحزب 9',
+    87: 'نصف الحزب 9',
+    89: 'ثلاثة أرباع الحزب 9',
+    94: 'ربع الحزب 10',
+    97: 'نصف الحزب 10',
+    99: 'ثلاثة أرباع الحزب 10',
+    104: 'ربع الحزب 11',
+    107: 'نصف الحزب 11',
+    109: 'ثلاثة أرباع الحزب 11',
+    114: 'ربع الحزب 12',
+    116: 'نصف الحزب 12',
+    119: 'ثلاثة أرباع الحزب 12',
+    124: 'ربع الحزب 13',
+    126: 'نصف الحزب 13',
+    129: 'ثلاثة أرباع الحزب 13',
+    134: 'ربع الحزب 14',
+    137: 'نصف الحزب 14',
+    140: 'ثلاثة أرباع الحزب 14',
+    144: 'ربع الحزب 15',
+    146: 'نصف الحزب 15',
+    148: 'ثلاثة أرباع الحزب 15',
+    153: 'ربع الحزب 16',
+    156: 'نصف الحزب 16',
+    158: 'ثلاثة أرباع الحزب 16',
+    164: 'ربع الحزب 17',
+    167: 'نصف الحزب 17',
+    170: 'ثلاثة أرباع الحزب 17',
+    175: 'ربع الحزب 18',
+    177: 'نصف الحزب 18',
+    179: 'ثلاثة أرباع الحزب 18',
+    184: 'ربع الحزب 19',
+    187: 'نصف الحزب 19',
+    189: 'ثلاثة أرباع الحزب 19',
+    194: 'ربع الحزب 20',
+    196: 'نصف الحزب 20',
+    199: 'ثلاثة أرباع الحزب 20',
+    204: 'ربع الحزب 21',
+    207: 'نصف الحزب 21',
+    209: 'ثلاثة أرباع الحزب 21',
+    214: 'ربع الحزب 22',
+    217: 'نصف الحزب 22',
+    219: 'ثلاثة أرباع الحزب 22',
+    224: 'ربع الحزب 23',
+    226: 'نصف الحزب 23',
+    228: 'ثلاثة أرباع الحزب 23',
+    233: 'ربع الحزب 24',
+    236: 'نصف الحزب 24',
+    239: 'ثلاثة أرباع الحزب 24',
+    244: 'ربع الحزب 25',
+    247: 'نصف الحزب 25',
+    249: 'ثلاثة أرباع الحزب 25',
+    254: 'ربع الحزب 26',
+    256: 'نصف الحزب 26',
+    259: 'ثلاثة أرباع الحزب 26',
+    264: 'ربع الحزب 27',
+    267: 'نصف الحزب 27',
+    270: 'ثلاثة أرباع الحزب 27',
+    274: 'ربع الحزب 28',
+    277: 'نصف الحزب 28',
+    280: 'ثلاثة أرباع الحزب 28',
+    284: 'ربع الحزب 29',
+    287: 'نصف الحزب 29',
+    289: 'ثلاثة أرباع الحزب 29',
+    295: 'ربع الحزب 30',
+    297: 'نصف الحزب 30',
+    300: 'ثلاثة أرباع الحزب 30',
+    304: 'ربع الحزب 31',
+    306: 'نصف الحزب 31',
+    309: 'ثلاثة أرباع الحزب 31',
+    315: 'ربع الحزب 32',
+    317: 'نصف الحزب 32',
+    319: 'ثلاثة أرباع الحزب 32',
+    324: 'ربع الحزب 33',
+    326: 'نصف الحزب 33',
+    329: 'ثلاثة أرباع الحزب 33',
+    334: 'ربع الحزب 34',
+    336: 'نصف الحزب 34',
+    339: 'ثلاثة أرباع الحزب 34',
+    344: 'ربع الحزب 35',
+    347: 'نصف الحزب 35',
+    349: 'ثلاثة أرباع الحزب 35',
+    354: 'ربع الحزب 36',
+    356: 'نصف الحزب 36',
+    359: 'ثلاثة أرباع الحزب 36',
+    364: 'ربع الحزب 37',
+    367: 'نصف الحزب 37',
+    369: 'ثلاثة أرباع الحزب 37',
+    374: 'ربع الحزب 38',
+    377: 'نصف الحزب 38',
+    379: 'ثلاثة أرباع الحزب 38',
+    384: 'ربع الحزب 39',
+    386: 'نصف الحزب 39',
+    389: 'ثلاثة أرباع الحزب 39',
+    394: 'ربع الحزب 40',
+    397: 'نصف الحزب 40',
+    399: 'ثلاثة أرباع الحزب 40',
+    405: 'ربع الحزب 41',
+    407: 'نصف الحزب 41',
+    410: 'ثلاثة أرباع الحزب 41',
+    415: 'ربع الحزب 42',
+    418: 'نصف الحزب 42',
+    420: 'ثلاثة أرباع الحزب 42',
+    425: 'ربع الحزب 43',
+    426: 'نصف الحزب 43',
+    428: 'ثلاثة أرباع الحزب 43',
+    433: 'ربع الحزب 44',
+    436: 'نصف الحزب 44',
+    439: 'ثلاثة أرباع الحزب 44',
+    444: 'ربع الحزب 45',
+    446: 'نصف الحزب 45',
+    448: 'ثلاثة أرباع الحزب 45',
+    453: 'ربع الحزب 46',
+    455: 'نصف الحزب 46',
+    458: 'ثلاثة أرباع الحزب 46',
+    463: 'ربع الحزب 47',
+    466: 'نصف الحزب 47',
+    468: 'ثلاثة أرباع الحزب 47',
+    473: 'ربع الحزب 48',
+    476: 'نصف الحزب 48',
+    478: 'ثلاثة أرباع الحزب 48',
+    483: 'ربع الحزب 49',
+    486: 'نصف الحزب 49',
+    487: 'ثلاثة أرباع الحزب 49',
+    493: 'ربع الحزب 50',
+    496: 'نصف الحزب 50',
+    498: 'ثلاثة أرباع الحزب 50',
+    503: 'ربع الحزب 51',
+    506: 'نصف الحزب 51',
+    508: 'ثلاثة أرباع الحزب 51',
+    513: 'ربع الحزب 52',
+    514: 'نصف الحزب 52',
+    516: 'ثلاثة أرباع الحزب 52',
+    521: 'ربع الحزب 53',
+    523: 'نصف الحزب 53',
+    526: 'ثلاثة أرباع الحزب 53',
+    530: 'ربع الحزب 54',
+    533: 'نصف الحزب 54',
+    536: 'ثلاثة أرباع الحزب 54',
+    541: 'ربع الحزب 55',
+    544: 'نصف الحزب 55',
+    547: 'ثلاثة أرباع الحزب 55',
+    552: 'ربع الحزب 56',
+    554: 'نصف الحزب 56',
+    556: 'ثلاثة أرباع الحزب 56',
+    562: 'ربع الحزب 57',
+    565: 'نصف الحزب 57',
+    567: 'ثلاثة أرباع الحزب 57',
+    572: 'ربع الحزب 58',
+    574: 'نصف الحزب 58',
+    576: 'ثلاثة أرباع الحزب 58',
+    581: 'ربع الحزب 59',
+    583: 'نصف الحزب 59',
+    587: 'ثلاثة أرباع الحزب 59',
+    591: 'ربع الحزب 60',
+    594: 'نصف الحزب 60',
+    598: 'ثلاثة أرباع الحزب 60',
+  };
+
+  static const List<double> _nightModeMatrix = <double>[
+    -0.2126, -0.7152, -0.0722, 0, 255,
+    -0.2126, -0.7152, -0.0722, 0, 255,
+    -0.2126, -0.7152, -0.0722, 0, 255,
+    0, 0, 0, 1, 0,
+  ];
+
+  late PageController _portraitController;
+  ScrollController? _portraitAutoScrollController;
+  late final QuranReadingCoordinator _readingCoordinator;
+
+  final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
+      GlobalKey<ContinuousQuranViewState>();
+
+  bool _isSearching = false;
+  bool _showIndex = false;
+  bool _showSurahs = false;
+  bool _showHizbPopup = false;
+  bool _showSajdaPopup = false;
+  bool _isAutoScrollEnabled = false;
+  bool _showAutoScrollBar = false;
+  bool _isAutoScrollBarCollapsed = false;
+  bool _isPortraitScrollMode = false;
+  bool _preferredPortraitScrollMode = false;
+  int _autoScrollSpeedMultiplier = 2;
+
+  int _bookmarkPage = -1;
+  String? _visibleHizbText;
+  String? _visibleSajdaText;
+  int _currentSurahNumber = 1;
+  bool? _wasPhoneLandscape;
+
+  double _bookmarkX = 0;
+  double _bookmarkY = 0;
+
+  Timer? _hizbPopupTimer;
+  Timer? _sajdaPopupTimer;
+  Timer? _savePageTimer;
+  Timer? _topBarHideTimer;
+  Timer? _portraitAutoScrollTimer;
+  Timer? _portraitAutoScrollResumeTimer;
+
+  bool _showTopBarWhilePaging = false;
+  double? _portraitAutoScrollViewportHeight;
+  int? _portraitScrollCurrentPage;
+
+  // ط¸â€‍ط¸â€‍ط·ع¾ط·آ¬ط·آ±ط¸ظ¹ط·آ¨ ط·آ¨ط¸ظ¹ط¸â€  contain / cover / fill
+  BoxFit currentFit = BoxFit.contain;
+
+  final List<String> pages = [
+    for (int i = 1; i <= 602; i++) 'assets/images/page_$i.webp',
+  ];
+
+  int get _currentPage => _readingCoordinator.currentPage;
+
+  int get _topBarCurrentPage {
+    final usePortraitScrolling = _showAutoScrollBar || _isPortraitScrollMode;
+
+    if (!(_isPhoneLandscape(context)) && usePortraitScrolling) {
+      return _portraitScrollCurrentPage ?? _currentPage;
+    }
+
+    return _currentPage;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _readingCoordinator = QuranReadingCoordinator(pageCount: pages.length);
+    _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
+    _portraitController = PageController(initialPage: 0);
+    _loadReadingPreferences();
+    _loadLastPage();
+    _loadBookmark();
+    _setReadingMode(true);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final isPhoneLandscape = _isPhoneLandscape(context);
+    if (_wasPhoneLandscape == null) {
+      _wasPhoneLandscape = isPhoneLandscape;
+      return;
+    }
+
+    if (_wasPhoneLandscape != isPhoneLandscape) {
+      _wasPhoneLandscape = isPhoneLandscape;
+      _portraitAutoScrollResumeTimer?.cancel();
+      _stopPortraitAutoScroll();
+      _portraitAutoScrollController?.dispose();
+      _portraitAutoScrollController = null;
+      _portraitAutoScrollViewportHeight = null;
+      _portraitScrollCurrentPage = null;
+
+      if (_isPortraitScrollMode || _showAutoScrollBar || _isAutoScrollEnabled) {
+        setState(() {
+          _isPortraitScrollMode = isPhoneLandscape
+              ? false
+              : _preferredPortraitScrollMode;
+          _isAutoScrollEnabled = false;
+          _showAutoScrollBar = false;
+          _isAutoScrollBarCollapsed = false;
+        });
+      }
+
+      if (!isPhoneLandscape) {
+        _recreatePortraitController(initialPage: _currentPage);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _hizbPopupTimer?.cancel();
+    _sajdaPopupTimer?.cancel();
+    _savePageTimer?.cancel();
+    _topBarHideTimer?.cancel();
+    _portraitAutoScrollTimer?.cancel();
+    _portraitAutoScrollResumeTimer?.cancel();
+    _portraitAutoScrollController?.dispose();
+    _setReadingMode(false);
+    _readingCoordinator.removeListener(_handleReadingCoordinatorChanged);
+    _readingCoordinator.dispose();
+    _portraitController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _setReadingMode(bool enabled) async {
+    await WakelockPlus.toggle(enable: enabled);
+  }
+
+  bool _isPhoneLandscape(BuildContext context) {
+    return !ResponsiveHelper.isTablet(context) &&
+        MediaQuery.of(context).orientation == Orientation.landscape;
+  }
+
+  bool _useTwoPageView(BuildContext context) {
+    return ResponsiveHelper.showTwoPages(context);
+  }
+
+  int _getViewIndexForPage(int pageIndex, BuildContext context) {
+    if (!_useTwoPageView(context)) return pageIndex;
+    return pageIndex ~/ 2;
+  }
+
+  int _getFirstPageIndexForView(int viewIndex, BuildContext context) {
+    if (!_useTwoPageView(context)) return viewIndex;
+    return viewIndex * 2;
+  }
+
+  bool _isHizbStartPage(int pageIndex) {
+    final realPage = pageIndex + 1;
+    return hizbStartPages.contains(realPage);
+  }
+
+  void _handleReadingCoordinatorChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _recreatePortraitController({required int initialPage}) {
+    final nextController = PageController(
+      initialPage: _getViewIndexForPage(initialPage, context),
+    );
+    final oldController = _portraitController;
+    _portraitController = nextController;
+    oldController.dispose();
+  }
+
+  void _setCurrentPage(
+    int page, {
+    bool persist = true,
+    bool showHizbPopup = false,
+  }) {
+    final safePage = page.clamp(0, pages.length - 1);
+    _readingCoordinator.setCurrentPage(safePage);
+    _syncCurrentSurahForPage(safePage);
+
+    if (persist) {
+      _savePageDebounced(safePage);
+    }
+
+    if (showHizbPopup) {
+      _showHizbPopupIfNeeded(safePage);
+      _showSajdaPopupIfNeeded(safePage);
+    }
+  }
+
+  void _openSurahIndexPage() {
+    if (_showAutoScrollBar || _isAutoScrollEnabled) {
+      _stopPortraitAutoScroll();
+      setState(() {
+        _isAutoScrollEnabled = false;
+        _showAutoScrollBar = false;
+        _isAutoScrollBarCollapsed = false;
+      });
+    }
+    final initialSurahIndex = _getCurrentSurahIndex(_currentPage);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SurahIndexPage(
+          surahs: surahList,
+          initialSurahIndex: initialSurahIndex,
+          currentSurahNumber: _currentSurahNumber,
+          onSelectSurah: _setCurrentSurahNumber,
+          onGoToPage: _goToPage,
+        ),
+      ),
+    );
+  }
+
+  void _openHizbIndexPage() {
+    if (_showAutoScrollBar || _isAutoScrollEnabled) {
+      _stopPortraitAutoScroll();
+      setState(() {
+        _isAutoScrollEnabled = false;
+        _showAutoScrollBar = false;
+        _isAutoScrollBarCollapsed = false;
+      });
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HizbIndexPage(
+          onGoToPage: _goToPage,
+        ),
+      ),
+    );
+  }
+
+  void _showTopBarOnNavigation() {
+    _topBarHideTimer?.cancel();
+
+    if (!mounted) return;
+
+    if (!_showTopBarWhilePaging) {
+      setState(() {
+        _showTopBarWhilePaging = true;
+      });
+    }
+  }
+
+  void _hideTopBarAfterNavigation() {
+    _topBarHideTimer?.cancel();
+
+    _topBarHideTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      setState(() {
+        _showTopBarWhilePaging = false;
+      });
+    });
+  }
+
+  void _hideHizbPopup() {
+    _hizbPopupTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      _showHizbPopup = false;
+      _visibleHizbText = null;
+    });
+  }
+
+  void _hideSajdaPopup() {
+    _sajdaPopupTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      _showSajdaPopup = false;
+      _visibleSajdaText = null;
+    });
+  }
+
+  void _showHizbPopupIfNeeded(int pageIndex) {
+    _hideHizbPopup();
+
+    final progressText = _hizbProgressNotices[pageIndex + 1];
+    final isHizbStart = _isHizbStartPage(pageIndex);
+    if (!isHizbStart && progressText == null) return;
+
+    final List<String> lines = <String>[];
+
+    if (isHizbStart) {
+      final hizbNumber = _getHizbNumber(pageIndex);
+      lines.add('الحزب $hizbNumber');
+
+      if (hizbNumber.isEven) {
+        lines.add('الجزء ${(hizbNumber ~/ 2)}');
+      }
+    }
+
+    if (progressText != null) {
+      lines.add(progressText);
+    }
+
+    setState(() {
+      _showHizbPopup = true;
+      _visibleHizbText = lines.join('\n');
+    });
+
+    _hizbPopupTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      setState(() {
+        _showHizbPopup = false;
+        _visibleHizbText = null;
+      });
+    });
+  }
+
+  void _showSajdaPopupIfNeeded(int pageIndex) {
+    _hideSajdaPopup();
+
+    final sajdaText = _sajdaNotices[pageIndex];
+    if (sajdaText == null) return;
+
+    setState(() {
+      _showSajdaPopup = true;
+      _visibleSajdaText = sajdaText;
+    });
+
+    _sajdaPopupTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      setState(() {
+        _showSajdaPopup = false;
+        _visibleSajdaText = null;
+      });
+    });
+  }
+
+  Future<void> _showSajdaDuaDialog() async {
+    _hideSajdaPopup();
+    if (!mounted) return;
+
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: isDarkMode
+              ? const Color(0xFF19130A)
+              : const Color(0xFFF8F1DE),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(
+              color: isDarkMode
+                  ? const Color(0xFFD6B35D).withValues(alpha: 0.55)
+                  : const Color(0xFFE2D2A5),
+            ),
+          ),
+          title: Text(
+            'دعاء السجود',
+            textAlign: TextAlign.center,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              color: isDarkMode ? const Color(0xFFFFF4D6) : const Color(0xFF35250E),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: Text(
+            '$_sajdaDua\n\n$_dawudSajdaDua',
+            textAlign: TextAlign.center,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              height: 1.9,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDarkMode ? Colors.white : const Color(0xFF35250E),
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                'إغلاق',
+                textDirection: TextDirection.rtl,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _loadLastPage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final page = prefs.getInt('lastPage') ?? 0;
+    _readingCoordinator.setCurrentPage(page);
+    _syncCurrentSurahForPage(page);
+    _recreatePortraitController(initialPage: page);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      if (!_isPhoneLandscape(context) && _portraitController.hasClients) {
+        final targetViewIndex = _getViewIndexForPage(page, context);
+        _portraitController.jumpToPage(targetViewIndex);
+      }
+
+      _showHizbPopupIfNeeded(page);
+      _showSajdaPopupIfNeeded(page);
+    });
+  }
+
+  Future<void> _savePage(int page) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('lastPage', page);
+  }
+
+  void _savePageDebounced(int page) {
+    _savePageTimer?.cancel();
+
+    _savePageTimer = Timer(const Duration(milliseconds: 300), () {
+      _savePage(page);
+    });
+  }
+
+  Future<void> _saveBookmark(int page, double x, double y) async {
+    final prefs = await SharedPreferences.getInstance();
+    final previousBookmarkPage = _bookmarkPage;
+    final previousBookmarkX = _bookmarkX;
+    final previousBookmarkY = _bookmarkY;
+
+    setState(() {
+      _bookmarkX = x;
+      _bookmarkY = y;
+      _bookmarkPage = page;
+    });
+
+    await prefs.setDouble('bookmarkX', x);
+    await prefs.setDouble('bookmarkY', y);
+    await prefs.setInt('bookmarkPage', page);
+
+    if (!mounted) return;
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final isPhoneLandscape = _isPhoneLandscape(context);
+    final bottomMenuHeight = _showIndex ? (isPhoneLandscape ? 88.0 : 260.0) : 0.0;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            MediaQuery.of(context).padding.bottom + bottomMenuHeight + 20,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: BorderSide(
+              color: isDarkMode
+                  ? const Color(0xFFD6B35D).withValues(alpha: 0.65)
+                  : Colors.black.withValues(alpha: 0.08),
+            ),
+          ),
+          backgroundColor: isDarkMode
+              ? const Color(0xFF15120B).withValues(alpha: 0.97)
+              : Colors.white.withValues(alpha: 0.97),
+          duration: const Duration(seconds: 5),
+          content: Row(
+            children: [
+              Icon(
+                Icons.bookmark_added_rounded,
+                color: isDarkMode ? const Color(0xFFD6B35D) : Colors.black87,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'تم حفظ العلامة',
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'تراجع',
+            textColor: isDarkMode
+                ? const Color(0xFFD6B35D)
+                : const Color(0xFF7A4F00),
+            onPressed: () async {
+              setState(() {
+                _bookmarkPage = previousBookmarkPage;
+                _bookmarkX = previousBookmarkX;
+                _bookmarkY = previousBookmarkY;
+              });
+
+              if (previousBookmarkPage == -1) {
+                await prefs.remove('bookmarkX');
+                await prefs.remove('bookmarkY');
+                await prefs.remove('bookmarkPage');
+              } else {
+                await prefs.setDouble('bookmarkX', previousBookmarkX);
+                await prefs.setDouble('bookmarkY', previousBookmarkY);
+                await prefs.setInt('bookmarkPage', previousBookmarkPage);
+              }
+            },
+          ),
+        ),
+      );
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+    });
+  }
+
+  Future<void> _loadBookmark() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    setState(() {
+      _bookmarkX = prefs.getDouble('bookmarkX') ?? 0;
+      _bookmarkY = prefs.getDouble('bookmarkY') ?? 0;
+      _bookmarkPage = prefs.getInt('bookmarkPage') ?? -1;
+    });
+  }
+
+  Future<void> _removeBookmark() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    setState(() {
+      _bookmarkPage = -1;
+      _bookmarkX = 0;
+      _bookmarkY = 0;
+    });
+
+    await prefs.remove('bookmarkX');
+    await prefs.remove('bookmarkY');
+    await prefs.remove('bookmarkPage');
+  }
+
+  void _goToPage(int page) {
+    final targetIndex = page - 1;
+    final usePortraitScrolling =
+        _showAutoScrollBar ||
+        _isPortraitScrollMode ||
+        !_portraitController.hasClients;
+
+    if (_isPhoneLandscape(context)) {
+      setState(() {
+        _showIndex = false;
+        _showSurahs = false;
+        _isSearching = false;
+      });
+
+      _setCurrentPage(targetIndex, showHizbPopup: true);
+      _updateSystemUI();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _continuousViewKey.currentState?.scrollToPage(targetIndex);
+      });
+      return;
+    }
+
+    if (usePortraitScrolling) {
+      final controller = _portraitAutoScrollController;
+      final pageExtent = _portraitAutoScrollViewportHeight;
+      final targetViewIndex = _getViewIndexForPage(targetIndex, context);
+
+      setState(() {
+        _showIndex = false;
+        _showSurahs = false;
+        _isSearching = false;
+      });
+
+      _setCurrentPage(targetIndex, showHizbPopup: true);
+      _portraitScrollCurrentPage = targetIndex;
+      _updateSystemUI();
+
+      if (controller != null && controller.hasClients && pageExtent != null) {
+        controller.jumpTo(targetViewIndex * pageExtent);
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final readyController = _portraitAutoScrollController;
+          final readyExtent = _portraitAutoScrollViewportHeight;
+          if (!mounted ||
+              readyController == null ||
+              !readyController.hasClients ||
+              readyExtent == null) {
+            return;
+          }
+          readyController.jumpTo(targetViewIndex * readyExtent);
+        });
+      }
+      return;
+    }
+
+    final targetViewIndex = _getViewIndexForPage(targetIndex, context);
+    _portraitController.jumpToPage(targetViewIndex);
+
+    setState(() {
+      _showIndex = false;
+      _showSurahs = false;
+      _isSearching = false;
+    });
+
+    _setCurrentPage(targetIndex, showHizbPopup: true);
+    _updateSystemUI();
+  }
+
+  void _goToBookmark() {
+    if (_bookmarkPage == -1) return;
+    final usePortraitScrolling =
+        _showAutoScrollBar ||
+        _isPortraitScrollMode ||
+        !_portraitController.hasClients;
+
+    if (_isPhoneLandscape(context)) {
+      setState(() {
+        _showIndex = false;
+        _showSurahs = false;
+        _isSearching = false;
+      });
+
+      _setCurrentPage(_bookmarkPage, showHizbPopup: true);
+      _updateSystemUI();
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _continuousViewKey.currentState?.scrollToBookmark();
+      });
+
+      return;
+    }
+
+    if (usePortraitScrolling) {
+      final controller = _portraitAutoScrollController;
+      final pageExtent = _portraitAutoScrollViewportHeight;
+      final targetViewIndex = _getViewIndexForPage(_bookmarkPage, context);
+
+      setState(() {
+        _showIndex = false;
+        _showSurahs = false;
+        _isSearching = false;
+      });
+
+      _setCurrentPage(_bookmarkPage, showHizbPopup: true);
+      _portraitScrollCurrentPage = _bookmarkPage;
+      _updateSystemUI();
+
+      if (controller != null && controller.hasClients && pageExtent != null) {
+        controller.jumpTo(targetViewIndex * pageExtent);
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final readyController = _portraitAutoScrollController;
+          final readyExtent = _portraitAutoScrollViewportHeight;
+          if (!mounted ||
+              readyController == null ||
+              !readyController.hasClients ||
+              readyExtent == null) {
+            return;
+          }
+          readyController.jumpTo(targetViewIndex * readyExtent);
+        });
+      }
+      return;
+    }
+
+    final targetViewIndex = _getViewIndexForPage(_bookmarkPage, context);
+    _portraitController.jumpToPage(targetViewIndex);
+
+    setState(() {
+      _showIndex = false;
+      _showSurahs = false;
+      _isSearching = false;
+    });
+
+    _setCurrentPage(_bookmarkPage, showHizbPopup: true);
+    _updateSystemUI();
+  }
+
+  void _updateSystemUI() {
+    if (_isPhoneLandscape(context)) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      return;
+    }
+
+    final bool keepStablePortraitInsets =
+        _isPortraitScrollMode || _showAutoScrollBar || _isAutoScrollEnabled;
+
+    if (keepStablePortraitInsets) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      return;
+    }
+
+    if (_showIndex) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
+  }
+
+  double _currentAutoScrollPixelsPerSecond() {
+    switch (_autoScrollSpeedMultiplier) {
+      case 1:
+        return 18;
+      case 2:
+        return 28;
+      case 3:
+        return 40;
+      case 4:
+        return 56;
+      case 5:
+        return 72;
+      default:
+        return 28;
+    }
+  }
+
+  void _setAutoScrollEnabled(bool value) {
+    if (_isAutoScrollEnabled == value) return;
+    setState(() {
+      _isAutoScrollEnabled = value;
+    });
+    if (!value && !_isPhoneLandscape(context)) {
+      _stopPortraitAutoScroll();
+    }
+  }
+
+  void _setAutoScrollSpeedMultiplier(int value) {
+    if (_autoScrollSpeedMultiplier == value) return;
+    setState(() {
+      _autoScrollSpeedMultiplier = value;
+    });
+  }
+
+  void _toggleAutoScrollBarCollapsed() {
+    setState(() {
+      _isAutoScrollBarCollapsed = !_isAutoScrollBarCollapsed;
+    });
+  }
+
+  void _setPortraitScrollMode(bool value) {
+    if (!value && _showAutoScrollBar) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('التمرير التلقائي لا يعمل إلا في وضع التمرير'),
+        ),
+      );
+      return;
+    }
+    if (_isPortraitScrollMode == value) return;
+
+    _preferredPortraitScrollMode = value;
+    _saveReadingPreferences();
+
+    setState(() {
+      _isPortraitScrollMode = value;
+    });
+    if (!value && !_showAutoScrollBar) {
+      _recreatePortraitController(initialPage: _currentPage);
+      _stopPortraitAutoScroll();
+      _portraitScrollCurrentPage = null;
+    }
+  }
+
+  Future<void> _loadReadingPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPortraitScrollMode =
+        prefs.getBool(_portraitScrollModePrefKey) ?? false;
+
+    if (!mounted) return;
+
+    _preferredPortraitScrollMode = savedPortraitScrollMode;
+
+    if (!_isPhoneLandscape(context)) {
+      setState(() {
+        _isPortraitScrollMode = savedPortraitScrollMode;
+      });
+    }
+  }
+
+  Future<void> _saveReadingPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(
+      _portraitScrollModePrefKey,
+      _preferredPortraitScrollMode,
+    );
+  }
+
+  void _stopPortraitAutoScroll() {
+    _portraitAutoScrollTimer?.cancel();
+    _portraitAutoScrollTimer = null;
+  }
+
+  void _schedulePortraitAutoScrollResume(double viewportHeight) {
+    _portraitAutoScrollResumeTimer?.cancel();
+    if (!_isAutoScrollEnabled) return;
+    _portraitAutoScrollResumeTimer = Timer(
+      const Duration(milliseconds: 80),
+      () {
+        if (!mounted || !_isAutoScrollEnabled) return;
+        _syncPortraitAutoScroll(viewportHeight);
+      },
+    );
+  }
+
+  void _syncPortraitAutoScroll(double viewportHeight) {
+    _portraitAutoScrollViewportHeight = viewportHeight;
+    final controller = _portraitAutoScrollController;
+    if (controller == null) return;
+
+    _stopPortraitAutoScroll();
+    if (!_isAutoScrollEnabled) return;
+
+    const frameInterval = Duration(milliseconds: 16);
+    final deltaPerTick =
+        _currentAutoScrollPixelsPerSecond() *
+        (frameInterval.inMilliseconds / 1000);
+
+    _portraitAutoScrollTimer = Timer.periodic(frameInterval, (_) {
+      final controller = _portraitAutoScrollController;
+      if (!mounted ||
+          controller == null ||
+          !_isAutoScrollEnabled ||
+          !controller.hasClients) {
+        _stopPortraitAutoScroll();
+        return;
+      }
+
+      final maxScroll = controller.position.maxScrollExtent;
+      final nextOffset = (controller.offset + deltaPerTick).clamp(0.0, maxScroll);
+
+      if ((nextOffset - controller.offset).abs() < 0.1 || nextOffset >= maxScroll) {
+        _setAutoScrollEnabled(false);
+        return;
+      }
+
+      controller.jumpTo(nextOffset);
+    });
+  }
+
+  void _handlePortraitAutoScrollOffset(double viewportHeight) {
+    if (viewportHeight <= 0) {
+      return;
+    }
+
+    final page = _getPortraitScrollPageFromOffset(
+      _portraitAutoScrollViewportHeight ?? viewportHeight,
+    );
+    _portraitScrollCurrentPage = page;
+    if (page != _currentPage) {
+      _setCurrentPage(page, showHizbPopup: true);
+    }
+  }
+
+  int _getPortraitScrollPageFromOffset(double pageExtent) {
+    final controller = _portraitAutoScrollController;
+    if (controller == null || !controller.hasClients || pageExtent <= 0) {
+      return _currentPage;
+    }
+
+    final maxViewIndex = _useTwoPageView(context)
+        ? (pages.length / 2).ceil() - 1
+        : pages.length - 1;
+    final viewIndex = (controller.offset / pageExtent)
+        .floor()
+        .clamp(0, maxViewIndex);
+
+    return _getFirstPageIndexForView(viewIndex, context).clamp(0, pages.length - 1);
+  }
+
+  int _getHizbNumber(int pageIndex) {
+    final realPage = pageIndex + 1;
+
+    for (int i = 0; i < hizbStartPages.length; i++) {
+      final start = hizbStartPages[i];
+      final end = (i < hizbStartPages.length - 1)
+          ? hizbStartPages[i + 1] - 1
+          : 602;
+
+      if (realPage >= start && realPage <= end) {
+        return i + 1;
+      }
+    }
+
+    return 1;
+  }
+
+  String _getSurahName(int pageIndex) {
+    final realPage = pageIndex + 1;
+
+    for (int i = 0; i < surahList.length; i++) {
+      final start = surahList[i]['page'];
+      final end = (i < surahList.length - 1)
+          ? surahList[i + 1]['page'] - 1
+          : 602;
+
+      if (realPage >= start && realPage <= end) {
+        return surahList[i]['name'];
+      }
+    }
+
+    return '';
+  }
+
+  int _getCurrentSurahIndex(int pageIndex) {
+    final currentIndex =
+        surahList.indexWhere((surah) => surah['number'] == _currentSurahNumber);
+    if (currentIndex >= 0 && surahList[currentIndex]['page'] == pageIndex + 1) {
+      return currentIndex;
+    }
+
+    final realPage = pageIndex + 1;
+
+    for (int i = 0; i < surahList.length; i++) {
+      final start = surahList[i]['page'] as int;
+      final end = (i < surahList.length - 1)
+          ? (surahList[i + 1]['page'] as int) - 1
+          : 602;
+
+      if (realPage >= start && realPage <= end) {
+        return i;
+      }
+    }
+
+    return 0;
+  }
+
+  void _setCurrentSurahNumber(int surahNumber) {
+    if (_currentSurahNumber == surahNumber) return;
+    setState(() {
+      _currentSurahNumber = surahNumber;
+    });
+  }
+
+  void _syncCurrentSurahForPage(int pageIndex) {
+    final realPage = pageIndex + 1;
+    final surahsOnPage = surahList
+        .where((surah) => surah['page'] == realPage)
+        .toList();
+
+    if (surahsOnPage.isEmpty) {
+      final derivedIndex = _getCurrentSurahIndexFromPage(pageIndex);
+      _currentSurahNumber = surahList[derivedIndex]['number'] as int;
+      return;
+    }
+
+    final currentStillOnPage = surahsOnPage.any(
+      (surah) => surah['number'] == _currentSurahNumber,
+    );
+    if (currentStillOnPage) return;
+
+    _currentSurahNumber = surahsOnPage.first['number'] as int;
+  }
+
+  int _getCurrentSurahIndexFromPage(int pageIndex) {
+    final realPage = pageIndex + 1;
+
+    for (int i = 0; i < surahList.length; i++) {
+      final start = surahList[i]['page'] as int;
+      final end = (i < surahList.length - 1)
+          ? (surahList[i + 1]['page'] as int) - 1
+          : 602;
+
+      if (realPage >= start && realPage <= end) {
+        return i;
+      }
+    }
+
+    return 0;
+  }
+
+  Widget _buildSinglePage(
+    String imagePath,
+    int pageIndex, {
+    double? customHorizontalPadding,
+    Alignment alignment = Alignment.center,
+    bool enableZoom = true,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isTwoPagesTablet = ResponsiveHelper.showTwoPages(context);
+        final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+        final targetCacheWidth =
+            (constraints.maxWidth * MediaQuery.of(context).devicePixelRatio)
+                .round();
+
+        return Align(
+          alignment: alignment,
+          child: Stack(
+            children: [
+              GestureDetector(
+                onLongPressStart: (details) {
+                  final box = context.findRenderObject() as RenderBox?;
+                  if (box != null) {
+                    final local = box.globalToLocal(details.globalPosition);
+                    _saveBookmark(pageIndex, local.dx, local.dy);
+                  }
+                },
+                child: Padding(
+                  padding: EdgeInsets.zero,
+                  child: ColoredBox(
+                    color: isDarkMode ? Colors.black : Colors.transparent,
+                    child: RepaintBoundary(
+                      child: ColorFiltered(
+                        colorFilter: isDarkMode
+                            ? const ColorFilter.matrix(_nightModeMatrix)
+                            : const ColorFilter.mode(
+                                Colors.transparent,
+                                BlendMode.dst,
+                              ),
+                        child: Image.asset(
+                          imagePath,
+                          width: constraints.maxWidth,
+                          height: isTwoPagesTablet ? null : constraints.maxHeight,
+                          fit: BoxFit.fill,
+                          filterQuality: FilterQuality.low,
+                          cacheWidth:
+                              targetCacheWidth > 0 ? targetCacheWidth : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_bookmarkPage == pageIndex)
+                Positioned(
+                  left: _bookmarkX,
+                  top: _bookmarkY,
+                  child: Icon(
+                    Icons.bookmark,
+                    color: Colors.red,
+                    size: ResponsiveHelper.overlayIconSize(context) + 6,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTwoPageSpread(int viewIndex) {
+    return _buildTwoPageSpreadContent(viewIndex, enableZoom: true);
+  }
+
+  Widget _buildScrollingSinglePage(String imagePath, int pageIndex) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final targetCacheWidth =
+            (constraints.maxWidth * MediaQuery.of(context).devicePixelRatio)
+                .round();
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              onLongPressStart: (details) {
+                final box = context.findRenderObject() as RenderBox?;
+                if (box != null) {
+                  final local = box.globalToLocal(details.globalPosition);
+                  _saveBookmark(pageIndex, local.dx, local.dy);
+                }
+              },
+              child: ColoredBox(
+                color: isDarkMode ? Colors.black : Colors.transparent,
+                child: RepaintBoundary(
+                  child: ColorFiltered(
+                    colorFilter: isDarkMode
+                        ? const ColorFilter.matrix(_nightModeMatrix)
+                        : const ColorFilter.mode(
+                            Colors.transparent,
+                            BlendMode.dst,
+                          ),
+                    child: Image.asset(
+                      imagePath,
+                      fit: BoxFit.fill,
+                      filterQuality: FilterQuality.low,
+                      cacheWidth: targetCacheWidth > 0 ? targetCacheWidth : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (_bookmarkPage == pageIndex)
+              Positioned(
+                left: _bookmarkX,
+                top: _bookmarkY,
+                child: Icon(
+                  Icons.bookmark,
+                  color: Colors.red,
+                  size: ResponsiveHelper.overlayIconSize(context) + 6,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildScrollingTwoPageSpread(int viewIndex) {
+    final firstPageIndex = viewIndex * 2;
+    final secondPageIndex = firstPageIndex + 1;
+    final hasSecondPage = secondPageIndex < pages.length;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: hasSecondPage
+                ? _buildScrollingSinglePage(
+                    pages[secondPageIndex],
+                    secondPageIndex,
+                  )
+                : const SizedBox(),
+          ),
+          const SizedBox(width: 2),
+          Expanded(
+            child: _buildScrollingSinglePage(
+              pages[firstPageIndex],
+              firstPageIndex,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTwoPageSpreadContent(
+    int viewIndex, {
+    required bool enableZoom,
+    bool topAlign = false,
+  }) {
+    final firstPageIndex = viewIndex * 2;
+    final secondPageIndex = firstPageIndex + 1;
+    final hasSecondPage = secondPageIndex < pages.length;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: hasSecondPage
+                  ? _buildSinglePage(
+                      pages[secondPageIndex],
+                      secondPageIndex,
+                      customHorizontalPadding: 0,
+                      alignment: topAlign
+                          ? Alignment.topRight
+                          : Alignment.centerRight,
+                      enableZoom: enableZoom,
+                    )
+                  : const SizedBox(),
+            ),
+            const SizedBox(width: 2),
+            Expanded(
+              child: _buildSinglePage(
+                pages[firstPageIndex],
+                firstPageIndex,
+                customHorizontalPadding: 0,
+                alignment: topAlign ? Alignment.topLeft : Alignment.centerLeft,
+                enableZoom: enableZoom,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandscapeReader(bool isPhoneLandscape) {
+    return SafeArea(
+      bottom: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (_showIndex) return;
+              setState(() => _showIndex = true);
+              _updateSystemUI();
+            },
+            child: ContinuousQuranView(
+              key: _continuousViewKey,
+              pages: pages,
+              initialPage: _currentPage,
+              viewportWidth: constraints.maxWidth,
+              autoScrollEnabled: _isAutoScrollEnabled,
+              autoScrollPixelsPerSecond: _currentAutoScrollPixelsPerSecond(),
+              bookmarkPage: _bookmarkPage,
+              bookmarkX: _bookmarkX,
+              bookmarkY: _bookmarkY,
+              onPageChanged: (page) {
+                _setCurrentPage(page, showHizbPopup: true);
+                _showTopBarOnNavigation();
+                _hideTopBarAfterNavigation();
+              },
+              onSaveBookmark: (page, x, y) {
+                _saveBookmark(page, x, y);
+              },
+              onAutoScrollInterrupted: () {
+                _setAutoScrollEnabled(false);
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPortraitReader(bool useTwoPages) {
+    final mediaPadding = MediaQuery.of(context).padding;
+    final portraitBottomInset = mediaPadding.bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        top: mediaPadding.top,
+        bottom: portraitBottomInset,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final viewportHeight = constraints.maxHeight;
+          final usePortraitScrolling = _showAutoScrollBar || _isPortraitScrollMode;
+
+          if (usePortraitScrolling) {
+            final fixedPageExtent =
+                _portraitAutoScrollViewportHeight ?? viewportHeight;
+
+            if (_portraitAutoScrollController == null) {
+              _portraitAutoScrollTimer?.cancel();
+              _portraitAutoScrollViewportHeight = fixedPageExtent;
+              _portraitScrollCurrentPage = _currentPage;
+              _portraitAutoScrollController = ScrollController(
+                initialScrollOffset:
+                    _getViewIndexForPage(_currentPage, context) *
+                    fixedPageExtent,
+                keepScrollOffset: false,
+              );
+            } else if (_portraitAutoScrollViewportHeight == null) {
+              _portraitAutoScrollViewportHeight = fixedPageExtent;
+              _portraitScrollCurrentPage ??= _currentPage;
+            }
+
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _syncPortraitAutoScroll(fixedPageExtent);
+            });
+
+            return Listener(
+              onPointerDown: (_) {
+                if (_isAutoScrollEnabled) {
+                  _portraitAutoScrollResumeTimer?.cancel();
+                  _stopPortraitAutoScroll();
+                }
+              },
+              onPointerUp: (_) {
+                if (_isAutoScrollEnabled) {
+                  _schedulePortraitAutoScrollResume(fixedPageExtent);
+                }
+              },
+              onPointerCancel: (_) {
+                if (_isAutoScrollEnabled) {
+                  _schedulePortraitAutoScrollResume(fixedPageExtent);
+                }
+              },
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is ScrollStartNotification) {
+                    _showTopBarOnNavigation();
+                  } else if (notification is ScrollUpdateNotification) {
+                    _showTopBarOnNavigation();
+                    _handlePortraitAutoScrollOffset(fixedPageExtent);
+                  } else if (notification is ScrollEndNotification) {
+                    _handlePortraitAutoScrollOffset(fixedPageExtent);
+                    _hideTopBarAfterNavigation();
+                  }
+                  return false;
+                },
+                child: ListView.builder(
+                  controller: _portraitAutoScrollController,
+                  reverse: false,
+                  itemExtent: fixedPageExtent,
+                  cacheExtent: 0,
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: true,
+                  physics: const ClampingScrollPhysics(),
+                  itemCount: useTwoPages ? (pages.length / 2).ceil() : pages.length,
+                  itemBuilder: (context, index) {
+                    final Widget pageContent = useTwoPages
+                        ? _buildScrollingTwoPageSpread(index)
+                        : _buildScrollingSinglePage(pages[index], index);
+                    final Widget page = SizedBox(
+                      height: fixedPageExtent,
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: pageContent,
+                      ),
+                    );
+
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        if (_showIndex) return;
+                        setState(() => _showIndex = true);
+                        _updateSystemUI();
+                      },
+                      child: page,
+                    );
+                  },
+                ),
+              ),
+            );
+          }
+
+          _stopPortraitAutoScroll();
+
+          return NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification is ScrollStartNotification) {
+                _showTopBarOnNavigation();
+              } else if (notification is ScrollUpdateNotification) {
+                _showTopBarOnNavigation();
+              } else if (notification is ScrollEndNotification) {
+                _hideTopBarAfterNavigation();
+              }
+              return false;
+            },
+            child: PageView.builder(
+              controller: _portraitController,
+              reverse: true,
+              itemCount: useTwoPages ? (pages.length / 2).ceil() : pages.length,
+              onPageChanged: (index) {
+                final firstPageIndex = _getFirstPageIndexForView(index, context);
+                _hideHizbPopup();
+                _setCurrentPage(
+                  firstPageIndex,
+                  persist: false,
+                  showHizbPopup: true,
+                );
+                _savePage(firstPageIndex);
+                _showTopBarOnNavigation();
+                _hideTopBarAfterNavigation();
+              },
+              itemBuilder: (context, index) {
+                final Widget page = InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 5,
+                  child: useTwoPages
+                      ? _buildTwoPageSpread(index)
+                      : _buildSinglePage(pages[index], index),
+                );
+
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (_showIndex) return;
+                    setState(() => _showIndex = true);
+                    _updateSystemUI();
+                  },
+                  child: page,
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSharedOverlay(bool isPhoneLandscape) {
+    final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final double safeBottom = MediaQuery.of(context).padding.bottom;
+    final double menuHeight = isPhoneLandscape ? 88 : 260;
+    final double autoScrollBottom = _showIndex
+        ? menuHeight + safeBottom + 18
+        : (isPhoneLandscape ? 14 : safeBottom + 14);
+    final Color hizbPopupBackground = isDarkMode
+        ? const Color(0xFF20170B).withValues(alpha: 0.96)
+        : Colors.black.withValues(alpha: 0.78);
+    final Border? hizbPopupBorder = isDarkMode
+        ? Border.all(
+            color: const Color(0xFFD6B35D).withValues(alpha: 0.72),
+            width: 1.2,
+          )
+        : null;
+    final Color hizbPopupTextColor =
+        isDarkMode ? const Color(0xFFFFF4D6) : Colors.white;
+
+    return Stack(
+      children: [
+        TopOverlayBar(
+          show: _showIndex || _showTopBarWhilePaging,
+          isSearching: _isSearching,
+          currentPage: _topBarCurrentPage,
+          getHizbNumber: _getHizbNumber,
+          getSurahName: _getSurahName,
+        ),
+        if (_showSajdaPopup && _visibleSajdaText != null)
+          Positioned(
+            top: isPhoneLandscape
+                ? MediaQuery.of(context).padding.top + 70
+                : MediaQuery.of(context).padding.top + 92,
+            left: 20,
+            right: 20,
+            child: Center(
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 250),
+                opacity: _showSajdaPopup ? 1 : 0,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: _showSajdaDuaDialog,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: hizbPopupBackground,
+                        border: hizbPopupBorder,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _visibleSajdaText!,
+                            textAlign: TextAlign.center,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: hizbPopupTextColor,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'اضغط لعرض دعاء السجود',
+                            textAlign: TextAlign.center,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: hizbPopupTextColor.withValues(alpha: 0.88),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (_showHizbPopup && _visibleHizbText != null)
+          Positioned(
+            top: isPhoneLandscape
+                ? MediaQuery.of(context).padding.top + 70
+                : MediaQuery.of(context).padding.top + 92,
+            left: 20,
+            right: 20,
+            child: IgnorePointer(
+              child: Center(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 250),
+                  opacity: _showHizbPopup ? 1 : 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: hizbPopupBackground,
+                      border: hizbPopupBorder,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _visibleHizbText!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: hizbPopupTextColor,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (_showIndex)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () {
+                setState(() {
+                  _showIndex = false;
+                  _showSurahs = false;
+                  _isSearching = false;
+                });
+                _updateSystemUI();
+              },
+              child: const SizedBox.expand(),
+            ),
+          ),
+        if (_showIndex)
+          BottomOverlayMenu(
+            showIndex: _showIndex,
+            showSurahs: _showSurahs,
+            surahs: surahList,
+            isDarkMode: ThemeService.themeMode.value == ThemeMode.dark,
+            isAutoScrollEnabled: _showAutoScrollBar,
+            isPortraitScrollMode: _isPortraitScrollMode,
+            onToggleSurahs: () async {
+              setState(() {
+                _showIndex = false;
+                _showSurahs = false;
+                _isSearching = false;
+              });
+              _updateSystemUI();
+
+              await Future.delayed(const Duration(milliseconds: 260));
+              if (!mounted) return;
+
+              _openSurahIndexPage();
+            },
+            onOpenHizb: () async {
+              setState(() {
+                _showIndex = false;
+                _showSurahs = false;
+                _isSearching = false;
+              });
+              _updateSystemUI();
+
+              await Future.delayed(const Duration(milliseconds: 260));
+              if (!mounted) return;
+
+              _openHizbIndexPage();
+            },
+            onGoToPage: _goToPage,
+            onGoToBookmark: _goToBookmark,
+            onRemoveBookmark: _removeBookmark,
+            onToggleDarkMode: (value) {
+              ThemeService.setDarkMode(value);
+            },
+            onToggleAutoScroll: (value) {
+              final bool shouldSwitchPortraitMode =
+                  value &&
+                  !_isPhoneLandscape(context) &&
+                  !_isPortraitScrollMode;
+              setState(() {
+                if (value) {
+                  _showIndex = false;
+                  _showSurahs = false;
+                  _isSearching = false;
+                  _isAutoScrollEnabled = true;
+                  _showAutoScrollBar = true;
+                  _isAutoScrollBarCollapsed = false;
+                } else {
+                  _isAutoScrollEnabled = false;
+                  _showAutoScrollBar = false;
+                  _isAutoScrollBarCollapsed = false;
+                }
+                if (shouldSwitchPortraitMode) {
+                  _isPortraitScrollMode = true;
+                }
+              });
+              _updateSystemUI();
+              if (shouldSwitchPortraitMode) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'تم تغيير الوضع من صفحات إلى تمرير',
+                    ),
+                  ),
+                );
+              }
+            },
+            onTogglePortraitScrollMode: (value) {
+              _setPortraitScrollMode(value);
+            },
+            onSearchStateChanged: (value) {
+              setState(() {
+                _isSearching = value;
+              });
+            },
+          ),
+        if (_showAutoScrollBar)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeInOut,
+            bottom: autoScrollBottom,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              top: false,
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  transitionBuilder: (child, animation) {
+                    final beginOffset = _isAutoScrollBarCollapsed
+                        ? const Offset(0.25, 0)
+                        : const Offset(0.15, 0);
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: beginOffset,
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _isAutoScrollBarCollapsed
+                      ? Align(
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                            key: const ValueKey('auto-scroll-mini'),
+                            margin: const EdgeInsets.only(right: 12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: isDarkMode
+                                    ? const [
+                                        Color(0xFFD6B35D),
+                                        Color(0xFFB78D2D),
+                                      ]
+                                    : const [
+                                        Color(0xFF2D2A24),
+                                        Color(0xFF15120B),
+                                      ],
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.22),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: IconButton(
+                              onPressed: _toggleAutoScrollBarCollapsed,
+                              iconSize: 34,
+                              padding: const EdgeInsets.all(12),
+                              color: isDarkMode
+                                  ? const Color(0xFF15120B)
+                                  : Colors.white,
+                              icon: Icon(
+                                _isAutoScrollEnabled
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                              ),
+                              tooltip: 'إظهار الشريط',
+                            ),
+                          ),
+                        )
+                      : ConstrainedBox(
+                          key: const ValueKey('auto-scroll-full'),
+                          constraints: BoxConstraints(
+                            maxWidth: isPhoneLandscape ? 560 : 420,
+                          ),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? const Color(0xFF15120B)
+                                      .withValues(alpha: 0.97)
+                                  : Colors.white.withValues(alpha: 0.96),
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: isDarkMode
+                                    ? const Color(0xFFD6B35D)
+                                        .withValues(alpha: 0.72)
+                                    : Colors.black.withValues(alpha: 0.08),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.18),
+                                  blurRadius: 18,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: isDarkMode
+                                        ? Colors.white.withValues(alpha: 0.08)
+                                        : Colors.black.withValues(alpha: 0.04),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: IconButton(
+                                    onPressed: _toggleAutoScrollBarCollapsed,
+                                    icon: const Icon(
+                                      Icons.keyboard_arrow_right_rounded,
+                                    ),
+                                    tooltip: 'تصغير',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: isDarkMode
+                                          ? const [
+                                              Color(0xFFD6B35D),
+                                              Color(0xFFB78D2D),
+                                            ]
+                                          : const [
+                                              Color(0xFF2D2A24),
+                                              Color(0xFF15120B),
+                                            ],
+                                    ),
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.2),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: IconButton(
+                                    onPressed: () {
+                                      _setAutoScrollEnabled(
+                                        !_isAutoScrollEnabled,
+                                      );
+                                    },
+                                    iconSize: 34,
+                                    padding: const EdgeInsets.all(10),
+                                    color: isDarkMode
+                                        ? const Color(0xFF15120B)
+                                        : Colors.white,
+                                    icon: Icon(
+                                      _isAutoScrollEnabled
+                                          ? Icons.pause_rounded
+                                          : Icons.play_arrow_rounded,
+                                    ),
+                                    tooltip: _isAutoScrollEnabled
+                                        ? 'إيقاف'
+                                        : 'تشغيل',
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: List<Widget>.generate(5, (
+                                        index,
+                                      ) {
+                                        final speed = index + 1;
+                                        final selected =
+                                            _autoScrollSpeedMultiplier == speed;
+                                        return Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 8,
+                                          ),
+                                          child: ChoiceChip(
+                                            label: Text(
+                                              '${speed}x',
+                                              style: TextStyle(
+                                                fontWeight: selected
+                                                    ? FontWeight.w800
+                                                    : FontWeight.w600,
+                                              ),
+                                            ),
+                                            selected: selected,
+                                            onSelected: (_) {
+                                              _setAutoScrollSpeedMultiplier(
+                                                speed,
+                                              );
+                                            },
+                                            selectedColor: isDarkMode
+                                                ? const Color(0xFFD6B35D)
+                                                : const Color(0xFF1F1B14),
+                                            labelStyle: TextStyle(
+                                              color: selected
+                                                  ? (isDarkMode
+                                                      ? const Color(0xFF15120B)
+                                                      : Colors.white)
+                                                  : null,
+                                            ),
+                                            side: BorderSide(
+                                              color: isDarkMode
+                                                  ? const Color(0xFFD6B35D)
+                                                      .withValues(alpha: 0.35)
+                                                  : Colors.black.withValues(
+                                                      alpha: 0.1,
+                                                    ),
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final useTwoPages = _useTwoPageView(context);
+    final isPhoneLandscape = _isPhoneLandscape(context);
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: isPhoneLandscape
+                ? _buildLandscapeReader(isPhoneLandscape)
+                : _buildPortraitReader(useTwoPages),
+          ),
+          Positioned.fill(
+            child: _buildSharedOverlay(isPhoneLandscape),
+          ),
+        ],
+      ),
+    );
+  }
+}

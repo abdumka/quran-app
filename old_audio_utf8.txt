@@ -1,0 +1,397 @@
+﻿import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../models/quran_page_data.dart';
+import 'quran_json_service.dart';
+
+/// Repeat mode for ayah playback.
+enum AyahRepeatMode {
+  /// No repeat ظô move to next ayah when done.
+  off,
+
+  /// Repeat current ayah infinitely.
+  infinite,
+
+  /// Repeat current ayah a fixed number of times.
+  count,
+}
+
+class AudioService {
+  static final AudioService instance = AudioService._internal();
+  AudioService._internal();
+
+  final AudioPlayer _player = AudioPlayer();
+
+  // Base URL for individual MP3 files on GitHub
+  static const String _baseUrl =
+      'https://raw.githubusercontent.com/mahfodqr/quran-app-files/main/audio/';
+
+  List<QuranPageData>? _quranPages;
+  int _currentGlobalAyahIndex = 0;
+  int _currentFileIndexWithinAyah = 0;
+  List<QuranAyahData> _playlistAyahs = [];
+  List<String> _currentAyahFiles = [];
+
+  /// Whether audio is currently playing.
+  final ValueNotifier<bool> isPlaying = ValueNotifier(false);
+
+  /// Whether audio files are being downloaded.
+  final ValueNotifier<bool> isLoadingAudio = ValueNotifier(false);
+
+  /// The currently active ayah.
+  final ValueNotifier<QuranAyahData?> currentAyah = ValueNotifier(null);
+
+  /// Whether the recitation bar should be visible.
+  final ValueNotifier<bool> isRecitationBarVisible = ValueNotifier(false);
+
+  /// Current repeat mode.
+  final ValueNotifier<AyahRepeatMode> repeatMode = ValueNotifier(
+    AyahRepeatMode.off,
+  );
+
+  /// Repeat count (used when repeatMode == AyahRepeatMode.count).
+  final ValueNotifier<int> repeatCount = ValueNotifier(3);
+
+  /// Tracks how many times current ayah has been repeated so far.
+  int _currentRepeatIteration = 0;
+
+  // Callback to notify the UI to flip the page
+  Function(int newPage)? onPageChangeRequired;
+
+  Directory? _cacheDir;
+
+  Future<void> init() async {
+    _quranPages ??= await QuranJsonService.loadQuranPages();
+    _cacheDir ??= await _getAudioCacheDir();
+
+    _player.playerStateStream.listen((state) {
+      isPlaying.value = state.playing;
+      if (state.processingState == ProcessingState.completed) {
+        _handleAyahCompleted();
+      }
+    });
+  }
+
+  Future<Directory> _getAudioCacheDir() async {
+    final appDir = await getApplicationSupportDirectory();
+    final dir = Directory(p.join(appDir.path, 'audio_cache'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  List<String> _getAudioFilesForAyah(QuranAyahData ayah) {
+    final s = ayah.surah;
+    final a = ayah.ayah;
+    final surahStr = s.toString().padLeft(3, '0');
+
+    // Surah Al-Fatiha
+    if (s == 1) {
+      if (a == 1)
+        return ['001001.mp3', '001002.mp3']; // Istiadha+Basmalah, Al-Hamdu
+      if (a == 2) return ['001003.mp3']; // Ar-Rahman
+      if (a == 3) return ['001004.mp3']; // Maliki
+      if (a == 4) return ['001005.mp3']; // Iyyaka
+      if (a == 5) return ['001006.mp3']; // Ihdina
+      if (a == 6) return ['001007.mp3']; // Sirat + Ghayril
+      if (a == 7) return []; // Already played in Ayah 6
+    }
+
+    // Surah Al-Baqarah
+    if (s == 2) {
+      if (a == 1)
+        return [
+          '002001.mp3',
+          '002002.mp3',
+        ]; // Basmalah+AlifLamMeem, Thalikal Kitabu
+      final audioAyah = a + 1; // Ayah 2 -> 002003
+      return ['002${audioAyah.toString().padLeft(3, '0')}.mp3'];
+    }
+
+    // Surah Al Imran
+    if (s == 3) {
+      if (a == 1) return ['003001.mp3', '003002.mp3']; // Basmalah+AlifLamMeem, Allahu la ilaha...
+      if (a == 2) return ['003003.mp3']; // Nazzala...
+      if (a == 3 || a == 4) return ['003004.mp3']; // Hafs Ayah 4 is split into Qalon 3 and 4
+      // From Ayah 5 onwards, Qalon matches Hafs exactly
+      return ['003${a.toString().padLeft(3, '0')}.mp3'];
+    }
+
+    // Default
+    final ayahStr = a.toString().padLeft(3, '0');
+    return ['$surahStr$ayahStr.mp3'];
+  }
+
+  /// Opens the recitation bar and starts playing from the given page.
+  Future<void> playPage(int pageIndex) async {
+    if (_quranPages == null) await init();
+
+    final int pageNumber = pageIndex + 1;
+    final pageData = _quranPages!.firstWhere(
+      (p) => p.page == pageNumber,
+      orElse: () => QuranPageData(page: pageNumber, ayahs: []),
+    );
+
+    if (pageData.ayahs.isEmpty) return;
+
+    _playlistAyahs = pageData.ayahs;
+    _currentGlobalAyahIndex = 0;
+    _currentFileIndexWithinAyah = 0;
+    _currentRepeatIteration = 0;
+
+    // Show the recitation bar
+    isRecitationBarVisible.value = true;
+
+    // Download all ayahs for this page first
+    isLoadingAudio.value = true;
+    await _downloadPageAyahs(pageData.ayahs);
+    isLoadingAudio.value = false;
+
+    await _playCurrentAyah();
+  }
+
+  Future<void> _downloadPageAyahs(List<QuranAyahData> ayahs) async {
+    final dir = _cacheDir ?? await _getAudioCacheDir();
+
+    for (final ayah in ayahs) {
+      final fileNames = _getAudioFilesForAyah(ayah);
+      for (final fileName in fileNames) {
+        final localFile = File(p.join(dir.path, fileName));
+
+        if (localFile.existsSync()) continue;
+
+        try {
+          final url = '$_baseUrl$fileName';
+          final response = await http.get(Uri.parse(url));
+          if (response.statusCode == 200) {
+            await localFile.writeAsBytes(response.bodyBytes, flush: true);
+          }
+        } catch (e) {
+          debugPrint('Error downloading $fileName: $e');
+        }
+      }
+    }
+  }
+
+  Future<void> _playCurrentAyah() async {
+    if (_currentGlobalAyahIndex >= _playlistAyahs.length) {
+      _goToNextPage();
+      return;
+    }
+
+    final ayah = _playlistAyahs[_currentGlobalAyahIndex];
+    currentAyah.value = ayah;
+    _currentAyahFiles = _getAudioFilesForAyah(ayah);
+
+    if (_currentAyahFiles.isEmpty) {
+      // Empty files for this ayah (e.g. Fatiha Ayah 7)
+      _handleAyahCompleted();
+      return;
+    }
+
+    if (_currentFileIndexWithinAyah >= _currentAyahFiles.length) {
+      _handleAyahCompleted();
+      return;
+    }
+
+    final fileName = _currentAyahFiles[_currentFileIndexWithinAyah];
+
+    try {
+      final dir = _cacheDir ?? await _getAudioCacheDir();
+      final localFile = File(p.join(dir.path, fileName));
+
+      if (localFile.existsSync()) {
+        await _player.setFilePath(localFile.path);
+      } else {
+        // Fallback: stream directly
+        final url = '$_baseUrl$fileName';
+        await _player.setUrl(url);
+      }
+
+      _player.play();
+    } catch (e) {
+      debugPrint('Error playing audio: $e');
+      stop();
+    }
+  }
+
+  /// Called when a single audio file finishes.
+  void _handleAyahCompleted() {
+    _currentFileIndexWithinAyah++;
+    if (_currentAyahFiles.isNotEmpty &&
+        _currentFileIndexWithinAyah < _currentAyahFiles.length) {
+      // Play next file of the SAME ayah
+      _playCurrentAyah();
+      return;
+    }
+
+    // Finished all files for this ayah, apply repeat logic
+    final mode = repeatMode.value;
+
+    if (mode == AyahRepeatMode.infinite) {
+      // Repeat the same ayah forever
+      _currentFileIndexWithinAyah = 0;
+      _playCurrentAyah();
+      return;
+    }
+
+    if (mode == AyahRepeatMode.count) {
+      _currentRepeatIteration++;
+      if (_currentRepeatIteration < repeatCount.value) {
+        _currentFileIndexWithinAyah = 0;
+        _playCurrentAyah();
+        return;
+      }
+      // Done repeating, move to next
+      _currentRepeatIteration = 0;
+    }
+
+    // Move to next ayah
+    _currentGlobalAyahIndex++;
+    _currentFileIndexWithinAyah = 0;
+    _playCurrentAyah();
+  }
+
+  /// Go to the next ayah manually.
+  void nextAyah() {
+    _currentRepeatIteration = 0;
+    _currentFileIndexWithinAyah = 0;
+    if (_currentGlobalAyahIndex < _playlistAyahs.length - 1) {
+      _currentGlobalAyahIndex++;
+      _playCurrentAyah();
+    } else {
+      _goToNextPage();
+    }
+  }
+
+  /// Go to the previous ayah manually.
+  void previousAyah() {
+    _currentRepeatIteration = 0;
+    _currentFileIndexWithinAyah = 0;
+    if (_currentGlobalAyahIndex > 0) {
+      _currentGlobalAyahIndex--;
+      _playCurrentAyah();
+    }
+  }
+
+  /// Cycle through repeat modes: off ظْ infinite ظْ count(3) ظْ count(5) ظْ count(10) ظْ off
+  void cycleAyahRepeatMode() {
+    _currentRepeatIteration = 0;
+    final mode = repeatMode.value;
+    if (mode == AyahRepeatMode.off) {
+      repeatMode.value = AyahRepeatMode.infinite;
+    } else if (mode == AyahRepeatMode.infinite) {
+      repeatCount.value = 3;
+      repeatMode.value = AyahRepeatMode.count;
+    } else {
+      // count mode - cycle through counts
+      final current = repeatCount.value;
+      if (current == 3) {
+        repeatCount.value = 5;
+      } else if (current == 5) {
+        repeatCount.value = 10;
+      } else {
+        repeatMode.value = AyahRepeatMode.off;
+      }
+    }
+  }
+
+  /// Get a human-readable label for current repeat mode.
+  String get repeatLabel {
+    switch (repeatMode.value) {
+      case AyahRepeatMode.off:
+        return '';
+      case AyahRepeatMode.infinite:
+        return 'ظêئ';
+      case AyahRepeatMode.count:
+        return '${repeatCount.value}├ù';
+    }
+  }
+
+  /// Checks if the currently active ayah is located on the given page index.
+  bool isAudioOnPage(int pageIndex) {
+    if (currentAyah.value == null || _quranPages == null) return false;
+    final pageNumber = pageIndex + 1;
+    final pageData = _quranPages!.firstWhere(
+      (p) => p.page == pageNumber,
+      orElse: () => QuranPageData(page: pageNumber, ayahs: []),
+    );
+    return pageData.ayahs.any((a) => a.surah == currentAyah.value!.surah && a.ayah == currentAyah.value!.ayah);
+  }
+
+  Future<void> _goToNextPage() async {
+    if (_playlistAyahs.isEmpty) return;
+
+    final lastAyah = _playlistAyahs.last;
+
+    int nextPageIndex = -1;
+    for (int i = 0; i < _quranPages!.length; i++) {
+      final p = _quranPages![i];
+      if (p.ayahs.isNotEmpty &&
+          p.ayahs.first.surah == lastAyah.surah &&
+          p.ayahs.first.ayah == lastAyah.ayah + 1) {
+        nextPageIndex = p.page - 1;
+        break;
+      }
+    }
+
+    if (nextPageIndex == -1) {
+      for (int i = 0; i < _quranPages!.length; i++) {
+        final p = _quranPages![i];
+        if (p.ayahs.isNotEmpty &&
+            p.ayahs.first.surah == lastAyah.surah + 1 &&
+            p.ayahs.first.ayah == 1) {
+          nextPageIndex = p.page - 1;
+          break;
+        }
+      }
+    }
+
+    if (nextPageIndex == -1) {
+      final currentPageNum = _quranPages!
+          .firstWhere((p) => p.ayahs.contains(lastAyah))
+          .page;
+      nextPageIndex = currentPageNum;
+    }
+
+    if (nextPageIndex >= 0 && nextPageIndex < 604) {
+      onPageChangeRequired?.call(nextPageIndex);
+      await playPage(nextPageIndex);
+    } else {
+      stop();
+    }
+  }
+
+  void pause() {
+    _player.pause();
+  }
+
+  void resume() {
+    _player.play();
+  }
+
+  /// Stop playback and close the recitation bar.
+  void stop() {
+    _player.stop();
+    isPlaying.value = false;
+    currentAyah.value = null;
+    isRecitationBarVisible.value = false;
+    repeatMode.value = AyahRepeatMode.off;
+    _currentRepeatIteration = 0;
+    _currentFileIndexWithinAyah = 0;
+  }
+
+  /// Close the recitation bar (stops playback).
+  void closeRecitationBar() {
+    stop();
+  }
+
+  void dispose() {
+    _player.dispose();
+  }
+}

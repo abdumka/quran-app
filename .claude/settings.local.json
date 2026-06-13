@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Select-String -Path \"C:\\\\Users\\\\keilani\\\\flutter\\\\packages\\\\flutter\\\\lib\\\\src\\\\rendering\\\\viewport.dart\" -Pattern 'sealed class ScrollCacheExtent' -Context 0,40 | ForEach-Object { $_.Context.PostContext })",
+      "PowerShell(Select-String -Path \"C:\\\\Users\\\\keilani\\\\flutter\\\\packages\\\\flutter\\\\lib\\\\widgets.dart\" -Pattern \"export 'src/rendering/viewport.dart'\" | ForEach-Object Line | Out-String -Width 400; dart analyze \"lib\\\\quran_pages.dart\" \"lib\\\\continuous_quran_view.dart\" 2>$null | Out-String -Width 300)",
+      "PowerShell(Select-String -Path \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\continuous_quran_view.dart\" -Pattern '^import' | ForEach-Object Line; ''; Select-String -Path \"C:\\\\Users\\\\keilani\\\\flutter\\\\packages\\\\flutter\\\\lib\\\\widgets.dart\" -Pattern \"rendering/viewport\" | ForEach-Object Line; ''; Select-String -Path \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\quran_pages.dart\" -Pattern \"^import|^export\" | Measure-Object | ForEach-Object Count)",
+      "PowerShell(flutter analyze 2>$null)",
+      "PowerShell(Select-String -Path \"d:\\\\quran app\\\\quran-app-main\\\\pubspec.yaml\" -Pattern '^name:' | ForEach-Object Line)",
+      "PowerShell(flutter build apk --release)",
+      "Bash(flutter run *)",
+      "Bash(flutter analyze *)"
+    ]
+  }
+}
