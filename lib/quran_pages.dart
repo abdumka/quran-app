@@ -4043,7 +4043,7 @@ class _QuranPagesState extends State<QuranPages>
                   alignment: Alignment.center,
                   children: [
                     Icon(Icons.replay_rounded,
-                      color: isPageRepeating ? accentColor : Colors.white.withValues(alpha: 0.7),
+                      color: isPageRepeating ? accentColor : Colors.white,
                       size: 30),
                     if (isPageRepeating && pageRepeatLabel.isNotEmpty)
                       Positioned(
@@ -4060,8 +4060,8 @@ class _QuranPagesState extends State<QuranPages>
                 style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: Icon(Icons.skip_previous_rounded,
-                    color: accentColor.withValues(alpha: 0.9), size: 36),
+                icon: const Icon(Icons.skip_previous_rounded,
+                    color: Colors.white, size: 36),
                 onPressed: () {
                   _resetHideTimer();
                   audio.previousAyah();
@@ -4087,7 +4087,7 @@ class _QuranPagesState extends State<QuranPages>
                   child: Text(
                     currentAyah != null ? 'آية ${currentAyah.ayah}' : 'آية 1',
                     style: const TextStyle(
-                      color: accentColor,
+                      color: Colors.white,
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                     ),
@@ -4120,7 +4120,7 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                   child: Icon(
                     isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: accentColor,
+                    color: Colors.white,
                     size: 40,
                   ),
                 ),
@@ -4131,8 +4131,8 @@ class _QuranPagesState extends State<QuranPages>
                 style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: Icon(Icons.skip_next_rounded,
-                    color: accentColor.withValues(alpha: 0.9), size: 36),
+                icon: const Icon(Icons.skip_next_rounded,
+                    color: Colors.white, size: 36),
                 onPressed: () {
                   _resetHideTimer();
                   audio.nextAyah();
@@ -4153,7 +4153,7 @@ class _QuranPagesState extends State<QuranPages>
                   alignment: Alignment.center,
                   children: [
                     Icon(Icons.repeat_rounded,
-                      color: isRepeating ? accentColor : Colors.white.withValues(alpha: 0.7),
+                      color: isRepeating ? accentColor : Colors.white,
                       size: 30),
                     if (isRepeating && repeatLabel.isNotEmpty)
                       Positioned(
@@ -4171,7 +4171,7 @@ class _QuranPagesState extends State<QuranPages>
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 icon: const Icon(Icons.close_rounded,
-                    color: Colors.grey, size: 28),
+                    color: Colors.white, size: 28),
                 onPressed: () {
                   _resetHideTimer();
                   audio.stop();
@@ -4185,7 +4185,7 @@ class _QuranPagesState extends State<QuranPages>
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 icon: const Icon(Icons.help_outline_rounded,
-                    color: Colors.grey, size: 24),
+                    color: Colors.white, size: 24),
                 onPressed: () {
                   _resetHideTimer();
                   _showRecitationBarGuide();
