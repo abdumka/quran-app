@@ -562,26 +562,26 @@ class AudioService {
     }
   }
 
-  /// Cycle through page repeat modes: off → infinite → 2× → 3× → 5× → 10× → off
+  /// Cycle through page repeat modes: off → 1× → 2× → 3× → infinite (∞) → off
   void cyclePageRepeatMode() {
     _pageRepeatIteration = 0;
     final mode = pageRepeatMode.value;
     if (mode == AyahRepeatMode.off) {
-      pageRepeatMode.value = AyahRepeatMode.infinite;
-    } else if (mode == AyahRepeatMode.infinite) {
-      pageRepeatCount.value = 2;
+      // First tap: repeat once.
+      pageRepeatCount.value = 1;
       pageRepeatMode.value = AyahRepeatMode.count;
-    } else {
+    } else if (mode == AyahRepeatMode.count) {
       final current = pageRepeatCount.value;
-      if (current == 2) {
-        pageRepeatCount.value = 3;
-      } else if (current == 3) {
-        pageRepeatCount.value = 5;
-      } else if (current == 5) {
-        pageRepeatCount.value = 10;
+      if (current < 3) {
+        // 1× → 2× → 3×
+        pageRepeatCount.value = current + 1;
       } else {
-        pageRepeatMode.value = AyahRepeatMode.off;
+        // After 3× comes infinite.
+        pageRepeatMode.value = AyahRepeatMode.infinite;
       }
+    } else {
+      // infinite → off (cancel).
+      pageRepeatMode.value = AyahRepeatMode.off;
     }
   }
 

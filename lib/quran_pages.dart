@@ -3800,7 +3800,7 @@ class _QuranPagesState extends State<QuranPages>
               _guideRow(Icons.skip_next_rounded, 'الآية السابقة', textColor, borderColor),
               _guideRow(Icons.play_arrow_rounded, 'تشغيل / إيقاف مؤقت', textColor, borderColor),
               _guideRow(Icons.skip_previous_rounded, 'الآية التالية', textColor, borderColor),
-              _guideRow(Icons.replay_rounded, 'تكرار الصفحة (اضغط للتبديل)', textColor, borderColor),
+              _guideAssetRow('assets/images/icon_repeat_page.png', 'تكرار الصفحة (اضغط للتبديل)', textColor, borderColor, iconScale: 1.3),
               _guideAssetRow('assets/images/icon_repeat_ayah.png', 'تكرار الآية (اضغط عدة مرات للتبديل)', textColor, borderColor),
               const SizedBox(height: 16),
               Directionality(
@@ -3872,8 +3872,9 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   /// Same as [_guideRow] but uses a PNG asset (tinted to match the text colour)
-  /// instead of a built-in [IconData].
-  Widget _guideAssetRow(String asset, String label, Color textColor, Color borderColor) {
+  /// instead of a built-in [IconData]. [iconScale] compensates for PNGs that
+  /// carry extra transparent padding so they match the other rows visually.
+  Widget _guideAssetRow(String asset, String label, Color textColor, Color borderColor, {double iconScale = 1.0}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -3889,8 +3890,8 @@ class _QuranPagesState extends State<QuranPages>
             ),
             child: Image.asset(
               asset,
-              width: 20,
-              height: 20,
+              width: 20 * iconScale,
+              height: 20 * iconScale,
               fit: BoxFit.contain,
               color: textColor,
               colorBlendMode: BlendMode.srcATop,
@@ -4079,18 +4080,59 @@ class _QuranPagesState extends State<QuranPages>
                   _resetHideTimer();
                   audio.cyclePageRepeatMode();
                 },
-                icon: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Icon(Icons.replay_rounded,
-                      color: isPageRepeating ? accentColor : Colors.white,
-                      size: 30),
-                    if (isPageRepeating && pageRepeatLabel.isNotEmpty)
-                      Positioned(
-                        bottom: -2,
-                        child: Text(pageRepeatLabel, style: const TextStyle(fontSize: 7, color: accentColor, fontWeight: FontWeight.bold)),
+                icon: SizedBox(
+                  width: 42,
+                  height: 34,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      // The icon stays white in every state; the badge below
+                      // signals that page-repeat is active and how many times.
+                      // This PNG has ~24% transparent padding around its glyph
+                      // (unlike the ayah icon), so scale it up to match the
+                      // visual size of the other bar icons.
+                      Transform.scale(
+                        scale: 1.3,
+                        child: Image.asset(
+                          'assets/images/icon_repeat_page.png',
+                          width: 34,
+                          height: 30,
+                          fit: BoxFit.contain,
+                          color: Colors.white,
+                          colorBlendMode: BlendMode.srcATop,
+                        ),
                       ),
-                  ],
+                      if (isPageRepeating && pageRepeatLabel.isNotEmpty)
+                        Positioned(
+                          right: -4,
+                          bottom: -5,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor,
+                              borderRadius: BorderRadius.circular(9),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              pageRepeatLabel,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                height: 1.0,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 tooltip: 'تكرار الصفحة',
               ),
