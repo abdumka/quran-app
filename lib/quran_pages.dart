@@ -3801,7 +3801,7 @@ class _QuranPagesState extends State<QuranPages>
               _guideRow(Icons.play_arrow_rounded, 'تشغيل / إيقاف مؤقت', textColor, borderColor),
               _guideRow(Icons.skip_previous_rounded, 'الآية التالية', textColor, borderColor),
               _guideRow(Icons.replay_rounded, 'تكرار الصفحة (اضغط للتبديل)', textColor, borderColor),
-              _guideRow(Icons.repeat_rounded, 'تكرار الآية (اضغط عدة مرات للتبديل)', textColor, borderColor),
+              _guideAssetRow('assets/images/icon_repeat_ayah.png', 'تكرار الآية (اضغط عدة مرات للتبديل)', textColor, borderColor),
               const SizedBox(height: 16),
               Directionality(
                 textDirection: TextDirection.rtl,
@@ -3857,6 +3857,44 @@ class _QuranPagesState extends State<QuranPages>
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: textColor, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Same as [_guideRow] but uses a PNG asset (tinted to match the text colour)
+  /// instead of a built-in [IconData].
+  Widget _guideAssetRow(String asset, String label, Color textColor, Color borderColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: borderColor.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: Image.asset(
+              asset,
+              width: 20,
+              height: 20,
+              fit: BoxFit.contain,
+              color: textColor,
+              colorBlendMode: BlendMode.srcATop,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -3972,7 +4010,9 @@ class _QuranPagesState extends State<QuranPages>
         audio.isPlaying,
         audio.currentAyah,
         audio.pageRepeatMode,
+        audio.pageRepeatCount,
         audio.repeatMode,
+        audio.repeatCount,
       ]),
       builder: (context, _) {
         final isPlaying = audio.isPlaying.value;
@@ -4149,18 +4189,53 @@ class _QuranPagesState extends State<QuranPages>
                   _resetHideTimer();
                   audio.cycleAyahRepeatMode();
                 },
-                icon: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Icon(Icons.repeat_rounded,
-                      color: isRepeating ? accentColor : Colors.white,
-                      size: 30),
-                    if (isRepeating && repeatLabel.isNotEmpty)
-                      Positioned(
-                        bottom: -2,
-                        child: Text(repeatLabel, style: const TextStyle(fontSize: 7, color: accentColor, fontWeight: FontWeight.bold)),
+                icon: SizedBox(
+                  width: 42,
+                  height: 34,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      // The icon stays white in every state; the badge below
+                      // signals that ayah-repeat is active and how many times.
+                      Image.asset(
+                        'assets/images/icon_repeat_ayah.png',
+                        width: 34,
+                        height: 30,
+                        fit: BoxFit.contain,
+                        color: Colors.white,
+                        colorBlendMode: BlendMode.srcATop,
                       ),
-                  ],
+                      if (isRepeating && repeatLabel.isNotEmpty)
+                        Positioned(
+                          right: -4,
+                          bottom: -5,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor,
+                              borderRadius: BorderRadius.circular(9),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              repeatLabel,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                height: 1.0,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 tooltip: 'تكرار الآية',
               ),
