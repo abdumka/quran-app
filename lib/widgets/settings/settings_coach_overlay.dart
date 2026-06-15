@@ -316,10 +316,56 @@ class _CoachVisualState extends State<CoachVisual>
               SettingsCoachStep.autoScroll => AutoScrollCoachVisual(t: t),
               SettingsCoachStep.marginImages => MarginCoachVisual(t: t),
               SettingsCoachStep.hideBar => HideBarCoachVisual(t: t),
+              SettingsCoachStep.screenBrightness =>
+                IconCoachVisual(t: t, icon: Icons.brightness_6_rounded),
+              SettingsCoachStep.darkMode =>
+                IconCoachVisual(t: t, icon: Icons.dark_mode_rounded),
+              SettingsCoachStep.hifzLens =>
+                IconCoachVisual(t: t, icon: Icons.psychology_rounded),
+              SettingsCoachStep.fullScreen =>
+                IconCoachVisual(t: t, icon: Icons.fullscreen_rounded),
+              SettingsCoachStep.twoPage =>
+                IconCoachVisual(t: t, icon: Icons.auto_stories_rounded),
+              SettingsCoachStep.resetGuides =>
+                IconCoachVisual(t: t, icon: Icons.tips_and_updates_rounded),
             },
           ),
         );
       },
+    );
+  }
+}
+
+/// A simple, animated illustration for settings whose behaviour is best shown
+/// by a single emphasised icon (it gently pulses inside the framed box, in the
+/// same style as the bespoke visuals).
+class IconCoachVisual extends StatelessWidget {
+  final double t;
+  final IconData icon;
+
+  const IconCoachVisual({super.key, required this.t, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = 0.9 + (t * 0.2);
+    return Transform.scale(
+      scale: scale,
+      child: Container(
+        width: 54,
+        height: 54,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: const Color(0xFF8D6E3F).withValues(alpha: 0.35),
+          ),
+        ),
+        child: Icon(
+          icon,
+          color: const Color(0xFF8D6E3F),
+          size: 28,
+        ),
+      ),
     );
   }
 }

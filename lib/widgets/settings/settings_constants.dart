@@ -17,8 +17,16 @@ const String tabletModeTitle = 'وضع التابلت';
 const String tabletModeSubtitle = 'يجعل العرض صفحتين في العمودي والأفقي، ويوقف التمرير ليعطي شكل المصحف المفتوح.';
 
 enum SettingsCoachStep {
+  // Original auto-tour steps.
   browseMode,
   autoScroll,
   marginImages,
   hideBar,
+  // Additional steps shown on demand (tap the ℹ️ button on a setting).
+  screenBrightness,
+  darkMode,
+  hifzLens,
+  fullScreen,
+  twoPage,
+  resetGuides,
 }

@@ -119,16 +119,41 @@ class ActionTile extends StatelessWidget {
 /// A compact, square-ish navigation card meant to sit two-per-row. Shows an
 /// icon and a short title only (no subtitle), so a pair fits the width that a
 /// single full ActionTile used to take.
+/// A small circular ℹ️ button used to open a setting's instruction card.
+class InfoHintButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const InfoHintButton({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkResponse(
+      onTap: onTap,
+      radius: 18,
+      child: const Padding(
+        padding: EdgeInsets.all(2),
+        child: Icon(
+          Icons.info_outline_rounded,
+          size: 16,
+          color: Color(0xFF8B7355),
+        ),
+      ),
+    );
+  }
+}
+
 class CompactActionTile extends StatelessWidget {
   final String title;
   final IconData icon;
   final VoidCallback onTap;
+  final VoidCallback? onInfo;
 
   const CompactActionTile({
     super.key,
     required this.title,
     required this.icon,
     required this.onTap,
+    this.onInfo,
   });
 
   @override
@@ -162,6 +187,7 @@ class CompactActionTile extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onInfo != null) InfoHintButton(onTap: onInfo!),
             ],
           ),
         ),
@@ -177,6 +203,7 @@ class CompactSwitchTile extends StatelessWidget {
   final IconData icon;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final VoidCallback? onInfo;
 
   const CompactSwitchTile({
     super.key,
@@ -184,6 +211,7 @@ class CompactSwitchTile extends StatelessWidget {
     required this.icon,
     required this.value,
     required this.onChanged,
+    this.onInfo,
   });
 
   @override
@@ -218,6 +246,10 @@ class CompactSwitchTile extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onInfo != null) ...[
+                InfoHintButton(onTap: onInfo!),
+                const SizedBox(width: 2),
+              ],
               const SizedBox(width: 4),
               Switch(
                 activeThumbColor: const Color(0xFF8B7355),
