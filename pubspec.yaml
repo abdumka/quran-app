@@ -37,5 +37,6 @@ flutter:
     - assets/images/
     - assets/data/output.json
     - assets/data/ar.saddi.json
+    - assets/data/narration_map.json
     - assets/data/ayah_positions.json
   

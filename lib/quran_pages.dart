@@ -15,7 +15,6 @@ import 'continuous_quran_view.dart';
 import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
-import 'services/high_quality_images_service.dart';
 import 'services/margin_images_service.dart';
 
 import 'services/theme_service.dart';
@@ -51,6 +50,12 @@ class _QuranPagesState extends State<QuranPages>
   static const String _fullScreenModePrefKey = 'fullScreenMode';
   static const String _bookmarkGuideDismissedPrefKey =
       'bookmarkGuideDismissed';
+  static const String _hifzLensGuideDismissedPrefKey =
+      'hifzLensGuideDismissed';
+  static const String _hideBarReaderGuideDismissedPrefKey =
+      'hideBarReaderGuideDismissed';
+  static const String _fullScreenGuideDismissedPrefKey =
+      'fullScreenGuideDismissed';
   static const String _bookmarksPrefKey = 'readerBookmarks';
   static const String _sajdaDua =
       'سجد وجهي للذي خلقه وشق سمعه وبصره بحوله وقوته، فتبارك الله أحسن الخالقين.';
@@ -259,8 +264,6 @@ class _QuranPagesState extends State<QuranPages>
   late PageController _portraitController;
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
-  final HighQualityImagesService _highQualityImagesService =
-      HighQualityImagesService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
 
   final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
@@ -395,7 +398,6 @@ class _QuranPagesState extends State<QuranPages>
     // Animation is started only when the bookmark guide is shown (see below)
     _readingCoordinator = QuranReadingCoordinator(pageCount: pages.length);
     _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
-    _highQualityImagesService.state.addListener(_handleHighQualityImagesChanged);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
     // Use the page passed from SplashScreen so we never flash Al-Fatiha
     if (widget.initialPage > 0) {
@@ -403,7 +405,6 @@ class _QuranPagesState extends State<QuranPages>
       _syncCurrentSurahForPage(widget.initialPage);
     }
     _portraitController = PageController(initialPage: widget.initialPage);
-    _highQualityImagesService.initialize();
     _marginImagesService.initialize();
 
     // Set scroll mode immediately from SplashScreen to avoid delayed setState blank flash
@@ -509,7 +510,6 @@ class _QuranPagesState extends State<QuranPages>
     AudioService.instance.isPlaying.removeListener(_handleAudioPlaybackChanged);
     AudioService.instance.stop();
     _setReadingMode(false);
-    _highQualityImagesService.state.removeListener(_handleHighQualityImagesChanged);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
     _readingCoordinator.removeListener(_handleReadingCoordinatorChanged);
     _readingCoordinator.dispose();
@@ -528,7 +528,6 @@ class _QuranPagesState extends State<QuranPages>
       _stopPortraitAutoScroll();
       // Pause any active downloads so they can resume later
       _marginImagesService.pauseDownload();
-      _highQualityImagesService.pauseDownload();
     } else if (state == AppLifecycleState.resumed) {
       // Resume auto-scroll if it was enabled.
       if (_isAutoScrollEnabled && _portraitAutoScrollViewportHeight != null) {
@@ -537,9 +536,6 @@ class _QuranPagesState extends State<QuranPages>
       // Auto-resume paused downloads when app returns to foreground
       if (_marginImagesService.state.value.isPaused) {
         _marginImagesService.downloadAndEnable();
-      }
-      if (_highQualityImagesService.state.value.isPaused) {
-        _highQualityImagesService.downloadAndEnable();
       }
     }
   }
@@ -586,23 +582,8 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   // Track previous state to avoid unnecessary rebuilds during downloads.
-  bool _prevHqEnabled = false;
-  String? _prevHqDir;
   bool _prevMarginEnabled = false;
   String? _prevMarginDir;
-
-  void _handleHighQualityImagesChanged() {
-    if (!mounted) return;
-    final s = _highQualityImagesService.state.value;
-    if (s.isEnabled == _prevHqEnabled && s.imagesDirectoryPath == _prevHqDir) {
-      return; // Only download progress changed — skip rebuild.
-    }
-    _prevHqEnabled = s.isEnabled;
-    _prevHqDir = s.imagesDirectoryPath;
-    _downloadedPageFileCache.clear();
-    _cachedDirectories.clear();
-    setState(() {});
-  }
 
   void _handleMarginImagesChanged() {
     if (!mounted) return;
@@ -692,17 +673,6 @@ class _QuranPagesState extends State<QuranPages>
       }
     }
 
-    final state = _highQualityImagesService.state.value;
-    if (state.isEnabled && state.imagesDirectoryPath != null) {
-      final file = _downloadedPageFileForIndex(
-        state.imagesDirectoryPath!,
-        pageIndex + 1,
-      );
-      if (file != null) {
-        return ResizeImage(FileImage(file), width: 720);
-      }
-    }
-    
     // Resize asset images to match device width for faster decode.
     return ResizeImage(AssetImage(assetPath), width: 720);
   }
@@ -1530,6 +1500,7 @@ class _QuranPagesState extends State<QuranPages>
     setState(() {
       _isFullScreenMode = value;
     });
+    if (value) unawaited(_maybeShowFullScreenGuide());
     if (!value) {
       // Leaving immersive mode: explicitly re-show both system bars and wait
       // for the platform to process it before applying edgeToEdge. On many
@@ -1545,6 +1516,12 @@ class _QuranPagesState extends State<QuranPages>
     _updateSystemUI();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_fullScreenModePrefKey, value);
+  }
+
+  Future<void> _maybeShowFullScreenGuide() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dismissed = prefs.getBool(_fullScreenGuideDismissedPrefKey) ?? false;
+    if (!dismissed && mounted) _showFullScreenGuide();
   }
 
   double _currentAutoScrollPixelsPerSecond() {
@@ -1747,7 +1724,14 @@ class _QuranPagesState extends State<QuranPages>
     });
     if (value) {
       _saveHifzModePreference();
+      _maybeShowHideBarReaderGuide();
     }
+  }
+
+  Future<void> _maybeShowHideBarReaderGuide() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dismissed = prefs.getBool(_hideBarReaderGuideDismissedPrefKey) ?? false;
+    if (!dismissed && mounted) _showHideBarReaderGuide();
   }
 
   Widget _hideBarCircleButton(IconData icon) {
@@ -1905,6 +1889,13 @@ class _QuranPagesState extends State<QuranPages>
       }
     });
     _saveHifzModePreference();
+    if (value) _maybeShowHifzLensGuide();
+  }
+
+  Future<void> _maybeShowHifzLensGuide() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dismissed = prefs.getBool(_hifzLensGuideDismissedPrefKey) ?? false;
+    if (!dismissed && mounted) _showHifzLensGuide();
   }
 
   Future<void> _saveHifzModePreference() async {
@@ -1928,6 +1919,9 @@ class _QuranPagesState extends State<QuranPages>
       'autoScrollGuideDismissed',
       'browseModeGuideDismissed',
       'bookmarkGuideDismissed',
+      _hifzLensGuideDismissedPrefKey,
+      _hideBarReaderGuideDismissedPrefKey,
+      _fullScreenGuideDismissedPrefKey,
     ];
     for (final key in settingsKeys) {
       await prefs.remove(key);
@@ -3840,6 +3834,216 @@ class _QuranPagesState extends State<QuranPages>
         ],
       );
     }),
+    );
+  }
+
+  void _showHifzLensGuide() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    bool doNotShowAgain = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: bgColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.psychology_rounded, color: titleColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'شرح عدسة الإخفاء',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _guideRow(Icons.touch_app_rounded, 'مرر إصبعك على الصفحة لكشف النص تحته فقط', textColor, borderColor),
+                  _guideRow(Icons.psychology_rounded, 'اختبر حفظك سطراً سطراً دون رؤية النص كاملاً', textColor, borderColor),
+                  _guideRow(Icons.visibility_off_rounded, 'شريط الإخفاء يتوقف تلقائياً عند تفعيل العدسة', textColor, borderColor),
+                  _guideRow(Icons.tap_and_play_rounded, 'المس الصفحة لمرة واحدة لإظهار قائمة الإعدادات', textColor, borderColor),
+                  const SizedBox(height: 16),
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: CheckboxListTile(
+                      value: doNotShowAgain,
+                      onChanged: (value) => setState(() => doNotShowAgain = value ?? false),
+                      title: Text('لا تظهر هذه الرسالة مرة أخرى', style: TextStyle(color: textColor, fontSize: 14)),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: titleColor,
+                      checkColor: bgColor,
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  if (doNotShowAgain) {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool(_hifzLensGuideDismissedPrefKey, true);
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showHideBarReaderGuide() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    bool doNotShowAgain = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: bgColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.visibility_off_rounded, color: titleColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'شرح شريط الإخفاء',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _guideRow(Icons.drag_handle_rounded, 'اسحب الإطار الذهبي لتحريك نافذة القراءة أعلى وأسفل', textColor, borderColor),
+                  _guideRow(Icons.close_rounded, 'زر X لإغلاق شريط الإخفاء', textColor, borderColor),
+                  _guideRow(Icons.flip_to_back_rounded, 'زر التبديل يعكس الوضع بين الإخفاء والكشف', textColor, borderColor),
+                  _guideRow(Icons.headphones_rounded, 'أثناء التلاوة يتحرك الشريط تلقائياً ويتسع لسطرين', textColor, borderColor),
+                  const SizedBox(height: 16),
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: CheckboxListTile(
+                      value: doNotShowAgain,
+                      onChanged: (value) => setState(() => doNotShowAgain = value ?? false),
+                      title: Text('لا تظهر هذه الرسالة مرة أخرى', style: TextStyle(color: textColor, fontSize: 14)),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: titleColor,
+                      checkColor: bgColor,
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  if (doNotShowAgain) {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool(_hideBarReaderGuideDismissedPrefKey, true);
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showFullScreenGuide() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    bool doNotShowAgain = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: bgColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.fullscreen_rounded, color: titleColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'شرح وضع ملء الشاشة',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _guideRow(Icons.fullscreen_rounded, 'يخفي شريط الحالة وأزرار التنقل للقراءة بلا تشتيت', textColor, borderColor),
+                  _guideRow(Icons.swipe_rounded, 'اسحب من حافة الشاشة لإظهار أشرطة النظام مؤقتاً', textColor, borderColor),
+                  _guideRow(Icons.touch_app_rounded, 'المس الصفحة لإظهار قائمة الأدوات والإعدادات', textColor, borderColor),
+                  _guideRow(Icons.settings_rounded, 'للخروج: افتح الإعدادات وأوقف وضع ملء الشاشة', textColor, borderColor),
+                  const SizedBox(height: 16),
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: CheckboxListTile(
+                      value: doNotShowAgain,
+                      onChanged: (value) => setState(() => doNotShowAgain = value ?? false),
+                      title: Text('لا تظهر هذه الرسالة مرة أخرى', style: TextStyle(color: textColor, fontSize: 14)),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: titleColor,
+                      checkColor: bgColor,
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  if (doNotShowAgain) {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool(_fullScreenGuideDismissedPrefKey, true);
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

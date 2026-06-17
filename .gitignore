@@ -88,3 +88,5 @@ app.*.map.json
 backups/
 temp_quran_repo/
 android/.gradle/
+# One-time Hafs text download cache for generate_narration_map.py
+hafs_uthmani.json

@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../services/high_quality_images_service.dart';
+import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../utils/responsive_helper.dart';
 
@@ -17,7 +17,6 @@ import 'settings_coach_overlay.dart';
 import 'downloads_management_page.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
-import '../menu/useful_links_content.dart';
 import '../menu/fullscreen_menu_page.dart';
 
 
@@ -78,6 +77,10 @@ class _SettingsPageState extends State<SettingsPage> {
       'browseModeGuideDismissed';
   static const String _bookmarkGuideDismissedPrefKey =
       'bookmarkGuideDismissed';
+  static const String _hifzLensSettingsGuideDismissedPrefKey =
+      'hifzLensSettingsGuideDismissed';
+  static const String _fullScreenSettingsGuideDismissedPrefKey =
+      'fullScreenSettingsGuideDismissed';
 
   late bool _localAutoScrollEnabled;
   late bool _localPortraitScrollMode;
@@ -87,8 +90,9 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showMarginGuide = false;
   bool _showAutoScrollGuide = false;
   bool _showHideBarGuide = false;
-  final HighQualityImagesService _highQualityImagesService =
-      HighQualityImagesService.instance;
+  bool _showHifzLensGuide = false;
+  bool _showFullScreenGuide = false;
+  final AudioDownloadService _audioDownloadService = AudioDownloadService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
 
   final GlobalKey _settingsOverlayKey = GlobalKey();
@@ -122,7 +126,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _localPortraitScrollMode = widget.isPortraitScrollMode;
     _localTabletLayoutMode = widget.isTabletLayoutMode;
     _localFullScreenMode = widget.isFullScreenMode;
-    _highQualityImagesService.initialize();
+    _audioDownloadService.initialize();
     _marginImagesService.initialize();
     _loadGuidePreferences();
     _loadCurrentBrightness();
@@ -171,6 +175,14 @@ class _SettingsPageState extends State<SettingsPage> {
           !(prefs.getBool(_autoScrollGuideDismissedPrefKey) ?? false);
       _showHideBarGuide =
           !(prefs.getBool('hideBarGuideDismissed') ?? false);
+      _showHifzLensGuide = !(prefs.getBool(
+            _hifzLensSettingsGuideDismissedPrefKey,
+          ) ??
+          false);
+      _showFullScreenGuide = !(prefs.getBool(
+            _fullScreenSettingsGuideDismissedPrefKey,
+          ) ??
+          false);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -194,6 +206,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _showAutoScrollGuide = false;
       } else if (key == 'hideBarGuideDismissed') {
         _showHideBarGuide = false;
+      } else if (key == _hifzLensSettingsGuideDismissedPrefKey) {
+        _showHifzLensGuide = false;
+      } else if (key == _fullScreenSettingsGuideDismissedPrefKey) {
+        _showFullScreenGuide = false;
       }
     });
   }
@@ -242,6 +258,14 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     if (_showHideBarGuide) {
       _activateCoachStep(SettingsCoachStep.hideBar);
+      return;
+    }
+    if (_showHifzLensGuide) {
+      _activateCoachStep(SettingsCoachStep.hifzLens);
+      return;
+    }
+    if (_showFullScreenGuide) {
+      _activateCoachStep(SettingsCoachStep.fullScreen);
     }
   }
 
@@ -333,6 +357,8 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCoachStep.autoScroll => _autoScrollGuideDismissedPrefKey,
       SettingsCoachStep.marginImages => _marginGuideDismissedPrefKey,
       SettingsCoachStep.hideBar => 'hideBarGuideDismissed',
+      SettingsCoachStep.hifzLens => _hifzLensSettingsGuideDismissedPrefKey,
+      SettingsCoachStep.fullScreen => _fullScreenSettingsGuideDismissedPrefKey,
       _ => null,
     };
     if (key == null) return;
@@ -435,12 +461,30 @@ class _SettingsPageState extends State<SettingsPage> {
         SettingsCoachStep.marginImages,
       SettingsCoachStep.browseMode when _showHideBarGuide =>
         SettingsCoachStep.hideBar,
+      SettingsCoachStep.browseMode when _showHifzLensGuide =>
+        SettingsCoachStep.hifzLens,
+      SettingsCoachStep.browseMode when _showFullScreenGuide =>
+        SettingsCoachStep.fullScreen,
       SettingsCoachStep.autoScroll when _showMarginGuide =>
         SettingsCoachStep.marginImages,
       SettingsCoachStep.autoScroll when _showHideBarGuide =>
         SettingsCoachStep.hideBar,
+      SettingsCoachStep.autoScroll when _showHifzLensGuide =>
+        SettingsCoachStep.hifzLens,
+      SettingsCoachStep.autoScroll when _showFullScreenGuide =>
+        SettingsCoachStep.fullScreen,
       SettingsCoachStep.marginImages when _showHideBarGuide =>
         SettingsCoachStep.hideBar,
+      SettingsCoachStep.marginImages when _showHifzLensGuide =>
+        SettingsCoachStep.hifzLens,
+      SettingsCoachStep.marginImages when _showFullScreenGuide =>
+        SettingsCoachStep.fullScreen,
+      SettingsCoachStep.hideBar when _showHifzLensGuide =>
+        SettingsCoachStep.hifzLens,
+      SettingsCoachStep.hideBar when _showFullScreenGuide =>
+        SettingsCoachStep.fullScreen,
+      SettingsCoachStep.hifzLens when _showFullScreenGuide =>
+        SettingsCoachStep.fullScreen,
       _ => null,
     };
   }
@@ -518,24 +562,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     return result ?? false;
-  }
-
-  Future<void> _handleHighQualityDownload() async {
-    final shouldContinue = await _confirmDownload(
-      title: 'تحميل الجودة العالية',
-      body:
-          'سيتم تنزيل ملف الصور عالية الجودة بحجم تقريبي ${_highQualityImagesService.state.value.packageSizeLabel}. بعد اكتمال التحميل سيستخدمها التطبيق تلقائيًا. هل تريد المتابعة؟',
-    );
-    if (!shouldContinue || !mounted) return;
-
-    try {
-      await _highQualityImagesService.downloadAndEnable();
-    } catch (_) {
-      if (!mounted) return;
-      _showSettingsNotice(
-        'تعذر تحميل الصور عالية الجودة. تأكد من اتصال الإنترنت ثم حاول مرة أخرى.',
-      );
-    }
   }
 
   Future<void> _handleMarginImagesDownload() async {
@@ -619,7 +645,7 @@ class _SettingsPageState extends State<SettingsPage> {
       context,
       MaterialPageRoute(
         builder: (_) => DownloadsManagementPage(
-          highQualityImagesService: _highQualityImagesService,
+          audioDownloadService: _audioDownloadService,
           marginImagesService: _marginImagesService,
         ),
       ),
@@ -632,12 +658,19 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.remove(_autoScrollGuideDismissedPrefKey);
     await prefs.remove(_browseModeGuideDismissedPrefKey);
     await prefs.remove(_bookmarkGuideDismissedPrefKey);
+    await prefs.remove('hifzLensGuideDismissed');
+    await prefs.remove('hideBarReaderGuideDismissed');
+    await prefs.remove('fullScreenGuideDismissed');
+    await prefs.remove(_hifzLensSettingsGuideDismissedPrefKey);
+    await prefs.remove(_fullScreenSettingsGuideDismissedPrefKey);
     if (!mounted) return;
 
     setState(() {
       _showBrowseModeGuide = true;
       _showMarginGuide = true;
       _showAutoScrollGuide = true;
+      _showHifzLensGuide = true;
+      _showFullScreenGuide = true;
       _activeCoachStep = null;
       _activeCoachRect = null;
     });
@@ -1011,14 +1044,14 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       const SizedBox(height: 6),
                       SettingsCard(
-                        child: ValueListenableBuilder<HighQualityImagesState>(
-                          valueListenable: _highQualityImagesService.state,
-                          builder: (context, highQualityState, _) {
-                            return HighQualityImagesTile(
-                              state: highQualityState,
-                              onDownload: _handleHighQualityDownload,
-                              onCancelDownload: _highQualityImagesService.cancelDownload,
-                              onPauseDownload: _highQualityImagesService.pauseDownload,
+                        child: ValueListenableBuilder<AudioDownloadState>(
+                          valueListenable: _audioDownloadService.state,
+                          builder: (context, audioState, _) {
+                            return AudioDownloadTile(
+                              state: audioState,
+                              onDownload: _audioDownloadService.downloadAll,
+                              onCancelDownload: _audioDownloadService.cancelDownload,
+                              onPauseDownload: _audioDownloadService.pauseDownload,
                             );
                           },
                         ),
@@ -1056,23 +1089,6 @@ class _SettingsPageState extends State<SettingsPage> {
                                     onTap: () => _openFullscreenMenuPage(
                                       title: 'تواصل معنا',
                                       child: ContactContent(
-                                        onOpenLink: _openUsefulLink,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: CompactActionTile(
-                                    title: 'روابط مفيدة',
-                                    icon: Icons.link_rounded,
-                                    onTap: () => _openFullscreenMenuPage(
-                                      title: 'روابط مفيدة',
-                                      child: UsefulLinksContent(
                                         onOpenLink: _openUsefulLink,
                                       ),
                                     ),

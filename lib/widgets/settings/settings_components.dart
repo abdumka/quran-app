@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../services/high_quality_images_service.dart';
+import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 
 class PremiumIconWrapper extends StatelessWidget {
@@ -315,13 +315,13 @@ class DownloadsManagementTile extends StatelessWidget {
   }
 }
 
-class HighQualityImagesTile extends StatelessWidget {
-  final HighQualityImagesState state;
+class AudioDownloadTile extends StatelessWidget {
+  final AudioDownloadState state;
   final Future<void> Function() onDownload;
-  final Future<void> Function() onCancelDownload;
-  final Future<void> Function() onPauseDownload;
+  final void Function() onCancelDownload;
+  final void Function() onPauseDownload;
 
-  const HighQualityImagesTile({
+  const AudioDownloadTile({
     super.key,
     required this.state,
     required this.onDownload,
@@ -337,7 +337,7 @@ class HighQualityImagesTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           const Text(
-            'الصور عالية الجودة',
+            'تحميل جميع الصوتيات',
             textDirection: TextDirection.rtl,
             style: TextStyle(
               fontSize: 14,
@@ -347,9 +347,9 @@ class HighQualityImagesTile extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           Text(
-            state.isAvailable
-                ? 'تم تحميل الصور عالية الجودة وسيستخدمها التطبيق تلقائيًا.'
-                : 'نزّل ملف الصور عالية الجودة مرة واحدة، وبعد اكتمال التحميل سيستخدمها التطبيق تلقائيًا.',
+            state.isComplete
+                ? 'جميع ملفات الصوت محملة، يمكن الاستماع للتلاوة بدون إنترنت.'
+                : 'نزّل ملفات الصوت كاملة للاستماع بدون اتصال بالإنترنت. الحجم التقريبي ~500 MB.',
             textDirection: TextDirection.rtl,
             style: const TextStyle(
               fontSize: 11,
@@ -358,68 +358,49 @@ class HighQualityImagesTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          if (!state.isAvailable && !state.isDownloading && !state.isPaused)
+          if (!state.isComplete && !state.isDownloading && !state.isPaused)
             OutlinedButton.icon(
               onPressed: onDownload,
               icon: const Icon(Icons.download_rounded, color: Color(0xFF8B7355), size: 18),
-              label: Text('تحميل الجودة العالية (${state.packageSizeLabel})',
-                  style: const TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
+              label: Text(
+                state.downloadedFiles > 0
+                    ? 'استئناف تحميل الصوت (${state.progressLabel})'
+                    : 'تحميل ملفات الصوت (~500 MB)',
+                style: const TextStyle(color: Color(0xFF8B7355), fontSize: 13),
+              ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               ),
             ),
           if (state.isPaused && !state.isDownloading) ...[
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.cancel_rounded, color: Colors.red, size: 22),
-                  onPressed: onCancelDownload,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      minHeight: 8,
-                      value: state.totalBytes > 0 ? state.progress : null,
-                      backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Color(0xFFB0956E)),
-                    ),
-                  ),
-                ),
-              ],
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 8,
+                value: state.progressFraction,
+                backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFB0956E)),
+              ),
             ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               textDirection: TextDirection.rtl,
               children: [
-                Text(state.progressLabel,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF888888))),
-                Text(state.percentLabel,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF8B7355))),
+                Text(state.progressLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF888888))),
+                Text(state.percentLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF8B7355))),
               ],
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: onDownload,
               icon: const Icon(Icons.play_arrow_rounded, color: Color(0xFF8B7355), size: 18),
-              label: const Text('استئناف التحميل',
-                  style: TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
+              label: const Text('استئناف التحميل', style: TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               ),
             ),
@@ -446,10 +427,9 @@ class HighQualityImagesTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                     child: LinearProgressIndicator(
                       minHeight: 8,
-                      value: state.totalBytes > 0 ? state.progress : null,
+                      value: state.progressFraction > 0 ? state.progressFraction : null,
                       backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Color(0xFF8B7355)),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF8B7355)),
                     ),
                   ),
                 ),
@@ -460,39 +440,22 @@ class HighQualityImagesTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               textDirection: TextDirection.rtl,
               children: [
-                Text(
-                  state.progressLabel,
-                  style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF888888)),
-                ),
-                Text(
-                  state.percentLabel,
-                  style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF8B7355)),
-                ),
+                Text(state.progressLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF888888))),
+                Text(state.percentLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF8B7355))),
               ],
             ),
           ],
-          if (state.isAvailable)
+          if (state.isComplete)
             const Row(
               mainAxisAlignment: MainAxisAlignment.end,
               textDirection: TextDirection.rtl,
               children: [
-                Icon(Icons.check_circle_rounded,
-                    size: 19, color: Color(0xFF4B7F3A)),
+                Icon(Icons.check_circle_rounded, size: 19, color: Color(0xFF4B7F3A)),
                 SizedBox(width: 6),
                 Text(
-                  'الجودة العالية مفعّلة',
+                  'الصوت محمّل بالكامل',
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF4B7F3A),
-                  ),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF4B7F3A)),
                 ),
               ],
             ),

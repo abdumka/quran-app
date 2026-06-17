@@ -8,7 +8,10 @@
       "PowerShell(Select-String -Path \"d:\\\\quran app\\\\quran-app-main\\\\pubspec.yaml\" -Pattern '^name:' | ForEach-Object Line)",
       "PowerShell(flutter build apk --release)",
       "Bash(flutter run *)",
-      "Bash(flutter analyze *)"
+      "Bash(flutter analyze *)",
+      "Bash(PYTHONIOENCODING=utf-8 python generate_narration_map.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(del \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\services\\\\high_quality_images_service.dart\")"
     ]
   }
 }

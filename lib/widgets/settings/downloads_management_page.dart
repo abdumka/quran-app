@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../services/high_quality_images_service.dart';
+import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 class DownloadsManagementPage extends StatefulWidget {
-  final HighQualityImagesService highQualityImagesService;
+  final AudioDownloadService audioDownloadService;
   final MarginImagesService marginImagesService;
 
-  const DownloadsManagementPage({super.key, 
-    required this.highQualityImagesService,
+  const DownloadsManagementPage({super.key,
+    required this.audioDownloadService,
     required this.marginImagesService,
   });
 
@@ -49,13 +49,13 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
     return result ?? false;
   }
 
-  Future<void> _deleteHighQualityImages() async {
+  Future<void> _deleteAudioDownloads() async {
     final confirmed = await _confirmDelete(
-      title: 'حذف الصور عالية الجودة',
-      body: 'سيتم حذف ملفات الجودة العالية من الجهاز والعودة إلى الصور الأساسية المدمجة. هل تريد المتابعة؟',
+      title: 'حذف ملفات الصوت',
+      body: 'سيتم حذف جميع ملفات الصوت المحملة من الجهاز. يمكنك إعادة تحميلها لاحقًا. هل تريد المتابعة؟',
     );
     if (!confirmed) return;
-    await widget.highQualityImagesService.deleteDownloadedImages();
+    await widget.audioDownloadService.deleteDownloads();
   }
 
   Future<void> _deleteMarginImages() async {
@@ -71,14 +71,14 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<HighQualityImagesState>(
-      valueListenable: widget.highQualityImagesService.state,
-      builder: (context, highQualityState, _) {
+    return ValueListenableBuilder<AudioDownloadState>(
+      valueListenable: widget.audioDownloadService.state,
+      builder: (context, audioState, _) {
         return ValueListenableBuilder<MarginImagesState>(
           valueListenable: widget.marginImagesService.state,
           builder: (context, marginState, _) {
             final totalBytes =
-                highQualityState.installedBytes + marginState.installedBytes;
+                audioState.installedBytes + marginState.installedBytes;
 
             return Scaffold(
               backgroundColor: const Color(0xFFF6F1E5),
@@ -162,21 +162,24 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                   ),
                   const SizedBox(height: 10),
                   DownloadedPackageCard(
-                    title: 'الصور عالية الجودة',
-                    subtitle: highQualityState.isAvailable
-                        ? 'محملة على الجهاز ويستخدمها التطبيق تلقائيًا عند توفرها.'
-                        : 'غير محملة حاليًا.',
-                    sizeLabel: highQualityState.isAvailable
-                        ? highQualityState.installedSizeLabel
+                    title: 'ملفات الصوت',
+                    subtitle: audioState.isComplete
+                        ? 'جميع ملفات التلاوة محملة، يمكن الاستماع بدون إنترنت.'
+                        : audioState.downloadedFiles > 0
+                            ? 'تم تحميل ${audioState.downloadedFiles} من ${audioState.totalFiles} ملف.'
+                            : 'غير محملة حاليًا.',
+                    sizeLabel: audioState.installedBytes > 0
+                        ? audioState.installedSizeLabel
                         : '0 MB',
-                    statusLabel: highQualityState.isAvailable
-                        ? 'محملة'
-                        : 'غير محملة',
-                    icon: Icons.high_quality_rounded,
-                    actionLabel: highQualityState.isAvailable ? 'حذف' : null,
-                    onAction: highQualityState.isAvailable &&
-                            !highQualityState.isDownloading
-                        ? _deleteHighQualityImages
+                    statusLabel: audioState.isComplete
+                        ? 'مكتملة'
+                        : audioState.downloadedFiles > 0
+                            ? 'جزئية'
+                            : 'غير محملة',
+                    icon: Icons.audio_file_rounded,
+                    actionLabel: audioState.downloadedFiles > 0 ? 'حذف' : null,
+                    onAction: audioState.downloadedFiles > 0 && !audioState.isDownloading
+                        ? _deleteAudioDownloads
                         : null,
                   ),
                   const SizedBox(height: 10),
@@ -219,7 +222,7 @@ class DownloadedPackageCard extends StatelessWidget {
   final String? actionLabel;
   final Future<void> Function()? onAction;
 
-  const DownloadedPackageCard({super.key, 
+  const DownloadedPackageCard({super.key,
     required this.title,
     required this.subtitle,
     required this.sizeLabel,
