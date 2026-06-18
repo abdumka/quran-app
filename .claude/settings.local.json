@@ -11,7 +11,8 @@
       "Bash(flutter analyze *)",
       "Bash(PYTHONIOENCODING=utf-8 python generate_narration_map.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
-      "Bash(del \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\services\\\\high_quality_images_service.dart\")"
+      "Bash(del \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\services\\\\high_quality_images_service.dart\")",
+      "Bash(python -c ' *)"
     ]
   }
 }
