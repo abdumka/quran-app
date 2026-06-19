@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
+import '../../services/high_quality_images_service.dart';
 class DownloadsManagementPage extends StatefulWidget {
   final AudioDownloadService audioDownloadService;
   final MarginImagesService marginImagesService;
+  final HighQualityImagesService highQualityImagesService;
 
   const DownloadsManagementPage({super.key,
     required this.audioDownloadService,
     required this.marginImagesService,
+    required this.highQualityImagesService,
   });
 
   @override
@@ -67,7 +70,14 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
     await widget.marginImagesService.deleteDownloadedImages();
   }
 
-
+  Future<void> _deleteHighQualityImages() async {
+    final confirmed = await _confirmDelete(
+      title: 'حذف حزمة الجودة الفائقة',
+      body: 'سيتم حذف صور الجودة الفائقة من الجهاز، وسيعود العرض إلى الصور الأساسية. يمكنك إعادة تنزيلها لاحقًا. هل تريد المتابعة؟',
+    );
+    if (!confirmed) return;
+    await widget.highQualityImagesService.deleteDownloadedImages();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,8 +87,12 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
         return ValueListenableBuilder<MarginImagesState>(
           valueListenable: widget.marginImagesService.state,
           builder: (context, marginState, _) {
-            final totalBytes =
-                audioState.installedBytes + marginState.installedBytes;
+            return ValueListenableBuilder<HighQualityImagesState>(
+              valueListenable: widget.highQualityImagesService.state,
+              builder: (context, hqState, _) {
+            final totalBytes = audioState.installedBytes +
+                marginState.installedBytes +
+                hqState.installedBytes;
 
             return Scaffold(
               backgroundColor: const Color(0xFFF6F1E5),
@@ -203,8 +217,26 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                             ? _deleteMarginImages
                             : null,
                   ),
+                  const SizedBox(height: 10),
+                  DownloadedPackageCard(
+                    title: 'حزمة الجودة الفائقة',
+                    subtitle: hqState.isAvailable
+                        ? 'محمّلة على الجهاز وتُستخدم عند اختيار الجودة الفائقة.'
+                        : 'غير محمّلة حاليًا.',
+                    sizeLabel: hqState.isAvailable
+                        ? hqState.installedSizeLabel
+                        : '0 MB',
+                    statusLabel: hqState.isAvailable ? 'محمّلة' : 'غير محمّلة',
+                    icon: Icons.hd_rounded,
+                    actionLabel: hqState.isAvailable ? 'حذف' : null,
+                    onAction: hqState.isAvailable && !hqState.isDownloading
+                        ? _deleteHighQualityImages
+                        : null,
+                  ),
                 ],
               ),
+            );
+              },
             );
           },
         );

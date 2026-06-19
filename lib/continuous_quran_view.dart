@@ -27,10 +27,12 @@ class ContinuousQuranView extends StatefulWidget {
     required this.onAutoScrollInterrupted,
     this.onTap,
     this.hifzModeEnabled = false,
+    this.filterQuality = FilterQuality.low,
   });
 
   final List<String> pages;
   final ImageProvider Function(int pageIndex) pageImageProviderBuilder;
+  final FilterQuality filterQuality;
   final int initialPage;
   final double viewportWidth;
   final double pageAspectRatio;
@@ -59,7 +61,9 @@ class ContinuousQuranView extends StatefulWidget {
 
 class ContinuousQuranViewState extends State<ContinuousQuranView> {
   static const bool _debugTransitions = false;
-  static const int _precacheRadius = 1;
+  // Warm a couple of pages on each side into the image cache so faster scrolls
+  // (beyond what scrollCacheExtent builds) still find their pages already decoded.
+  static const int _precacheRadius = 2;
 
 
   late final ScrollController _controller;
@@ -485,10 +489,15 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
       child: ListView.builder(
         controller: _controller,
         physics: const ClampingScrollPhysics(),
-        // Use a small scrollCacheExtent (250.0) so ListView only builds the current page instantly.
-        // This prevents Out of Memory (OOM) crashes that happen if 3 raw huge images
-        // are loaded simultaneously on startup. precacheImage handles the rest silently.
-        scrollCacheExtent: ScrollCacheExtent.pixels(250.0),
+        // Build roughly one page above and below the viewport so the next/prev
+        // page's image has already started (and usually finished) decoding before
+        // it scrolls into view — otherwise the reader briefly shows the blank
+        // cream background while a fresh image decodes. Memory stays bounded: both
+        // asset and downloaded images decode through ResizeImage(width: 720)
+        // (~4.7 MB each), so the ~3-4 pages held here fit easily within the
+        // 300 MB image cache configured in main(). The old 250px value was a
+        // workaround for un-resized "raw huge images", which no longer exist.
+        scrollCacheExtent: ScrollCacheExtent.pixels(_pageHeight),
         itemExtent: _pageHeight,
         itemCount: widget.pages.length,
         itemBuilder: (context, index) {
@@ -537,7 +546,7 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                               fit: BoxFit.fill,
                               alignment: Alignment.center,
                               gaplessPlayback: true,
-                              filterQuality: FilterQuality.low,
+                              filterQuality: widget.filterQuality,
                               frameBuilder: (
                                 context,
                                 child,

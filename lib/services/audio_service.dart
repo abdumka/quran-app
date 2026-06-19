@@ -8,7 +8,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/quran_page_data.dart';
+import '../models/reciter.dart';
 import 'quran_json_service.dart';
+import 'reciter_service.dart';
 
 /// Repeat mode for ayah playback.
 enum AyahRepeatMode {
@@ -28,9 +30,8 @@ class AudioService {
 
   final AudioPlayer _player = AudioPlayer();
 
-  // Base URL for individual MP3 files on GitHub
-  static const String _baseUrl =
-      'https://raw.githubusercontent.com/quran-by-verses/alhosary-qaloon-32/main/verses/';
+  // Base URL for individual MP3 files, taken from the selected reciter's mirror.
+  String get _baseUrl => ReciterService.instance.selected.value.audioBaseUrl;
 
   List<QuranPageData>? _quranPages;
   int _currentGlobalAyahIndex = 0;
@@ -107,8 +108,13 @@ class AudioService {
     if (_isInitialized) return;
     _isInitialized = true;
 
+    await ReciterService.instance.load();
     _quranPages ??= await QuranJsonService.loadQuranPages();
     _cacheDir ??= await _getAudioCacheDir();
+
+    // Re-point (and stop) when the user switches reciter: the cache folder and
+    // base URL both change, so anything mid-playback must restart cleanly.
+    ReciterService.instance.selected.addListener(_handleReciterChanged);
 
     _player.playerStateStream.listen((state) {
       isPlaying.value = state.playing;
@@ -118,9 +124,18 @@ class AudioService {
     });
   }
 
+  /// Called when the selected reciter changes. Stops playback and forces the
+  /// cache directory to be recomputed for the new reciter on next play.
+  void _handleReciterChanged() {
+    stop();
+    _cacheDir = null;
+  }
+
   Future<Directory> _getAudioCacheDir() async {
     final appDir = await getApplicationSupportDirectory();
-    final dir = Directory(p.join(appDir.path, 'audio_cache'));
+    final dir = Directory(
+      p.join(appDir.path, ReciterService.instance.selected.value.cacheFolder),
+    );
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -135,6 +150,20 @@ class AudioService {
     final s = ayah.surah;
     final a = ayah.ayah;
     final surahStr = s.toString().padLeft(3, '0');
+
+    // ── al-Naihi mirror: native Madani per-ayah numbering ──
+    // File names match the app's ayah numbers 1:1; the basmala is a separate
+    // file `SSS000.mp3` recited before ayah 1 (every surah except At-Tawba 9).
+    if (ReciterService.instance.selected.value.nativeQalounScheme) {
+      String f(int n) => '$surahStr${n.toString().padLeft(3, '0')}.mp3';
+      // "Phantom" ayah: the app's page data numbers a few surahs in Kufi style
+      // (e.g. surah 4 has 176 ayahs vs Madani 175). The extra trailing ayah has
+      // no distinct al-Naihi file — its words are inside the previous combined
+      // ayah — so return no files and let playback advance cleanly (no 404 stall).
+      if (a > Reciter.naihiMadaniAyahCounts[s - 1]) return const [];
+      if (a == 1 && s != 9) return [f(0), f(1)];
+      return [f(a)];
+    }
 
     // ── معالجة الآيات المدمجة في آخر السورة ──
     // (لأن التسجيل الصوتي دمج آخر آيات قالون في ملف واحد نظراً لكون عدد آيات قالون أكثر)

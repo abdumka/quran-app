@@ -16,6 +16,8 @@ import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
 import 'services/margin_images_service.dart';
+import 'services/high_quality_images_service.dart';
+import 'services/page_quality_service.dart';
 
 import 'services/theme_service.dart';
 import 'services/tafsir_service.dart';
@@ -28,6 +30,7 @@ import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/top_overlay_bar.dart';
+import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
 import 'search_page.dart';
 
@@ -265,6 +268,9 @@ class _QuranPagesState extends State<QuranPages>
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
+  final HighQualityImagesService _highQualityImagesService =
+      HighQualityImagesService.instance;
+  final PageQualityService _pageQualityService = PageQualityService.instance;
 
   final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
       GlobalKey<ContinuousQuranViewState>();
@@ -399,6 +405,8 @@ class _QuranPagesState extends State<QuranPages>
     _readingCoordinator = QuranReadingCoordinator(pageCount: pages.length);
     _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
+    _highQualityImagesService.state.addListener(_handleHighQualityImagesChanged);
+    _pageQualityService.level.addListener(_handlePageQualityChanged);
     // Use the page passed from SplashScreen so we never flash Al-Fatiha
     if (widget.initialPage > 0) {
       _readingCoordinator.setCurrentPage(widget.initialPage);
@@ -406,6 +414,8 @@ class _QuranPagesState extends State<QuranPages>
     }
     _portraitController = PageController(initialPage: widget.initialPage);
     _marginImagesService.initialize();
+    _highQualityImagesService.initialize();
+    _pageQualityService.load();
 
     // Set scroll mode immediately from SplashScreen to avoid delayed setState blank flash
     _isPortraitScrollMode = widget.initialPortraitScrollMode;
@@ -511,6 +521,9 @@ class _QuranPagesState extends State<QuranPages>
     AudioService.instance.stop();
     _setReadingMode(false);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
+    _highQualityImagesService.state
+        .removeListener(_handleHighQualityImagesChanged);
+    _pageQualityService.level.removeListener(_handlePageQualityChanged);
     _readingCoordinator.removeListener(_handleReadingCoordinatorChanged);
     _readingCoordinator.dispose();
     _bookmarkGuideAnimationController.dispose();
@@ -606,6 +619,28 @@ class _QuranPagesState extends State<QuranPages>
     });
   }
 
+  void _handlePageQualityChanged() {
+    if (!mounted) return;
+    // Re-evaluate image providers and filterQuality for the new level.
+    setState(() {});
+  }
+
+  bool _prevHqEnabled = false;
+  String? _prevHqDir;
+
+  void _handleHighQualityImagesChanged() {
+    if (!mounted) return;
+    final s = _highQualityImagesService.state.value;
+    if (s.isEnabled == _prevHqEnabled && s.imagesDirectoryPath == _prevHqDir) {
+      return; // Only download progress changed — skip rebuild.
+    }
+    _prevHqEnabled = s.isEnabled;
+    _prevHqDir = s.imagesDirectoryPath;
+    _downloadedPageFileCache.clear();
+    _cachedDirectories.clear();
+    setState(() {});
+  }
+
   bool get _isMarginImagesEnabled => _marginImagesService.state.value.isEnabled;
   double get _activePageAspectRatio =>
       _isMarginImagesEnabled ? _marginPageAspectRatio : _defaultPageAspectRatio;
@@ -660,6 +695,16 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
   ImageProvider _imageProviderForPage(int pageIndex, String assetPath) {
+    // Levels 2 & 3 decode at native size (all sources are 720px wide, so this
+    // is the same memory as the old ResizeImage(720)) and pair with a high
+    // filterQuality for smoother upscaling. Level 1 keeps the original resize.
+    final int level = _pageQualityService.level.value;
+    final bool nativeDecode = level != PageQualityService.standard;
+
+    ImageProvider wrap(ImageProvider provider) =>
+        nativeDecode ? provider : ResizeImage(provider, width: 720);
+
+    // Margin display, when enabled, overrides the source image.
     final marginState = _marginImagesService.state.value;
     if (marginState.isEnabled && marginState.imagesDirectoryPath != null) {
       final file = _downloadedPageFileForIndex(
@@ -667,14 +712,26 @@ class _QuranPagesState extends State<QuranPages>
         pageIndex + 1,
       );
       if (file != null) {
-        // Use ResizeImage(width: 720) for downloaded files to stay within GPU
-        // texture limits while keeping decode time short (~0.3s vs ~3s at 1080).
-        return ResizeImage(FileImage(file), width: 720);
+        return wrap(FileImage(file));
       }
     }
 
-    // Resize asset images to match device width for faster decode.
-    return ResizeImage(AssetImage(assetPath), width: 720);
+    // Level 3: use the downloaded high-fidelity pack when it is ready, else
+    // fall through to the bundled asset (rendered with level-2 smoothing).
+    if (level >= PageQualityService.highFidelity) {
+      final hqState = _highQualityImagesService.state.value;
+      if (hqState.isEnabled && hqState.imagesDirectoryPath != null) {
+        final file = _downloadedPageFileForIndex(
+          hqState.imagesDirectoryPath!,
+          pageIndex + 1,
+        );
+        if (file != null) {
+          return wrap(FileImage(file));
+        }
+      }
+    }
+
+    return wrap(AssetImage(assetPath));
   }
 
   void _recreatePortraitController({required int initialPage}) {
@@ -2351,7 +2408,7 @@ class _QuranPagesState extends State<QuranPages>
                           height: double.infinity,
                           fit: BoxFit.fill,
                           gaplessPlayback: true,
-                          filterQuality: FilterQuality.low,
+                          filterQuality: _pageQualityService.filterQuality,
                         ),
                       ),
                     ),
@@ -2442,7 +2499,7 @@ class _QuranPagesState extends State<QuranPages>
                       height: double.infinity,
                       fit: BoxFit.fill,
                       gaplessPlayback: true,
-                      filterQuality: FilterQuality.low,
+                      filterQuality: _pageQualityService.filterQuality,
                     ),
                   ),
                 ),
@@ -2590,6 +2647,7 @@ class _QuranPagesState extends State<QuranPages>
                     key: _continuousViewKey,
                     hifzModeEnabled: _isHifzModeEnabled,
                     pages: pages,
+                    filterQuality: _pageQualityService.filterQuality,
                     pageImageProviderBuilder: (pageIndex) =>
                         _imageProviderForPage(pageIndex, pages[pageIndex]),
                     initialPage: _currentPage,
@@ -3629,8 +3687,6 @@ class _QuranPagesState extends State<QuranPages>
                   onSettingsPressed: _openSettings,
                   isHideBarEnabled: _isHideBarEnabled,
                   onToggleHideBar: _toggleHideBar,
-                  isHifzModeEnabled: _isHifzModeEnabled,
-                  onToggleHifzMode: _toggleHifzMode,
                   isFullScreenMode: _isFullScreenMode,
                   onToggleFullScreenMode: _toggleFullScreenMode,
                 ),
@@ -3855,7 +3911,7 @@ class _QuranPagesState extends State<QuranPages>
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.psychology_rounded, color: titleColor, size: 24),
+                HifzLensIcon(color: titleColor, size: 24),
                 const SizedBox(width: 8),
                 Text(
                   'شرح عدسة الإخفاء',
@@ -3869,7 +3925,7 @@ class _QuranPagesState extends State<QuranPages>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _guideRow(Icons.touch_app_rounded, 'مرر إصبعك على الصفحة لكشف النص تحته فقط', textColor, borderColor),
-                  _guideRow(Icons.psychology_rounded, 'اختبر حفظك سطراً سطراً دون رؤية النص كاملاً', textColor, borderColor),
+                  _guideRow(Icons.psychology_rounded, 'اختبر حفظك سطراً سطراً دون رؤية النص كاملاً', textColor, borderColor, iconWidget: HifzLensIcon(color: textColor, size: 18)),
                   _guideRow(Icons.visibility_off_rounded, 'شريط الإخفاء يتوقف تلقائياً عند تفعيل العدسة', textColor, borderColor),
                   _guideRow(Icons.tap_and_play_rounded, 'المس الصفحة لمرة واحدة لإظهار قائمة الإعدادات', textColor, borderColor),
                   const SizedBox(height: 16),
@@ -4047,7 +4103,7 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  Widget _guideRow(IconData icon, String label, Color textColor, Color borderColor) {
+  Widget _guideRow(IconData icon, String label, Color textColor, Color borderColor, {Widget? iconWidget}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -4060,7 +4116,7 @@ class _QuranPagesState extends State<QuranPages>
               color: borderColor.withValues(alpha: 0.18),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: textColor, size: 18),
+            child: iconWidget ?? Icon(icon, color: textColor, size: 18),
           ),
           const SizedBox(width: 10),
           Expanded(

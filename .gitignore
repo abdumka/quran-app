@@ -90,3 +90,6 @@ temp_quran_repo/
 android/.gradle/
 # One-time Hafs text download cache for generate_narration_map.py
 hafs_uthmani.json
+
+# al-Naihi mirror download output (push to GitHub mirror, do not commit to app repo)
+tools/naihi_verses/

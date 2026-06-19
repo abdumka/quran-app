@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/debug_log_service.dart';
+import 'services/reciter_service.dart';
 import 'services/theme_service.dart';
 import 'splash_screen.dart';
 
@@ -39,6 +40,7 @@ Future<void> main() async {
     DebugLogService.instance.log('[App] main() start');
   } catch (_) {}
   await ThemeService.loadTheme();
+  await ReciterService.instance.load();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,

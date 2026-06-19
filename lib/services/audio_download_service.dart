@@ -5,6 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/reciter.dart';
+import 'reciter_service.dart';
+
 class AudioDownloadState {
   final bool isDownloading;
   final bool isPaused;
@@ -60,9 +63,9 @@ class AudioDownloadService {
   static final AudioDownloadService instance = AudioDownloadService._();
   AudioDownloadService._();
 
-  static const String _baseUrl =
-      'https://raw.githubusercontent.com/quran-by-verses/alhosary-qaloon-32/main/verses/';
-  static const String _cacheFolder = 'audio_cache';
+  /// Base URL + cache folder follow the currently selected reciter.
+  String get _baseUrl => ReciterService.instance.selected.value.audioBaseUrl;
+  String get _cacheFolder => ReciterService.instance.selected.value.cacheFolder;
 
   final ValueNotifier<AudioDownloadState> state =
       ValueNotifier(const AudioDownloadState());
@@ -71,6 +74,7 @@ class AudioDownloadService {
   bool _pauseRequested = false;
   bool _isDownloading = false;
   bool _didInitialize = false;
+  bool _listeningForReciterChange = false;
 
   // Standard Quran ayah counts per surah (Hafs numbering used by the app).
   static const List<int> _surahAyahCounts = [
@@ -97,8 +101,11 @@ class AudioDownloadService {
   };
 
   /// Returns the complete list of unique MP3 filenames required to play the
-  /// entire Quran with this reciter.
-  static List<String> getAllFilenames() {
+  /// entire Quran with the currently selected reciter.
+  List<String> getAllFilenames() {
+    if (ReciterService.instance.selected.value.nativeQalounScheme) {
+      return _naihiFilenames();
+    }
     final filenames = <String>{};
     for (int s = 1; s <= 114; s++) {
       final ayahCount = _surahAyahCounts[s - 1];
@@ -117,6 +124,20 @@ class AudioDownloadService {
     return filenames.toList()..sort();
   }
 
+  /// al-Naihi mirror: native per-ayah files `SSS001..SSSmax` plus a basmala
+  /// file `SSS000` for every surah except At-Tawba (9).
+  List<String> _naihiFilenames() {
+    final filenames = <String>{};
+    for (int s = 1; s <= 114; s++) {
+      final surahStr = s.toString().padLeft(3, '0');
+      if (s != 9) filenames.add('${surahStr}000.mp3');
+      for (int a = 1; a <= Reciter.naihiMadaniAyahCounts[s - 1]; a++) {
+        filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
+      }
+    }
+    return filenames.toList()..sort();
+  }
+
   Future<Directory> _getCacheDir() async {
     final appDir = await getApplicationSupportDirectory();
     final dir = Directory(p.join(appDir.path, _cacheFolder));
@@ -127,6 +148,11 @@ class AudioDownloadService {
   }
 
   Future<void> initialize() async {
+    await ReciterService.instance.load();
+    if (!_listeningForReciterChange) {
+      _listeningForReciterChange = true;
+      ReciterService.instance.selected.addListener(_handleReciterChanged);
+    }
     if (_didInitialize) return;
     _didInitialize = true;
 
@@ -157,6 +183,15 @@ class AudioDownloadService {
   }
 
   void refresh() {
+    _didInitialize = false;
+    initialize();
+  }
+
+  /// When the user switches reciter, cancel any in-flight download and recompute
+  /// the download state for the newly selected reciter's cache folder.
+  void _handleReciterChanged() {
+    if (_isDownloading) _cancelRequested = true;
+    state.value = const AudioDownloadState();
     _didInitialize = false;
     initialize();
   }

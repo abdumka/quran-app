@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'settings_constants.dart';
+import '../hifz_lens_icon.dart';
 import 'dart:math' as math;
 class SettingsCoachOverlay extends StatelessWidget {
   final SettingsCoachStep step;
@@ -320,8 +321,14 @@ class _CoachVisualState extends State<CoachVisual>
                 IconCoachVisual(t: t, icon: Icons.brightness_6_rounded),
               SettingsCoachStep.darkMode =>
                 IconCoachVisual(t: t, icon: Icons.dark_mode_rounded),
-              SettingsCoachStep.hifzLens =>
-                IconCoachVisual(t: t, icon: Icons.psychology_rounded),
+              SettingsCoachStep.hifzLens => IconCoachVisual(
+                t: t,
+                icon: Icons.psychology_rounded,
+                iconOverride: const HifzLensIcon(
+                  size: 28,
+                  color: Color(0xFF8D6E3F),
+                ),
+              ),
               SettingsCoachStep.fullScreen =>
                 IconCoachVisual(t: t, icon: Icons.fullscreen_rounded),
               SettingsCoachStep.twoPage =>
@@ -343,7 +350,15 @@ class IconCoachVisual extends StatelessWidget {
   final double t;
   final IconData icon;
 
-  const IconCoachVisual({super.key, required this.t, required this.icon});
+  /// Optional custom icon, used instead of [icon] when provided.
+  final Widget? iconOverride;
+
+  const IconCoachVisual({
+    super.key,
+    required this.t,
+    required this.icon,
+    this.iconOverride,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -360,11 +375,12 @@ class IconCoachVisual extends StatelessWidget {
             color: const Color(0xFF8D6E3F).withValues(alpha: 0.35),
           ),
         ),
-        child: Icon(
-          icon,
-          color: const Color(0xFF8D6E3F),
-          size: 28,
-        ),
+        child: iconOverride ??
+            Icon(
+              icon,
+              color: const Color(0xFF8D6E3F),
+              size: 28,
+            ),
       ),
     );
   }

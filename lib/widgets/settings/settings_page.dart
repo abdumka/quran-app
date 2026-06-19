@@ -8,12 +8,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
+import '../../services/high_quality_images_service.dart';
+import '../../services/page_quality_service.dart';
+import '../../services/reciter_service.dart';
 import '../../utils/responsive_helper.dart';
 
 import 'settings_components.dart';
 import 'settings_coach_overlay.dart';
+import '../hifz_lens_icon.dart';
 import 'downloads_management_page.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
@@ -93,7 +98,11 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showHifzLensGuide = false;
   bool _showFullScreenGuide = false;
   final AudioDownloadService _audioDownloadService = AudioDownloadService.instance;
+  final ReciterService _reciterService = ReciterService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
+  final HighQualityImagesService _highQualityImagesService =
+      HighQualityImagesService.instance;
+  final PageQualityService _pageQualityService = PageQualityService.instance;
 
   final GlobalKey _settingsOverlayKey = GlobalKey();
   final GlobalKey _browseModeCardKey = GlobalKey();
@@ -128,6 +137,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _localFullScreenMode = widget.isFullScreenMode;
     _audioDownloadService.initialize();
     _marginImagesService.initialize();
+    _highQualityImagesService.initialize();
+    _pageQualityService.load();
     _loadGuidePreferences();
     _loadCurrentBrightness();
   }
@@ -580,6 +591,23 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _handleHighQualityImagesDownload() async {
+    final shouldContinue = await _confirmDownload(
+      title: 'تنزيل حزمة الجودة الفائقة',
+      body:
+          'سيتم تنزيل حزمة الصور الأنقى بحجم تقريبي ${_highQualityImagesService.state.value.packageSizeLabel}. '
+          'الصور بنفس الأبعاد (720 نقطة) لكن بضغط أقل وجودة أنقى. هل تريد المتابعة؟',
+    );
+    if (!shouldContinue || !mounted) return;
+
+    try {
+      await _highQualityImagesService.downloadAndEnable();
+    } catch (error) {
+      if (!mounted) return;
+      _showSettingsNotice(_describeMarginImagesError(error));
+    }
+  }
+
   String _describeMarginImagesError(Object error) {
     final text = error.toString();
 
@@ -640,6 +668,13 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _handleReciterSelect(Reciter reciter) async {
+    if (_reciterService.selected.value.id == reciter.id) return;
+    await _reciterService.select(reciter);
+    if (!mounted) return;
+    _showSettingsNotice('تم اختيار تلاوة ${reciter.name}.');
+  }
+
   void _openDownloadsManagementPage() {
     Navigator.push(
       context,
@@ -647,6 +682,7 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (_) => DownloadsManagementPage(
           audioDownloadService: _audioDownloadService,
           marginImagesService: _marginImagesService,
+          highQualityImagesService: _highQualityImagesService,
         ),
       ),
     );
@@ -944,6 +980,10 @@ class _SettingsPageState extends State<SettingsPage> {
                               child: CompactSwitchTile(
                                 title: 'عدسة الإخفاء',
                                 icon: Icons.psychology_rounded,
+                                iconOverride: const HifzLensIcon(
+                                  size: 20,
+                                  color: Color(0xFF8B7355),
+                                ),
                                 onInfo: () => _presentCoachManually(
                                   SettingsCoachStep.hifzLens,
                                 ),
@@ -1023,6 +1063,29 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
+                      SettingsCard(
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _pageQualityService.level,
+                          builder: (context, level, _) {
+                            return ValueListenableBuilder<HighQualityImagesState>(
+                              valueListenable: _highQualityImagesService.state,
+                              builder: (context, hqState, _) {
+                                return PageQualityTile(
+                                  level: level,
+                                  hqState: hqState,
+                                  onSelectLevel: _pageQualityService.setLevel,
+                                  onDownloadHq: _handleHighQualityImagesDownload,
+                                  onCancelHqDownload:
+                                      _highQualityImagesService.cancelDownload,
+                                  onPauseHqDownload:
+                                      _highQualityImagesService.pauseDownload,
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       Container(
                         key: _marginImagesCardKey,
                         child: SettingsCard(
@@ -1040,6 +1103,19 @@ class _SettingsPageState extends State<SettingsPage> {
                               );
                             },
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      SettingsCard(
+                        child: ValueListenableBuilder<Reciter>(
+                          valueListenable: _reciterService.selected,
+                          builder: (context, selectedReciter, _) {
+                            return ReciterTile(
+                              reciters: _reciterService.reciters,
+                              selected: selectedReciter,
+                              onSelect: _handleReciterSelect,
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(height: 6),

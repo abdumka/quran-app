@@ -10,8 +10,6 @@ class TopOverlayBar extends StatelessWidget {
   final VoidCallback onSettingsPressed;
   final bool isHideBarEnabled;
   final ValueChanged<bool> onToggleHideBar;
-  final bool isHifzModeEnabled;
-  final ValueChanged<bool> onToggleHifzMode;
   final bool isFullScreenMode;
   final ValueChanged<bool> onToggleFullScreenMode;
 
@@ -26,8 +24,6 @@ class TopOverlayBar extends StatelessWidget {
     required this.onSettingsPressed,
     required this.isHideBarEnabled,
     required this.onToggleHideBar,
-    required this.isHifzModeEnabled,
-    required this.onToggleHifzMode,
     required this.isFullScreenMode,
     required this.onToggleFullScreenMode,
   });
@@ -112,21 +108,6 @@ class TopOverlayBar extends StatelessWidget {
                     tooltip: isFullScreenMode
                         ? 'إيقاف وضع ملء الشاشة'
                         : 'تفعيل وضع ملء الشاشة',
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      Icons.psychology_rounded,
-                      color: isHifzModeEnabled
-                          ? const Color(0xFFD2B97E)
-                          : const Color(0xFFD2B97E).withValues(alpha: 0.5),
-                      size: 24,
-                    ),
-                    onPressed: () => onToggleHifzMode(!isHifzModeEnabled),
-                    padding: const EdgeInsets.all(6),
-                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                    tooltip: isHifzModeEnabled
-                        ? 'إيقاف عدسة الإخفاء'
-                        : 'تفعيل عدسة الإخفاء',
                   ),
                   IconButton(
                     icon: Icon(
