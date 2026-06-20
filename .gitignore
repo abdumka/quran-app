@@ -93,3 +93,6 @@ hafs_uthmani.json
 
 # al-Naihi mirror download output (push to GitHub mirror, do not commit to app repo)
 tools/naihi_verses/
+
+tools/_qaloun_data.json
+tools/naihi_durations.json

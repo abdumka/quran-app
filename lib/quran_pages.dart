@@ -15,6 +15,7 @@ import 'continuous_quran_view.dart';
 import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
+import 'services/background_playback_service.dart';
 import 'services/margin_images_service.dart';
 import 'services/high_quality_images_service.dart';
 import 'services/page_quality_service.dart';
@@ -536,7 +537,11 @@ class _QuranPagesState extends State<QuranPages>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
       // Pause audio instead of stopping — so user can resume when they return.
-      AudioService.instance.pause();
+      // Unless the user enabled background playback, in which case the recitation
+      // keeps going and is controlled from the system media notification.
+      if (!BackgroundPlaybackService.instance.enabled.value) {
+        AudioService.instance.pause();
+      }
       // Stop auto-scroll timer to save battery in background.
       _stopPortraitAutoScroll();
       // Pause any active downloads so they can resume later

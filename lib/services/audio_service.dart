@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/quran_page_data.dart';
 import '../models/reciter.dart';
+import 'audio_ayah_map_service.dart';
 import 'quran_json_service.dart';
 import 'reciter_service.dart';
 
@@ -109,6 +111,7 @@ class AudioService {
     _isInitialized = true;
 
     await ReciterService.instance.load();
+    await AudioAyahMapService.instance.load();
     _quranPages ??= await QuranJsonService.loadQuranPages();
     _cacheDir ??= await _getAudioCacheDir();
 
@@ -151,18 +154,23 @@ class AudioService {
     final a = ayah.ayah;
     final surahStr = s.toString().padLeft(3, '0');
 
-    // ── al-Naihi mirror: native Madani per-ayah numbering ──
-    // File names match the app's ayah numbers 1:1; the basmala is a separate
-    // file `SSS000.mp3` recited before ayah 1 (every surah except At-Tawba 9).
+    // ── al-Naihi mirror: native Qalun per-ayah numbering ──
+    // The basmala is a separate file `SSS000.mp3` recited before ayah 1 (every
+    // surah except At-Tawba 9). The displayed (output.json) ayah number is
+    // translated to the recitation's own Qalun ayah file(s) via the audio map,
+    // because the two use slightly different ayah divisions (see
+    // AudioAyahMapService). Out-of-range numbers are dropped so playback advances
+    // cleanly instead of 404-stalling.
     if (ReciterService.instance.selected.value.nativeQalounScheme) {
       String f(int n) => '$surahStr${n.toString().padLeft(3, '0')}.mp3';
-      // "Phantom" ayah: the app's page data numbers a few surahs in Kufi style
-      // (e.g. surah 4 has 176 ayahs vs Madani 175). The extra trailing ayah has
-      // no distinct al-Naihi file — its words are inside the previous combined
-      // ayah — so return no files and let playback advance cleanly (no 404 stall).
-      if (a > Reciter.naihiMadaniAyahCounts[s - 1]) return const [];
-      if (a == 1 && s != 9) return [f(0), f(1)];
-      return [f(a)];
+      final mapped = AudioAyahMapService.instance.lookup(s, a) ?? [a];
+      final maxAyah = Reciter.naihiMadaniAyahCounts[s - 1];
+      final files = <String>[];
+      if (a == 1 && s != 9) files.add(f(0)); // basmala before the first ayah
+      for (final n in mapped) {
+        if (n >= 1 && n <= maxAyah) files.add(f(n));
+      }
+      return files;
     }
 
     // ── معالجة الآيات المدمجة في آخر السورة ──
@@ -380,18 +388,32 @@ class AudioService {
     _setupSplitMonitoring(ayah);
   }
 
+  /// Builds the media-session metadata shown in the notification / lock screen.
+  MediaItem _mediaItemFor(Uri uri) {
+    final ayah = currentAyah.value;
+    final reciter = ReciterService.instance.selected.value;
+    final title = ayah == null
+        ? 'القرآن الكريم'
+        : 'سورة ${ayah.surahName} - الآية ${ayah.ayah}';
+    return MediaItem(
+      id: uri.toString(),
+      title: title,
+      album: reciter.name,
+      artist: reciter.riwaya,
+    );
+  }
+
   Future<void> _playFile(String fileName, {Duration? seekTo, bool autoPlay = true}) async {
     try {
       final dir = _cacheDir ?? await _getAudioCacheDir();
       final localFile = File(p.join(dir.path, fileName));
 
-      if (localFile.existsSync()) {
-        await _player.setFilePath(localFile.path);
-      } else {
-        // Fallback: stream directly
-        final url = '$_baseUrl$fileName';
-        await _player.setUrl(url);
-      }
+      final Uri uri = localFile.existsSync()
+          ? Uri.file(localFile.path)
+          : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
+      await _player.setAudioSource(
+        AudioSource.uri(uri, tag: _mediaItemFor(uri)),
+      );
 
       if (seekTo != null) {
         await _player.seek(seekTo);

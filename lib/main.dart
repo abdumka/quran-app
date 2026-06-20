@@ -1,8 +1,11 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'services/background_playback_service.dart';
 import 'services/debug_log_service.dart';
 import 'services/reciter_service.dart';
 import 'services/theme_service.dart';
@@ -10,7 +13,28 @@ import 'splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // Enables background playback + system media controls (notification / lock
+  // screen / headset / Bluetooth) for the recitation. Hardware volume buttons
+  // control playback volume whenever the media session is active.
+  //
+  // Only supported on Android/iOS; on other platforms (desktop/web) it throws,
+  // so guard + catch so a failure can never block app startup.
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    try {
+      await JustAudioBackground.init(
+        androidNotificationChannelId: 'com.quran.app.audio',
+        androidNotificationChannelName: 'تلاوة القرآن',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      ).timeout(const Duration(seconds: 5));
+    } catch (error, stack) {
+      debugPrint('JustAudioBackground.init failed: $error\n$stack');
+    }
+  }
+
   // Increase image cache limits to prevent high-quality/margin images from 
   // being constantly evicted when scrolling in Continuous mode.
   // 100 images or 300 MB — enough for smooth back-and-forth navigation.
@@ -41,6 +65,7 @@ Future<void> main() async {
   } catch (_) {}
   await ThemeService.loadTheme();
   await ReciterService.instance.load();
+  await BackgroundPlaybackService.instance.load();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,

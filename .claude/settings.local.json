@@ -12,7 +12,13 @@
       "Bash(PYTHONIOENCODING=utf-8 python generate_narration_map.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
       "Bash(del \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\services\\\\high_quality_images_service.dart\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Read(//c/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/53990ff8-9624-4d70-872a-e2915a29a3f6/tasks/**)",
+      "Bash(sleep 15)",
+      "Bash(sleep 10)",
+      "Bash(echo \"=== launched? ===\")",
+      "PowerShell(Get-Process -Name java,dart,gradle,flutter_tester -ErrorAction SilentlyContinue | Select-Object Name,Id | Format-Table -AutoSize; Write-Output \"--- killing stuck gradle/dart/flutter run ---\"; Get-Process -Name java,dart -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter \"name='dart.exe'\" -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Write-Output \"done\")",
+      "PowerShell(flutter analyze lib/main.dart lib/services/audio_service.dart lib/services/background_playback_service.dart 2>&1)"
     ]
   }
 }

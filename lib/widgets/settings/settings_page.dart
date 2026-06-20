@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
+import '../../services/background_playback_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
 import '../../services/page_quality_service.dart';
@@ -99,6 +100,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showFullScreenGuide = false;
   final AudioDownloadService _audioDownloadService = AudioDownloadService.instance;
   final ReciterService _reciterService = ReciterService.instance;
+  final BackgroundPlaybackService _backgroundPlaybackService =
+      BackgroundPlaybackService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
   final HighQualityImagesService _highQualityImagesService =
       HighQualityImagesService.instance;
@@ -1114,6 +1117,21 @@ class _SettingsPageState extends State<SettingsPage> {
                               reciters: _reciterService.reciters,
                               selected: selectedReciter,
                               onSelect: _handleReciterSelect,
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: ValueListenableBuilder<bool>(
+                          valueListenable: _backgroundPlaybackService.enabled,
+                          builder: (context, enabled, _) {
+                            return CompactSwitchTile(
+                              title: 'تشغيل التلاوة في الخلفية',
+                              icon: Icons.headset_rounded,
+                              value: enabled,
+                              onChanged: _backgroundPlaybackService.setEnabled,
                             );
                           },
                         ),
