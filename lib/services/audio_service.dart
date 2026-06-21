@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
@@ -43,6 +44,10 @@ class AudioService {
   List<String> _currentAyahFiles = [];
   bool _isChangingPage = false;
   DateTime _lastAyahChangeTime = DateTime(2000);
+
+  /// Whether to resume after a transient audio interruption (e.g. a phone call)
+  /// ends. Set when we pause because focus was lost while playing.
+  bool _resumeAfterInterruption = false;
 
   /// The page index currently playing.
   int get currentAudioPageIndex => _currentPageIndex;
@@ -119,12 +124,60 @@ class AudioService {
     // base URL both change, so anything mid-playback must restart cleanly.
     ReciterService.instance.selected.addListener(_handleReciterChanged);
 
+    await _setupAudioSession();
+
     _player.playerStateStream.listen((state) {
       isPlaying.value = state.playing;
       if (state.processingState == ProcessingState.completed) {
         _handleAyahCompleted();
       }
     });
+  }
+
+  /// Pause the recitation when another app/the phone takes audio focus (incoming
+  /// or outgoing call, another media app, etc.) instead of letting the player
+  /// keep advancing silently in the background. Transient interruptions (e.g. a
+  /// phone call) resume automatically afterwards; permanent ones do not.
+  Future<void> _setupAudioSession() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.speech());
+      session.interruptionEventStream.listen((event) {
+        if (event.begin) {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              _player.setVolume(0.3); // brief notification → lower volume
+              break;
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.unknown:
+              if (_player.playing) {
+                _resumeAfterInterruption = true;
+                pause();
+              }
+              break;
+          }
+        } else {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              _player.setVolume(1.0);
+              break;
+            case AudioInterruptionType.pause:
+              if (_resumeAfterInterruption) resume();
+              _resumeAfterInterruption = false;
+              break;
+            case AudioInterruptionType.unknown:
+              _resumeAfterInterruption = false; // permanent → stay paused
+              break;
+          }
+        }
+      });
+      // Headphones unplugged / Bluetooth disconnected → pause (don't blast audio).
+      session.becomingNoisyEventStream.listen((_) {
+        if (_player.playing) pause();
+      });
+    } catch (e) {
+      debugPrint('Audio session setup failed: $e');
+    }
   }
 
   /// Called when the selected reciter changes. Stops playback and forces the

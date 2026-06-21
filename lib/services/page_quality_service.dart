@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/image_config.dart';
+
 /// User-selected quality for the rendered Qur'an page images.
 ///
 /// All available image sets are 720x1640, so the levels differ by *rendering*
@@ -22,8 +24,13 @@ class PageQualityService {
   static const int enhanced = 2;
   static const int highFidelity = 3;
 
+  /// Default level for a fresh install: high-fidelity when the HQ pack is
+  /// bundled in the app, otherwise the lightest standard mode.
+  static const int _defaultLevel =
+      kBundleHighFidelityImages ? highFidelity : standard;
+
   /// Currently selected level. Listen to rebuild image widgets when it changes.
-  final ValueNotifier<int> level = ValueNotifier<int>(standard);
+  final ValueNotifier<int> level = ValueNotifier<int>(_defaultLevel);
 
   bool _loaded = false;
 
@@ -31,7 +38,7 @@ class PageQualityService {
     if (_loaded) return;
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getInt(_prefKey) ?? standard;
+    final stored = prefs.getInt(_prefKey) ?? _defaultLevel;
     level.value = _clamp(stored);
   }
 

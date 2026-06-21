@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/image_config.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
@@ -217,22 +218,30 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                             ? _deleteMarginImages
                             : null,
                   ),
-                  const SizedBox(height: 10),
-                  DownloadedPackageCard(
-                    title: 'حزمة الجودة الفائقة',
-                    subtitle: hqState.isAvailable
-                        ? 'محمّلة على الجهاز وتُستخدم عند اختيار الجودة الفائقة.'
-                        : 'غير محمّلة حاليًا.',
-                    sizeLabel: hqState.isAvailable
-                        ? hqState.installedSizeLabel
-                        : '0 MB',
-                    statusLabel: hqState.isAvailable ? 'محمّلة' : 'غير محمّلة',
-                    icon: Icons.hd_rounded,
-                    actionLabel: hqState.isAvailable ? 'حذف' : null,
-                    onAction: hqState.isAvailable && !hqState.isDownloading
-                        ? _deleteHighQualityImages
-                        : null,
-                  ),
+                  // When the HQ pack is bundled in the app it is not a managed
+                  // download, so hide the card — unless a stale download from a
+                  // previous version still sits on the device, in which case we
+                  // show it so the user can delete it to free space.
+                  if (!kBundleHighFidelityImages || hqState.isAvailable) ...[
+                    const SizedBox(height: 10),
+                    DownloadedPackageCard(
+                      title: 'حزمة الجودة الفائقة',
+                      subtitle: kBundleHighFidelityImages
+                          ? 'مدمجة في التطبيق. هذه نسخة قديمة محمّلة يمكن حذفها لتوفير مساحة.'
+                          : (hqState.isAvailable
+                              ? 'محمّلة على الجهاز وتُستخدم عند اختيار الجودة الفائقة.'
+                              : 'غير محمّلة حاليًا.'),
+                      sizeLabel: hqState.isAvailable
+                          ? hqState.installedSizeLabel
+                          : '0 MB',
+                      statusLabel: hqState.isAvailable ? 'محمّلة' : 'غير محمّلة',
+                      icon: Icons.hd_rounded,
+                      actionLabel: hqState.isAvailable ? 'حذف' : null,
+                      onAction: hqState.isAvailable && !hqState.isDownloading
+                          ? _deleteHighQualityImages
+                          : null,
+                    ),
+                  ],
                 ],
               ),
             );

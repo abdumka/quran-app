@@ -25,6 +25,7 @@ dependencies:
   flutter_staggered_animations: ^1.1.1
   just_audio: ^0.10.5
   just_audio_background: ^0.0.1-beta.17
+  audio_session: ^0.2.3
   
 
 dev_dependencies:

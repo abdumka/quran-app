@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/image_config.dart';
 import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
@@ -669,7 +670,9 @@ class PageQualityTile extends StatelessWidget {
           _option(
             number: '٣',
             name: 'فائق الجودة',
-            hint: 'حزمة صور أنقى وأقل ضغطًا (نفس الأبعاد). تتطلب تنزيلًا لمرة واحدة.',
+            hint: kBundleHighFidelityImages
+                ? 'صور أنقى وأقل ضغطًا (نفس الأبعاد)، مدمجة في التطبيق.'
+                : 'حزمة صور أنقى وأقل ضغطًا (نفس الأبعاد). تتطلب تنزيلًا لمرة واحدة.',
             value: 3,
             footer: _hqFooter(),
           ),
@@ -773,6 +776,25 @@ class PageQualityTile extends StatelessWidget {
   }
 
   Widget _hqFooter() {
+    // When the high-fidelity pack ships inside the app there is nothing to
+    // download — just confirm it is built in.
+    if (kBundleHighFidelityImages) {
+      return const Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        textDirection: TextDirection.rtl,
+        children: [
+          Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF4B7F3A)),
+          SizedBox(width: 6),
+          Text('مدمجة في التطبيق — لا تحتاج تنزيلاً',
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF4B7F3A))),
+        ],
+      );
+    }
+
     if (hqState.isDownloading) {
       return Column(
         children: [

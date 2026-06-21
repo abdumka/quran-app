@@ -24,7 +24,14 @@
       "Bash(grep -rniE \"beta\" --include=*.dart lib)",
       "Bash(grep -rnE \"1\\\\.0\\\\.0|1\\\\.0\\\\.2|الإصدار\" --include=*.dart lib)",
       "PowerShell(flutter analyze lib/widgets/menu/about_content.dart 2>&1)",
-      "PowerShell(flutter analyze lib/quran_pages.dart 2>&1)"
+      "PowerShell(flutter analyze lib/quran_pages.dart 2>&1)",
+      "Bash(awk '/^  audio_session:/{f=1} f&&/version:/{print; exit}' pubspec.lock)",
+      "PowerShell(flutter pub get 2>&1)",
+      "PowerShell(flutter analyze lib/services/audio_service.dart 2>&1)",
+      "Bash(adb devices *)",
+      "PowerShell(flutter analyze lib/services/audio_service.dart lib/main.dart 2>&1)",
+      "PowerShell($d=\"d:\\\\quran app\\\\quran-app-main\\\\assets\\\\imagess\"; if\\(Test-Path $d\\){ $f=Get-ChildItem $d -File -ErrorAction SilentlyContinue; \"file count: $\\($f.Count\\)\"; $g=$f|Group-Object Extension|Select Name,Count; $g|Format-Table -Auto|Out-String; $pages=$f|Where-Object{$_.Name -match 'page_\\\\d+'}; \"page_ files: $\\($pages.Count\\)\"; if\\($pages\\){\"total MB: {0:N1}\" -f \\(\\($pages|Measure-Object Length -Sum\\).Sum/1MB\\); \"sample: \"+\\($pages[0].Name\\)+\" \"+\\(\"{0:N1} KB\" -f \\($pages[0].Length/1KB\\)\\)} } else {\"no imagess folder\"})",
+      "PowerShell($d=\"d:\\\\quran app\\\\quran-app-main\\\\assets\\\\images\"; Get-ChildItem $d -File | Where-Object { $_.Name -notmatch '^page_\\\\d+\\\\.webp$' } | Select-Object Name, @{N='KB';E={\"{0:N1}\" -f \\($_.Length/1KB\\)}} | Format-Table -Auto | Out-String)"
     ]
   }
 }
