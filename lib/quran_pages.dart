@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart' show ScrollCacheExtent, RenderProxyBox;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -327,6 +327,13 @@ class _QuranPagesState extends State<QuranPages>
   Timer? _recitationBarHideTimer;
   List<QuranPageData>? _allQuranPages;
   Timer? _hideControlsTimer;
+
+  // Measured height of the recitation (audio playback) bar. The action bar is
+  // anchored exactly this many pixels above the stack bottom so it sits flush
+  // on top of the recitation bar in every screen state (full screen, standard,
+  // and during transitions) with no gap or overlap. Defaults to a sensible
+  // estimate until the first layout pass measures the real height.
+  double _recitationBarHeight = 90.0;
 
   void _startTopBarHideTimer() {
     _cancelTopBarHideTimer();
@@ -1747,10 +1754,20 @@ class _QuranPagesState extends State<QuranPages>
     _stopPortraitAutoScroll();
 
     if (!_isPortraitScrollMode) {
+      // Capture the page the user actually scrolled to from the live scroll
+      // offset BEFORE tearing the scroll controller down, then reopen paged
+      // mode anchored there. Without this the PageView would fall back to its
+      // stale initial page (the last bookmark or surah start it was created
+      // with), instead of staying on the page where auto-scroll was stopped.
+      final int landingPage = _resolveCurrentPortraitScrollPage();
+
       _portraitAutoScrollController?.dispose();
       _portraitAutoScrollController = null;
       _portraitAutoScrollViewportHeight = null;
       _portraitScrollCurrentPage = null;
+
+      _setCurrentPage(landingPage);
+      _recreatePortraitController(initialPage: landingPage);
     }
 
     setState(() {
@@ -1758,6 +1775,21 @@ class _QuranPagesState extends State<QuranPages>
       _showAutoScrollBar = false;
       _isAutoScrollBarCollapsed = false;
     });
+  }
+
+  /// Resolves the page currently shown in portrait scroll mode from the live
+  /// scroll offset, falling back to the tracked page and finally the reading
+  /// coordinator's page when the controller is unavailable.
+  int _resolveCurrentPortraitScrollPage() {
+    final controller = _portraitAutoScrollController;
+    final extent = _portraitAutoScrollViewportHeight;
+    if (controller != null &&
+        controller.hasClients &&
+        extent != null &&
+        extent > 0) {
+      return _getPortraitScrollPageFromOffset(extent);
+    }
+    return _portraitScrollCurrentPage ?? _currentPage;
   }
 
   void _toggleHideBar(bool value) {
@@ -3622,7 +3654,14 @@ class _QuranPagesState extends State<QuranPages>
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: _buildRecitationBottomBar(),
+                    child: _MeasureSize(
+                      onChange: (size) {
+                        if (_recitationBarHeight != size.height) {
+                          setState(() => _recitationBarHeight = size.height);
+                        }
+                      },
+                      child: _buildRecitationBottomBar(),
+                    ),
                   ),
               ],
             ),
@@ -3708,7 +3747,11 @@ class _QuranPagesState extends State<QuranPages>
                 allowPortraitScrollMode: _supportsPortraitScrollMode(context),
                 showTabletLayoutSetting: _shouldShowTabletLayoutSetting(context),
                 isTabletLayoutMode: _isTabletLayoutMode,
-                bottomOffset: isRecitationVisible ? (58.0 + (MediaQuery.of(context).padding.bottom > 0 ? MediaQuery.of(context).padding.bottom : 8.0)) : 0,
+                // Anchor the action bar exactly on top of the recitation bar
+                // using its real measured height, so they stay perfectly flush
+                // (no gap, no overlap) in full screen, standard, and during
+                // transitions.
+                bottomOffset: isRecitationVisible ? _recitationBarHeight : 0,
                 onToggleSurahs: () async {
                   setState(() {
                     _showIndex = false;
@@ -4583,6 +4626,44 @@ class _QuranPagesState extends State<QuranPages>
         );
       },
     );
+  }
+}
+
+/// Reports its child's rendered size after every layout pass so callers can
+/// anchor sibling widgets flush against it. Used to keep the action bar exactly
+/// on top of the recitation bar regardless of safe-area / full-screen changes.
+class _MeasureSize extends SingleChildRenderObjectWidget {
+  final ValueChanged<Size> onChange;
+
+  const _MeasureSize({required this.onChange, required Widget super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _MeasureSizeRenderObject(onChange);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _MeasureSizeRenderObject renderObject,
+  ) {
+    renderObject.onChange = onChange;
+  }
+}
+
+class _MeasureSizeRenderObject extends RenderProxyBox {
+  _MeasureSizeRenderObject(this.onChange);
+
+  ValueChanged<Size> onChange;
+  Size? _oldSize;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final newSize = child?.size ?? Size.zero;
+    if (_oldSize == newSize) return;
+    _oldSize = newSize;
+    // Defer the callback to avoid mutating widget state during layout.
+    WidgetsBinding.instance.addPostFrameCallback((_) => onChange(newSize));
   }
 }
 

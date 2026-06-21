@@ -902,39 +902,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Container(
-                              key: _autoScrollCardKey,
-                              child: CompactSwitchTile(
-                                title: autoScrollTitle,
-                                icon: Icons.swap_vert_rounded,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.autoScroll,
-                                ),
-                                value: _localAutoScrollEnabled,
-                                onChanged: (value) {
-                                  if (value &&
-                                      (_localTabletLayoutMode ||
-                                          !_localAllowPortraitScrollMode)) {
-                                    _showSettingsNotice(
-                                      autoScrollUnavailableNotice,
-                                    );
-                                    return;
-                                  }
-
-                                  setState(() {
-                                    if (value && !_localPortraitScrollMode) {
-                                      _localPortraitScrollMode = true;
-                                    }
-                                    _localAutoScrollEnabled = value;
-                                  });
-                                  widget.onToggleAutoScroll(value);
-                                  if (value) {
-                                    Navigator.pop(context);
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
                               key: _hideBarCardKey,
                               child: CompactSwitchTile(
                                 title: 'شريط الإخفاء',
@@ -945,6 +912,26 @@ class _SettingsPageState extends State<SettingsPage> {
                                 value: widget.isHideBarEnabled,
                                 onChanged: (value) {
                                   widget.onToggleHideBar(value);
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              key: _hifzLensKey,
+                              child: CompactSwitchTile(
+                                title: 'عدسة الإخفاء',
+                                icon: Icons.psychology_rounded,
+                                iconOverride: const HifzLensIcon(
+                                  size: 20,
+                                  color: Color(0xFF8B7355),
+                                ),
+                                onInfo: () => _presentCoachManually(
+                                  SettingsCoachStep.hifzLens,
+                                ),
+                                value: widget.isHifzModeEnabled,
+                                onChanged: (value) {
+                                  widget.onToggleHifzMode(value);
                                   Navigator.pop(context);
                                 },
                               ),
@@ -979,21 +966,34 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(height: 6),
                             Container(
-                              key: _hifzLensKey,
+                              key: _autoScrollCardKey,
                               child: CompactSwitchTile(
-                                title: 'عدسة الإخفاء',
-                                icon: Icons.psychology_rounded,
-                                iconOverride: const HifzLensIcon(
-                                  size: 20,
-                                  color: Color(0xFF8B7355),
-                                ),
+                                title: autoScrollTitle,
+                                icon: Icons.swap_vert_rounded,
                                 onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.hifzLens,
+                                  SettingsCoachStep.autoScroll,
                                 ),
-                                value: widget.isHifzModeEnabled,
+                                value: _localAutoScrollEnabled,
                                 onChanged: (value) {
-                                  widget.onToggleHifzMode(value);
-                                  Navigator.pop(context);
+                                  if (value &&
+                                      (_localTabletLayoutMode ||
+                                          !_localAllowPortraitScrollMode)) {
+                                    _showSettingsNotice(
+                                      autoScrollUnavailableNotice,
+                                    );
+                                    return;
+                                  }
+
+                                  setState(() {
+                                    if (value && !_localPortraitScrollMode) {
+                                      _localPortraitScrollMode = true;
+                                    }
+                                    _localAutoScrollEnabled = value;
+                                  });
+                                  widget.onToggleAutoScroll(value);
+                                  if (value) {
+                                    Navigator.pop(context);
+                                  }
                                 },
                               ),
                             ),
