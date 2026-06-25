@@ -31,7 +31,10 @@
       "Bash(adb devices *)",
       "PowerShell(flutter analyze lib/services/audio_service.dart lib/main.dart 2>&1)",
       "PowerShell($d=\"d:\\\\quran app\\\\quran-app-main\\\\assets\\\\imagess\"; if\\(Test-Path $d\\){ $f=Get-ChildItem $d -File -ErrorAction SilentlyContinue; \"file count: $\\($f.Count\\)\"; $g=$f|Group-Object Extension|Select Name,Count; $g|Format-Table -Auto|Out-String; $pages=$f|Where-Object{$_.Name -match 'page_\\\\d+'}; \"page_ files: $\\($pages.Count\\)\"; if\\($pages\\){\"total MB: {0:N1}\" -f \\(\\($pages|Measure-Object Length -Sum\\).Sum/1MB\\); \"sample: \"+\\($pages[0].Name\\)+\" \"+\\(\"{0:N1} KB\" -f \\($pages[0].Length/1KB\\)\\)} } else {\"no imagess folder\"})",
-      "PowerShell($d=\"d:\\\\quran app\\\\quran-app-main\\\\assets\\\\images\"; Get-ChildItem $d -File | Where-Object { $_.Name -notmatch '^page_\\\\d+\\\\.webp$' } | Select-Object Name, @{N='KB';E={\"{0:N1}\" -f \\($_.Length/1KB\\)}} | Format-Table -Auto | Out-String)"
+      "PowerShell($d=\"d:\\\\quran app\\\\quran-app-main\\\\assets\\\\images\"; Get-ChildItem $d -File | Where-Object { $_.Name -notmatch '^page_\\\\d+\\\\.webp$' } | Select-Object Name, @{N='KB';E={\"{0:N1}\" -f \\($_.Length/1KB\\)}} | Format-Table -Auto | Out-String)",
+      "Bash(find ~/AppData/Local/Pub/Cache ~/.pub-cache -type d -name \"audio_session-*\" 2>/dev/null | head; echo \"---\"; find / -path \"*audio_session*/lib/src/core.dart\" 2>/dev/null | head)",
+      "Read(//c/Users/keilani/AppData/Local/Pub/Cache/**)",
+      "Read(//d//**)"
     ]
   }
 }
