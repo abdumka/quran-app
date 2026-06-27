@@ -41,6 +41,13 @@ class Reciter {
   ///   file `SSS000.mp3` for every surah except At-Tawba (9). No merging.
   final bool nativeQalounScheme;
 
+  /// Whether this reciter uses الوقف الهبطي — he recites several ayat together in
+  /// one breath, so the source serves byte-identical audio for those ayat. When
+  /// true, the app skips the "continuation" ayat (see assets/data/
+  /// qaniwah_continuations.json) so each breath plays once and then jumps to the
+  /// next distinct ayah.
+  final bool breathCombining;
+
   const Reciter({
     required this.id,
     required this.name,
@@ -48,6 +55,7 @@ class Reciter {
     required this.audioBaseUrl,
     required this.cacheFolder,
     this.nativeQalounScheme = false,
+    this.breathCombining = false,
   });
 
   // ───────────────────────────────────────────────
@@ -101,8 +109,22 @@ class Reciter {
     5,   4,   5,   6,                                   // 111-114
   ];
 
+  /// Al-Amin Muhammad Qaniwah — Qaloun, recited with الوقف الهبطي (combines ayat
+  /// in one breath). Audio mirrored from nquran.com to a Cloudflare R2 bucket.
+  /// Reuses the same Qaloun ayah counts + audio map as al-Naihi (same source),
+  /// plus [breathCombining] to skip the repeated-breath ayat.
+  static const Reciter qaniwahQaloun = Reciter(
+    id: 'qaniwah_qaloun',
+    name: 'الأمين محمد قنيوه',
+    riwaya: 'رواية قالون - الوقف الهبطي',
+    audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/qaniwah/',
+    cacheFolder: 'audio_cache_qaniwah',
+    nativeQalounScheme: true,
+    breathCombining: true,
+  );
+
   /// All reciters offered in the picker, in display order.
-  static const List<Reciter> all = [husaryQaloun, naihiQaloun];
+  static const List<Reciter> all = [husaryQaloun, naihiQaloun, qaniwahQaloun];
 
   /// The reciter used before the user has chosen one.
   static const Reciter fallback = husaryQaloun;

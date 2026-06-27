@@ -96,3 +96,6 @@ tools/naihi_verses/
 
 tools/_qaloun_data.json
 tools/naihi_durations.json
+
+# Cloudflare R2 credentials (never commit)
+tools/.r2_secret

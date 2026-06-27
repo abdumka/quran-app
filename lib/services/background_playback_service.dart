@@ -12,8 +12,9 @@ class BackgroundPlaybackService {
   static const String _prefKey = 'backgroundPlaybackEnabled';
 
   /// Whether recitation continues in the background. Listen to rebuild the
-  /// settings toggle.
-  final ValueNotifier<bool> enabled = ValueNotifier<bool>(false);
+  /// settings toggle. Defaults to on so the recitation keeps playing when the
+  /// app is backgrounded unless the user explicitly turns it off.
+  final ValueNotifier<bool> enabled = ValueNotifier<bool>(true);
 
   bool _loaded = false;
 
@@ -21,7 +22,7 @@ class BackgroundPlaybackService {
     if (_loaded) return;
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
-    enabled.value = prefs.getBool(_prefKey) ?? false;
+    enabled.value = prefs.getBool(_prefKey) ?? true;
   }
 
   Future<void> setEnabled(bool value) async {

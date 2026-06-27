@@ -214,14 +214,27 @@ class AudioService {
     // because the two use slightly different ayah divisions (see
     // AudioAyahMapService). Out-of-range numbers are dropped so playback advances
     // cleanly instead of 404-stalling.
-    if (ReciterService.instance.selected.value.nativeQalounScheme) {
+    final reciter = ReciterService.instance.selected.value;
+    if (reciter.nativeQalounScheme) {
       String f(int n) => '$surahStr${n.toString().padLeft(3, '0')}.mp3';
       final mapped = AudioAyahMapService.instance.lookup(s, a) ?? [a];
       final maxAyah = Reciter.naihiMadaniAyahCounts[s - 1];
       final files = <String>[];
-      if (a == 1 && s != 9) files.add(f(0)); // basmala before the first ayah
+      // Basmala before the first ayah — unless this reciter already recites it as
+      // part of the ayah-1 file (قنيوه's الوقف الهبطي), which would double it.
+      final basmalaInAyah1 = reciter.breathCombining &&
+          AudioAyahMapService.instance.qaniwahBasmalaInAyah1(s);
+      if (a == 1 && s != 9 && !basmalaInAyah1) files.add(f(0));
       for (final n in mapped) {
-        if (n >= 1 && n <= maxAyah) files.add(f(n));
+        if (n < 1 || n > maxAyah) continue;
+        // الوقف الهبطي (قنيوه): an ayah whose audio just repeats the previous
+        // breath is skipped — the breath already played on the group's first
+        // ayah. Returning no file lets playback advance to the next distinct ayah.
+        if (reciter.breathCombining &&
+            AudioAyahMapService.instance.isQaniwahContinuation(s, n)) {
+          continue;
+        }
+        files.add(f(n));
       }
       return files;
     }
@@ -308,8 +321,17 @@ class AudioService {
     _playlistAyahs = pageData.ayahs;
     if (startFromAyahIndex != null) {
       _currentGlobalAyahIndex = startFromAyahIndex;
+    } else if (startFromLastAyah) {
+      // Land on the last *playable* ayah: trailing ayat may be silent
+      // continuations (قنيوه's combined breath) whose audio already played as
+      // part of an earlier ayah — starting on one would bounce forward.
+      int idx = _playlistAyahs.length - 1;
+      while (idx > 0 && !_isPlayableAyah(_playlistAyahs[idx])) {
+        idx--;
+      }
+      _currentGlobalAyahIndex = idx;
     } else {
-      _currentGlobalAyahIndex = startFromLastAyah ? _playlistAyahs.length - 1 : 0;
+      _currentGlobalAyahIndex = 0;
     }
     _currentFileIndexWithinAyah = 0;
     _currentRepeatIteration = 0;
@@ -616,11 +638,21 @@ class AudioService {
       }
     }
 
-    if (_currentGlobalAyahIndex > 0) {
-      _currentGlobalAyahIndex--;
+    // Step back over silent continuation ayat (قنيوه's combined breath): their
+    // audio already played as part of the group's first ayah, so landing on one
+    // would immediately bounce forward. Skip to the previous *playable* ayah.
+    int idx = _currentGlobalAyahIndex - 1;
+    while (idx > 0 && !_isPlayableAyah(_playlistAyahs[idx])) {
+      idx--;
+    }
+
+    if (idx >= 0 && _isPlayableAyah(_playlistAyahs[idx])) {
+      _currentGlobalAyahIndex = idx;
       _playCurrentAyah();
     } else {
-      // Go to previous page
+      // No earlier playable ayah on this page → go to the previous page and
+      // start from its last playable ayah (naturally the previous surah's last
+      // ayah at a surah boundary), without stopping.
       if (_currentPageIndex > 0) {
         final prevPageIndex = _currentPageIndex - 1;
         onPageChangeRequired?.call(prevPageIndex);
@@ -630,6 +662,11 @@ class AudioService {
       }
     }
   }
+
+  /// Whether this ayah has its own audio to play (false for قنيوه's silent
+  /// continuation ayat and phantom verses, which produce no files).
+  bool _isPlayableAyah(QuranAyahData ayah) =>
+      _getAudioFilesForAyah(ayah).isNotEmpty;
 
   /// Cycle through repeat modes: off → 1× → 2× → 3× → infinite (∞) → off
   void cycleAyahRepeatMode() {

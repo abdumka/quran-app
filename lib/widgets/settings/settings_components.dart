@@ -145,6 +145,41 @@ class InfoHintButton extends StatelessWidget {
   }
 }
 
+/// A reusable header row for the larger settings tiles (those with a title and
+/// descriptive subtitle). Lays the title out RTL with an optional ℹ️ button
+/// next to it so every setting can surface its instruction popup.
+class SettingsTileHeader extends StatelessWidget {
+  final String title;
+  final VoidCallback? onInfo;
+
+  const SettingsTileHeader({super.key, required this.title, this.onInfo});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      textDirection: TextDirection.rtl,
+      children: [
+        Flexible(
+          child: Text(
+            title,
+            textDirection: TextDirection.rtl,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2C2C2C),
+            ),
+          ),
+        ),
+        if (onInfo != null) ...[
+          const SizedBox(width: 4),
+          InfoHintButton(onTap: onInfo!),
+        ],
+      ],
+    );
+  }
+}
+
 class CompactActionTile extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -275,8 +310,9 @@ class CompactSwitchTile extends StatelessWidget {
 
 class DownloadsManagementTile extends StatelessWidget {
   final VoidCallback onOpen;
+  final VoidCallback? onInfo;
 
-  const DownloadsManagementTile({super.key, required this.onOpen});
+  const DownloadsManagementTile({super.key, required this.onOpen, this.onInfo});
 
   @override
   Widget build(BuildContext context) {
@@ -285,15 +321,7 @@ class DownloadsManagementTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Text(
-            'إدارة الملفات المحمّلة',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2C2C2C),
-            ),
-          ),
+          SettingsTileHeader(title: 'إدارة الملفات المحمّلة', onInfo: onInfo),
           const SizedBox(height: 3),
           const Text(
             'اعرض الملفات الإضافية التي حملتها، وحجمها الحالي، واحذف ما لا تحتاجه لاحقًا.',
@@ -324,35 +352,71 @@ class DownloadsManagementTile extends StatelessWidget {
 }
 
 /// Lets the user pick which reciter (تلاوة) is used for playback and downloads.
-/// Rendered as an inline radio-style list so it can grow to more reciters later.
+/// A dropdown so it stays compact and organized as more reciters are added.
 class ReciterTile extends StatelessWidget {
   final List<Reciter> reciters;
   final Reciter selected;
   final ValueChanged<Reciter> onSelect;
+  final VoidCallback? onInfo;
 
   const ReciterTile({
     super.key,
     required this.reciters,
     required this.selected,
     required this.onSelect,
+    this.onInfo,
   });
+
+  Widget _reciterRow(Reciter r, {required bool checked}) {
+    return Row(
+      textDirection: TextDirection.rtl,
+      children: [
+        Icon(
+          checked ? Icons.check_circle_rounded : Icons.person_outline_rounded,
+          size: 18,
+          color: checked ? const Color(0xFF8B7355) : const Color(0xFFB7A88E),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                r.name,
+                textDirection: TextDirection.rtl,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2C2C2C),
+                ),
+              ),
+              Text(
+                r.riwaya,
+                textDirection: TextDirection.rtl,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11.5, color: Color(0xFF888888)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final current = reciters.firstWhere(
+      (r) => r.id == selected.id,
+      orElse: () => reciters.first,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Text(
-            'القارئ',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2C2C2C),
-            ),
-          ),
+          SettingsTileHeader(title: 'القارئ', onInfo: onInfo),
           const SizedBox(height: 3),
           const Text(
             'اختر التلاوة. عند التبديل يتوقف التشغيل الحالي، ولكل قارئ ملفاته المحمّلة الخاصة.',
@@ -364,90 +428,44 @@ class ReciterTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          for (final reciter in reciters) ...[
-            _ReciterOption(
-              reciter: reciter,
-              isSelected: reciter.id == selected.id,
-              onTap: () => onSelect(reciter),
-            ),
-            if (reciter != reciters.last) const SizedBox(height: 6),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ReciterOption extends StatelessWidget {
-  final Reciter reciter;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _ReciterOption({
-    required this.reciter,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF8B7355).withValues(alpha: 0.10)
-              : const Color(0xFFF3EFE6),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF8B7355)
-                : const Color(0xFF8D6E3F).withValues(alpha: 0.12),
-            width: isSelected ? 1.4 : 1,
-          ),
-        ),
-        child: Row(
-          textDirection: TextDirection.rtl,
-          children: [
-            Icon(
-              isSelected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_unchecked_rounded,
-              color: isSelected
-                  ? const Color(0xFF8B7355)
-                  : const Color(0xFFB7A88E),
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    reciter.name,
-                    textDirection: TextDirection.rtl,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2C2C2C),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    reciter.riwaya,
-                    textDirection: TextDirection.rtl,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: Color(0xFF888888),
-                    ),
-                  ),
-                ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3EFE6),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF8D6E3F).withValues(alpha: 0.20),
               ),
             ),
-          ],
-        ),
+            child: Directionality(
+              textDirection: TextDirection.rtl,
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<Reciter>(
+                  isExpanded: true,
+                  value: current,
+                  itemHeight: 58,
+                  borderRadius: BorderRadius.circular(12),
+                  dropdownColor: const Color(0xFFF6F1E5),
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF8B7355)),
+                  onChanged: (r) {
+                    if (r != null && r.id != selected.id) onSelect(r);
+                  },
+                  selectedItemBuilder: (context) => [
+                    for (final r in reciters) _reciterRow(r, checked: false),
+                  ],
+                  items: [
+                    for (final r in reciters)
+                      DropdownMenuItem<Reciter>(
+                        value: r,
+                        child: _reciterRow(r, checked: r.id == selected.id),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -458,6 +476,7 @@ class AudioDownloadTile extends StatelessWidget {
   final Future<void> Function() onDownload;
   final void Function() onCancelDownload;
   final void Function() onPauseDownload;
+  final VoidCallback? onInfo;
 
   const AudioDownloadTile({
     super.key,
@@ -465,6 +484,7 @@ class AudioDownloadTile extends StatelessWidget {
     required this.onDownload,
     required this.onCancelDownload,
     required this.onPauseDownload,
+    this.onInfo,
   });
 
   @override
@@ -474,20 +494,12 @@ class AudioDownloadTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Text(
-            'تحميل جميع الصوتيات',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2C2C2C),
-            ),
-          ),
+          SettingsTileHeader(title: 'تحميل جميع الصوتيات', onInfo: onInfo),
           const SizedBox(height: 3),
           Text(
             state.isComplete
-                ? 'جميع ملفات الصوت محملة، يمكن الاستماع للتلاوة بدون إنترنت.'
-                : 'نزّل ملفات الصوت كاملة للاستماع بدون اتصال بالإنترنت. الحجم التقريبي ~500 MB.',
+                ? 'جميع ملفات الصوت للقارئ المختار محمّلة، يمكن الاستماع للتلاوة بدون إنترنت.'
+                : 'نزّل ملفات الصوت كاملة للقارئ المختار فقط للاستماع بدون اتصال بالإنترنت. الحجم التقريبي ~500 MB.',
             textDirection: TextDirection.rtl,
             style: const TextStyle(
               fontSize: 11,
@@ -614,6 +626,7 @@ class PageQualityTile extends StatelessWidget {
   final Future<void> Function() onDownloadHq;
   final Future<void> Function() onCancelHqDownload;
   final Future<void> Function() onPauseHqDownload;
+  final VoidCallback? onInfo;
 
   const PageQualityTile({
     super.key,
@@ -623,6 +636,7 @@ class PageQualityTile extends StatelessWidget {
     required this.onDownloadHq,
     required this.onCancelHqDownload,
     required this.onPauseHqDownload,
+    this.onInfo,
   });
 
   static const Color _gold = Color(0xFF8B7355);
@@ -634,15 +648,7 @@ class PageQualityTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Text(
-            'جودة عرض الصفحات',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2C2C2C),
-            ),
-          ),
+          SettingsTileHeader(title: 'جودة عرض الصفحات', onInfo: onInfo),
           const SizedBox(height: 3),
           const Text(
             'جرّب الخيارات على جهازك ثم اختر الأنسب. جميع الصور بعرض 720 نقطة، '
@@ -888,12 +894,87 @@ class PageQualityTile extends StatelessWidget {
   }
 }
 
+class RecitationBarOpacityTile extends StatelessWidget {
+  final double opacity;
+  final ValueChanged<double> onChanged;
+  final VoidCallback? onInfo;
+
+  const RecitationBarOpacityTile({
+    super.key,
+    required this.opacity,
+    required this.onChanged,
+    this.onInfo,
+  });
+
+  static const Color _gold = Color(0xFF8B7355);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          SettingsTileHeader(title: 'شفافية أزرار شريط التلاوة', onInfo: onInfo),
+          const SizedBox(height: 3),
+          const Text(
+            'تتحكم في وضوح أيقونات شريط التلاوة (تشغيل، تالي، تكرار...). '
+            'كلما اتجهت لليمين زاد الوضوح.',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: 11,
+              color: Color(0xFF888888),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              const Icon(Icons.opacity_rounded, color: _gold, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    activeTrackColor: _gold,
+                    thumbColor: _gold,
+                    overlayColor: _gold.withValues(alpha: 0.1),
+                    inactiveTrackColor: _gold.withValues(alpha: 0.1),
+                  ),
+                  child: Slider(
+                    value: opacity,
+                    onChanged: onChanged,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 38,
+                child: Text(
+                  '${(opacity * 100).round()}%',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: _gold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class MarginImagesTile extends StatelessWidget {
   final MarginImagesState state;
   final Future<void> Function() onDownload;
   final Future<void> Function() onCancelDownload;
   final Future<void> Function() onPauseDownload;
   final Future<void> Function(bool value) onToggleEnabled;
+  final VoidCallback? onInfo;
 
   const MarginImagesTile({
     super.key,
@@ -902,6 +983,7 @@ class MarginImagesTile extends StatelessWidget {
     required this.onCancelDownload,
     required this.onPauseDownload,
     required this.onToggleEnabled,
+    this.onInfo,
   });
 
   @override
@@ -911,15 +993,7 @@ class MarginImagesTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Text(
-            'عرض الهوامش',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2C2C2C),
-            ),
-          ),
+          SettingsTileHeader(title: 'عرض الهوامش', onInfo: onInfo),
           const SizedBox(height: 3),
           Text(
             state.isAvailable

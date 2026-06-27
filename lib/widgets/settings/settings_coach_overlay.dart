@@ -335,6 +335,16 @@ class _CoachVisualState extends State<CoachVisual>
                 IconCoachVisual(t: t, icon: Icons.auto_stories_rounded),
               SettingsCoachStep.resetGuides =>
                 IconCoachVisual(t: t, icon: Icons.tips_and_updates_rounded),
+              SettingsCoachStep.reciter =>
+                IconCoachVisual(t: t, icon: Icons.record_voice_over_rounded),
+              SettingsCoachStep.backgroundPlayback =>
+                IconCoachVisual(t: t, icon: Icons.headset_rounded),
+              SettingsCoachStep.pageQuality =>
+                IconCoachVisual(t: t, icon: Icons.high_quality_rounded),
+              SettingsCoachStep.audioDownload =>
+                IconCoachVisual(t: t, icon: Icons.download_rounded),
+              SettingsCoachStep.downloadsManagement =>
+                IconCoachVisual(t: t, icon: Icons.folder_rounded),
             },
           ),
         );

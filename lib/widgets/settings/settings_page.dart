@@ -15,6 +15,7 @@ import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
 import '../../services/page_quality_service.dart';
 import '../../services/reciter_service.dart';
+import '../../services/recitation_bar_opacity_service.dart';
 import '../../utils/responsive_helper.dart';
 
 import 'settings_components.dart';
@@ -87,6 +88,8 @@ class _SettingsPageState extends State<SettingsPage> {
       'hifzLensSettingsGuideDismissed';
   static const String _fullScreenSettingsGuideDismissedPrefKey =
       'fullScreenSettingsGuideDismissed';
+  static const String _backgroundPlaybackGuideDismissedPrefKey =
+      'backgroundPlaybackGuideDismissed';
 
   late bool _localAutoScrollEnabled;
   late bool _localPortraitScrollMode;
@@ -97,6 +100,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showAutoScrollGuide = false;
   bool _showHideBarGuide = false;
   bool _showHifzLensGuide = false;
+  bool _showBackgroundPlaybackGuide = false;
   bool _showFullScreenGuide = false;
   final AudioDownloadService _audioDownloadService = AudioDownloadService.instance;
   final ReciterService _reciterService = ReciterService.instance;
@@ -106,6 +110,8 @@ class _SettingsPageState extends State<SettingsPage> {
   final HighQualityImagesService _highQualityImagesService =
       HighQualityImagesService.instance;
   final PageQualityService _pageQualityService = PageQualityService.instance;
+  final RecitationBarOpacityService _recitationBarOpacityService =
+      RecitationBarOpacityService.instance;
 
   final GlobalKey _settingsOverlayKey = GlobalKey();
   final GlobalKey _browseModeCardKey = GlobalKey();
@@ -119,6 +125,11 @@ class _SettingsPageState extends State<SettingsPage> {
   final GlobalKey _fullScreenKey = GlobalKey();
   final GlobalKey _twoPageKey = GlobalKey();
   final GlobalKey _resetGuidesKey = GlobalKey();
+  final GlobalKey _reciterKey = GlobalKey();
+  final GlobalKey _backgroundPlaybackKey = GlobalKey();
+  final GlobalKey _pageQualityKey = GlobalKey();
+  final GlobalKey _audioDownloadKey = GlobalKey();
+  final GlobalKey _downloadsManagementKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
   Offset? _lastTapPosition;
   Offset? _noticePosition;
@@ -142,6 +153,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _marginImagesService.initialize();
     _highQualityImagesService.initialize();
     _pageQualityService.load();
+    _recitationBarOpacityService.load();
     _loadGuidePreferences();
     _loadCurrentBrightness();
   }
@@ -197,6 +209,10 @@ class _SettingsPageState extends State<SettingsPage> {
             _fullScreenSettingsGuideDismissedPrefKey,
           ) ??
           false);
+      _showBackgroundPlaybackGuide = !(prefs.getBool(
+            _backgroundPlaybackGuideDismissedPrefKey,
+          ) ??
+          false);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -224,6 +240,8 @@ class _SettingsPageState extends State<SettingsPage> {
         _showHifzLensGuide = false;
       } else if (key == _fullScreenSettingsGuideDismissedPrefKey) {
         _showFullScreenGuide = false;
+      } else if (key == _backgroundPlaybackGuideDismissedPrefKey) {
+        _showBackgroundPlaybackGuide = false;
       }
     });
   }
@@ -280,6 +298,10 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     if (_showFullScreenGuide) {
       _activateCoachStep(SettingsCoachStep.fullScreen);
+      return;
+    }
+    if (_showBackgroundPlaybackGuide) {
+      _activateCoachStep(SettingsCoachStep.backgroundPlayback);
     }
   }
 
@@ -295,6 +317,11 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCoachStep.fullScreen => _fullScreenKey,
       SettingsCoachStep.twoPage => _twoPageKey,
       SettingsCoachStep.resetGuides => _resetGuidesKey,
+      SettingsCoachStep.reciter => _reciterKey,
+      SettingsCoachStep.backgroundPlayback => _backgroundPlaybackKey,
+      SettingsCoachStep.pageQuality => _pageQualityKey,
+      SettingsCoachStep.audioDownload => _audioDownloadKey,
+      SettingsCoachStep.downloadsManagement => _downloadsManagementKey,
     };
   }
 
@@ -373,6 +400,8 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCoachStep.hideBar => 'hideBarGuideDismissed',
       SettingsCoachStep.hifzLens => _hifzLensSettingsGuideDismissedPrefKey,
       SettingsCoachStep.fullScreen => _fullScreenSettingsGuideDismissedPrefKey,
+      SettingsCoachStep.backgroundPlayback =>
+        _backgroundPlaybackGuideDismissedPrefKey,
       _ => null,
     };
     if (key == null) return;
@@ -419,6 +448,16 @@ class _SettingsPageState extends State<SettingsPage> {
         return 'إرشاد عرض الصفحتين';
       case SettingsCoachStep.resetGuides:
         return 'إرشاد إعادة الإرشادات';
+      case SettingsCoachStep.reciter:
+        return 'إرشاد اختيار القارئ';
+      case SettingsCoachStep.backgroundPlayback:
+        return 'إرشاد التشغيل في الخلفية';
+      case SettingsCoachStep.pageQuality:
+        return 'إرشاد جودة عرض الصفحات';
+      case SettingsCoachStep.audioDownload:
+        return 'إرشاد تحميل الصوتيات';
+      case SettingsCoachStep.downloadsManagement:
+        return 'إرشاد إدارة الملفات';
       case null:
         return '';
     }
@@ -446,6 +485,16 @@ class _SettingsPageState extends State<SettingsPage> {
         return 'يعرض صفحتين جنباً إلى جنب كالمصحف المفتوح. يناسب الأجهزة اللوحية والشاشات الكبيرة، ويوقف وضع التمرير عند تفعيله.';
       case SettingsCoachStep.resetGuides:
         return 'يعيد إظهار جميع الرسائل الإرشادية داخل التطبيق من جديد، كأنك تستخدمه لأول مرة.';
+      case SettingsCoachStep.reciter:
+        return 'اختر التلاوة التي تستمع إليها من القائمة. لكل قارئ ملفاته الصوتية الخاصة، وعند التبديل يتوقف التشغيل الحالي ثم يبدأ بصوت القارئ الجديد.';
+      case SettingsCoachStep.backgroundPlayback:
+        return 'عند تفعيله تستمر التلاوة في العمل حتى لو خرجت من التطبيق أو أقفلت الشاشة، ويمكنك التحكم بها من إشعار التشغيل. أوقفه إن أردت أن تتوقف التلاوة تلقائياً عند مغادرة التطبيق.';
+      case SettingsCoachStep.pageQuality:
+        return 'يتيح لك تجربة ثلاثة مستويات لعرض الصفحة واختيار الأنسب لجهازك. جميع الصور بنفس الأبعاد، والفرق في نعومة العرض وجودة الضغط فقط.';
+      case SettingsCoachStep.audioDownload:
+        return 'نزّل ملفات الصوت كاملة للقارئ المختار لتستمع للتلاوة بدون اتصال بالإنترنت. يمكنك إيقاف التحميل مؤقتاً واستئنافه لاحقاً.';
+      case SettingsCoachStep.downloadsManagement:
+        return 'من هنا تستعرض كل الملفات الإضافية التي حمّلتها وحجمها الحالي، وتحذف ما لا تحتاجه لتوفير مساحة التخزين.';
       case null:
         return '';
     }
@@ -499,6 +548,20 @@ class _SettingsPageState extends State<SettingsPage> {
         SettingsCoachStep.fullScreen,
       SettingsCoachStep.hifzLens when _showFullScreenGuide =>
         SettingsCoachStep.fullScreen,
+      // Background playback is the last auto-tour step, reached once the
+      // earlier guides (if any) have been shown.
+      SettingsCoachStep.browseMode when _showBackgroundPlaybackGuide =>
+        SettingsCoachStep.backgroundPlayback,
+      SettingsCoachStep.autoScroll when _showBackgroundPlaybackGuide =>
+        SettingsCoachStep.backgroundPlayback,
+      SettingsCoachStep.marginImages when _showBackgroundPlaybackGuide =>
+        SettingsCoachStep.backgroundPlayback,
+      SettingsCoachStep.hideBar when _showBackgroundPlaybackGuide =>
+        SettingsCoachStep.backgroundPlayback,
+      SettingsCoachStep.hifzLens when _showBackgroundPlaybackGuide =>
+        SettingsCoachStep.backgroundPlayback,
+      SettingsCoachStep.fullScreen when _showBackgroundPlaybackGuide =>
+        SettingsCoachStep.backgroundPlayback,
       _ => null,
     };
   }
@@ -702,6 +765,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.remove('fullScreenGuideDismissed');
     await prefs.remove(_hifzLensSettingsGuideDismissedPrefKey);
     await prefs.remove(_fullScreenSettingsGuideDismissedPrefKey);
+    await prefs.remove(_backgroundPlaybackGuideDismissedPrefKey);
     if (!mounted) return;
 
     setState(() {
@@ -710,6 +774,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _showAutoScrollGuide = true;
       _showHifzLensGuide = true;
       _showFullScreenGuide = true;
+      _showBackgroundPlaybackGuide = true;
       _activeCoachStep = null;
       _activeCoachRect = null;
     });
@@ -743,6 +808,92 @@ class _SettingsPageState extends State<SettingsPage> {
       });
       widget.onTogglePortraitScrollMode(true);
     });
+  }
+
+  /// Collapsed "advanced settings" section, shown just below the audio
+  /// download tile. To add a new advanced setting later, append its widget to
+  /// [advancedChildren] — a thin divider is inserted automatically between
+  /// entries, so no further layout wiring is needed.
+  Widget _buildAdvancedSettingsSection() {
+    final advancedChildren = <Widget>[
+      Container(
+        key: _pageQualityKey,
+        child: ValueListenableBuilder<int>(
+          valueListenable: _pageQualityService.level,
+          builder: (context, level, _) {
+            return ValueListenableBuilder<HighQualityImagesState>(
+              valueListenable: _highQualityImagesService.state,
+              builder: (context, hqState, _) {
+                return PageQualityTile(
+                  level: level,
+                  hqState: hqState,
+                  onSelectLevel: _pageQualityService.setLevel,
+                  onDownloadHq: _handleHighQualityImagesDownload,
+                  onCancelHqDownload: _highQualityImagesService.cancelDownload,
+                  onPauseHqDownload: _highQualityImagesService.pauseDownload,
+                  onInfo: () =>
+                      _presentCoachManually(SettingsCoachStep.pageQuality),
+                );
+              },
+            );
+          },
+        ),
+      ),
+      ValueListenableBuilder<double>(
+        valueListenable: _recitationBarOpacityService.opacity,
+        builder: (context, opacity, _) {
+          return RecitationBarOpacityTile(
+            opacity: opacity,
+            onChanged: _recitationBarOpacityService.setOpacity,
+          );
+        },
+      ),
+      // Add future advanced settings here.
+    ];
+
+    return SettingsCard(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+            childrenPadding: EdgeInsets.zero,
+            iconColor: const Color(0xFF8B7355),
+            collapsedIconColor: const Color(0xFF8B7355),
+            shape: const Border(),
+            collapsedShape: const Border(),
+            title: const Row(
+              children: [
+                Icon(Icons.tune_rounded, color: Color(0xFF8B7355), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'إعدادات متقدمة',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2C2C2C),
+                  ),
+                ),
+              ],
+            ),
+            children: [
+              for (var i = 0; i < advancedChildren.length; i++) ...[
+                if (i > 0)
+                  const Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    indent: 12,
+                    endIndent: 12,
+                    color: Color(0xFFE8DCC8),
+                  ),
+                advancedChildren[i],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1066,29 +1217,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      SettingsCard(
-                        child: ValueListenableBuilder<int>(
-                          valueListenable: _pageQualityService.level,
-                          builder: (context, level, _) {
-                            return ValueListenableBuilder<HighQualityImagesState>(
-                              valueListenable: _highQualityImagesService.state,
-                              builder: (context, hqState, _) {
-                                return PageQualityTile(
-                                  level: level,
-                                  hqState: hqState,
-                                  onSelectLevel: _pageQualityService.setLevel,
-                                  onDownloadHq: _handleHighQualityImagesDownload,
-                                  onCancelHqDownload:
-                                      _highQualityImagesService.cancelDownload,
-                                  onPauseHqDownload:
-                                      _highQualityImagesService.pauseDownload,
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 6),
                       Container(
                         key: _marginImagesCardKey,
                         child: SettingsCard(
@@ -1103,57 +1231,86 @@ class _SettingsPageState extends State<SettingsPage> {
                                 onPauseDownload:
                                     _marginImagesService.pauseDownload,
                                 onToggleEnabled: _marginImagesService.setEnabled,
+                                onInfo: () => _presentCoachManually(
+                                  SettingsCoachStep.marginImages,
+                                ),
                               );
                             },
                           ),
                         ),
                       ),
                       const SizedBox(height: 6),
-                      SettingsCard(
-                        child: ValueListenableBuilder<Reciter>(
-                          valueListenable: _reciterService.selected,
-                          builder: (context, selectedReciter, _) {
-                            return ReciterTile(
-                              reciters: _reciterService.reciters,
-                              selected: selectedReciter,
-                              onSelect: _handleReciterSelect,
-                            );
-                          },
+                      Container(
+                        key: _reciterKey,
+                        child: SettingsCard(
+                          child: ValueListenableBuilder<Reciter>(
+                            valueListenable: _reciterService.selected,
+                            builder: (context, selectedReciter, _) {
+                              return ReciterTile(
+                                reciters: _reciterService.reciters,
+                                selected: selectedReciter,
+                                onSelect: _handleReciterSelect,
+                                onInfo: () => _presentCoachManually(
+                                  SettingsCoachStep.reciter,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: ValueListenableBuilder<bool>(
-                          valueListenable: _backgroundPlaybackService.enabled,
-                          builder: (context, enabled, _) {
-                            return CompactSwitchTile(
-                              title: 'تشغيل التلاوة في الخلفية',
-                              icon: Icons.headset_rounded,
-                              value: enabled,
-                              onChanged: _backgroundPlaybackService.setEnabled,
-                            );
-                          },
+                        child: Container(
+                          key: _backgroundPlaybackKey,
+                          child: ValueListenableBuilder<bool>(
+                            valueListenable: _backgroundPlaybackService.enabled,
+                            builder: (context, enabled, _) {
+                              return CompactSwitchTile(
+                                title: 'تشغيل التلاوة في الخلفية',
+                                icon: Icons.headset_rounded,
+                                onInfo: () => _presentCoachManually(
+                                  SettingsCoachStep.backgroundPlayback,
+                                ),
+                                value: enabled,
+                                onChanged: _backgroundPlaybackService.setEnabled,
+                              );
+                            },
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
-                      SettingsCard(
-                        child: ValueListenableBuilder<AudioDownloadState>(
-                          valueListenable: _audioDownloadService.state,
-                          builder: (context, audioState, _) {
-                            return AudioDownloadTile(
-                              state: audioState,
-                              onDownload: _audioDownloadService.downloadAll,
-                              onCancelDownload: _audioDownloadService.cancelDownload,
-                              onPauseDownload: _audioDownloadService.pauseDownload,
-                            );
-                          },
+                      Container(
+                        key: _audioDownloadKey,
+                        child: SettingsCard(
+                          child: ValueListenableBuilder<AudioDownloadState>(
+                            valueListenable: _audioDownloadService.state,
+                            builder: (context, audioState, _) {
+                              return AudioDownloadTile(
+                                state: audioState,
+                                onDownload: _audioDownloadService.downloadAll,
+                                onCancelDownload: _audioDownloadService.cancelDownload,
+                                onPauseDownload: _audioDownloadService.pauseDownload,
+                                onInfo: () => _presentCoachManually(
+                                  SettingsCoachStep.audioDownload,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
-                      SettingsCard(
-                        child: DownloadsManagementTile(
-                          onOpen: _openDownloadsManagementPage,
+                      _buildAdvancedSettingsSection(),
+                      const SizedBox(height: 6),
+                      Container(
+                        key: _downloadsManagementKey,
+                        child: SettingsCard(
+                          child: DownloadsManagementTile(
+                            onOpen: _openDownloadsManagementPage,
+                            onInfo: () => _presentCoachManually(
+                              SettingsCoachStep.downloadsManagement,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),

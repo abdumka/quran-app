@@ -19,6 +19,7 @@ import 'services/background_playback_service.dart';
 import 'services/margin_images_service.dart';
 import 'services/high_quality_images_service.dart';
 import 'services/page_quality_service.dart';
+import 'services/recitation_bar_opacity_service.dart';
 
 import 'services/theme_service.dart';
 import 'services/tafsir_service.dart';
@@ -4313,6 +4314,7 @@ class _QuranPagesState extends State<QuranPages>
   Widget _buildRecitationBottomBar() {
     const accentColor = Color(0xFFD2B97E);
     final audio = AudioService.instance;
+    final opacityService = RecitationBarOpacityService.instance;
 
     return ListenableBuilder(
       listenable: Listenable.merge([
@@ -4322,8 +4324,12 @@ class _QuranPagesState extends State<QuranPages>
         audio.pageRepeatCount,
         audio.repeatMode,
         audio.repeatCount,
+        opacityService.opacity,
       ]),
       builder: (context, _) {
+        // Single knob for all bar icon/button opacity: 1.0 = fully white, 0.0 = fully transparent.
+        final iconOpacity = opacityService.opacity.value;
+        final iconColor = Color.fromRGBO(255, 255, 255, iconOpacity);
         final isPlaying = audio.isPlaying.value;
         final currentAyah = audio.currentAyah.value;
         final repeatModeVal = audio.repeatMode.value;
@@ -4342,7 +4348,7 @@ class _QuranPagesState extends State<QuranPages>
           onTap: () {},
           child: Container(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.32),
+            color: Colors.black.withValues(alpha: 0.26),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.2),
@@ -4407,8 +4413,8 @@ class _QuranPagesState extends State<QuranPages>
                           width: 34,
                           height: 30,
                           fit: BoxFit.contain,
-                          color: Colors.white,
-                          colorBlendMode: BlendMode.srcATop,
+                          color: iconColor,
+                          colorBlendMode: BlendMode.modulate,
                         ),
                       ),
                       if (isPageRepeating && pageRepeatLabel.isNotEmpty)
@@ -4450,8 +4456,8 @@ class _QuranPagesState extends State<QuranPages>
                 style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: const Icon(Icons.skip_previous_rounded,
-                    color: Colors.white, size: 36),
+                icon: Icon(Icons.skip_previous_rounded,
+                    color: iconColor, size: 36),
                 onPressed: () {
                   _resetHideTimer();
                   audio.previousAyah();
@@ -4476,8 +4482,8 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                   child: Text(
                     currentAyah != null ? 'آية ${currentAyah.ayah}' : 'آية 1',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: iconColor,
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                     ),
@@ -4510,7 +4516,7 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                   child: Icon(
                     isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: Colors.white,
+                    color: iconColor,
                     size: 40,
                   ),
                 ),
@@ -4521,8 +4527,8 @@ class _QuranPagesState extends State<QuranPages>
                 style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: const Icon(Icons.skip_next_rounded,
-                    color: Colors.white, size: 36),
+                icon: Icon(Icons.skip_next_rounded,
+                    color: iconColor, size: 36),
                 onPressed: () {
                   _resetHideTimer();
                   audio.nextAyah();
@@ -4553,8 +4559,8 @@ class _QuranPagesState extends State<QuranPages>
                         width: 34,
                         height: 30,
                         fit: BoxFit.contain,
-                        color: Colors.white,
-                        colorBlendMode: BlendMode.srcATop,
+                        color: iconColor,
+                        colorBlendMode: BlendMode.modulate,
                       ),
                       if (isRepeating && repeatLabel.isNotEmpty)
                         Positioned(
@@ -4595,8 +4601,8 @@ class _QuranPagesState extends State<QuranPages>
                 style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: const Icon(Icons.close_rounded,
-                    color: Colors.white, size: 28),
+                icon: Icon(Icons.close_rounded,
+                    color: iconColor, size: 28),
                 onPressed: () {
                   _resetHideTimer();
                   audio.stop();
@@ -4609,8 +4615,8 @@ class _QuranPagesState extends State<QuranPages>
                 style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: const Icon(Icons.help_outline_rounded,
-                    color: Colors.white, size: 24),
+                icon: Icon(Icons.help_outline_rounded,
+                    color: iconColor, size: 24),
                 onPressed: () {
                   _resetHideTimer();
                   _showRecitationBarGuide();

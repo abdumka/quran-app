@@ -29,4 +29,9 @@ enum SettingsCoachStep {
   fullScreen,
   twoPage,
   resetGuides,
+  reciter,
+  backgroundPlayback,
+  pageQuality,
+  audioDownload,
+  downloadsManagement,
 }

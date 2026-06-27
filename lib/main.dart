@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/background_playback_service.dart';
 import 'services/debug_log_service.dart';
 import 'services/reciter_service.dart';
+import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
 import 'splash_screen.dart';
 
@@ -66,6 +67,7 @@ Future<void> main() async {
   await ThemeService.loadTheme();
   await ReciterService.instance.load();
   await BackgroundPlaybackService.instance.load();
+  await RecitationBarOpacityService.instance.load();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
