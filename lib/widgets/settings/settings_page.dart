@@ -843,8 +843,25 @@ class _SettingsPageState extends State<SettingsPage> {
         valueListenable: _recitationBarOpacityService.opacity,
         builder: (context, opacity, _) {
           return RecitationBarOpacityTile(
+            title: 'شفافية أزرار شريط التلاوة',
+            description: 'تتحكم في وضوح أيقونات شريط التلاوة (تشغيل، تالي، تكرار...). '
+                'كلما اتجهت لليمين زاد الوضوح.',
+            icon: Icons.opacity_rounded,
             opacity: opacity,
             onChanged: _recitationBarOpacityService.setOpacity,
+          );
+        },
+      ),
+      ValueListenableBuilder<double>(
+        valueListenable: _recitationBarOpacityService.backgroundOpacity,
+        builder: (context, backgroundOpacity, _) {
+          return RecitationBarOpacityTile(
+            title: 'شفافية خلفية شريط التلاوة',
+            description: 'تتحكم في وضوح خلفية شريط التلاوة نفسه. '
+                'كلما اتجهت لليمين زاد الوضوح.',
+            icon: Icons.gradient_rounded,
+            opacity: backgroundOpacity,
+            onChanged: _recitationBarOpacityService.setBackgroundOpacity,
           );
         },
       ),

@@ -895,14 +895,20 @@ class PageQualityTile extends StatelessWidget {
 }
 
 class RecitationBarOpacityTile extends StatelessWidget {
+  final String title;
+  final String description;
+  final IconData icon;
   final double opacity;
   final ValueChanged<double> onChanged;
   final VoidCallback? onInfo;
 
   const RecitationBarOpacityTile({
     super.key,
+    required this.title,
+    required this.description,
     required this.opacity,
     required this.onChanged,
+    this.icon = Icons.opacity_rounded,
     this.onInfo,
   });
 
@@ -915,13 +921,12 @@ class RecitationBarOpacityTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          SettingsTileHeader(title: 'شفافية أزرار شريط التلاوة', onInfo: onInfo),
+          SettingsTileHeader(title: title, onInfo: onInfo),
           const SizedBox(height: 3),
-          const Text(
-            'تتحكم في وضوح أيقونات شريط التلاوة (تشغيل، تالي، تكرار...). '
-            'كلما اتجهت لليمين زاد الوضوح.',
+          Text(
+            description,
             textDirection: TextDirection.rtl,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 11,
               color: Color(0xFF888888),
               height: 1.4,
@@ -931,7 +936,7 @@ class RecitationBarOpacityTile extends StatelessWidget {
           Row(
             textDirection: TextDirection.rtl,
             children: [
-              const Icon(Icons.opacity_rounded, color: _gold, size: 18),
+              Icon(icon, color: _gold, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: SliderTheme(

@@ -4325,11 +4325,13 @@ class _QuranPagesState extends State<QuranPages>
         audio.repeatMode,
         audio.repeatCount,
         opacityService.opacity,
+        opacityService.backgroundOpacity,
       ]),
       builder: (context, _) {
         // Single knob for all bar icon/button opacity: 1.0 = fully white, 0.0 = fully transparent.
         final iconOpacity = opacityService.opacity.value;
         final iconColor = Color.fromRGBO(255, 255, 255, iconOpacity);
+        final backgroundOpacity = opacityService.backgroundOpacity.value;
         final isPlaying = audio.isPlaying.value;
         final currentAyah = audio.currentAyah.value;
         final repeatModeVal = audio.repeatMode.value;
@@ -4348,7 +4350,7 @@ class _QuranPagesState extends State<QuranPages>
           onTap: () {},
           child: Container(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.26),
+            color: Colors.black.withValues(alpha: backgroundOpacity),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.2),
