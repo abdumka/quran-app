@@ -39,7 +39,11 @@ import 'search_page.dart';
 class QuranPages extends StatefulWidget {
   final int initialPage;
   final bool initialPortraitScrollMode;
-  const QuranPages({super.key, this.initialPage = 0, this.initialPortraitScrollMode = false});
+  const QuranPages({
+    super.key,
+    this.initialPage = 0,
+    this.initialPortraitScrollMode = false,
+  });
 
   @override
   State<QuranPages> createState() => _QuranPagesState();
@@ -53,10 +57,8 @@ class _QuranPagesState extends State<QuranPages>
   static const String _tabletLayoutModePrefKey = 'tabletLayoutMode';
   static const String _hifzModePrefKey = 'enableHifzMode';
   static const String _fullScreenModePrefKey = 'fullScreenMode';
-  static const String _bookmarkGuideDismissedPrefKey =
-      'bookmarkGuideDismissed';
-  static const String _hifzLensGuideDismissedPrefKey =
-      'hifzLensGuideDismissed';
+  static const String _bookmarkGuideDismissedPrefKey = 'bookmarkGuideDismissed';
+  static const String _hifzLensGuideDismissedPrefKey = 'hifzLensGuideDismissed';
   static const String _hideBarReaderGuideDismissedPrefKey =
       'hideBarReaderGuideDismissed';
   static const String _fullScreenGuideDismissedPrefKey =
@@ -264,8 +266,6 @@ class _QuranPagesState extends State<QuranPages>
     598: 'ثلاثة أرباع الحزب 60',
   };
 
-
-
   late PageController _portraitController;
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
@@ -299,13 +299,14 @@ class _QuranPagesState extends State<QuranPages>
   bool _isHifzModeEnabled = false;
   bool _isFullScreenMode = false;
 
-
   int? _activeBookmarkSlot;
   bool _showBookmarkNotice = false;
+  bool _showAudioPlaybackNotice = false;
   bool _showBookmarkGuide = false;
   bool _hideBookmarkGuideForeverChecked = false;
   String? _visibleHizbText;
   String? _visibleSajdaText;
+  String _audioPlaybackNoticeText = '';
   int _currentSurahNumber = 1;
   bool? _wasPhoneLandscape;
   bool? _wasLandscapeOrientation;
@@ -317,6 +318,7 @@ class _QuranPagesState extends State<QuranPages>
   Timer? _hizbPopupTimer;
   Timer? _sajdaPopupTimer;
   Timer? _bookmarkNoticeTimer;
+  Timer? _audioPlaybackNoticeTimer;
   late final AnimationController _bookmarkGuideAnimationController;
   Timer? _savePageTimer;
   Timer? _portraitAutoScrollTimer;
@@ -347,8 +349,6 @@ class _QuranPagesState extends State<QuranPages>
     });
   }
 
-
-
   void _cancelTopBarHideTimer() {
     _recitationBarHideTimer?.cancel();
     _recitationBarHideTimer = null;
@@ -366,6 +366,24 @@ class _QuranPagesState extends State<QuranPages>
     // No setState needed — the recitation bar uses its own ValueListenableBuilder.
   }
 
+  void _handleAudioPlaybackNotice() {
+    final notice = AudioService.instance.playbackNotice.value;
+    if (!mounted || notice == null) return;
+
+    _audioPlaybackNoticeTimer?.cancel();
+    setState(() {
+      _audioPlaybackNoticeText = notice.message;
+      _showAudioPlaybackNotice = true;
+    });
+
+    _audioPlaybackNoticeTimer = Timer(const Duration(milliseconds: 2800), () {
+      if (!mounted) return;
+      setState(() {
+        _showAudioPlaybackNotice = false;
+      });
+    });
+  }
+
   void _resetHideTimer() {
     _hideControlsTimer?.cancel();
     _hideControlsTimer = Timer(const Duration(seconds: 10), () {
@@ -378,8 +396,6 @@ class _QuranPagesState extends State<QuranPages>
       }
     });
   }
-
-
 
   // ط¸â€‍ط¸â€‍ط·ع¾ط·آ¬ط·آ±ط¸ظ¹ط·آ¨ ط·آ¨ط¸ظ¹ط¸â€  contain / cover / fill
   BoxFit currentFit = BoxFit.contain;
@@ -414,7 +430,9 @@ class _QuranPagesState extends State<QuranPages>
     _readingCoordinator = QuranReadingCoordinator(pageCount: pages.length);
     _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
-    _highQualityImagesService.state.addListener(_handleHighQualityImagesChanged);
+    _highQualityImagesService.state.addListener(
+      _handleHighQualityImagesChanged,
+    );
     _pageQualityService.level.addListener(_handlePageQualityChanged);
     // Use the page passed from SplashScreen so we never flash Al-Fatiha
     if (widget.initialPage > 0) {
@@ -440,7 +458,7 @@ class _QuranPagesState extends State<QuranPages>
     QuranJsonService.loadQuranPages().then((data) {
       if (mounted) setState(() => _allQuranPages = data);
     });
-    
+
     AudioService.instance.init();
     AudioService.instance.onPageChangeRequired = (pageIndex) {
       if (mounted) {
@@ -467,6 +485,9 @@ class _QuranPagesState extends State<QuranPages>
       }
     });
     AudioService.instance.isPlaying.addListener(_handleAudioPlaybackChanged);
+    AudioService.instance.playbackNotice.addListener(
+      _handleAudioPlaybackNotice,
+    );
   }
 
   @override
@@ -522,16 +543,21 @@ class _QuranPagesState extends State<QuranPages>
     _hizbPopupTimer?.cancel();
     _sajdaPopupTimer?.cancel();
     _savePageTimer?.cancel();
+    _audioPlaybackNoticeTimer?.cancel();
     _recitationBarHideTimer?.cancel();
     _portraitAutoScrollTimer?.cancel();
     _portraitAutoScrollResumeTimer?.cancel();
     _portraitAutoScrollController?.dispose();
     AudioService.instance.isPlaying.removeListener(_handleAudioPlaybackChanged);
+    AudioService.instance.playbackNotice.removeListener(
+      _handleAudioPlaybackNotice,
+    );
     AudioService.instance.stop();
     _setReadingMode(false);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
-    _highQualityImagesService.state
-        .removeListener(_handleHighQualityImagesChanged);
+    _highQualityImagesService.state.removeListener(
+      _handleHighQualityImagesChanged,
+    );
     _pageQualityService.level.removeListener(_handlePageQualityChanged);
     _readingCoordinator.removeListener(_handleReadingCoordinatorChanged);
     _readingCoordinator.dispose();
@@ -543,7 +569,8 @@ class _QuranPagesState extends State<QuranPages>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
       // Pause audio instead of stopping — so user can resume when they return.
       // Unless the user enabled background playback, in which case the recitation
       // keeps going and is controlled from the system media notification.
@@ -614,7 +641,8 @@ class _QuranPagesState extends State<QuranPages>
   void _handleMarginImagesChanged() {
     if (!mounted) return;
     final s = _marginImagesService.state.value;
-    if (s.isEnabled == _prevMarginEnabled && s.imagesDirectoryPath == _prevMarginDir) {
+    if (s.isEnabled == _prevMarginEnabled &&
+        s.imagesDirectoryPath == _prevMarginDir) {
       return; // Only download progress changed — skip rebuild.
     }
     _prevMarginEnabled = s.isEnabled;
@@ -680,7 +708,8 @@ class _QuranPagesState extends State<QuranPages>
 
     // Zero disk I/O memory lookup for all supported extensions
     for (final ext in const ['webp', 'jpg', 'jpeg', 'png']) {
-      final path = '$directoryPath${Platform.pathSeparator}page_$pageNumber.$ext';
+      final path =
+          '$directoryPath${Platform.pathSeparator}page_$pageNumber.$ext';
       if (_downloadedPageFileCache.containsKey(path)) {
         return _downloadedPageFileCache[path];
       }
@@ -688,11 +717,10 @@ class _QuranPagesState extends State<QuranPages>
     return null;
   }
 
-
-
   Widget _buildBookmarkBadge(int slot) {
     return Container(
-      width: 26, height: 38,
+      width: 26,
+      height: 38,
       decoration: const BoxDecoration(
         color: Color(0xFF8B7355), // ذهبي بدل أحمر
         borderRadius: BorderRadius.only(
@@ -700,13 +728,10 @@ class _QuranPagesState extends State<QuranPages>
           bottomRight: Radius.circular(8),
         ),
       ),
-      child: const Icon(
-        Icons.bookmark,
-        color: Colors.white,
-        size: 16,
-      ),
+      child: const Icon(Icons.bookmark, color: Colors.white, size: 16),
     );
   }
+
   ImageProvider _imageProviderForPage(int pageIndex, String assetPath) {
     // Levels 2 & 3 decode at native size (all sources are 720px wide, so this
     // is the same memory as the old ResizeImage(720)) and pair with a high
@@ -756,8 +781,6 @@ class _QuranPagesState extends State<QuranPages>
     oldController.dispose();
   }
 
-
-
   void _setCurrentPage(
     int page, {
     bool persist = true,
@@ -775,7 +798,7 @@ class _QuranPagesState extends State<QuranPages>
       _showHizbPopupIfNeeded(safePage);
       _showSajdaPopupIfNeeded(safePage);
     }
-    
+
     if (_isHideBarEnabled) {
       setState(() {
         _hideBarRatio = 0.05;
@@ -916,7 +939,9 @@ class _QuranPagesState extends State<QuranPages>
             textAlign: TextAlign.center,
             textDirection: TextDirection.rtl,
             style: TextStyle(
-              color: isDarkMode ? const Color(0xFFFFF4D6) : const Color(0xFF35250E),
+              color: isDarkMode
+                  ? const Color(0xFFFFF4D6)
+                  : const Color(0xFF35250E),
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -935,10 +960,7 @@ class _QuranPagesState extends State<QuranPages>
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'إغلاق',
-                textDirection: TextDirection.rtl,
-              ),
+              child: const Text('إغلاق', textDirection: TextDirection.rtl),
             ),
           ],
         );
@@ -948,27 +970,33 @@ class _QuranPagesState extends State<QuranPages>
 
   Future<void> _showTafsirDialog(int pageIndex) async {
     if (!mounted) return;
-    
+
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDarkMode ? const Color(0xFF19130A) : const Color(0xFFF8F1DE);
-    final borderColor = isDarkMode ? const Color(0xFFD6B35D).withValues(alpha: 0.55) : const Color(0xFFE2D2A5);
+    final backgroundColor = isDarkMode
+        ? const Color(0xFF19130A)
+        : const Color(0xFFF8F1DE);
+    final borderColor = isDarkMode
+        ? const Color(0xFFD6B35D).withValues(alpha: 0.55)
+        : const Color(0xFFE2D2A5);
     final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
-    final titleColor = isDarkMode ? const Color(0xFFFFF4D6) : const Color(0xFF35250E);
-    final accentColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final titleColor = isDarkMode
+        ? const Color(0xFFFFF4D6)
+        : const Color(0xFF35250E);
+    final accentColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
-        return Center(
-          child: CircularProgressIndicator(color: borderColor),
-        );
+        return Center(child: CircularProgressIndicator(color: borderColor));
       },
     );
 
     // Pre-warm the data cache
     await TafsirService.getTafsirForPage(pageIndex);
-    
+
     if (!mounted) return;
     Navigator.of(context).pop(); // dismiss loading
 
@@ -1198,9 +1226,7 @@ class _QuranPagesState extends State<QuranPages>
           textDirection: TextDirection.rtl,
           autofocus: true,
           maxLength: 24,
-          decoration: const InputDecoration(
-            hintText: 'اسم مختصر (اختياري)',
-          ),
+          decoration: const InputDecoration(hintText: 'اسم مختصر (اختياري)'),
           onSubmitted: (value) => Navigator.pop(dialogContext, value),
         ),
         actions: [
@@ -1317,7 +1343,9 @@ class _QuranPagesState extends State<QuranPages>
       final decoded = jsonDecode(raw) as List<dynamic>;
       final bookmarks = <int, ReaderBookmark>{};
       for (final item in decoded) {
-        final bookmark = ReaderBookmark.fromJson(Map<String, dynamic>.from(item));
+        final bookmark = ReaderBookmark.fromJson(
+          Map<String, dynamic>.from(item),
+        );
         bookmarks[bookmark.slot] = bookmark;
       }
       if (!mounted) return;
@@ -1394,7 +1422,10 @@ class _QuranPagesState extends State<QuranPages>
       _setCurrentPage(targetIndex, showHizbPopup: true);
       _updateSystemUI();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _continuousViewKey.currentState?.scrollToPage(targetIndex, yOffsetRatio: yOffsetRatio);
+        _continuousViewKey.currentState?.scrollToPage(
+          targetIndex,
+          yOffsetRatio: yOffsetRatio,
+        );
       });
       return;
     }
@@ -1545,10 +1576,12 @@ class _QuranPagesState extends State<QuranPages>
         SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           systemNavigationBarColor: Colors.transparent,
-          statusBarIconBrightness:
-              isDarkMode ? Brightness.light : Brightness.dark,
-          systemNavigationBarIconBrightness:
-              isDarkMode ? Brightness.light : Brightness.dark,
+          statusBarIconBrightness: isDarkMode
+              ? Brightness.light
+              : Brightness.dark,
+          systemNavigationBarIconBrightness: isDarkMode
+              ? Brightness.light
+              : Brightness.dark,
         ),
       );
       return;
@@ -1560,8 +1593,12 @@ class _QuranPagesState extends State<QuranPages>
       SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: Colors.transparent,
-        statusBarIconBrightness: isDarkMode ? Brightness.light : Brightness.dark,
-        systemNavigationBarIconBrightness: isDarkMode ? Brightness.light : Brightness.dark,
+        statusBarIconBrightness: isDarkMode
+            ? Brightness.light
+            : Brightness.dark,
+        systemNavigationBarIconBrightness: isDarkMode
+            ? Brightness.light
+            : Brightness.dark,
       ),
     );
   }
@@ -1596,7 +1633,7 @@ class _QuranPagesState extends State<QuranPages>
 
   double _currentAutoScrollPixelsPerSecond() {
     if (AudioService.instance.isPlaying.value) return 0.0;
-    
+
     switch (_autoScrollSpeedMultiplier) {
       case 0.5:
         return 9;
@@ -1627,7 +1664,7 @@ class _QuranPagesState extends State<QuranPages>
 
   void _setAutoScrollEnabled(bool value) {
     if (_isAutoScrollEnabled == value) return;
-    
+
     if (value) {
       _toggleHideBar(false);
       if (!_isPortraitScrollMode) {
@@ -1645,7 +1682,7 @@ class _QuranPagesState extends State<QuranPages>
         _isAutoScrollBarCollapsed = false;
       }
     });
-    
+
     if (!value && !_isPhoneLandscape(context)) {
       _stopPortraitAutoScroll();
     }
@@ -1658,12 +1695,22 @@ class _QuranPagesState extends State<QuranPages>
     });
   }
 
-  static const List<double> _allowedSpeeds = [0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0];
+  static const List<double> _allowedSpeeds = [
+    0.5,
+    0.75,
+    1.0,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+  ];
 
   void _increaseAutoScrollSpeed() {
     int currentIndex = _allowedSpeeds.indexOf(_autoScrollSpeedMultiplier);
     if (currentIndex == -1) {
-      currentIndex = _allowedSpeeds.indexWhere((s) => s >= _autoScrollSpeedMultiplier);
+      currentIndex = _allowedSpeeds.indexWhere(
+        (s) => s >= _autoScrollSpeedMultiplier,
+      );
       if (currentIndex == -1) currentIndex = _allowedSpeeds.length - 1;
     }
     if (currentIndex < _allowedSpeeds.length - 1) {
@@ -1674,7 +1721,9 @@ class _QuranPagesState extends State<QuranPages>
   void _decreaseAutoScrollSpeed() {
     int currentIndex = _allowedSpeeds.indexOf(_autoScrollSpeedMultiplier);
     if (currentIndex == -1) {
-      currentIndex = _allowedSpeeds.lastIndexWhere((s) => s <= _autoScrollSpeedMultiplier);
+      currentIndex = _allowedSpeeds.lastIndexWhere(
+        (s) => s <= _autoScrollSpeedMultiplier,
+      );
       if (currentIndex == -1) currentIndex = 0;
     }
     if (currentIndex > 0) {
@@ -1700,7 +1749,9 @@ class _QuranPagesState extends State<QuranPages>
     if (value && !_supportsPortraitScrollMode(context)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('وضع التمرير غير متاح في وضع الصفحتين على الشاشات العريضة'),
+          content: Text(
+            'وضع التمرير غير متاح في وضع الصفحتين على الشاشات العريضة',
+          ),
         ),
       );
       return;
@@ -1718,9 +1769,7 @@ class _QuranPagesState extends State<QuranPages>
     // Hide bar and scroll mode are mutually exclusive (both use vertical gestures)
     if (value && _isHideBarEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('يجب إيقاف شريط الإخفاء أولاً'),
-        ),
+        const SnackBar(content: Text('يجب إيقاف شريط الإخفاء أولاً')),
       );
       // Force rebuild so the settings toggle reverts visually
       setState(() {});
@@ -1799,9 +1848,7 @@ class _QuranPagesState extends State<QuranPages>
       // Hide bar and scroll mode are mutually exclusive (both use vertical gestures)
       if (_isPortraitScrollMode) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('يجب إيقاف وضع التمرير أولاً'),
-          ),
+          const SnackBar(content: Text('يجب إيقاف وضع التمرير أولاً')),
         );
         return;
       }
@@ -1825,7 +1872,8 @@ class _QuranPagesState extends State<QuranPages>
 
   Future<void> _maybeShowHideBarReaderGuide() async {
     final prefs = await SharedPreferences.getInstance();
-    final dismissed = prefs.getBool(_hideBarReaderGuideDismissedPrefKey) ?? false;
+    final dismissed =
+        prefs.getBool(_hideBarReaderGuideDismissedPrefKey) ?? false;
     if (!dismissed && mounted) _showHideBarReaderGuide();
   }
 
@@ -1861,14 +1909,17 @@ class _QuranPagesState extends State<QuranPages>
     final frameHeight = 2 * frameOffset;
     final maxH = constraints.maxHeight;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final coverColor =
-        isDark ? const Color(0xFF1A1A1F) : const Color(0xFFFAF6EE);
+    final coverColor = isDark
+        ? const Color(0xFF1A1A1F)
+        : const Color(0xFFFAF6EE);
     const blockerColor = Color(0xFFEDE3CC);
 
     final center = _hideBarRatio * maxH;
     final windowTop = (center - halfHeight).clamp(0.0, maxH).toDouble();
     final windowBottom = (center + halfHeight).clamp(0.0, maxH).toDouble();
-    final frameTop = (center - frameOffset).clamp(-frameOffset, maxH).toDouble();
+    final frameTop = (center - frameOffset)
+        .clamp(-frameOffset, maxH)
+        .toDouble();
 
     return [
       if (!_isHideBarReversed) ...[
@@ -2090,10 +2141,7 @@ class _QuranPagesState extends State<QuranPages>
       _portraitScrollModePrefKey,
       _preferredPortraitScrollMode,
     );
-    await prefs.setBool(
-      _tabletLayoutModePrefKey,
-      _isTabletLayoutMode,
-    );
+    await prefs.setBool(_tabletLayoutModePrefKey, _isTabletLayoutMode);
   }
 
   void _setTabletLayoutMode(bool value) {
@@ -2165,9 +2213,13 @@ class _QuranPagesState extends State<QuranPages>
       }
 
       final maxScroll = controller.position.maxScrollExtent;
-      final nextOffset = (controller.offset + deltaPerTick).clamp(0.0, maxScroll);
+      final nextOffset = (controller.offset + deltaPerTick).clamp(
+        0.0,
+        maxScroll,
+      );
 
-      if ((nextOffset - controller.offset).abs() < 0.1 || nextOffset >= maxScroll) {
+      if ((nextOffset - controller.offset).abs() < 0.1 ||
+          nextOffset >= maxScroll) {
         _setAutoScrollEnabled(false);
         return;
       }
@@ -2199,11 +2251,15 @@ class _QuranPagesState extends State<QuranPages>
     final maxViewIndex = _useTwoPageView(context)
         ? (pages.length / 2).ceil() - 1
         : pages.length - 1;
-    final viewIndex = (controller.offset / pageExtent)
-        .floor()
-        .clamp(0, maxViewIndex);
+    final viewIndex = (controller.offset / pageExtent).floor().clamp(
+      0,
+      maxViewIndex,
+    );
 
-    return _getFirstPageIndexForView(viewIndex, context).clamp(0, pages.length - 1);
+    return _getFirstPageIndexForView(
+      viewIndex,
+      context,
+    ).clamp(0, pages.length - 1);
   }
 
   int _getHizbNumber(int pageIndex) {
@@ -2258,7 +2314,6 @@ class _QuranPagesState extends State<QuranPages>
 
     return '';
   }
-
 
   void _openSearchPage() {
     if (_isAutoScrollEnabled) {
@@ -2329,7 +2384,8 @@ class _QuranPagesState extends State<QuranPages>
 
     for (int i = 0; i < surahList.length; i++) {
       final surahPage = surahList[i]['page'] as int;
-      final surahRatio = (surahList[i]['yOffsetRatio'] as num?)?.toDouble() ?? 0.0;
+      final surahRatio =
+          (surahList[i]['yOffsetRatio'] as num?)?.toDouble() ?? 0.0;
 
       if (surahPage < realPage) {
         currentSurah = surahList[i]['name'] as String;
@@ -2420,8 +2476,9 @@ class _QuranPagesState extends State<QuranPages>
                     : (details) {
                         final box = context.findRenderObject() as RenderBox?;
                         if (box != null) {
-                          final local =
-                              box.globalToLocal(details.globalPosition);
+                          final local = box.globalToLocal(
+                            details.globalPosition,
+                          );
                           _promptSaveBookmark(
                             pageIndex,
                             local.dx,
@@ -2453,12 +2510,15 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                 ),
               ),
-              for (final bookmark in _bookmarks.values
-                  .where((bookmark) => bookmark.page == pageIndex))
+              for (final bookmark in _bookmarks.values.where(
+                (bookmark) => bookmark.page == pageIndex,
+              ))
                 Positioned(
-                  left: _draggingBookmarkOffsets[bookmark.slot]?.dx ??
+                  left:
+                      _draggingBookmarkOffsets[bookmark.slot]?.dx ??
                       bookmark.leftFor(constraints.maxWidth),
-                  top: _draggingBookmarkOffsets[bookmark.slot]?.dy ??
+                  top:
+                      _draggingBookmarkOffsets[bookmark.slot]?.dy ??
                       bookmark.topFor(constraints.maxHeight),
                   child: GestureDetector(
                     behavior: HitTestBehavior.translucent,
@@ -2515,8 +2575,7 @@ class _QuranPagesState extends State<QuranPages>
                   : (details) {
                       final box = context.findRenderObject() as RenderBox?;
                       if (box != null) {
-                        final local =
-                            box.globalToLocal(details.globalPosition);
+                        final local = box.globalToLocal(details.globalPosition);
                         _promptSaveBookmark(
                           pageIndex,
                           local.dx,
@@ -2543,12 +2602,15 @@ class _QuranPagesState extends State<QuranPages>
                 ),
               ),
             ),
-            for (final bookmark in _bookmarks.values
-                .where((bookmark) => bookmark.page == pageIndex))
+            for (final bookmark in _bookmarks.values.where(
+              (bookmark) => bookmark.page == pageIndex,
+            ))
               Positioned(
-                left: _draggingBookmarkOffsets[bookmark.slot]?.dx ??
+                left:
+                    _draggingBookmarkOffsets[bookmark.slot]?.dx ??
                     bookmark.leftFor(constraints.maxWidth),
-                top: _draggingBookmarkOffsets[bookmark.slot]?.dy ??
+                top:
+                    _draggingBookmarkOffsets[bookmark.slot]?.dy ??
                     bookmark.topFor(constraints.maxHeight),
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
@@ -2663,79 +2725,93 @@ class _QuranPagesState extends State<QuranPages>
 
   Widget _buildLandscapeReader(bool isPhoneLandscape) {
     return LayoutBuilder(
-        builder: (context, constraints) {
-          return ColorFiltered(
-            colorFilter: Theme.of(context).brightness == Brightness.dark
-                ? const ColorFilter.matrix([
-                    -1, 0, 0, 0, 255,
-                     0,-1, 0, 0, 255,
-                     0, 0,-1, 0, 255,
-                     0, 0, 0, 1,   0,
-                  ])
-                : const ColorFilter.mode(
-                    Color(0xFFFAF6EE),
-                    BlendMode.multiply,
-                  ),
-            child: Stack(
-              children: [
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _handleReaderTap,
-                  child: ContinuousQuranView(
-                    key: _continuousViewKey,
-                    hifzModeEnabled: _isHifzModeEnabled,
-                    pages: pages,
-                    filterQuality: _pageQualityService.filterQuality,
-                    pageImageProviderBuilder: (pageIndex) =>
-                        _imageProviderForPage(pageIndex, pages[pageIndex]),
-                    initialPage: _currentPage,
-                    viewportWidth: constraints.maxWidth,
-                    pageAspectRatio: _activePageAspectRatio,
-                    autoScrollEnabled: _isAutoScrollEnabled,
-                    autoScrollPixelsPerSecond: _currentAutoScrollPixelsPerSecond(),
-                    bookmarks: _bookmarks.values.toList(growable: false),
-                    onPageChanged: (page) {
-                      _setCurrentPage(page, showHizbPopup: true);
-                      _showTopBarOnNavigation();
-                      _hideTopBarAfterNavigation();
-                    },
-                    onSaveBookmark: (page, x, y, width, height) {
-                      _promptSaveBookmark(
-                        page,
-                        x,
-                        y,
+      builder: (context, constraints) {
+        return ColorFiltered(
+          colorFilter: Theme.of(context).brightness == Brightness.dark
+              ? const ColorFilter.matrix([
+                  -1,
+                  0,
+                  0,
+                  0,
+                  255,
+                  0,
+                  -1,
+                  0,
+                  0,
+                  255,
+                  0,
+                  0,
+                  -1,
+                  0,
+                  255,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                ])
+              : const ColorFilter.mode(Color(0xFFFAF6EE), BlendMode.multiply),
+          child: Stack(
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _handleReaderTap,
+                child: ContinuousQuranView(
+                  key: _continuousViewKey,
+                  hifzModeEnabled: _isHifzModeEnabled,
+                  pages: pages,
+                  filterQuality: _pageQualityService.filterQuality,
+                  pageImageProviderBuilder: (pageIndex) =>
+                      _imageProviderForPage(pageIndex, pages[pageIndex]),
+                  initialPage: _currentPage,
+                  viewportWidth: constraints.maxWidth,
+                  pageAspectRatio: _activePageAspectRatio,
+                  autoScrollEnabled: _isAutoScrollEnabled,
+                  autoScrollPixelsPerSecond:
+                      _currentAutoScrollPixelsPerSecond(),
+                  bookmarks: _bookmarks.values.toList(growable: false),
+                  onPageChanged: (page) {
+                    _setCurrentPage(page, showHizbPopup: true);
+                    _showTopBarOnNavigation();
+                    _hideTopBarAfterNavigation();
+                  },
+                  onSaveBookmark: (page, x, y, width, height) {
+                    _promptSaveBookmark(
+                      page,
+                      x,
+                      y,
+                      sourceWidth: width,
+                      sourceHeight: height,
+                    );
+                  },
+                  onMoveBookmark: (slot, page, x, y, width, height) {
+                    final bookmark = _bookmarks[slot];
+                    if (bookmark == null) return;
+                    setState(() {
+                      _bookmarks[slot] = bookmark.copyWith(
+                        page: page,
+                        x: x,
+                        y: y,
                         sourceWidth: width,
                         sourceHeight: height,
                       );
-                    },
-                    onMoveBookmark: (slot, page, x, y, width, height) {
-                      final bookmark = _bookmarks[slot];
-                      if (bookmark == null) return;
-                      setState(() {
-                        _bookmarks[slot] = bookmark.copyWith(
-                          page: page,
-                          x: x,
-                          y: y,
-                          sourceWidth: width,
-                          sourceHeight: height,
-                        );
-                        _activeBookmarkSlot = slot;
-                      });
-                    },
-                    onMoveBookmarkEnd: _persistBookmarks,
-                    onAutoScrollInterrupted: () {
-                      _setAutoScrollEnabled(false);
-                    },
-                    onTap: _handleReaderTap,
-                  ),
+                      _activeBookmarkSlot = slot;
+                    });
+                  },
+                  onMoveBookmarkEnd: _persistBookmarks,
+                  onAutoScrollInterrupted: () {
+                    _setAutoScrollEnabled(false);
+                  },
+                  onTap: _handleReaderTap,
                 ),
-                if (_isHideBarEnabled)
-                  ..._buildHideBarOverlay(constraints, baseHalf: 60),
-              ],
-            ),
-          );
-        },
-      );
+              ),
+              if (_isHideBarEnabled)
+                ..._buildHideBarOverlay(constraints, baseHalf: 60),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildPortraitReader(bool useTwoPages) {
@@ -2745,146 +2821,87 @@ class _QuranPagesState extends State<QuranPages>
     final bool effectiveUseTwoPages = isPhonePortrait ? false : useTwoPages;
 
     return LayoutBuilder(
-        builder: (context, constraints) {
-          final viewportHeight = constraints.maxHeight;
-          final usePortraitScrolling =
-              _supportsPortraitScrollMode(context) &&
-              (_showAutoScrollBar || _isPortraitScrollMode);
+      builder: (context, constraints) {
+        final viewportHeight = constraints.maxHeight;
+        final usePortraitScrolling =
+            _supportsPortraitScrollMode(context) &&
+            (_showAutoScrollBar || _isPortraitScrollMode);
 
-          Widget readerContent;
-          if (usePortraitScrolling) {
-            final fixedPageExtent =
-                _portraitAutoScrollViewportHeight ?? viewportHeight;
+        Widget readerContent;
+        if (usePortraitScrolling) {
+          final fixedPageExtent =
+              _portraitAutoScrollViewportHeight ?? viewportHeight;
 
-            if (_portraitAutoScrollController == null) {
-              _portraitAutoScrollTimer?.cancel();
-              _portraitAutoScrollViewportHeight = fixedPageExtent;
-              _portraitScrollCurrentPage = _currentPage;
-              _portraitAutoScrollController = ScrollController(
-                initialScrollOffset:
-                    _getViewIndexForPage(_currentPage, context) *
-                    fixedPageExtent,
-                keepScrollOffset: false,
-              );
-            } else if (_portraitAutoScrollViewportHeight == null) {
-              _portraitAutoScrollViewportHeight = fixedPageExtent;
-              _portraitScrollCurrentPage ??= _currentPage;
-            }
-
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              _syncPortraitAutoScroll(fixedPageExtent);
-            });
-
-            readerContent = Listener(
-              onPointerDown: (_) {
-                if (_isAutoScrollEnabled) {
-                  _portraitAutoScrollResumeTimer?.cancel();
-                  _stopPortraitAutoScroll();
-                }
-              },
-              onPointerUp: (_) {
-                if (_isAutoScrollEnabled) {
-                  _schedulePortraitAutoScrollResume(fixedPageExtent);
-                }
-              },
-              onPointerCancel: (_) {
-                if (_isAutoScrollEnabled) {
-                  _schedulePortraitAutoScrollResume(fixedPageExtent);
-                }
-              },
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (notification) {
-                  if (notification is ScrollStartNotification) {
-                    _showTopBarOnNavigation();
-                  } else if (notification is ScrollUpdateNotification) {
-                    _showTopBarOnNavigation();
-                    _handlePortraitAutoScrollOffset(fixedPageExtent);
-                  } else if (notification is ScrollEndNotification) {
-                    _handlePortraitAutoScrollOffset(fixedPageExtent);
-                    _hideTopBarAfterNavigation();
-                  }
-                  return false;
-                },
-                child: ListView.builder(
-                  controller: _portraitAutoScrollController,
-                  reverse: false,
-                  addRepaintBoundaries: true,
-                  addAutomaticKeepAlives: false,
-                  scrollCacheExtent: ScrollCacheExtent.pixels(fixedPageExtent * 2),
-                  physics: const ClampingScrollPhysics(),
-                  itemCount: effectiveUseTwoPages
-                      ? (pages.length / 2).ceil()
-                      : pages.length,
-                  itemBuilder: (context, index) {
-                    final Widget pageContent = effectiveUseTwoPages
-                        ? _buildScrollingTwoPageSpread(index)
-                        : _buildScrollingSinglePage(pages[index], index);
-                    final Widget page = SizedBox(
-                      height: fixedPageExtent,
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: pageContent,
-                      ),
-                    );
-
-                    return GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _handleReaderTap,
-                      child: page,
-                    );
-                  },
-                ),
-              ),
+          if (_portraitAutoScrollController == null) {
+            _portraitAutoScrollTimer?.cancel();
+            _portraitAutoScrollViewportHeight = fixedPageExtent;
+            _portraitScrollCurrentPage = _currentPage;
+            _portraitAutoScrollController = ScrollController(
+              initialScrollOffset:
+                  _getViewIndexForPage(_currentPage, context) * fixedPageExtent,
+              keepScrollOffset: false,
             );
-          } else {
-            _stopPortraitAutoScroll();
+          } else if (_portraitAutoScrollViewportHeight == null) {
+            _portraitAutoScrollViewportHeight = fixedPageExtent;
+            _portraitScrollCurrentPage ??= _currentPage;
+          }
 
-            readerContent = NotificationListener<ScrollNotification>(
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _syncPortraitAutoScroll(fixedPageExtent);
+          });
+
+          readerContent = Listener(
+            onPointerDown: (_) {
+              if (_isAutoScrollEnabled) {
+                _portraitAutoScrollResumeTimer?.cancel();
+                _stopPortraitAutoScroll();
+              }
+            },
+            onPointerUp: (_) {
+              if (_isAutoScrollEnabled) {
+                _schedulePortraitAutoScrollResume(fixedPageExtent);
+              }
+            },
+            onPointerCancel: (_) {
+              if (_isAutoScrollEnabled) {
+                _schedulePortraitAutoScrollResume(fixedPageExtent);
+              }
+            },
+            child: NotificationListener<ScrollNotification>(
               onNotification: (notification) {
                 if (notification is ScrollStartNotification) {
                   _showTopBarOnNavigation();
                 } else if (notification is ScrollUpdateNotification) {
                   _showTopBarOnNavigation();
+                  _handlePortraitAutoScrollOffset(fixedPageExtent);
                 } else if (notification is ScrollEndNotification) {
+                  _handlePortraitAutoScrollOffset(fixedPageExtent);
                   _hideTopBarAfterNavigation();
                 }
                 return false;
               },
-              child: PageView.builder(
-                controller: _portraitController,
-                reverse: true,
-                allowImplicitScrolling: false,
+              child: ListView.builder(
+                controller: _portraitAutoScrollController,
+                reverse: false,
+                addRepaintBoundaries: true,
+                addAutomaticKeepAlives: false,
+                scrollCacheExtent: ScrollCacheExtent.pixels(
+                  fixedPageExtent * 2,
+                ),
+                physics: const ClampingScrollPhysics(),
                 itemCount: effectiveUseTwoPages
                     ? (pages.length / 2).ceil()
                     : pages.length,
-                onPageChanged: (index) {
-                  final firstPageIndex = _getFirstPageIndexForView(index, context);
-                  _hideHizbPopup();
-                  _setCurrentPage(
-                    firstPageIndex,
-                    persist: false,
-                    showHizbPopup: true,
-                  );
-                  _savePage(firstPageIndex);
-                  _showTopBarOnNavigation();
-                  _hideTopBarAfterNavigation();
-                },
                 itemBuilder: (context, index) {
-                  final Widget page = InteractiveViewer(
-                    minScale: 1,
-                    maxScale: 5,
-                    child: ValueListenableBuilder<bool>(
-                      valueListenable: AudioService.instance.isRecitationBarVisible,
-                      builder: (context, isVisible, _) {
-                        return effectiveUseTwoPages
-                            ? _buildTwoPageSpread(index, topAlign: isVisible)
-                            : _buildSinglePage(
-                                pages[index],
-                                index,
-                                alignment: isVisible ? Alignment.topCenter : Alignment.center,
-                              );
-                      },
+                  final Widget pageContent = effectiveUseTwoPages
+                      ? _buildScrollingTwoPageSpread(index)
+                      : _buildScrollingSinglePage(pages[index], index);
+                  final Widget page = SizedBox(
+                    height: fixedPageExtent,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: pageContent,
                     ),
                   );
 
@@ -2895,25 +2912,104 @@ class _QuranPagesState extends State<QuranPages>
                   );
                 },
               ),
-            );
-          }
-
-          return ColorFiltered(
-            colorFilter: Theme.of(context).brightness == Brightness.dark
-                ? const ColorFilter.matrix([
-                    -1, 0, 0, 0, 255,
-                     0,-1, 0, 0, 255,
-                     0, 0,-1, 0, 255,
-                     0, 0, 0, 1,   0,
-                  ])
-                : const ColorFilter.mode(
-                    Color(0xFFFAF6EE),
-                    BlendMode.multiply,
-                  ),
-            child: readerContent,
+            ),
           );
-        },
-      );
+        } else {
+          _stopPortraitAutoScroll();
+
+          readerContent = NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification is ScrollStartNotification) {
+                _showTopBarOnNavigation();
+              } else if (notification is ScrollUpdateNotification) {
+                _showTopBarOnNavigation();
+              } else if (notification is ScrollEndNotification) {
+                _hideTopBarAfterNavigation();
+              }
+              return false;
+            },
+            child: PageView.builder(
+              controller: _portraitController,
+              reverse: true,
+              allowImplicitScrolling: false,
+              itemCount: effectiveUseTwoPages
+                  ? (pages.length / 2).ceil()
+                  : pages.length,
+              onPageChanged: (index) {
+                final firstPageIndex = _getFirstPageIndexForView(
+                  index,
+                  context,
+                );
+                _hideHizbPopup();
+                _setCurrentPage(
+                  firstPageIndex,
+                  persist: false,
+                  showHizbPopup: true,
+                );
+                _savePage(firstPageIndex);
+                _showTopBarOnNavigation();
+                _hideTopBarAfterNavigation();
+              },
+              itemBuilder: (context, index) {
+                final Widget page = InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 5,
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable:
+                        AudioService.instance.isRecitationBarVisible,
+                    builder: (context, isVisible, _) {
+                      return effectiveUseTwoPages
+                          ? _buildTwoPageSpread(index, topAlign: isVisible)
+                          : _buildSinglePage(
+                              pages[index],
+                              index,
+                              alignment: isVisible
+                                  ? Alignment.topCenter
+                                  : Alignment.center,
+                            );
+                    },
+                  ),
+                );
+
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _handleReaderTap,
+                  child: page,
+                );
+              },
+            ),
+          );
+        }
+
+        return ColorFiltered(
+          colorFilter: Theme.of(context).brightness == Brightness.dark
+              ? const ColorFilter.matrix([
+                  -1,
+                  0,
+                  0,
+                  0,
+                  255,
+                  0,
+                  -1,
+                  0,
+                  0,
+                  255,
+                  0,
+                  0,
+                  -1,
+                  0,
+                  255,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                ])
+              : const ColorFilter.mode(Color(0xFFFAF6EE), BlendMode.multiply),
+          child: readerContent,
+        );
+      },
+    );
   }
 
   Widget _buildSharedOverlay(bool isPhoneLandscape) {
@@ -2922,13 +3018,20 @@ class _QuranPagesState extends State<QuranPages>
     final bool isPhonePortrait = !isPhoneLandscape && !isWideScreen;
     final mediaQuery = MediaQuery.of(context);
     final double safeBottom = mediaQuery.padding.bottom;
-    final double menuHeight = isPhoneLandscape ? 122 : (isPhonePortrait ? 130 : 260);
+    final double menuHeight = isPhoneLandscape
+        ? 122
+        : (isPhonePortrait ? 130 : 260);
     final double autoScrollBottom = (_showIndex && !_hideBottomMenuTemporarily)
         ? menuHeight + safeBottom + 18
         : (isPhoneLandscape ? 14 : safeBottom + 14);
     final double bookmarkNoticeBottom = _showIndex
         ? menuHeight + safeBottom + 20
         : safeBottom + 20;
+    final bool isRecitationBarVisible =
+        AudioService.instance.isRecitationBarVisible.value;
+    final double audioNoticeBottom = isRecitationBarVisible
+        ? _recitationBarHeight + safeBottom + 14
+        : bookmarkNoticeBottom;
     final double bookmarkHorizontalMargin = isWideScreen
         ? ((mediaQuery.size.width - 520.0) / 2).clamp(24.0, 160.0).toDouble()
         : 16.0;
@@ -2941,11 +3044,85 @@ class _QuranPagesState extends State<QuranPages>
             width: 1.2,
           )
         : null;
-    final Color hizbPopupTextColor =
-        isDarkMode ? const Color(0xFFFFF4D6) : Colors.white;
+    final Color hizbPopupTextColor = isDarkMode
+        ? const Color(0xFFFFF4D6)
+        : Colors.white;
 
     return Stack(
       children: [
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          left: bookmarkHorizontalMargin,
+          right: bookmarkHorizontalMargin,
+          bottom: audioNoticeBottom,
+          child: IgnorePointer(
+            ignoring: !_showAudioPlaybackNotice,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 180),
+              opacity: _showAudioPlaybackNotice ? 1 : 0,
+              child: Material(
+                color: Colors.transparent,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isWideScreen ? 22 : 16,
+                        vertical: isWideScreen ? 16 : 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDarkMode
+                            ? const Color(0xFF15120B).withValues(alpha: 0.96)
+                            : Colors.black.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDarkMode
+                              ? const Color(0xFFD6B35D).withValues(alpha: 0.65)
+                              : Colors.white.withValues(alpha: 0.18),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        textDirection: TextDirection.rtl,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.wifi_off_rounded,
+                            color: isDarkMode
+                                ? const Color(0xFFD6B35D)
+                                : Colors.white,
+                            size: isWideScreen ? 24 : 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              _audioPlaybackNoticeText,
+                              textAlign: TextAlign.right,
+                              textDirection: TextDirection.rtl,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isWideScreen ? 18 : 14,
+                                fontWeight: FontWeight.w700,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
         AnimatedPositioned(
           duration: const Duration(milliseconds: 260),
           curve: Curves.easeInOut,
@@ -3063,8 +3240,9 @@ class _QuranPagesState extends State<QuranPages>
                               'إرشاد العلامات',
                               textDirection: TextDirection.rtl,
                               style: TextStyle(
-                                color:
-                                    isDarkMode ? Colors.white : Colors.black87,
+                                color: isDarkMode
+                                    ? Colors.white
+                                    : Colors.black87,
                                 fontWeight: FontWeight.w800,
                                 fontSize: isWideScreen ? 20 : 17,
                               ),
@@ -3089,11 +3267,13 @@ class _QuranPagesState extends State<QuranPages>
                                           height: 44,
                                           decoration: BoxDecoration(
                                             color: const Color(0xFFF8F3E8),
-                                            borderRadius:
-                                                BorderRadius.circular(14),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
                                             border: Border.all(
-                                              color: const Color(0xFF8D6E3F)
-                                                  .withValues(alpha: 0.16),
+                                              color: const Color(
+                                                0xFF8D6E3F,
+                                              ).withValues(alpha: 0.16),
                                             ),
                                           ),
                                         ),
@@ -3122,8 +3302,9 @@ class _QuranPagesState extends State<QuranPages>
                               textDirection: TextDirection.rtl,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color:
-                                    isDarkMode ? Colors.white : Colors.black87,
+                                color: isDarkMode
+                                    ? Colors.white
+                                    : Colors.black87,
                                 fontWeight: FontWeight.w700,
                                 fontSize: isWideScreen ? 17 : 14,
                                 height: 1.6,
@@ -3213,8 +3394,12 @@ class _QuranPagesState extends State<QuranPages>
             _visibleSajdaText != null)
           Positioned(
             top: isPhoneLandscape
-                ? MediaQuery.of(context).padding.top + 70 + (_showHizbPopup ? 60 : 0)
-                : MediaQuery.of(context).padding.top + 92 + (_showHizbPopup ? 60 : 0),
+                ? MediaQuery.of(context).padding.top +
+                      70 +
+                      (_showHizbPopup ? 60 : 0)
+                : MediaQuery.of(context).padding.top +
+                      92 +
+                      (_showHizbPopup ? 60 : 0),
             left: 20,
             right: 20,
             child: Center(
@@ -3392,14 +3577,16 @@ class _QuranPagesState extends State<QuranPages>
                             ),
                             decoration: BoxDecoration(
                               color: isDarkMode
-                                  ? const Color(0xFF15120B)
-                                      .withValues(alpha: 0.97)
+                                  ? const Color(
+                                      0xFF15120B,
+                                    ).withValues(alpha: 0.97)
                                   : Colors.white.withValues(alpha: 0.96),
                               borderRadius: BorderRadius.circular(22),
                               border: Border.all(
                                 color: isDarkMode
-                                    ? const Color(0xFFD6B35D)
-                                        .withValues(alpha: 0.72)
+                                    ? const Color(
+                                        0xFFD6B35D,
+                                      ).withValues(alpha: 0.72)
                                     : Colors.black.withValues(alpha: 0.08),
                               ),
                               boxShadow: [
@@ -3420,7 +3607,10 @@ class _QuranPagesState extends State<QuranPages>
                                     shape: BoxShape.circle,
                                   ),
                                   child: IconButton(
-                                    style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
                                     onPressed: _closeAutoScrollBar,
                                     icon: const Icon(Icons.close_rounded),
                                     tooltip: 'إغلاق الشريط',
@@ -3435,7 +3625,10 @@ class _QuranPagesState extends State<QuranPages>
                                     shape: BoxShape.circle,
                                   ),
                                   child: IconButton(
-                                    style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
                                     onPressed: _toggleAutoScrollBarCollapsed,
                                     icon: const Icon(
                                       Icons.keyboard_arrow_right_rounded,
@@ -3467,15 +3660,19 @@ class _QuranPagesState extends State<QuranPages>
                                     shape: BoxShape.circle,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.2),
+                                        color: Colors.black.withValues(
+                                          alpha: 0.2,
+                                        ),
                                         blurRadius: 10,
                                         offset: const Offset(0, 4),
                                       ),
                                     ],
                                   ),
                                   child: IconButton(
-                                    style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
                                     onPressed: () {
                                       _setAutoScrollEnabled(
                                         !_isAutoScrollEnabled,
@@ -3515,7 +3712,10 @@ class _QuranPagesState extends State<QuranPages>
                                           shape: BoxShape.circle,
                                         ),
                                         child: IconButton(
-                                          style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                          style: IconButton.styleFrom(
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
                                           onPressed: _increaseAutoScrollSpeed,
                                           icon: const Icon(
                                             Icons.keyboard_arrow_up_rounded,
@@ -3541,8 +3741,9 @@ class _QuranPagesState extends State<QuranPages>
                                         ),
                                         decoration: BoxDecoration(
                                           color: isDarkMode
-                                              ? const Color(0xFFD6B35D)
-                                                  .withValues(alpha: 0.16)
+                                              ? const Color(
+                                                  0xFFD6B35D,
+                                                ).withValues(alpha: 0.16)
                                               : Colors.black.withValues(
                                                   alpha: 0.04,
                                                 ),
@@ -3551,8 +3752,9 @@ class _QuranPagesState extends State<QuranPages>
                                           ),
                                           border: Border.all(
                                             color: isDarkMode
-                                                ? const Color(0xFFD6B35D)
-                                                    .withValues(alpha: 0.35)
+                                                ? const Color(
+                                                    0xFFD6B35D,
+                                                  ).withValues(alpha: 0.35)
                                                 : Colors.black.withValues(
                                                     alpha: 0.1,
                                                   ),
@@ -3582,7 +3784,10 @@ class _QuranPagesState extends State<QuranPages>
                                           shape: BoxShape.circle,
                                         ),
                                         child: IconButton(
-                                          style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                          style: IconButton.styleFrom(
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
                                           onPressed: _decreaseAutoScrollSpeed,
                                           icon: const Icon(
                                             Icons.keyboard_arrow_down_rounded,
@@ -3643,9 +3848,7 @@ class _QuranPagesState extends State<QuranPages>
                 ),
 
                 // 2 — Shared Overlays (bookmarks, index, etc.)
-                Positioned.fill(
-                  child: _buildSharedOverlay(isPhoneLandscape),
-                ),
+                Positioned.fill(child: _buildSharedOverlay(isPhoneLandscape)),
 
                 // 3 — Recitation controls float over the page (the page stays
                 // full-size and visible behind the translucent bar) instead of
@@ -3682,194 +3885,208 @@ class _QuranPagesState extends State<QuranPages>
             child: Stack(
               children: [
                 scaffold,
-            if (_showIndex)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: () {
-                    setState(() {
-                      _showIndex = false;
-                      _showSurahs = false;
-                      _isSearching = false;
-                      _hideTopBarTemporarily = false;
-                      _hideBottomMenuTemporarily = false;
-                    });
-                    _updateSystemUI();
-                  },
-                  child: const SizedBox.expand(),
+                if (_showIndex)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () {
+                        setState(() {
+                          _showIndex = false;
+                          _showSurahs = false;
+                          _isSearching = false;
+                          _hideTopBarTemporarily = false;
+                          _hideBottomMenuTemporarily = false;
+                        });
+                        _updateSystemUI();
+                      },
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                // 3 — Top bar (slides in/out, respects camera notch)
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  top: (!_hideTopBarTemporarily && _showIndex) ? 0 : -120,
+                  left: 0,
+                  right: 0,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {}, // Block tap propagation
+                    onVerticalDragUpdate: (details) {
+                      // Swiping up on the top bar hides the whole chrome (both
+                      // bars move together).
+                      if (details.primaryDelta! < -5) {
+                        setState(() {
+                          _showIndex = false;
+                          _hideTopBarTemporarily = false;
+                          _hideBottomMenuTemporarily = false;
+                        });
+                        _hideControlsTimer?.cancel();
+                        _updateSystemUI();
+                      }
+                    },
+                    child: TopOverlayBar(
+                      show: !_hideTopBarTemporarily && _showIndex,
+                      isSearching: _isSearching,
+                      currentPage: _topBarCurrentPage,
+                      isTwoPageView: useTwoPages,
+                      getHizbNumber: _getHizbNumber,
+                      getSurahName: _getSurahName,
+                      onSettingsPressed: _openSettings,
+                      isHideBarEnabled: _isHideBarEnabled,
+                      onToggleHideBar: _toggleHideBar,
+                      isFullScreenMode: _isFullScreenMode,
+                      onToggleFullScreenMode: _toggleFullScreenMode,
+                    ),
+                  ),
                 ),
-              ),
-            // 3 — Top bar (slides in/out, respects camera notch)
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              top: (!_hideTopBarTemporarily && _showIndex) ? 0 : -120,
-              left: 0,
-              right: 0,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {}, // Block tap propagation
-                onVerticalDragUpdate: (details) {
-                  // Swiping up on the top bar hides the whole chrome (both
-                  // bars move together).
-                  if (details.primaryDelta! < -5) {
-                    setState(() {
-                      _showIndex = false;
-                      _hideTopBarTemporarily = false;
-                      _hideBottomMenuTemporarily = false;
-                    });
-                    _hideControlsTimer?.cancel();
-                    _updateSystemUI();
-                  }
-                },
-                child: TopOverlayBar(
-                  show: !_hideTopBarTemporarily && _showIndex,
-                  isSearching: _isSearching,
-                  currentPage: _topBarCurrentPage,
-                  isTwoPageView: useTwoPages,
-                  getHizbNumber: _getHizbNumber,
-                  getSurahName: _getSurahName,
-                  onSettingsPressed: _openSettings,
-                  isHideBarEnabled: _isHideBarEnabled,
-                  onToggleHideBar: _toggleHideBar,
-                  isFullScreenMode: _isFullScreenMode,
-                  onToggleFullScreenMode: _toggleFullScreenMode,
-                ),
-              ),
+                if (_showIndex && !_hideBottomMenuTemporarily)
+                  BottomOverlayMenu(
+                    showIndex: _showIndex,
+                    showSurahs: _showSurahs,
+                    surahs: surahList,
+                    isDarkMode: Theme.of(context).brightness == Brightness.dark,
+                    isAutoScrollEnabled: _showAutoScrollBar,
+                    isPortraitScrollMode: _isPortraitScrollMode,
+                    allowPortraitScrollMode: _supportsPortraitScrollMode(
+                      context,
+                    ),
+                    showTabletLayoutSetting: _shouldShowTabletLayoutSetting(
+                      context,
+                    ),
+                    isTabletLayoutMode: _isTabletLayoutMode,
+                    // Anchor the action bar exactly on top of the recitation bar
+                    // using its real measured height, so they stay perfectly flush
+                    // (no gap, no overlap) in full screen, standard, and during
+                    // transitions.
+                    bottomOffset: isRecitationVisible
+                        ? _recitationBarHeight
+                        : 0,
+                    onToggleSurahs: () async {
+                      setState(() {
+                        _showIndex = false;
+                        _showSurahs = false;
+                        _isSearching = false;
+                      });
+                      _updateSystemUI();
+
+                      await Future.delayed(const Duration(milliseconds: 260));
+                      if (!mounted) return;
+
+                      _openQuranIndexPage();
+                    },
+                    onGoToPage: _goToPage,
+                    onGoToBookmark: _goToBookmark,
+                    onOpenTafsir: () => _showTafsirDialog(_topBarCurrentPage),
+                    onDismiss: () {
+                      // Dismissing the bottom menu hides the whole chrome (both
+                      // bars move together).
+                      setState(() {
+                        _showIndex = false;
+                        _hideTopBarTemporarily = false;
+                        _hideBottomMenuTemporarily = false;
+                      });
+                      _hideControlsTimer?.cancel();
+                      _updateSystemUI();
+                    },
+                    onPlayTapped: () {
+                      _closeAutoScrollBar();
+                      setState(() {
+                        _showIndex = false;
+                        _showSurahs = false;
+                      });
+                      _updateSystemUI();
+                      AudioService.instance.playPage(
+                        _topBarCurrentPage,
+                        autoPlay: false,
+                      );
+                    },
+                    onToggleDarkMode: (value) {
+                      ThemeService.setDarkMode(value);
+                    },
+                    onToggleAutoScroll: (value) {
+                      if (value &&
+                          AudioService.instance.isRecitationBarVisible.value) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'لا يمكن تشغيل التمرير التلقائي أثناء التلاوة',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      if (value && !_supportsPortraitScrollMode(context)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'التمرير غير متاح في وضع الصفحتين على الشاشات العريضة',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      final bool shouldSwitchPortraitMode =
+                          value &&
+                          _supportsPortraitScrollMode(context) &&
+                          !_isPortraitScrollMode;
+                      setState(() {
+                        if (value) {
+                          _showIndex = false;
+                          _showSurahs = false;
+                          _isSearching = false;
+                        }
+                        if (shouldSwitchPortraitMode) {
+                          _isPortraitScrollMode = true;
+                        }
+                      });
+                      if (value) {
+                        _setAutoScrollEnabled(true);
+                      } else {
+                        _closeAutoScrollBar();
+                      }
+                      _updateSystemUI();
+                      if (shouldSwitchPortraitMode) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('تم تغيير الوضع من صفحات إلى تمرير'),
+                          ),
+                        );
+                      }
+                    },
+                    onTogglePortraitScrollMode: (value) {
+                      _setPortraitScrollMode(value);
+                    },
+                    onToggleTabletLayoutMode: (value) {
+                      _setTabletLayoutMode(value);
+                    },
+                    onSearchStateChanged: (value) {
+                      setState(() {
+                        _isSearching = value;
+                      });
+                    },
+                    onSearchTapped: _openSearchPage,
+                  ),
+              ],
             ),
-            if (_showIndex && !_hideBottomMenuTemporarily)
-              BottomOverlayMenu(
-                showIndex: _showIndex,
-                showSurahs: _showSurahs,
-                surahs: surahList,
-                isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                isAutoScrollEnabled: _showAutoScrollBar,
-                isPortraitScrollMode: _isPortraitScrollMode,
-                allowPortraitScrollMode: _supportsPortraitScrollMode(context),
-                showTabletLayoutSetting: _shouldShowTabletLayoutSetting(context),
-                isTabletLayoutMode: _isTabletLayoutMode,
-                // Anchor the action bar exactly on top of the recitation bar
-                // using its real measured height, so they stay perfectly flush
-                // (no gap, no overlap) in full screen, standard, and during
-                // transitions.
-                bottomOffset: isRecitationVisible ? _recitationBarHeight : 0,
-                onToggleSurahs: () async {
-                  setState(() {
-                    _showIndex = false;
-                    _showSurahs = false;
-                    _isSearching = false;
-                  });
-                  _updateSystemUI();
-
-                  await Future.delayed(const Duration(milliseconds: 260));
-                  if (!mounted) return;
-
-                  _openQuranIndexPage();
-                },
-                onGoToPage: _goToPage,
-                onGoToBookmark: _goToBookmark,
-                onOpenTafsir: () => _showTafsirDialog(_topBarCurrentPage),
-                onDismiss: () {
-                  // Dismissing the bottom menu hides the whole chrome (both
-                  // bars move together).
-                  setState(() {
-                    _showIndex = false;
-                    _hideTopBarTemporarily = false;
-                    _hideBottomMenuTemporarily = false;
-                  });
-                  _hideControlsTimer?.cancel();
-                  _updateSystemUI();
-                },
-                onPlayTapped: () {
-                  _closeAutoScrollBar();
-                  setState(() {
-                    _showIndex = false;
-                    _showSurahs = false;
-                  });
-                  _updateSystemUI();
-                  AudioService.instance.playPage(_topBarCurrentPage, autoPlay: false);
-                },
-                onToggleDarkMode: (value) {
-                  ThemeService.setDarkMode(value);
-                },
-                onToggleAutoScroll: (value) {
-                  if (value && AudioService.instance.isRecitationBarVisible.value) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'لا يمكن تشغيل التمرير التلقائي أثناء التلاوة',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  if (value && !_supportsPortraitScrollMode(context)) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'التمرير غير متاح في وضع الصفحتين على الشاشات العريضة',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  final bool shouldSwitchPortraitMode =
-                      value &&
-                      _supportsPortraitScrollMode(context) &&
-                      !_isPortraitScrollMode;
-                  setState(() {
-                    if (value) {
-                      _showIndex = false;
-                      _showSurahs = false;
-                      _isSearching = false;
-                    }
-                    if (shouldSwitchPortraitMode) {
-                      _isPortraitScrollMode = true;
-                    }
-                  });
-                  if (value) {
-                    _setAutoScrollEnabled(true);
-                  } else {
-                    _closeAutoScrollBar();
-                  }
-                  _updateSystemUI();
-                  if (shouldSwitchPortraitMode) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'تم تغيير الوضع من صفحات إلى تمرير',
-                        ),
-                      ),
-                    );
-                  }
-                },
-                onTogglePortraitScrollMode: (value) {
-                  _setPortraitScrollMode(value);
-                },
-                onToggleTabletLayoutMode: (value) {
-                  _setTabletLayoutMode(value);
-                },
-                onSearchStateChanged: (value) {
-                  setState(() {
-                    _isSearching = value;
-                  });
-                },
-                onSearchTapped: _openSearchPage,
-              ),
-          ],
-        ),
-      ),
-    );
+          ),
+        );
       },
     );
   }
 
   void _showRecitationBarGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
-    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
     final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
-    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -3878,76 +4095,126 @@ class _QuranPagesState extends State<QuranPages>
         builder: (context, setState) {
           return AlertDialog(
             backgroundColor: bgColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.help_outline_rounded, color: titleColor, size: 24),
-            const SizedBox(width: 8),
-            Text(
-              'شرح أزرار شريط التلاوة',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
             ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _guideRow(Icons.close_rounded, 'إغلاق شريط التلاوة', textColor, borderColor),
-              _guideRow(Icons.skip_next_rounded, 'الآية السابقة', textColor, borderColor),
-              _guideRow(Icons.play_arrow_rounded, 'تشغيل / إيقاف مؤقت', textColor, borderColor),
-              _guideRow(Icons.skip_previous_rounded, 'الآية التالية', textColor, borderColor),
-              _guideAssetRow('assets/images/icon_repeat_page.png', 'تكرار الصفحة (اضغط للتبديل)', textColor, borderColor, iconScale: 1.3),
-              _guideAssetRow('assets/images/icon_repeat_ayah.png', 'تكرار الآية (اضغط عدة مرات للتبديل)', textColor, borderColor),
-              const SizedBox(height: 16),
-              Directionality(
-                textDirection: TextDirection.rtl,
-                child: CheckboxListTile(
-                  value: doNotShowAgain,
-                  onChanged: (value) {
-                    setState(() {
-                      doNotShowAgain = value ?? false;
-                    });
-                  },
-                  title: Text(
-                    'لا تظهر هذه الرسالة مرة أخرى',
-                    style: TextStyle(color: textColor, fontSize: 14),
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.help_outline_rounded, color: titleColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'شرح أزرار شريط التلاوة',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
                   ),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  activeColor: titleColor,
-                  checkColor: bgColor,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _guideRow(
+                    Icons.close_rounded,
+                    'إغلاق شريط التلاوة',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.skip_next_rounded,
+                    'الآية السابقة',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.play_arrow_rounded,
+                    'تشغيل / إيقاف مؤقت',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.skip_previous_rounded,
+                    'الآية التالية',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideAssetRow(
+                    'assets/images/icon_repeat_page.png',
+                    'تكرار الصفحة (اضغط للتبديل)',
+                    textColor,
+                    borderColor,
+                    iconScale: 1.3,
+                  ),
+                  _guideAssetRow(
+                    'assets/images/icon_repeat_ayah.png',
+                    'تكرار الآية (اضغط عدة مرات للتبديل)',
+                    textColor,
+                    borderColor,
+                  ),
+                  const SizedBox(height: 16),
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: CheckboxListTile(
+                      value: doNotShowAgain,
+                      onChanged: (value) {
+                        setState(() {
+                          doNotShowAgain = value ?? false;
+                        });
+                      },
+                      title: Text(
+                        'لا تظهر هذه الرسالة مرة أخرى',
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: titleColor,
+                      checkColor: bgColor,
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  if (doNotShowAgain) {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('recitation_guide_dismissed', true);
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: Text(
+                  'فهمت',
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              if (doNotShowAgain) {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('recitation_guide_dismissed', true);
-              }
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
-          ),
-        ],
-      );
-    }),
+          );
+        },
+      ),
     );
   }
 
   void _showHifzLensGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
-    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
     final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
-    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -3956,7 +4223,9 @@ class _QuranPagesState extends State<QuranPages>
         builder: (context, setState) {
           return AlertDialog(
             backgroundColor: bgColor,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -3965,7 +4234,11 @@ class _QuranPagesState extends State<QuranPages>
                 Text(
                   'شرح عدسة الإخفاء',
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
+                  ),
                 ),
               ],
             ),
@@ -3973,17 +4246,42 @@ class _QuranPagesState extends State<QuranPages>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _guideRow(Icons.touch_app_rounded, 'مرر إصبعك على الصفحة لكشف النص تحته فقط', textColor, borderColor),
-                  _guideRow(Icons.psychology_rounded, 'اختبر حفظك سطراً سطراً دون رؤية النص كاملاً', textColor, borderColor, iconWidget: HifzLensIcon(color: textColor, size: 18)),
-                  _guideRow(Icons.visibility_off_rounded, 'شريط الإخفاء يتوقف تلقائياً عند تفعيل العدسة', textColor, borderColor),
-                  _guideRow(Icons.tap_and_play_rounded, 'المس الصفحة لمرة واحدة لإظهار قائمة الإعدادات', textColor, borderColor),
+                  _guideRow(
+                    Icons.touch_app_rounded,
+                    'مرر إصبعك على الصفحة لكشف النص تحته فقط',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.psychology_rounded,
+                    'اختبر حفظك سطراً سطراً دون رؤية النص كاملاً',
+                    textColor,
+                    borderColor,
+                    iconWidget: HifzLensIcon(color: textColor, size: 18),
+                  ),
+                  _guideRow(
+                    Icons.visibility_off_rounded,
+                    'شريط الإخفاء يتوقف تلقائياً عند تفعيل العدسة',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.tap_and_play_rounded,
+                    'المس الصفحة لمرة واحدة لإظهار قائمة الإعدادات',
+                    textColor,
+                    borderColor,
+                  ),
                   const SizedBox(height: 16),
                   Directionality(
                     textDirection: TextDirection.rtl,
                     child: CheckboxListTile(
                       value: doNotShowAgain,
-                      onChanged: (value) => setState(() => doNotShowAgain = value ?? false),
-                      title: Text('لا تظهر هذه الرسالة مرة أخرى', style: TextStyle(color: textColor, fontSize: 14)),
+                      onChanged: (value) =>
+                          setState(() => doNotShowAgain = value ?? false),
+                      title: Text(
+                        'لا تظهر هذه الرسالة مرة أخرى',
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
                       controlAffinity: ListTileControlAffinity.leading,
                       activeColor: titleColor,
                       checkColor: bgColor,
@@ -4003,7 +4301,13 @@ class _QuranPagesState extends State<QuranPages>
                   }
                   if (ctx.mounted) Navigator.pop(ctx);
                 },
-                child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
+                child: Text(
+                  'فهمت',
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ],
           );
@@ -4014,10 +4318,16 @@ class _QuranPagesState extends State<QuranPages>
 
   void _showHideBarReaderGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
-    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
     final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
-    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -4026,7 +4336,9 @@ class _QuranPagesState extends State<QuranPages>
         builder: (context, setState) {
           return AlertDialog(
             backgroundColor: bgColor,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -4035,7 +4347,11 @@ class _QuranPagesState extends State<QuranPages>
                 Text(
                   'شرح شريط الإخفاء',
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
+                  ),
                 ),
               ],
             ),
@@ -4043,17 +4359,41 @@ class _QuranPagesState extends State<QuranPages>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _guideRow(Icons.drag_handle_rounded, 'اسحب الإطار الذهبي لتحريك نافذة القراءة أعلى وأسفل', textColor, borderColor),
-                  _guideRow(Icons.close_rounded, 'زر X لإغلاق شريط الإخفاء', textColor, borderColor),
-                  _guideRow(Icons.flip_to_back_rounded, 'زر التبديل يعكس الوضع بين الإخفاء والكشف', textColor, borderColor),
-                  _guideRow(Icons.headphones_rounded, 'أثناء التلاوة يتحرك الشريط تلقائياً ويتسع لسطرين', textColor, borderColor),
+                  _guideRow(
+                    Icons.drag_handle_rounded,
+                    'اسحب الإطار الذهبي لتحريك نافذة القراءة أعلى وأسفل',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.close_rounded,
+                    'زر X لإغلاق شريط الإخفاء',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.flip_to_back_rounded,
+                    'زر التبديل يعكس الوضع بين الإخفاء والكشف',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.headphones_rounded,
+                    'أثناء التلاوة يتحرك الشريط تلقائياً ويتسع لسطرين',
+                    textColor,
+                    borderColor,
+                  ),
                   const SizedBox(height: 16),
                   Directionality(
                     textDirection: TextDirection.rtl,
                     child: CheckboxListTile(
                       value: doNotShowAgain,
-                      onChanged: (value) => setState(() => doNotShowAgain = value ?? false),
-                      title: Text('لا تظهر هذه الرسالة مرة أخرى', style: TextStyle(color: textColor, fontSize: 14)),
+                      onChanged: (value) =>
+                          setState(() => doNotShowAgain = value ?? false),
+                      title: Text(
+                        'لا تظهر هذه الرسالة مرة أخرى',
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
                       controlAffinity: ListTileControlAffinity.leading,
                       activeColor: titleColor,
                       checkColor: bgColor,
@@ -4069,11 +4409,20 @@ class _QuranPagesState extends State<QuranPages>
                 onPressed: () async {
                   if (doNotShowAgain) {
                     final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool(_hideBarReaderGuideDismissedPrefKey, true);
+                    await prefs.setBool(
+                      _hideBarReaderGuideDismissedPrefKey,
+                      true,
+                    );
                   }
                   if (ctx.mounted) Navigator.pop(ctx);
                 },
-                child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
+                child: Text(
+                  'فهمت',
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ],
           );
@@ -4084,10 +4433,16 @@ class _QuranPagesState extends State<QuranPages>
 
   void _showFullScreenGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDarkMode ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE);
-    final titleColor = isDarkMode ? const Color(0xFFD6B35D) : const Color(0xFF8D6E3F);
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
     final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
-    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -4096,7 +4451,9 @@ class _QuranPagesState extends State<QuranPages>
         builder: (context, setState) {
           return AlertDialog(
             backgroundColor: bgColor,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -4105,7 +4462,11 @@ class _QuranPagesState extends State<QuranPages>
                 Text(
                   'شرح وضع ملء الشاشة',
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
+                  ),
                 ),
               ],
             ),
@@ -4113,17 +4474,41 @@ class _QuranPagesState extends State<QuranPages>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _guideRow(Icons.fullscreen_rounded, 'يخفي شريط الحالة وأزرار التنقل للقراءة بلا تشتيت', textColor, borderColor),
-                  _guideRow(Icons.swipe_rounded, 'اسحب من حافة الشاشة لإظهار أشرطة النظام مؤقتاً', textColor, borderColor),
-                  _guideRow(Icons.touch_app_rounded, 'المس الصفحة لإظهار قائمة الأدوات والإعدادات', textColor, borderColor),
-                  _guideRow(Icons.settings_rounded, 'للخروج: افتح الإعدادات وأوقف وضع ملء الشاشة', textColor, borderColor),
+                  _guideRow(
+                    Icons.fullscreen_rounded,
+                    'يخفي شريط الحالة وأزرار التنقل للقراءة بلا تشتيت',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.swipe_rounded,
+                    'اسحب من حافة الشاشة لإظهار أشرطة النظام مؤقتاً',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.touch_app_rounded,
+                    'المس الصفحة لإظهار قائمة الأدوات والإعدادات',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
+                    Icons.settings_rounded,
+                    'للخروج: افتح الإعدادات وأوقف وضع ملء الشاشة',
+                    textColor,
+                    borderColor,
+                  ),
                   const SizedBox(height: 16),
                   Directionality(
                     textDirection: TextDirection.rtl,
                     child: CheckboxListTile(
                       value: doNotShowAgain,
-                      onChanged: (value) => setState(() => doNotShowAgain = value ?? false),
-                      title: Text('لا تظهر هذه الرسالة مرة أخرى', style: TextStyle(color: textColor, fontSize: 14)),
+                      onChanged: (value) =>
+                          setState(() => doNotShowAgain = value ?? false),
+                      title: Text(
+                        'لا تظهر هذه الرسالة مرة أخرى',
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
                       controlAffinity: ListTileControlAffinity.leading,
                       activeColor: titleColor,
                       checkColor: bgColor,
@@ -4143,7 +4528,13 @@ class _QuranPagesState extends State<QuranPages>
                   }
                   if (ctx.mounted) Navigator.pop(ctx);
                 },
-                child: Text('فهمت', style: TextStyle(color: titleColor, fontWeight: FontWeight.w800)),
+                child: Text(
+                  'فهمت',
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ],
           );
@@ -4152,7 +4543,13 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  Widget _guideRow(IconData icon, String label, Color textColor, Color borderColor, {Widget? iconWidget}) {
+  Widget _guideRow(
+    IconData icon,
+    String label,
+    Color textColor,
+    Color borderColor, {
+    Widget? iconWidget,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -4172,7 +4569,11 @@ class _QuranPagesState extends State<QuranPages>
             child: Text(
               label,
               textDirection: TextDirection.rtl,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
             ),
           ),
         ],
@@ -4183,7 +4584,13 @@ class _QuranPagesState extends State<QuranPages>
   /// Same as [_guideRow] but uses a PNG asset (tinted to match the text colour)
   /// instead of a built-in [IconData]. [iconScale] compensates for PNGs that
   /// carry extra transparent padding so they match the other rows visually.
-  Widget _guideAssetRow(String asset, String label, Color textColor, Color borderColor, {double iconScale = 1.0}) {
+  Widget _guideAssetRow(
+    String asset,
+    String label,
+    Color textColor,
+    Color borderColor, {
+    double iconScale = 1.0,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -4211,7 +4618,11 @@ class _QuranPagesState extends State<QuranPages>
             child: Text(
               label,
               textDirection: TextDirection.rtl,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
             ),
           ),
         ],
@@ -4228,9 +4639,9 @@ class _QuranPagesState extends State<QuranPages>
         return;
       }
     }
-    
+
     if (_allQuranPages == null) return;
-    
+
     final pageData = _allQuranPages!.firstWhere(
       (p) => p.page == _currentPage + 1,
       orElse: () => QuranPageData(page: _currentPage + 1, ayahs: []),
@@ -4262,7 +4673,10 @@ class _QuranPagesState extends State<QuranPages>
               Flexible(
                 child: GridView.builder(
                   shrinkWrap: true,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 5,
                     childAspectRatio: 1.2,
@@ -4272,7 +4686,9 @@ class _QuranPagesState extends State<QuranPages>
                   itemCount: pageAyahs.length,
                   itemBuilder: (context, index) {
                     final ayah = pageAyahs[index];
-                    final isCurrent = ayah.ayah == currentAyah.ayah && ayah.surah == currentAyah.surah;
+                    final isCurrent =
+                        ayah.ayah == currentAyah.ayah &&
+                        ayah.surah == currentAyah.surah;
                     return InkWell(
                       onTap: () {
                         Navigator.pop(context);
@@ -4280,13 +4696,13 @@ class _QuranPagesState extends State<QuranPages>
                       },
                       child: Container(
                         decoration: BoxDecoration(
-                          color: isCurrent 
-                              ? const Color(0xFFD6B35D).withValues(alpha: 0.2) 
+                          color: isCurrent
+                              ? const Color(0xFFD6B35D).withValues(alpha: 0.2)
                               : Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: isCurrent 
-                                ? const Color(0xFFD6B35D) 
+                            color: isCurrent
+                                ? const Color(0xFFD6B35D)
                                 : Colors.grey.withValues(alpha: 0.2),
                           ),
                         ),
@@ -4295,8 +4711,12 @@ class _QuranPagesState extends State<QuranPages>
                           '${ayah.ayah}',
                           style: TextStyle(
                             fontSize: 15,
-                            fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                            color: isCurrent ? const Color(0xFFD6B35D) : Theme.of(context).textTheme.bodyLarge?.color,
+                            fontWeight: isCurrent
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isCurrent
+                                ? const Color(0xFFD6B35D)
+                                : Theme.of(context).textTheme.bodyLarge?.color,
                           ),
                         ),
                       ),
@@ -4349,288 +4769,320 @@ class _QuranPagesState extends State<QuranPages>
         return GestureDetector(
           onTap: () {},
           child: Container(
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: backgroundOpacity),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 12,
-                offset: const Offset(0, -3),
-              ),
-            ],
-            border: const Border(
-              top: BorderSide(
-                color: Color(0xFFD4A946),
-                width: 2.0,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: backgroundOpacity),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 12,
+                  offset: const Offset(0, -3),
+                ),
+              ],
+              border: const Border(
+                top: BorderSide(color: Color(0xFFD4A946), width: 2.0),
               ),
             ),
-          ),
-          child: Stack(
-            children: [
-              // Subtle inner decorative line
-              Positioned(
-                top: 3,
-                left: 0,
-                right: 0,
-                child: Container(
-                  height: 0.5,
-                  color: const Color(0xFFD4A946).withValues(alpha: 0.3),
+            child: Stack(
+              children: [
+                // Subtle inner decorative line
+                Positioned(
+                  top: 3,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 0.5,
+                    color: const Color(0xFFD4A946).withValues(alpha: 0.3),
+                  ),
                 ),
-              ),
-              Padding(
-                padding: EdgeInsets.only(
-                  left: 6,
-                  right: 6,
-                  top: 16,
-                  bottom: systemBottom > 0 ? systemBottom : 12,
-                ),
-                child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // تكرار الصفحة
-              IconButton(
-                style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () {
-                  _resetHideTimer();
-                  audio.cyclePageRepeatMode();
-                },
-                icon: SizedBox(
-                  width: 42,
-                  height: 34,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.center,
+                Padding(
+                  padding: EdgeInsets.only(
+                    left: 6,
+                    right: 6,
+                    top: 16,
+                    bottom: systemBottom > 0 ? systemBottom : 12,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // The icon stays white in every state; the badge below
-                      // signals that page-repeat is active and how many times.
-                      // This PNG has ~24% transparent padding around its glyph
-                      // (unlike the ayah icon), so scale it up to match the
-                      // visual size of the other bar icons.
-                      Transform.scale(
-                        scale: 1.3,
-                        child: Image.asset(
-                          'assets/images/icon_repeat_page.png',
-                          width: 34,
-                          height: 30,
-                          fit: BoxFit.contain,
+                      // تكرار الصفحة
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          _resetHideTimer();
+                          audio.cyclePageRepeatMode();
+                        },
+                        icon: SizedBox(
+                          width: 42,
+                          height: 34,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: [
+                              // The icon stays white in every state; the badge below
+                              // signals that page-repeat is active and how many times.
+                              // This PNG has ~24% transparent padding around its glyph
+                              // (unlike the ayah icon), so scale it up to match the
+                              // visual size of the other bar icons.
+                              Transform.scale(
+                                scale: 1.3,
+                                child: Image.asset(
+                                  'assets/images/icon_repeat_page.png',
+                                  width: 34,
+                                  height: 30,
+                                  fit: BoxFit.contain,
+                                  color: iconColor,
+                                  colorBlendMode: BlendMode.modulate,
+                                ),
+                              ),
+                              if (isPageRepeating && pageRepeatLabel.isNotEmpty)
+                                Positioned(
+                                  right: -4,
+                                  bottom: -5,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: accentColor,
+                                      borderRadius: BorderRadius.circular(9),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      pageRepeatLabel,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        height: 1.0,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        tooltip: 'تكرار الصفحة',
+                      ),
+
+                      // السابق
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          Icons.skip_previous_rounded,
                           color: iconColor,
-                          colorBlendMode: BlendMode.modulate,
+                          size: 36,
                         ),
+                        onPressed: () {
+                          _resetHideTimer();
+                          audio.previousAyah();
+                        },
+                        tooltip: 'الآية السابقة',
                       ),
-                      if (isPageRepeating && pageRepeatLabel.isNotEmpty)
-                        Positioned(
-                          right: -4,
-                          bottom: -5,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 1,
+
+                      // رقم الآية
+                      GestureDetector(
+                        onTap: () {
+                          _resetHideTimer();
+                          if (currentAyah != null) {
+                            _showAyahSelectionDialog(currentAyah);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: accentColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: accentColor.withValues(alpha: 0.3),
                             ),
-                            decoration: BoxDecoration(
-                              color: accentColor,
-                              borderRadius: BorderRadius.circular(9),
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 1,
-                              ),
-                            ),
-                            child: Text(
-                              pageRepeatLabel,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                height: 1.0,
-                              ),
+                          ),
+                          child: Text(
+                            currentAyah != null
+                                ? 'آية ${currentAyah.ayah}'
+                                : 'آية 1',
+                            style: TextStyle(
+                              color: iconColor,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
-                    ],
-                  ),
-                ),
-                tooltip: 'تكرار الصفحة',
-              ),
-
-              // السابق
-              IconButton(
-                style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                icon: Icon(Icons.skip_previous_rounded,
-                    color: iconColor, size: 36),
-                onPressed: () {
-                  _resetHideTimer();
-                  audio.previousAyah();
-                },
-                tooltip: 'الآية السابقة',
-              ),
-
-              // رقم الآية
-              GestureDetector(
-                onTap: () {
-                  _resetHideTimer();
-                  if (currentAyah != null) {
-                    _showAyahSelectionDialog(currentAyah);
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: accentColor.withValues(alpha: 0.3)),
-                  ),
-                  child: Text(
-                    currentAyah != null ? 'آية ${currentAyah.ayah}' : 'آية 1',
-                    style: TextStyle(
-                      color: iconColor,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-
-              // إيقاف/تشغيل
-              GestureDetector(
-                onTap: () {
-                  _resetHideTimer();
-                  if (isPlaying) {
-                    audio.pause();
-                  } else {
-                    // Check if the user navigated to a different page while paused
-                    if (!audio.isAudioOnPage(_topBarCurrentPage)) {
-                      audio.playPage(_topBarCurrentPage);
-                    } else {
-                      audio.resume();
-                    }
-                  }
-                },
-                child: Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(alpha: 0.25),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: accentColor.withValues(alpha: 0.4)),
-                  ),
-                  child: Icon(
-                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: iconColor,
-                    size: 40,
-                  ),
-                ),
-              ),
-
-              // التالي
-              IconButton(
-                style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                icon: Icon(Icons.skip_next_rounded,
-                    color: iconColor, size: 36),
-                onPressed: () {
-                  _resetHideTimer();
-                  audio.nextAyah();
-                },
-                tooltip: 'الآية التالية',
-              ),
-
-              // تكرار الآية
-              IconButton(
-                style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () {
-                  _resetHideTimer();
-                  audio.cycleAyahRepeatMode();
-                },
-                icon: SizedBox(
-                  width: 42,
-                  height: 34,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.center,
-                    children: [
-                      // The icon stays white in every state; the badge below
-                      // signals that ayah-repeat is active and how many times.
-                      Image.asset(
-                        'assets/images/icon_repeat_ayah.png',
-                        width: 34,
-                        height: 30,
-                        fit: BoxFit.contain,
-                        color: iconColor,
-                        colorBlendMode: BlendMode.modulate,
                       ),
-                      if (isRepeating && repeatLabel.isNotEmpty)
-                        Positioned(
-                          right: -4,
-                          bottom: -5,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: accentColor,
-                              borderRadius: BorderRadius.circular(9),
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 1,
-                              ),
-                            ),
-                            child: Text(
-                              repeatLabel,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                height: 1.0,
-                              ),
+
+                      // إيقاف/تشغيل
+                      GestureDetector(
+                        onTap: () {
+                          _resetHideTimer();
+                          if (isPlaying) {
+                            audio.pause();
+                          } else {
+                            // Check if the user navigated to a different page while paused
+                            if (!audio.isAudioOnPage(_topBarCurrentPage)) {
+                              audio.playPage(_topBarCurrentPage);
+                            } else {
+                              audio.resume();
+                            }
+                          }
+                        },
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: accentColor.withValues(alpha: 0.25),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: accentColor.withValues(alpha: 0.4),
                             ),
                           ),
+                          child: Icon(
+                            isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            color: iconColor,
+                            size: 40,
+                          ),
                         ),
+                      ),
+
+                      // التالي
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          Icons.skip_next_rounded,
+                          color: iconColor,
+                          size: 36,
+                        ),
+                        onPressed: () {
+                          _resetHideTimer();
+                          audio.nextAyah();
+                        },
+                        tooltip: 'الآية التالية',
+                      ),
+
+                      // تكرار الآية
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          _resetHideTimer();
+                          audio.cycleAyahRepeatMode();
+                        },
+                        icon: SizedBox(
+                          width: 42,
+                          height: 34,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: [
+                              // The icon stays white in every state; the badge below
+                              // signals that ayah-repeat is active and how many times.
+                              Image.asset(
+                                'assets/images/icon_repeat_ayah.png',
+                                width: 34,
+                                height: 30,
+                                fit: BoxFit.contain,
+                                color: iconColor,
+                                colorBlendMode: BlendMode.modulate,
+                              ),
+                              if (isRepeating && repeatLabel.isNotEmpty)
+                                Positioned(
+                                  right: -4,
+                                  bottom: -5,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: accentColor,
+                                      borderRadius: BorderRadius.circular(9),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      repeatLabel,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        height: 1.0,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        tooltip: 'تكرار الآية',
+                      ),
+
+                      // إغلاق
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: iconColor,
+                          size: 28,
+                        ),
+                        onPressed: () {
+                          _resetHideTimer();
+                          audio.stop();
+                        },
+                        tooltip: 'إغلاق',
+                      ),
+
+                      // مساعدة
+                      IconButton(
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          Icons.help_outline_rounded,
+                          color: iconColor,
+                          size: 24,
+                        ),
+                        onPressed: () {
+                          _resetHideTimer();
+                          _showRecitationBarGuide();
+                        },
+                        tooltip: 'إرشادات',
+                      ),
                     ],
                   ),
                 ),
-                tooltip: 'تكرار الآية',
-              ),
-
-              // إغلاق
-              IconButton(
-                style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                icon: Icon(Icons.close_rounded,
-                    color: iconColor, size: 28),
-                onPressed: () {
-                  _resetHideTimer();
-                  audio.stop();
-                },
-                tooltip: 'إغلاق',
-              ),
-
-              // مساعدة
-              IconButton(
-                style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                icon: Icon(Icons.help_outline_rounded,
-                    color: iconColor, size: 24),
-                onPressed: () {
-                  _resetHideTimer();
-                  _showRecitationBarGuide();
-                },
-                tooltip: 'إرشادات',
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-              ),
         );
       },
     );
@@ -4739,7 +5191,9 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
           decoration: BoxDecoration(
             color: widget.backgroundColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-            border: Border(top: BorderSide(color: widget.borderColor, width: 2)),
+            border: Border(
+              top: BorderSide(color: widget.borderColor, width: 2),
+            ),
           ),
           child: Column(
             children: [
@@ -4765,11 +5219,19 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
-                        onPressed: _currentPage < 603 ? () => _goToPage(_currentPage + 1) : null,
-                        icon: Icon(Icons.chevron_left_rounded, color: widget.accentColor),
+                        onPressed: _currentPage < 603
+                            ? () => _goToPage(_currentPage + 1)
+                            : null,
+                        icon: Icon(
+                          Icons.chevron_left_rounded,
+                          color: widget.accentColor,
+                        ),
                         iconSize: 22,
                         padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                        constraints: const BoxConstraints.tightFor(
+                          width: 36,
+                          height: 36,
+                        ),
                         tooltip: 'الصفحة التالية',
                       ),
                     ),
@@ -4791,11 +5253,19 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
-                        onPressed: _currentPage > 0 ? () => _goToPage(_currentPage - 1) : null,
-                        icon: Icon(Icons.chevron_right_rounded, color: widget.accentColor),
+                        onPressed: _currentPage > 0
+                            ? () => _goToPage(_currentPage - 1)
+                            : null,
+                        icon: Icon(
+                          Icons.chevron_right_rounded,
+                          color: widget.accentColor,
+                        ),
                         iconSize: 22,
                         padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                        constraints: const BoxConstraints.tightFor(
+                          width: 36,
+                          height: 36,
+                        ),
                         tooltip: 'الصفحة السابقة',
                       ),
                     ),
@@ -4806,62 +5276,70 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
               Expanded(
                 child: _isLoading
                     ? Center(
-                        child: CircularProgressIndicator(color: widget.borderColor),
+                        child: CircularProgressIndicator(
+                          color: widget.borderColor,
+                        ),
                       )
                     : _tafsirData.isEmpty
-                        ? Center(
-                            child: Text(
-                              'لا يوجد تفسير لهذه الصفحة',
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(color: widget.textColor, fontSize: 18),
-                            ),
-                          )
-                        : ListView.separated(
-                            controller: scrollController,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            itemCount: _tafsirData.length,
-                            separatorBuilder: (_, _) => const Divider(height: 32),
-                            itemBuilder: (context, index) {
-                              final data = _tafsirData[index];
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Text(
-                                    '${data['surahName']} - آية ${data['ayahNumber']}',
-                                    textAlign: TextAlign.center,
-                                    textDirection: TextDirection.rtl,
-                                    style: TextStyle(
-                                      color: widget.borderColor,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    data['ayahText'],
-                                    textAlign: TextAlign.center,
-                                    textDirection: TextDirection.rtl,
-                                    style: TextStyle(
-                                      color: widget.titleColor,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 22,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    data['tafsir'],
-                                    textAlign: TextAlign.justify,
-                                    textDirection: TextDirection.rtl,
-                                    style: TextStyle(
-                                      color: widget.textColor,
-                                      fontSize: 18,
-                                      height: 1.8,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
+                    ? Center(
+                        child: Text(
+                          'لا يوجد تفسير لهذه الصفحة',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            color: widget.textColor,
+                            fontSize: 18,
                           ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        itemCount: _tafsirData.length,
+                        separatorBuilder: (_, _) => const Divider(height: 32),
+                        itemBuilder: (context, index) {
+                          final data = _tafsirData[index];
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                '${data['surahName']} - آية ${data['ayahNumber']}',
+                                textAlign: TextAlign.center,
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(
+                                  color: widget.borderColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                data['ayahText'],
+                                textAlign: TextAlign.center,
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(
+                                  color: widget.titleColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 22,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                data['tafsir'],
+                                textAlign: TextAlign.justify,
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(
+                                  color: widget.textColor,
+                                  fontSize: 18,
+                                  height: 1.8,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
               ),
             ],
           ),

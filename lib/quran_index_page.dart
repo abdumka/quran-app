@@ -130,19 +130,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     return 1;
   }
 
-  String _tabTitle(QuranIndexTab tab) {
-    switch (tab) {
-      case QuranIndexTab.surahs:
-        return 'قائمة السور';
-      case QuranIndexTab.juzs:
-        return 'قائمة الأجزاء';
-      case QuranIndexTab.hizbs:
-        return 'قائمة الأحزاب';
-      case QuranIndexTab.sajdas:
-        return 'قائمة السجدات';
-    }
-  }
-
   int _crossAxisCount() {
     final isTablet = ResponsiveHelper.isTablet(context);
     final isLandscape =
@@ -362,72 +349,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             chip(QuranIndexTab.juzs, 'الأجزاء'),
             chip(QuranIndexTab.hizbs, 'الأحزاب'),
             chip(QuranIndexTab.sajdas, 'السجدات'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader() {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        12,
-        isLandscape ? 6 : 10,
-        12,
-        isLandscape ? 8 : 10,
-      ),
-      child: Container(
-        width: double.infinity,
-        padding: EdgeInsets.symmetric(
-          horizontal: isLandscape ? 16 : 18,
-          vertical: isLandscape ? 12 : 18,
-        ),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              Color(0xFFF6EED8),
-              Color(0xFFF2E7CC),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: const Color(0xFFB99D65).withValues(alpha: 0.55),
-            width: 1.2,
-          ),
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Positioned(
-              right: 0,
-              child: Icon(
-                Icons.auto_awesome_rounded,
-                size: isLandscape ? 15 : 18,
-                color: const Color(0xFF8D6E3F).withValues(alpha: 0.75),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              child: Icon(
-                Icons.auto_awesome_rounded,
-                size: isLandscape ? 15 : 18,
-                color: const Color(0xFF8D6E3F).withValues(alpha: 0.75),
-              ),
-            ),
-            Text(
-              _tabTitle(_selectedTab),
-              textDirection: TextDirection.rtl,
-              style: TextStyle(
-                fontSize: isLandscape ? 16 : 18,
-                fontWeight: FontWeight.w900,
-                color: const Color(0xFF2F2418),
-              ),
-            ),
           ],
         ),
       ),
@@ -766,9 +687,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-
     return Scaffold(
       backgroundColor: const Color(0xFFF6F1E5),
       appBar: AppBar(
@@ -785,7 +703,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         child: Column(
           children: [
             _buildTopTabs(),
-            if (!isLandscape) _buildSectionHeader(),
             Expanded(child: _buildBody()),
           ],
         ),

@@ -27,6 +27,13 @@ enum AyahRepeatMode {
   count,
 }
 
+class AudioPlaybackNotice {
+  final String message;
+  final DateTime createdAt;
+
+  const AudioPlaybackNotice({required this.message, required this.createdAt});
+}
+
 class AudioService {
   static final AudioService instance = AudioService._internal();
   AudioService._internal();
@@ -66,7 +73,9 @@ class AudioService {
 
   /// Returns the list of ayahs for a given 0-indexed page index.
   List<QuranAyahData> getAyahsForPage(int pageIndex) {
-    if (_quranPages == null || pageIndex < 0 || pageIndex >= _quranPages!.length) {
+    if (_quranPages == null ||
+        pageIndex < 0 ||
+        pageIndex >= _quranPages!.length) {
       return [];
     }
     return _quranPages![pageIndex].ayahs;
@@ -74,6 +83,11 @@ class AudioService {
 
   /// Whether the recitation bar should be visible.
   final ValueNotifier<bool> isRecitationBarVisible = ValueNotifier(false);
+
+  /// Short user-facing playback notices for the reader UI.
+  final ValueNotifier<AudioPlaybackNotice?> playbackNotice = ValueNotifier(
+    null,
+  );
 
   /// Current repeat mode.
   final ValueNotifier<AyahRepeatMode> repeatMode = ValueNotifier(
@@ -222,7 +236,8 @@ class AudioService {
       final files = <String>[];
       // Basmala before the first ayah — unless this reciter already recites it as
       // part of the ayah-1 file (قنيوه's الوقف الهبطي), which would double it.
-      final basmalaInAyah1 = reciter.breathCombining &&
+      final basmalaInAyah1 =
+          reciter.breathCombining &&
           AudioAyahMapService.instance.qaniwahBasmalaInAyah1(s);
       if (a == 1 && s != 9 && !basmalaInAyah1) files.add(f(0));
       for (final n in mapped) {
@@ -299,53 +314,61 @@ class AudioService {
   // ─────────────────────────────────────
 
   /// Opens the recitation bar and starts playing from the given page.
-  Future<void> playPage(int pageIndex, {bool startFromLastAyah = false, int? startFromAyahIndex, bool autoPlay = true}) async {
+  Future<void> playPage(
+    int pageIndex, {
+    bool startFromLastAyah = false,
+    int? startFromAyahIndex,
+    bool autoPlay = true,
+  }) async {
     if (_isChangingPage) return;
     _isChangingPage = true;
     try {
       if (_quranPages == null) await init();
 
-    // Inject spanning ayahs (Logic 36) - dynamic, Hot Reload safe
-    _injectSpannedAyah(354, 355, 24, 36); // Surah 24 Ayah 36
-    _injectSpannedAyah(355, 356, 24, 42); // Surah 24 Ayah 42
+      // Inject spanning ayahs (Logic 36) - dynamic, Hot Reload safe
+      _injectSpannedAyah(354, 355, 24, 36); // Surah 24 Ayah 36
+      _injectSpannedAyah(355, 356, 24, 42); // Surah 24 Ayah 42
 
-    final int pageNumber = pageIndex + 1;
-    _currentPageIndex = pageIndex;
-    final pageData = _quranPages!.firstWhere(
-      (p) => p.page == pageNumber,
-      orElse: () => QuranPageData(page: pageNumber, ayahs: []),
-    );
+      final int pageNumber = pageIndex + 1;
+      _currentPageIndex = pageIndex;
+      final pageData = _quranPages!.firstWhere(
+        (p) => p.page == pageNumber,
+        orElse: () => QuranPageData(page: pageNumber, ayahs: []),
+      );
 
-    if (pageData.ayahs.isEmpty) return;
+      if (pageData.ayahs.isEmpty) return;
 
-    _playlistAyahs = pageData.ayahs;
-    if (startFromAyahIndex != null) {
-      _currentGlobalAyahIndex = startFromAyahIndex;
-    } else if (startFromLastAyah) {
-      // Land on the last *playable* ayah: trailing ayat may be silent
-      // continuations (قنيوه's combined breath) whose audio already played as
-      // part of an earlier ayah — starting on one would bounce forward.
-      int idx = _playlistAyahs.length - 1;
-      while (idx > 0 && !_isPlayableAyah(_playlistAyahs[idx])) {
-        idx--;
+      _playlistAyahs = pageData.ayahs;
+      if (startFromAyahIndex != null) {
+        _currentGlobalAyahIndex = startFromAyahIndex;
+      } else if (startFromLastAyah) {
+        // Land on the last *playable* ayah: trailing ayat may be silent
+        // continuations (قنيوه's combined breath) whose audio already played as
+        // part of an earlier ayah — starting on one would bounce forward.
+        int idx = _playlistAyahs.length - 1;
+        while (idx > 0 && !_isPlayableAyah(_playlistAyahs[idx])) {
+          idx--;
+        }
+        _currentGlobalAyahIndex = idx;
+      } else {
+        _currentGlobalAyahIndex = 0;
       }
-      _currentGlobalAyahIndex = idx;
-    } else {
-      _currentGlobalAyahIndex = 0;
-    }
-    _currentFileIndexWithinAyah = 0;
-    _currentRepeatIteration = 0;
+      _currentFileIndexWithinAyah = 0;
+      _currentRepeatIteration = 0;
 
-    // Show the recitation bar
-    isRecitationBarVisible.value = true;
+      // Show the recitation bar
+      isRecitationBarVisible.value = true;
 
-    // Download only the first ayah to play immediately
-    final firstAyah = _playlistAyahs[_currentGlobalAyahIndex];
-    isLoadingAudio.value = true;
-    await _downloadPageAyahs([firstAyah]);
-    isLoadingAudio.value = false;
+      // Download only the first ayah to play immediately
+      final firstAyah = _playlistAyahs[_currentGlobalAyahIndex];
+      isLoadingAudio.value = true;
+      try {
+        await _downloadPageAyahs([firstAyah]);
+      } finally {
+        isLoadingAudio.value = false;
+      }
 
-    await _playCurrentAyah(autoPlay: autoPlay);
+      await _playCurrentAyah(autoPlay: autoPlay);
 
       // Download remaining ayahs + next page in background
       _downloadPageAyahs(pageData.ayahs); // Fire and forget
@@ -382,7 +405,9 @@ class AudioService {
     if (_quranPages == null) await init();
     for (int i = 0; i < _quranPages!.length; i++) {
       final page = _quranPages![i];
-      final index = page.ayahs.indexWhere((a) => a.surah == surah && a.ayah == ayah);
+      final index = page.ayahs.indexWhere(
+        (a) => a.surah == surah && a.ayah == ayah,
+      );
       if (index != -1) {
         onPageChangeRequired?.call(i);
         // If we are already on this page, just jump to the ayah.
@@ -399,6 +424,7 @@ class AudioService {
 
   Future<void> _downloadPageAyahs(List<QuranAyahData> ayahs) async {
     final dir = _cacheDir ?? await _getAudioCacheDir();
+    bool? internetAvailable;
 
     for (final ayah in ayahs) {
       final fileNames = _getAudioFilesForAyah(ayah);
@@ -408,6 +434,9 @@ class AudioService {
         if (localFile.existsSync()) continue;
 
         try {
+          internetAvailable ??= await _hasInternetConnection();
+          if (!internetAvailable) return;
+
           final url = '$_baseUrl$fileName';
           final response = await http.get(Uri.parse(url));
           if (response.statusCode == 200) {
@@ -420,7 +449,10 @@ class AudioService {
     }
   }
 
-  Future<void> _playCurrentAyah({bool isManualSelection = false, bool autoPlay = true}) async {
+  Future<void> _playCurrentAyah({
+    bool isManualSelection = false,
+    bool autoPlay = true,
+  }) async {
     if (_currentGlobalAyahIndex >= _playlistAyahs.length) {
       _goToNextPage();
       return;
@@ -439,11 +471,12 @@ class AudioService {
         if (ayah.surah == 23 && ayah.ayah == 46) {
           // Manual selection of 46: Play file 45 and seek to the split point.
           _currentAyahFiles = ['023045.mp3'];
-          await _playFile(
+          final didStart = await _playFile(
             _currentAyahFiles[0],
             seekTo: const Duration(milliseconds: 8000),
             autoPlay: autoPlay,
           );
+          if (!didStart) return;
           return;
         }
       }
@@ -457,7 +490,8 @@ class AudioService {
     }
 
     final fileName = _currentAyahFiles[_currentFileIndexWithinAyah];
-    await _playFile(fileName, autoPlay: autoPlay);
+    final didStart = await _playFile(fileName, autoPlay: autoPlay);
+    if (!didStart) return;
 
     // Set up split monitoring for UI updates
     _setupSplitMonitoring(ayah);
@@ -478,12 +512,24 @@ class AudioService {
     );
   }
 
-  Future<void> _playFile(String fileName, {Duration? seekTo, bool autoPlay = true}) async {
+  Future<bool> _playFile(
+    String fileName, {
+    Duration? seekTo,
+    bool autoPlay = true,
+  }) async {
     try {
       final dir = _cacheDir ?? await _getAudioCacheDir();
       final localFile = File(p.join(dir.path, fileName));
 
-      final Uri uri = localFile.existsSync()
+      final hasLocalFile = localFile.existsSync();
+      if (!hasLocalFile && !await _hasInternetConnection()) {
+        _showPlaybackNotice(
+          'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
+        );
+        return false;
+      }
+
+      final Uri uri = hasLocalFile
           ? Uri.file(localFile.path)
           : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
       await _player.setAudioSource(
@@ -496,15 +542,40 @@ class AudioService {
       if (autoPlay) {
         _player.play();
       }
+      return true;
     } catch (e) {
       debugPrint('Error playing audio: $e');
+      if (e is SocketException) {
+        _showPlaybackNotice(
+          'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
+        );
+      }
       // Don't call stop() here — it could cascade into more errors
+      return false;
     }
   }
 
   // ─────────────────────────────────────
   //  SPLIT MONITORING (intra-ayah UI)
   // ─────────────────────────────────────
+
+  Future<bool> _hasInternetConnection() async {
+    try {
+      final result = await InternetAddress.lookup(
+        'example.com',
+      ).timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _showPlaybackNotice(String message) {
+    playbackNotice.value = AudioPlaybackNotice(
+      message: message,
+      createdAt: DateTime.now(),
+    );
+  }
 
   void _setupSplitMonitoring(QuranAyahData ayah) {
     _splitMonitorSubscription?.cancel();
