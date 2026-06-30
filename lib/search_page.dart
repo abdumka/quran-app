@@ -8,10 +8,7 @@ import 'services/ayah_position_service.dart';
 class SearchPage extends StatefulWidget {
   final Function(int page) onGoToPage;
 
-  const SearchPage({
-    super.key,
-    required this.onGoToPage,
-  });
+  const SearchPage({super.key, required this.onGoToPage});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -24,6 +21,7 @@ class SearchResult {
   final int ayah;
   final String text;
   final int score;
+  final bool containsFullQuery;
 
   const SearchResult({
     required this.page,
@@ -32,6 +30,7 @@ class SearchResult {
     required this.ayah,
     required this.text,
     required this.score,
+    required this.containsFullQuery,
   });
 }
 
@@ -106,8 +105,9 @@ class _SearchPageState extends State<SearchPage> {
     if (_lastQuery.isNotEmpty) {
       _query = _lastQuery;
       _controller.text = _lastQuery;
-      _controller.selection =
-          TextSelection.collapsed(offset: _lastQuery.length);
+      _controller.selection = TextSelection.collapsed(
+        offset: _lastQuery.length,
+      );
     }
     _loadData();
   }
@@ -115,11 +115,11 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _loadData() async {
     try {
       final pages = await QuranJsonService.loadQuranPages();
-      
+
       // Load visual positions to act as the ultimate source of truth for page numbers
       final positionsByPage = await AyahPositionService.loadAyahPositions();
       final Map<String, int> visualPageMap = {};
-      
+
       positionsByPage.forEach((pageNum, ayahs) {
         for (final pos in ayahs) {
           visualPageMap['${pos.surah}_${pos.ayah}'] = pageNum;
@@ -132,8 +132,9 @@ class _SearchPageState extends State<SearchPage> {
       for (final page in pages) {
         for (final ayah in page.ayahs) {
           final normalizedText = _normalizeText(ayah.text);
-          final truePage = visualPageMap['${ayah.surah}_${ayah.ayah}'] ?? page.page;
-          
+          final truePage =
+              visualPageMap['${ayah.surah}_${ayah.ayah}'] ?? page.page;
+
           searchIndex.add(
             _IndexedAyah(
               page: truePage,
@@ -237,10 +238,11 @@ class _SearchPageState extends State<SearchPage> {
     final code = char.codeUnitAt(0);
     if (code == 0x0670) return 'ا'; // Small Alef
 
-    final isDiacritic = (code >= 0x0610 && code <= 0x061A) ||
+    final isDiacritic =
+        (code >= 0x0610 && code <= 0x061A) ||
         (code >= 0x064B && code <= 0x065F) ||
         (code >= 0x06D6 && code <= 0x06ED);
-    
+
     if (isDiacritic) return null;
 
     switch (char) {
@@ -302,12 +304,27 @@ class _SearchPageState extends State<SearchPage> {
             ayah: ayah.ayah,
             text: ayah.text,
             score: score,
+            containsFullQuery: ayah.normalizedText.contains(query),
           ),
         );
       }
     }
 
     results.sort((a, b) {
+      final containsFullQueryCompare =
+          (b.containsFullQuery ? 1 : 0) - (a.containsFullQuery ? 1 : 0);
+      if (containsFullQueryCompare != 0) return containsFullQueryCompare;
+
+      if (a.containsFullQuery && b.containsFullQuery) {
+        final surahCompare = a.surah.compareTo(b.surah);
+        if (surahCompare != 0) return surahCompare;
+
+        final ayahCompare = a.ayah.compareTo(b.ayah);
+        if (ayahCompare != 0) return ayahCompare;
+
+        return a.page.compareTo(b.page);
+      }
+
       final scoreCompare = b.score.compareTo(a.score);
       if (scoreCompare != 0) return scoreCompare;
 
@@ -482,11 +499,11 @@ class _SearchPageState extends State<SearchPage> {
 
     final qSkeleton = queryWord.replaceAll('ا', '');
     final tSkeleton = textWord.replaceAll('ا', '');
-    
+
     if (qSkeleton.length >= 2 && qSkeleton == tSkeleton) {
       return 1500;
     }
-    
+
     if (qSkeleton.length >= 3 && tSkeleton.contains(qSkeleton)) {
       return 1000;
     }
@@ -518,7 +535,10 @@ class _SearchPageState extends State<SearchPage> {
         break;
       }
 
-      final matchIndex = normalizedText.indexOf(normalizedQuery, normalizedStart);
+      final matchIndex = normalizedText.indexOf(
+        normalizedQuery,
+        normalizedStart,
+      );
       if (matchIndex == -1) {
         spans.add(TextSpan(text: text.substring(start)));
         break;
@@ -581,8 +601,9 @@ class _SearchPageState extends State<SearchPage> {
     _cursorDragRemainder -= steps * pixelsPerChar;
 
     final selection = _controller.selection;
-    final int current =
-        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+    final int current = selection.baseOffset >= 0
+        ? selection.baseOffset
+        : text.length;
 
     // RTL: a rightward drag (positive dx) moves the caret toward the start.
     final int next = (current - steps).clamp(0, text.length);
@@ -605,8 +626,8 @@ class _SearchPageState extends State<SearchPage> {
     final mediaPadding = MediaQuery.of(context).padding;
     final horizontalSystemInset = compactLandscape
         ? (mediaPadding.left > mediaPadding.right
-            ? mediaPadding.left
-            : mediaPadding.right)
+              ? mediaPadding.left
+              : mediaPadding.right)
         : 0.0;
 
     return Scaffold(
@@ -650,151 +671,151 @@ class _SearchPageState extends State<SearchPage> {
                 onHorizontalDragStart: _onCursorDragStart,
                 onHorizontalDragUpdate: _onCursorDragUpdate,
                 child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                textDirection: TextDirection.rtl,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: '\u0627\u0628\u062d\u062b \u0639\u0646 \u0622\u064a\u0629 \u0623\u0648 \u0643\u0644\u0645\u0629',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _query.isNotEmpty
-                      ? IconButton(
-                          onPressed: () {
-                            _controller.clear();
-                            _lastQuery = '';
-                            setState(() {
-                              _query = '';
-                              _results = [];
-                            });
-                          },
-                          icon: const Icon(Icons.close),
-                        )
-                      : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  textDirection: TextDirection.rtl,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText:
+                        '\u0627\u0628\u062d\u062b \u0639\u0646 \u0622\u064a\u0629 \u0623\u0648 \u0643\u0644\u0645\u0629',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _query.isNotEmpty
+                        ? IconButton(
+                            onPressed: () {
+                              _controller.clear();
+                              _lastQuery = '';
+                              setState(() {
+                                _query = '';
+                                _results = [];
+                              });
+                            },
+                            icon: const Icon(Icons.close),
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: compactLandscape ? 10 : 14,
+                    ),
+                  ),
+                  onChanged: (value) {
+                    _lastQuery = value;
+                    setState(() {
+                      _query = value;
+                    });
+                    _scheduleSearch(value);
+                  },
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: compactLandscape ? 10 : 14,
-                ),
-                ),
-                onChanged: (value) {
-                  _lastQuery = value;
-                  setState(() {
-                    _query = value;
-                  });
-                  _scheduleSearch(value);
-                },
-              ),
               ),
             ),
             Expanded(
               child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(),
-                    )
+                  ? const Center(child: CircularProgressIndicator())
                   : _query.trim().isEmpty
-                      ? const Center(
-                          child: Text(
-                            '\u0627\u0643\u062a\u0628 \u0643\u0644\u0645\u0629 \u0644\u0644\u0628\u062d\u062b',
-                            style: TextStyle(fontSize: 16),
+                  ? const Center(
+                      child: Text(
+                        '\u0627\u0643\u062a\u0628 \u0643\u0644\u0645\u0629 \u0644\u0644\u0628\u062d\u062b',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    )
+                  : _results.isEmpty
+                  ? const Center(
+                      child: Text(
+                        '\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            12,
+                            0,
+                            12,
+                            compactLandscape ? 4 : 8,
                           ),
-                        )
-                      : _results.isEmpty
-                          ? const Center(
-                              child: Text(
-                                '\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c',
-                                style: TextStyle(fontSize: 16),
+                          child: Align(
+                            child: Text(
+                              '\u0639\u062f\u062f \u0627\u0644\u0646\u062a\u0627\u0626\u062c: ${_results.length}',
+                              textAlign: TextAlign.right,
+                              textDirection: TextDirection.rtl,
+                              style: TextStyle(
+                                fontSize: compactLandscape ? 13 : 14,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey[800],
                               ),
-                            )
-                          : Column(
-                              children: [
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                    12,
-                                    0,
-                                    12,
-                                    compactLandscape ? 4 : 8,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: EdgeInsets.fromLTRB(
+                              12,
+                              0,
+                              12,
+                              compactLandscape ? 8 : 12,
+                            ),
+                            itemCount: _results.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final ayah = _results[index];
+                              return InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => _openResult(ayah),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF7F3EA),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: Colors.black12),
                                   ),
-                                  child: Align(
-                                    child: Text(
-                                      '\u0639\u062f\u062f \u0627\u0644\u0646\u062a\u0627\u0626\u062c: ${_results.length}',
-                                      textAlign: TextAlign.right,
-                                      textDirection: TextDirection.rtl,
-                                      style: TextStyle(
-                                        fontSize: compactLandscape ? 13 : 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.grey[800],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: ListView.separated(
-                                    padding: EdgeInsets.fromLTRB(
-                                      12,
-                                      0,
-                                      12,
-                                      compactLandscape ? 8 : 12,
-                                    ),
-                                    itemCount: _results.length,
-                                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                                    itemBuilder: (context, index) {
-                                      final ayah = _results[index];
-                                      return InkWell(
-                                        borderRadius: BorderRadius.circular(14),
-                                        onTap: () => _openResult(ayah),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF7F3EA),
-                                            borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(color: Colors.black12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      RichText(
+                                        textAlign: TextAlign.right,
+                                        textDirection: TextDirection.rtl,
+                                        text: TextSpan(
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            height: 1.8,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.black,
                                           ),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.end,
-                                            children: [
-                                              RichText(
-                                                textAlign: TextAlign.right,
-                                                textDirection: TextDirection.rtl,
-                                                text: TextSpan(
-                                                  style: const TextStyle(
-                                                    fontSize: 18,
-                                                    height: 1.8,
-                                                    fontWeight: FontWeight.w500,
-                                                    color: Colors.black,
-                                                  ),
-                                                  children: _buildHighlightedTextSpans(
-                                                    ayah.text,
-                                                    _query,
-                                                  ),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                '\u0633\u0648\u0631\u0629 ${ayah.surahName} • \u0622\u064a\u0629 ${ayah.ayah} • \u0635\u0641\u062d\u0629 ${ayah.page}',
-                                                textAlign: TextAlign.right,
-                                                textDirection: TextDirection.rtl,
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: Colors.grey[700],
-                                                ),
-                                              ),
-                                            ],
+                                          children: _buildHighlightedTextSpans(
+                                            ayah.text,
+                                            _query,
                                           ),
                                         ),
-                                      );
-                                    },
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '\u0633\u0648\u0631\u0629 ${ayah.surahName} • \u0622\u064a\u0629 ${ayah.ayah} • \u0635\u0641\u062d\u0629 ${ayah.page}',
+                                        textAlign: TextAlign.right,
+                                        textDirection: TextDirection.rtl,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                            ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -802,5 +823,3 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 }
-
-
