@@ -64,26 +64,35 @@ class Reciter {
 
   /// Mahmoud Khalil Al-Husary — Qaloun (the original bundled recitation).
   /// Keeps the legacy `audio_cache` folder so existing downloads survive.
+  ///
+  /// Served from our Cloudflare R2 bucket (same bucket as al-Naihi/قنيوه) under
+  /// `alhosary/`, mirrored 1:1 from the original GitHub raw repo (6236 files) via
+  /// tools/mirror_alhusary_to_r2.py. Legacy Hafs-style filenames with a few
+  /// end-of-surah ayat merged into one file (see AudioService `_mergedThresholds`).
   static const Reciter husaryQaloun = Reciter(
     id: 'husary_qaloun',
     name: 'محمود خليل الحصري',
     riwaya: 'رواية قالون',
-    audioBaseUrl:
-        'https://raw.githubusercontent.com/quran-by-verses/alhosary-qaloon-32/main/verses/',
+    audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/alhosary/',
     cacheFolder: 'audio_cache',
   );
 
   /// Walid Ali Al-Naihi — Qaloun.
   ///
-  /// Audio is mirrored from nquran.com to our own GitHub repo (so we never
-  /// depend on that site at runtime). Files sit at the repo root in native
-  /// Madani numbering: `SSS000.mp3` (basmala) + `SSS001..SSSmax.mp3` per surah —
-  /// see tools/download_naihi.py and [nativeQalounScheme].
+  /// Audio is mirrored from nquran.com to our own Cloudflare R2 bucket (so we
+  /// never depend on that site at runtime), in the same bucket as قنيوه under an
+  /// `Alnaihi/` folder. Native Madani numbering: `SSS000.mp3` (basmala) +
+  /// `SSS001..SSSmax.mp3` per surah — see tools/download_naihi.py and
+  /// [nativeQalounScheme]. (Previously served from a GitHub raw mirror.)
+  ///
+  /// Known source gap: nquran lacks al-Naihi's Yusuf 012111.mp3 (verified 404 on
+  /// nquran and both mirrors, though nquran's inventory claims 111 ayat), so
+  /// Yusuf's last ayah has no al-Naihi audio — a source limitation, not the CDN.
   static const Reciter naihiQaloun = Reciter(
     id: 'naihi_qaloun',
     name: 'وليد علي النائحي',
     riwaya: 'رواية قالون',
-    audioBaseUrl: 'https://raw.githubusercontent.com/abdumka/alnaihiaudio/main/',
+    audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/Alnaihi/',
     cacheFolder: 'audio_cache_naihi',
     nativeQalounScheme: true,
   );

@@ -67,7 +67,29 @@
       "Bash(PYTHONUTF8=1 python tools/gen_qaniwah_basmala.py)",
       "Bash(PYTHONUTF8=1 python -c \"import json; d=json.load\\(open\\('assets/data/qaniwah_continuations.json',encoding='utf-8'\\)\\); print\\('basmala_in_ayah1 count:',len\\(d['basmala_in_ayah1']\\)\\); print\\('sample:',d['basmala_in_ayah1'][:12]\\); print\\('2,3,4 in set:', all\\(x in d['basmala_in_ayah1'] for x in [2,3,4]\\)\\); print\\('1,6,96 NOT in set:', all\\(x not in d['basmala_in_ayah1'] for x in [1,6,96,97,99]\\)\\)\")",
       "PowerShell(flutter analyze lib/services/audio_ayah_map_service.dart lib/services/audio_service.dart 2>&1)",
-      "PowerShell(flutter analyze lib/widgets/settings/settings_page.dart lib/widgets/settings/settings_components.dart 2>&1)"
+      "PowerShell(flutter analyze lib/widgets/settings/settings_page.dart lib/widgets/settings/settings_components.dart 2>&1)",
+      "Bash(PYTHONUTF8=1 python -c ' *)",
+      "Bash(PYTHONUTF8=1 python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/53990ff8-9624-4d70-872a-e2915a29a3f6/scratchpad/verify_naihi_r2.py\")",
+      "PowerShell(flutter analyze lib\\\\models\\\\reciter.dart lib\\\\services\\\\audio_service.dart lib\\\\services\\\\audio_download_service.dart 2>&1)",
+      "Bash(curl -s -I -H 'User-Agent: Mozilla/5.0' https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/qaniwah/001001.mp3)",
+      "Bash(PYTHONUTF8=1 python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/53990ff8-9624-4d70-872a-e2915a29a3f6/scratchpad/audit_reciters.py\")",
+      "Bash(curl -s https://api.github.com/repos/quran-by-verses/alhosary-qaloon-32/git/trees/main?recursive=1 -H 'User-Agent: Mozilla/5.0' -o __TRACKED_VAR__/tree.json)",
+      "Bash(grep -nE \"r2_secret|\\\\.r2_|_hashes|naihi_verses|tools/_\" .gitignore)",
+      "Bash(PYTHONUTF8=1 python -c \"import boto3,truststore; print\\('boto3',boto3.__version__,'truststore ok'\\)\")",
+      "PowerShell(flutter analyze lib\\\\models\\\\reciter.dart 2>&1)",
+      "PowerShell(flutter analyze lib\\\\quran_pages.dart 2>&1)",
+      "PowerShell(flutter analyze lib\\\\quran_pages.dart lib\\\\main.dart lib\\\\widgets\\\\settings\\\\settings_page.dart lib\\\\services\\\\page_zoom_service.dart 2>&1)",
+      "PowerShell($p = \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\search_page.dart\"; $lines = Get-Content $p; $lines[0..960] | Set-Content $p -Encoding utf8; \"Truncated to $\\(\\(Get-Content $p\\).Count\\) lines\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(git commit -q --amend -m ' *)",
+      "PowerShell($p = \"d:\\\\quran app\\\\quran-app-main\\\\lib\\\\search_page.dart\"; $bytes = [System.IO.File]::ReadAllBytes\\($p\\); \"First 3 bytes: $\\($bytes[0..2] -join ','\\)\"; \"Has UTF8 BOM: $\\($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF\\)\")",
+      "Bash(git commit *)",
+      "Bash(sed 's/.*\\\\.//')",
+      "Bash(awk '{sum+=$1} END{print sum\" \\(units mixed\\)\"}')",
+      "Bash(xargs du -h)",
+      "Bash(python -c \"import os,glob; f=glob.glob\\('assets/images/page_*.webp'\\); s=sum\\(os.path.getsize\\(x\\) for x in f\\); print\\(f'{len\\(f\\)} files, {s/1e6:.1f} MB total, {s/len\\(f\\)/1024:.0f} KB avg'\\)\")"
     ]
   }
 }

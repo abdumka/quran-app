@@ -16,6 +16,7 @@ import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
 import 'services/background_playback_service.dart';
+import 'services/page_zoom_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
 import 'services/high_quality_images_service.dart';
@@ -268,6 +269,12 @@ class _QuranPagesState extends State<QuranPages>
   };
 
   late PageController _portraitController;
+  // Pinch-to-zoom for the paged (flip) reader. While a page is zoomed in we lock
+  // horizontal page-flipping so panning the zoomed page doesn't accidentally turn
+  // the page; flipping resumes once the user pinches back to fit (scale 1).
+  final TransformationController _pageZoomController = TransformationController();
+  bool _isPageZoomed = false;
+  Offset? _lastDoubleTapPosition;
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
   final KeepScreenAwakeService _keepScreenAwakeService =
@@ -443,6 +450,8 @@ class _QuranPagesState extends State<QuranPages>
       _syncCurrentSurahForPage(widget.initialPage);
     }
     _portraitController = PageController(initialPage: widget.initialPage);
+    _pageZoomController.addListener(_handlePageZoomChanged);
+    PageZoomService.instance.enabled.addListener(_handlePageZoomSettingChanged);
     _marginImagesService.initialize();
     _highQualityImagesService.initialize();
     _pageQualityService.load();
@@ -556,6 +565,11 @@ class _QuranPagesState extends State<QuranPages>
     _portraitAutoScrollTimer?.cancel();
     _portraitAutoScrollResumeTimer?.cancel();
     _portraitAutoScrollController?.dispose();
+    _pageZoomController.removeListener(_handlePageZoomChanged);
+    _pageZoomController.dispose();
+    PageZoomService.instance.enabled.removeListener(
+      _handlePageZoomSettingChanged,
+    );
     AudioService.instance.isPlaying.removeListener(_handleAudioPlaybackChanged);
     AudioService.instance.playbackNotice.removeListener(
       _handleAudioPlaybackNotice,
@@ -1701,6 +1715,14 @@ class _QuranPagesState extends State<QuranPages>
     if (!value && !_isPhoneLandscape(context)) {
       _stopPortraitAutoScroll();
     }
+
+    // Auto-scroll must keep the screen on regardless of the user's wakelock
+    // preference — a dimmed/locked screen would interrupt continuous reading.
+    if (value) {
+      _setReadingMode(true);
+    } else {
+      _setReadingMode(_keepScreenAwakeService.enabled.value);
+    }
   }
 
   void _setAutoScrollSpeedMultiplier(double value) {
@@ -2831,6 +2853,46 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
+  /// Tracks whether the paged reader is currently zoomed in (scale > 1) so we can
+  /// lock/unlock page-flipping accordingly.
+  void _handlePageZoomChanged() {
+    final zoomed = _pageZoomController.value.getMaxScaleOnAxis() > 1.01;
+    if (zoomed != _isPageZoomed && mounted) {
+      setState(() => _isPageZoomed = zoomed);
+    }
+  }
+
+  /// Resets any active page zoom back to fit (scale 1).
+  void _resetPageZoom() {
+    if (_pageZoomController.value != Matrix4.identity()) {
+      _pageZoomController.value = Matrix4.identity();
+    }
+  }
+
+  /// If the user disables zoom from Advanced Settings while a page is zoomed
+  /// in, snap back to fit so page-flipping (which locks while zoomed) isn't
+  /// left stuck.
+  void _handlePageZoomSettingChanged() {
+    if (!PageZoomService.instance.enabled.value) {
+      _resetPageZoom();
+    }
+  }
+
+  /// Double-tap: zoom out to fit if already zoomed, otherwise zoom in to 2.5×
+  /// centred on the tapped point (like a photo viewer). InteractiveViewer clamps
+  /// the result so the page keeps covering the viewport.
+  void _togglePageZoom() {
+    if (_isPageZoomed) {
+      _resetPageZoom();
+      return;
+    }
+    const double scale = 2.5;
+    final Offset p = _lastDoubleTapPosition ?? Offset.zero;
+    _pageZoomController.value = Matrix4.identity()
+      ..translateByDouble(-p.dx * (scale - 1), -p.dy * (scale - 1), 0, 1)
+      ..scaleByDouble(scale, scale, scale, 1);
+  }
+
   Widget _buildPortraitReader(bool useTwoPages) {
     final bool isPhonePortrait =
         !TabletLayoutHelper.isTabletDevice(context) &&
@@ -2949,10 +3011,17 @@ class _QuranPagesState extends State<QuranPages>
               controller: _portraitController,
               reverse: true,
               allowImplicitScrolling: false,
+              // Lock flipping while a page is zoomed in so panning the zoomed
+              // page doesn't turn the page; pinch back to fit to flip again.
+              physics: _isPageZoomed
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
               itemCount: effectiveUseTwoPages
                   ? (pages.length / 2).ceil()
                   : pages.length,
               onPageChanged: (index) {
+                // Any lingering zoom is dropped when the page actually changes.
+                _resetPageZoom();
                 final firstPageIndex = _getFirstPageIndexForView(
                   index,
                   context,
@@ -2968,30 +3037,58 @@ class _QuranPagesState extends State<QuranPages>
                 _hideTopBarAfterNavigation();
               },
               itemBuilder: (context, index) {
-                final Widget page = InteractiveViewer(
-                  minScale: 1,
-                  maxScale: 5,
-                  child: ValueListenableBuilder<bool>(
-                    valueListenable:
-                        AudioService.instance.isRecitationBarVisible,
-                    builder: (context, isVisible, _) {
-                      return effectiveUseTwoPages
-                          ? _buildTwoPageSpread(index, topAlign: isVisible)
-                          : _buildSinglePage(
-                              pages[index],
-                              index,
-                              alignment: isVisible
-                                  ? Alignment.topCenter
-                                  : Alignment.center,
-                            );
-                    },
-                  ),
+                final Widget pageContent = ValueListenableBuilder<bool>(
+                  valueListenable: AudioService.instance.isRecitationBarVisible,
+                  builder: (context, isVisible, _) {
+                    return effectiveUseTwoPages
+                        ? _buildTwoPageSpread(index, topAlign: isVisible)
+                        : _buildSinglePage(
+                            pages[index],
+                            index,
+                            alignment: isVisible
+                                ? Alignment.topCenter
+                                : Alignment.center,
+                          );
+                  },
                 );
 
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _handleReaderTap,
-                  child: page,
+                return ValueListenableBuilder<bool>(
+                  valueListenable: PageZoomService.instance.enabled,
+                  builder: (context, zoomEnabled, child) {
+                    if (!zoomEnabled) {
+                      // Zoom disabled in Advanced Settings: plain page, no pinch,
+                      // no double-tap-zoom, flipping never gets locked.
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _handleReaderTap,
+                        child: child!,
+                      );
+                    }
+                    final Widget page = InteractiveViewer(
+                      // Shared controller: only the on-screen page is
+                      // interactive, and flipping is locked while zoomed, so a
+                      // single controller is safe and lets us track scale to
+                      // lock/unlock the PageView.
+                      transformationController: _pageZoomController,
+                      minScale: 1,
+                      maxScale: 5,
+                      // Pinch to zoom; drag to pan only once zoomed in.
+                      panEnabled: true,
+                      child: child!,
+                    );
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _handleReaderTap,
+                      // Double-tap toggles zoom (out to fit, or in to 2.5×)
+                      // like a photo viewer. Kept lightweight so single-tap
+                      // stays responsive.
+                      onDoubleTapDown: (details) =>
+                          _lastDoubleTapPosition = details.localPosition,
+                      onDoubleTap: _togglePageZoom,
+                      child: page,
+                    );
+                  },
+                  child: pageContent,
                 );
               },
             ),

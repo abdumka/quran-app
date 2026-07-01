@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
+import '../../services/page_zoom_service.dart';
 import '../../services/keep_screen_awake_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
@@ -103,6 +104,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final ReciterService _reciterService = ReciterService.instance;
   final BackgroundPlaybackService _backgroundPlaybackService =
       BackgroundPlaybackService.instance;
+  final PageZoomService _pageZoomService = PageZoomService.instance;
   final KeepScreenAwakeService _keepScreenAwakeService =
       KeepScreenAwakeService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
@@ -768,6 +770,9 @@ class _SettingsPageState extends State<SettingsPage> {
   String get _systemScreenTimeoutInfoText =>
       'عند تفعيل هذا الخيار يلتزم التطبيق بإعدادات الهاتف لقفل وإطفاء الشاشة. عند إيقافه تبقى الشاشة مستيقظة أثناء القراءة داخل التطبيق.';
 
+  String get _pageZoomInfoText =>
+      'يتيح لك تكبير صفحة المصحف بتقريب أصابعك (Pinch) مثل الصور. عند إيقاف هذا الخيار لا يمكن تكبير الصفحة.';
+
   Future<void> _resetGuides() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_marginGuideDismissedPrefKey);
@@ -890,6 +895,21 @@ class _SettingsPageState extends State<SettingsPage> {
               onChanged: (useSystemScreenTimeout) {
                 _keepScreenAwakeService.setEnabled(!useSystemScreenTimeout);
               },
+            ),
+          );
+        },
+      ),
+      ValueListenableBuilder<bool>(
+        valueListenable: _pageZoomService.enabled,
+        builder: (context, zoomEnabled, _) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: CompactSwitchTile(
+              title: 'تكبير الصفحة بتقريب الأصابع',
+              icon: Icons.zoom_in_rounded,
+              onInfo: () => _showInfoNotice(_pageZoomInfoText),
+              value: zoomEnabled,
+              onChanged: _pageZoomService.setEnabled,
             ),
           );
         },
