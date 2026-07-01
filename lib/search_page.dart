@@ -64,6 +64,13 @@ class _NormalizedTextMapping {
   });
 }
 
+class _SurahOption {
+  final int surah;
+  final String surahName;
+
+  const _SurahOption({required this.surah, required this.surahName});
+}
+
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -77,6 +84,11 @@ class _SearchPageState extends State<SearchPage> {
   List<_IndexedAyah> _searchIndex = [];
   List<SearchResult> _results = [];
   Timer? _searchDebounce;
+
+  // The surahs available to filter by, ordered by surah number. Built from the
+  // search index once it loads. `_selectedSurah == 0` means "the whole Quran".
+  List<_SurahOption> _surahOptions = [];
+  static int _selectedSurah = 0;
 
   // Accumulates horizontal drag distance on the search field so a finger swipe
   // moves the text cursor (cursor control) — handy for editing RTL Arabic text.
@@ -152,8 +164,20 @@ class _SearchPageState extends State<SearchPage> {
         }
       }
 
+      // Build the surah filter list (one entry per surah, in order).
+      final Map<int, String> surahNames = {};
+      for (final ayah in searchIndex) {
+        surahNames.putIfAbsent(ayah.surah, () => ayah.surahName);
+      }
+      final surahOptions =
+          surahNames.entries
+              .map((e) => _SurahOption(surah: e.key, surahName: e.value))
+              .toList()
+            ..sort((a, b) => a.surah.compareTo(b.surah));
+
       setState(() {
         _searchIndex = searchIndex;
+        _surahOptions = surahOptions;
         _isLoading = false;
       });
 
@@ -289,6 +313,9 @@ class _SearchPageState extends State<SearchPage> {
     final results = <SearchResult>[];
 
     for (final ayah in _searchIndex) {
+      // Restrict to the chosen surah when a specific one is selected.
+      if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
+
       final score = _calculateMatchScore(
         query,
         queryWords,
@@ -620,6 +647,193 @@ class _SearchPageState extends State<SearchPage> {
     super.dispose();
   }
 
+  // The surah-scope dropdown shown under the search field. Selecting a surah
+  // limits the search to that surah; the first entry restores the whole Quran.
+  Widget _buildSurahFilter(bool compactLandscape, double horizontalSystemInset) {
+    // Two-digit surah numbers keep the menu neatly aligned (e.g. "01 الفاتحة").
+    String label(int surah, String name) =>
+        '${surah.toString().padLeft(2, '0')} $name';
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        12 + (compactLandscape ? horizontalSystemInset : 0),
+        0,
+        12,
+        compactLandscape ? 4 : 8,
+      ),
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: DropdownButtonFormField<int>(
+          initialValue: _selectedSurah,
+          isExpanded: true,
+          borderRadius: BorderRadius.circular(14),
+          icon: const Icon(Icons.arrow_drop_down),
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.menu_book_outlined),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          items: [
+            const DropdownMenuItem<int>(
+              value: 0,
+              child: Text(
+                'القرآن كاملاً',
+                textDirection: TextDirection.rtl,
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            for (final option in _surahOptions)
+              DropdownMenuItem<int>(
+                value: option.surah,
+                child: Text(
+                  label(option.surah, option.surahName),
+                  textDirection: TextDirection.rtl,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() {
+              _selectedSurah = value;
+            });
+            if (_query.trim().isNotEmpty) {
+              _runSearch(_query);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  // A thin, right-aligned section label separating exact matches from smart
+  // (fuzzy) matches. Kept minimal so it costs almost no vertical space.
+  Widget _buildSectionHeader(String label, bool compactLandscape) {
+    return Padding(
+      padding: EdgeInsets.only(top: compactLandscape ? 6 : 8, bottom: 2),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        children: [
+          Text(
+            label,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey[600],
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Divider(height: 1, color: Colors.grey[400])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultCard(SearchResult ayah) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => _openResult(ayah),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F3EA),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.black12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            RichText(
+              textAlign: TextAlign.right,
+              textDirection: TextDirection.rtl,
+              text: TextSpan(
+                style: const TextStyle(
+                  fontSize: 18,
+                  height: 1.8,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black,
+                ),
+                children: _buildHighlightedTextSpans(ayah.text, _query),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'سورة ${ayah.surahName} • آية ${ayah.ayah} • صفحة ${ayah.page}',
+              textAlign: TextAlign.right,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Renders the results with a compact count line and, when both kinds exist,
+  // inline "exact match" / "smart match" section headers. Results arrive already
+  // sorted with exact (containsFullQuery) matches first, so we split on that.
+  Widget _buildResultsList(bool compactLandscape) {
+    final exact = _results.where((r) => r.containsFullQuery).toList();
+    final smart = _results.where((r) => !r.containsFullQuery).toList();
+    final bool showHeaders = exact.isNotEmpty && smart.isNotEmpty;
+
+    // Build a flat row list: optional header + its cards, per section.
+    final rows = <Widget>[];
+    void addSection(String header, List<SearchResult> items) {
+      if (items.isEmpty) return;
+      if (showHeaders) rows.add(_buildSectionHeader(header, compactLandscape));
+      for (final ayah in items) {
+        rows.add(_buildResultCard(ayah));
+      }
+    }
+
+    addSection('مطابقة تامة', exact);
+    addSection('مطابقة ذكية', smart);
+
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(12, 0, 12, compactLandscape ? 4 : 8),
+          child: Align(
+            child: Text(
+              'عدد النتائج: ${_results.length}',
+              textAlign: TextAlign.right,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                fontSize: compactLandscape ? 13 : 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey[800],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            padding: EdgeInsets.fromLTRB(12, 0, 12, compactLandscape ? 8 : 12),
+            itemCount: rows.length,
+            separatorBuilder: (context, index) {
+              // No gap directly above a section header (it carries its own top
+              // padding); a normal card gap otherwise.
+              final bool nextIsHeader = rows[index + 1] is Padding;
+              return SizedBox(height: nextIsHeader ? 0 : 8);
+            },
+            itemBuilder: (context, index) => rows[index],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool compactLandscape = _isLandscape;
@@ -632,6 +846,9 @@ class _SearchPageState extends State<SearchPage> {
 
     return Scaffold(
       appBar: AppBar(
+        // Keep the header slim so the added surah filter doesn't push content
+        // too far down and the whole page stays compact.
+        toolbarHeight: 44,
         leadingWidth: compactLandscape
             ? kToolbarHeight + horizontalSystemInset
             : null,
@@ -716,6 +933,7 @@ class _SearchPageState extends State<SearchPage> {
                 ),
               ),
             ),
+            _buildSurahFilter(compactLandscape, horizontalSystemInset),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -733,89 +951,7 @@ class _SearchPageState extends State<SearchPage> {
                         style: TextStyle(fontSize: 16),
                       ),
                     )
-                  : Column(
-                      children: [
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            12,
-                            0,
-                            12,
-                            compactLandscape ? 4 : 8,
-                          ),
-                          child: Align(
-                            child: Text(
-                              '\u0639\u062f\u062f \u0627\u0644\u0646\u062a\u0627\u0626\u062c: ${_results.length}',
-                              textAlign: TextAlign.right,
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                fontSize: compactLandscape ? 13 : 14,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView.separated(
-                            padding: EdgeInsets.fromLTRB(
-                              12,
-                              0,
-                              12,
-                              compactLandscape ? 8 : 12,
-                            ),
-                            itemCount: _results.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (context, index) {
-                              final ayah = _results[index];
-                              return InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => _openResult(ayah),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF7F3EA),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: Colors.black12),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      RichText(
-                                        textAlign: TextAlign.right,
-                                        textDirection: TextDirection.rtl,
-                                        text: TextSpan(
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            height: 1.8,
-                                            fontWeight: FontWeight.w500,
-                                            color: Colors.black,
-                                          ),
-                                          children: _buildHighlightedTextSpans(
-                                            ayah.text,
-                                            _query,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        '\u0633\u0648\u0631\u0629 ${ayah.surahName} • \u0622\u064a\u0629 ${ayah.ayah} • \u0635\u0641\u062d\u0629 ${ayah.page}',
-                                        textAlign: TextAlign.right,
-                                        textDirection: TextDirection.rtl,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.grey[700],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                  : _buildResultsList(compactLandscape),
             ),
           ],
         ),
