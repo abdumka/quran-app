@@ -90,6 +90,10 @@ class _SearchPageState extends State<SearchPage> {
   List<_SurahOption> _surahOptions = [];
   static int _selectedSurah = 0;
 
+  // When true, only exact (full-query) matches are shown. Deliberately not
+  // static: every opening of the search page starts back at smart + exact.
+  bool _exactOnly = false;
+
   // Accumulates horizontal drag distance on the search field so a finger swipe
   // moves the text cursor (cursor control) — handy for editing RTL Arabic text.
   double _cursorDragRemainder = 0;
@@ -315,6 +319,9 @@ class _SearchPageState extends State<SearchPage> {
     for (final ayah in _searchIndex) {
       // Restrict to the chosen surah when a specific one is selected.
       if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
+
+      // In exact-only mode, skip smart (fuzzy) matches before scoring.
+      if (_exactOnly && !ayah.normalizedText.contains(query)) continue;
 
       final score = _calculateMatchScore(
         query,
@@ -663,7 +670,19 @@ class _SearchPageState extends State<SearchPage> {
       ),
       child: Directionality(
         textDirection: TextDirection.rtl,
-        child: DropdownButtonFormField<int>(
+        child: Row(
+          children: [
+            Expanded(child: _buildSurahDropdown(label)),
+            const SizedBox(width: 8),
+            _buildExactMatchToggle(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSurahDropdown(String Function(int, String) label) {
+    return DropdownButtonFormField<int>(
           initialValue: _selectedSurah,
           isExpanded: true,
           borderRadius: BorderRadius.circular(14),
@@ -709,6 +728,59 @@ class _SearchPageState extends State<SearchPage> {
               _runSearch(_query);
             }
           },
+    );
+  }
+
+  // A compact outlined toggle sitting beside the surah dropdown. Off (default)
+  // shows exact + smart matches; on restricts results to exact matches only.
+  Widget _buildExactMatchToggle() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        setState(() {
+          _exactOnly = !_exactOnly;
+        });
+        if (_query.trim().isNotEmpty) {
+          _runSearch(_query);
+        }
+      },
+      child: Container(
+        height: 48,
+        padding: const EdgeInsetsDirectional.only(start: 10, end: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _exactOnly
+                ? Theme.of(context).colorScheme.primary
+                : Colors.black38,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'بحث مطابق فقط',
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: _exactOnly ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+            Transform.scale(
+              scale: 0.7,
+              child: Switch(
+                value: _exactOnly,
+                onChanged: (value) {
+                  setState(() {
+                    _exactOnly = value;
+                  });
+                  if (_query.trim().isNotEmpty) {
+                    _runSearch(_query);
+                  }
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

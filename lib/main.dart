@@ -65,16 +65,20 @@ Future<void> main() async {
   try {
     DebugLogService.instance.log('[App] main() start');
   } catch (_) {}
-  await ThemeService.loadTheme();
-  await ReciterService.instance.load();
-  await BackgroundPlaybackService.instance.load();
-  await PageZoomService.instance.load();
-  await RecitationBarOpacityService.instance.load();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
+  // All of these only read SharedPreferences — load them in parallel instead
+  // of serially so startup pays for one prefs read, not five.
+  await Future.wait([
+    ThemeService.loadTheme(),
+    ReciterService.instance.load(),
+    BackgroundPlaybackService.instance.load(),
+    PageZoomService.instance.load(),
+    RecitationBarOpacityService.instance.load(),
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]),
   ]);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

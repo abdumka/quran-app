@@ -25,6 +25,9 @@ class DebugLogService {
     if (_initialized) return;
 
     _initialized = true;
+    // log() is a no-op in release builds, so don't pay for directory probing
+    // and file creation on the startup path either.
+    if (kReleaseMode) return;
     final logFile = await _tryOpenLogFile();
     if (logFile != null) {
       _logFile = logFile;

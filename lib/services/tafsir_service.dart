@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart' show rootBundle;
 import '../models/quran_page_data.dart';
 import 'quran_json_service.dart';
@@ -16,7 +17,9 @@ class TafsirService {
   static Future<void> loadData() async {
     if (_tafsirData == null) {
       final jsonString = await rootBundle.loadString('assets/data/ar.saddi.json');
-      final decoded = json.decode(jsonString);
+      // ~5.8 MB of JSON — decode on a background isolate so opening the
+      // tafsir panel for the first time doesn't freeze the UI.
+      final decoded = await compute(json.decode, jsonString);
       _tafsirData = decoded['tafsir'];
     }
 

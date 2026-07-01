@@ -112,9 +112,6 @@ class AudioService {
   /// Tracks how many times current page has been repeated so far.
   int _pageRepeatIteration = 0;
 
-  /// Playback progress within the current ayah (0.0 = start, 1.0 = end).
-  final ValueNotifier<double> playbackProgress = ValueNotifier(0.0);
-
   // Callback to notify the UI to flip the page
   Function(int newPage)? onPageChangeRequired;
 

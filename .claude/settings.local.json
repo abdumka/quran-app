@@ -89,7 +89,18 @@
       "Bash(sed 's/.*\\\\.//')",
       "Bash(awk '{sum+=$1} END{print sum\" \\(units mixed\\)\"}')",
       "Bash(xargs du -h)",
-      "Bash(python -c \"import os,glob; f=glob.glob\\('assets/images/page_*.webp'\\); s=sum\\(os.path.getsize\\(x\\) for x in f\\); print\\(f'{len\\(f\\)} files, {s/1e6:.1f} MB total, {s/len\\(f\\)/1024:.0f} KB avg'\\)\")"
+      "Bash(python -c \"import os,glob; f=glob.glob\\('assets/images/page_*.webp'\\); s=sum\\(os.path.getsize\\(x\\) for x in f\\); print\\(f'{len\\(f\\)} files, {s/1e6:.1f} MB total, {s/len\\(f\\)/1024:.0f} KB avg'\\)\")",
+      "Bash(awk '{printf \"%8.1f MB  %s\\\\n\", $5/1048576, $9}')",
+      "Bash(flutter build *)",
+      "Bash(awk '{s+=$5} END {print s/1024/1024 \" MB total, \" NR \" files\"}')",
+      "Bash(cat android/app/build.gradle.kts)",
+      "Bash(cat android/app/build.gradle)",
+      "Bash(awk '{print $5/1024 \" KB\", $9}')",
+      "Bash(python -c \"import PIL; print\\('PIL ok', PIL.__version__\\)\")",
+      "Bash(python -)",
+      "Bash(rm assets/images/splash_screen.png)",
+      "Bash(flutter test *)",
+      "PowerShell(flutter analyze lib/search_page.dart)"
     ]
   }
 }

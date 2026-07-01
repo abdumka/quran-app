@@ -27,10 +27,12 @@ class _SplashScreenState extends State<SplashScreen> {
     final lastPage = prefs.getInt('lastPage') ?? 0;
     final portraitScrollMode = prefs.getBool('portraitScrollMode') ?? false;
 
-    // Pre-decode the page image DURING the wait (no extra time, no spinner freeze)
+    // Pre-decode the page image DURING the wait (no extra time, no spinner freeze).
+    // The delay is only a minimum display time so the splash doesn't flash by;
+    // the app leaves as soon as the first page image is ready.
     final pageNum = lastPage + 1; // pages are 1-indexed in assets
     await Future.wait([
-      Future.delayed(const Duration(milliseconds: 5000)),
+      Future.delayed(const Duration(milliseconds: 800)),
       if (pageNum >= 1 && pageNum <= 602)
         precacheImage(ResizeImage(AssetImage('assets/images/page_$pageNum.webp'), width: 720), context),
     ]);
@@ -38,7 +40,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 700),
+        transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (_, _, _) => QuranPages(
           initialPage: lastPage,
           initialPortraitScrollMode: portraitScrollMode,
@@ -71,7 +73,7 @@ class _SplashScreenState extends State<SplashScreen> {
       body: DecoratedBox(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/mushaf_cover_ai_design.png'),
+            image: AssetImage('assets/images/mushaf_cover_ai_design.webp'),
             fit: BoxFit.cover,
           ),
         ),
