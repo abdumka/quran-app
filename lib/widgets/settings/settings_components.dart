@@ -322,16 +322,6 @@ class DownloadsManagementTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           SettingsTileHeader(title: 'إدارة الملفات المحمّلة', onInfo: onInfo),
-          const SizedBox(height: 3),
-          const Text(
-            'اعرض الملفات الإضافية التي حملتها، وحجمها الحالي، واحذف ما لا تحتاجه لاحقًا.',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFF888888),
-              height: 1.4,
-            ),
-          ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
             icon: const Icon(Icons.folder_outlined, color: Color(0xFF8B7355), size: 18),
@@ -367,7 +357,11 @@ class ReciterTile extends StatelessWidget {
     this.onInfo,
   });
 
-  Widget _reciterRow(Reciter r, {required bool checked}) {
+  Widget _reciterRow(
+    Reciter r, {
+    required bool checked,
+    bool showRiwaya = true,
+  }) {
     return Row(
       textDirection: TextDirection.rtl,
       children: [
@@ -392,12 +386,16 @@ class ReciterTile extends StatelessWidget {
                   color: Color(0xFF2C2C2C),
                 ),
               ),
-              Text(
-                r.riwaya,
-                textDirection: TextDirection.rtl,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11.5, color: Color(0xFF888888)),
-              ),
+              if (showRiwaya)
+                Text(
+                  r.riwaya,
+                  textDirection: TextDirection.rtl,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF888888),
+                  ),
+                ),
             ],
           ),
         ),
@@ -412,55 +410,63 @@ class ReciterTile extends StatelessWidget {
       orElse: () => reciters.first,
     );
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          SettingsTileHeader(title: 'القارئ', onInfo: onInfo),
-          const SizedBox(height: 3),
-          const Text(
-            'اختر التلاوة. عند التبديل يتوقف التشغيل الحالي، ولكل قارئ ملفاته المحمّلة الخاصة.',
+          Text(
+            'القارئ',
             textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFF888888),
-              height: 1.4,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2C2C2C),
             ),
           ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3EFE6),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFF8D6E3F).withValues(alpha: 0.20),
+          if (onInfo != null) ...[
+            const SizedBox(width: 4),
+            InfoHintButton(onTap: onInfo!),
+          ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EFE6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF8D6E3F).withValues(alpha: 0.20),
+                ),
               ),
-            ),
-            child: Directionality(
-              textDirection: TextDirection.rtl,
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<Reciter>(
-                  isExpanded: true,
-                  value: current,
-                  itemHeight: 58,
-                  borderRadius: BorderRadius.circular(12),
-                  dropdownColor: const Color(0xFFF6F1E5),
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                      color: Color(0xFF8B7355)),
-                  onChanged: (r) {
-                    if (r != null && r.id != selected.id) onSelect(r);
-                  },
-                  selectedItemBuilder: (context) => [
-                    for (final r in reciters) _reciterRow(r, checked: false),
-                  ],
-                  items: [
-                    for (final r in reciters)
-                      DropdownMenuItem<Reciter>(
-                        value: r,
-                        child: _reciterRow(r, checked: r.id == selected.id),
-                      ),
-                  ],
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<Reciter>(
+                    isExpanded: true,
+                    value: current,
+                    itemHeight: 54,
+                    borderRadius: BorderRadius.circular(12),
+                    dropdownColor: const Color(0xFFF6F1E5),
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF8B7355),
+                    ),
+                    onChanged: (r) {
+                      if (r != null && r.id != selected.id) onSelect(r);
+                    },
+                    selectedItemBuilder: (context) => [
+                      for (final r in reciters)
+                        _reciterRow(r, checked: false, showRiwaya: false),
+                    ],
+                    items: [
+                      for (final r in reciters)
+                        DropdownMenuItem<Reciter>(
+                          value: r,
+                          child: _reciterRow(r, checked: r.id == selected.id),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -489,41 +495,54 @@ class AudioDownloadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool showInlineAction =
+        !state.isComplete && !state.isDownloading && !state.isPaused;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          SettingsTileHeader(title: 'تحميل جميع الصوتيات', onInfo: onInfo),
-          const SizedBox(height: 3),
-          Text(
-            state.isComplete
-                ? 'جميع ملفات الصوت للقارئ المختار محمّلة، يمكن الاستماع للتلاوة بدون إنترنت.'
-                : 'نزّل ملفات الصوت كاملة للقارئ المختار فقط للاستماع بدون اتصال بالإنترنت. الحجم التقريبي ~500 MB.',
+          Row(
             textDirection: TextDirection.rtl,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Color(0xFF888888),
-              height: 1.4,
-            ),
+            children: [
+              Expanded(
+                child: SettingsTileHeader(
+                  title: 'تحميل جميع الصوتيات',
+                  onInfo: onInfo,
+                ),
+              ),
+              if (showInlineAction) const SizedBox(width: 8),
+              if (showInlineAction)
+                OutlinedButton.icon(
+                  onPressed: onDownload,
+                  icon: const Icon(
+                    Icons.download_rounded,
+                    color: Color(0xFF8B7355),
+                    size: 16,
+                  ),
+                  label: Text(
+                    state.downloadedFiles > 0 ? 'استئناف' : 'تحميل',
+                    style: const TextStyle(
+                      color: Color(0xFF8B7355),
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF8B7355)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: 10),
-          if (!state.isComplete && !state.isDownloading && !state.isPaused)
-            OutlinedButton.icon(
-              onPressed: onDownload,
-              icon: const Icon(Icons.download_rounded, color: Color(0xFF8B7355), size: 18),
-              label: Text(
-                state.downloadedFiles > 0
-                    ? 'استئناف تحميل الصوت (${state.progressLabel})'
-                    : 'تحميل ملفات الصوت (~500 MB)',
-                style: const TextStyle(color: Color(0xFF8B7355), fontSize: 13),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-            ),
+          if (showInlineAction) const SizedBox(height: 2),
           if (state.isPaused && !state.isDownloading) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
@@ -649,17 +668,6 @@ class PageQualityTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           SettingsTileHeader(title: 'جودة عرض الصفحات', onInfo: onInfo),
-          const SizedBox(height: 3),
-          const Text(
-            'جرّب الخيارات على جهازك ثم اختر الأنسب. جميع الصور بعرض 720 نقطة، '
-            'فالفرق في نعومة العرض وجودة الضغط لا في الأبعاد.',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFF888888),
-              height: 1.4,
-            ),
-          ),
           const SizedBox(height: 10),
           _option(
             number: '١',
@@ -896,7 +904,6 @@ class PageQualityTile extends StatelessWidget {
 
 class RecitationBarOpacityTile extends StatelessWidget {
   final String title;
-  final String description;
   final IconData icon;
   final double opacity;
   final ValueChanged<double> onChanged;
@@ -905,7 +912,6 @@ class RecitationBarOpacityTile extends StatelessWidget {
   const RecitationBarOpacityTile({
     super.key,
     required this.title,
-    required this.description,
     required this.opacity,
     required this.onChanged,
     this.icon = Icons.opacity_rounded,
@@ -922,16 +928,6 @@ class RecitationBarOpacityTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           SettingsTileHeader(title: title, onInfo: onInfo),
-          const SizedBox(height: 3),
-          Text(
-            description,
-            textDirection: TextDirection.rtl,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Color(0xFF888888),
-              height: 1.4,
-            ),
-          ),
           const SizedBox(height: 6),
           Row(
             textDirection: TextDirection.rtl,
@@ -993,38 +989,54 @@ class MarginImagesTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool showInlineAction =
+        !state.isAvailable && !state.isDownloading && !state.isPaused;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          SettingsTileHeader(title: 'عرض الهوامش', onInfo: onInfo),
-          const SizedBox(height: 3),
-          Text(
-            state.isAvailable
-                ? 'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.'
-                : 'نزّل حزمة صور الهوامش أولًا، ثم اختر لاحقًا تفعيل عرض الهوامش أو إيقافه.',
+          Row(
             textDirection: TextDirection.rtl,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Color(0xFF888888),
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (!state.isAvailable && !state.isDownloading && !state.isPaused)
-            OutlinedButton.icon(
-              onPressed: onDownload,
-              icon: const Icon(Icons.download_rounded, color: Color(0xFF8B7355), size: 18),
-              label: Text('تحميل عرض الهوامش (${state.packageSizeLabel})',
-                  style: const TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            children: [
+              Expanded(
+                child: SettingsTileHeader(
+                  title: 'عرض الهوامش',
+                  onInfo: onInfo,
+                ),
               ),
-            ),
+              if (showInlineAction) const SizedBox(width: 8),
+              if (showInlineAction)
+                OutlinedButton.icon(
+                  onPressed: onDownload,
+                  icon: const Icon(
+                    Icons.download_rounded,
+                    color: Color(0xFF8B7355),
+                    size: 16,
+                  ),
+                  label: const Text(
+                    'تحميل',
+                    style: TextStyle(
+                      color: Color(0xFF8B7355),
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF8B7355)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+            ],
+          ),
+          if (showInlineAction) const SizedBox(height: 2),
           if (state.isPaused && !state.isDownloading) ...[
             Row(
               children: [

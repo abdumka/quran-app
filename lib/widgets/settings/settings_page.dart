@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
+import '../../services/keep_screen_awake_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
 import '../../services/page_quality_service.dart';
@@ -25,7 +26,6 @@ import 'downloads_management_page.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
 import '../menu/fullscreen_menu_page.dart';
-
 
 class SettingsPage extends StatefulWidget {
   final bool isDarkMode;
@@ -71,19 +71,15 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-
-
 class _SettingsPageState extends State<SettingsPage> {
   static const String _settingsTitle =
       '\u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a';
-  static const String _marginGuideDismissedPrefKey =
-      'marginGuideDismissed';
+  static const String _marginGuideDismissedPrefKey = 'marginGuideDismissed';
   static const String _autoScrollGuideDismissedPrefKey =
       'autoScrollGuideDismissed';
   static const String _browseModeGuideDismissedPrefKey =
       'browseModeGuideDismissed';
-  static const String _bookmarkGuideDismissedPrefKey =
-      'bookmarkGuideDismissed';
+  static const String _bookmarkGuideDismissedPrefKey = 'bookmarkGuideDismissed';
   static const String _hifzLensSettingsGuideDismissedPrefKey =
       'hifzLensSettingsGuideDismissed';
   static const String _fullScreenSettingsGuideDismissedPrefKey =
@@ -102,10 +98,13 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showHifzLensGuide = false;
   bool _showBackgroundPlaybackGuide = false;
   bool _showFullScreenGuide = false;
-  final AudioDownloadService _audioDownloadService = AudioDownloadService.instance;
+  final AudioDownloadService _audioDownloadService =
+      AudioDownloadService.instance;
   final ReciterService _reciterService = ReciterService.instance;
   final BackgroundPlaybackService _backgroundPlaybackService =
       BackgroundPlaybackService.instance;
+  final KeepScreenAwakeService _keepScreenAwakeService =
+      KeepScreenAwakeService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
   final HighQualityImagesService _highQualityImagesService =
       HighQualityImagesService.instance;
@@ -150,6 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _localTabletLayoutMode = widget.isTabletLayoutMode;
     _localFullScreenMode = widget.isFullScreenMode;
     _audioDownloadService.initialize();
+    _keepScreenAwakeService.load();
     _marginImagesService.initialize();
     _highQualityImagesService.initialize();
     _pageQualityService.load();
@@ -199,20 +199,13 @@ class _SettingsPageState extends State<SettingsPage> {
           !(prefs.getBool(_marginGuideDismissedPrefKey) ?? false);
       _showAutoScrollGuide =
           !(prefs.getBool(_autoScrollGuideDismissedPrefKey) ?? false);
-      _showHideBarGuide =
-          !(prefs.getBool('hideBarGuideDismissed') ?? false);
-      _showHifzLensGuide = !(prefs.getBool(
-            _hifzLensSettingsGuideDismissedPrefKey,
-          ) ??
-          false);
-      _showFullScreenGuide = !(prefs.getBool(
-            _fullScreenSettingsGuideDismissedPrefKey,
-          ) ??
-          false);
-      _showBackgroundPlaybackGuide = !(prefs.getBool(
-            _backgroundPlaybackGuideDismissedPrefKey,
-          ) ??
-          false);
+      _showHideBarGuide = !(prefs.getBool('hideBarGuideDismissed') ?? false);
+      _showHifzLensGuide =
+          !(prefs.getBool(_hifzLensSettingsGuideDismissedPrefKey) ?? false);
+      _showFullScreenGuide =
+          !(prefs.getBool(_fullScreenSettingsGuideDismissedPrefKey) ?? false);
+      _showBackgroundPlaybackGuide =
+          !(prefs.getBool(_backgroundPlaybackGuideDismissedPrefKey) ?? false);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -258,10 +251,7 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    final nextStep = _nextCoachStep(
-      previousStep,
-      manual: false,
-    );
+    final nextStep = _nextCoachStep(previousStep, manual: false);
 
     if (nextStep != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -381,10 +371,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final targetBox = targetContext.findRenderObject() as RenderBox?;
     if (targetBox == null || !targetBox.hasSize) return null;
 
-    final topLeft = targetBox.localToGlobal(
-      Offset.zero,
-      ancestor: overlayBox,
-    );
+    final topLeft = targetBox.localToGlobal(Offset.zero, ancestor: overlayBox);
     return topLeft & targetBox.size;
   }
 
@@ -407,10 +394,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (key == null) return;
     await _dismissGuide(key);
     if (!mounted) return;
-    final nextStep = _nextCoachStep(
-      step,
-      manual: _isManualCoachPresentation,
-    );
+    final nextStep = _nextCoachStep(step, manual: _isManualCoachPresentation);
     setState(() {
       _activeCoachStep = null;
       _activeCoachRect = null;
@@ -568,11 +552,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   bool get _hasAnotherCoachStep {
     if (_isManualCoachPresentation) return false;
-    return _nextCoachStep(
-          _activeCoachStep,
-          manual: false,
-        ) !=
-        null;
+    return _nextCoachStep(_activeCoachStep, manual: false) != null;
   }
 
   void _rememberTapPosition(Offset globalPosition) {
@@ -722,15 +702,15 @@ class _SettingsPageState extends State<SettingsPage> {
       final uri = Uri.parse(url);
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذر فتح الرابط')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط')));
       }
     } on PlatformException {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر فتح الرابط')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط')));
     }
   }
 
@@ -753,6 +733,40 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+
+  void _showInfoNotice(String text) {
+    _showSettingsNotice(text);
+  }
+
+  String get _pageQualityInfoText =>
+      'جرّب الخيارات على جهازك ثم اختر الأنسب. جميع الصور بعرض 720 نقطة، فالفرق في نعومة العرض وجودة الضغط لا في الأبعاد.';
+
+  String get _marginImagesInfoText =>
+      _marginImagesService.state.value.isAvailable
+          ? 'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.'
+          : 'نزّل حزمة صور الهوامش أولًا، ثم اختر لاحقًا تفعيل عرض الهوامش أو إيقافه.';
+
+  String get _audioDownloadInfoText {
+    final audioState = _audioDownloadService.state.value;
+    return audioState.isComplete
+        ? 'جميع ملفات الصوت للقارئ المختار محمّلة، ويمكن الاستماع للتلاوة بدون إنترنت.'
+        : 'نزّل ملفات الصوت كاملة للقارئ المختار فقط للاستماع بدون اتصال بالإنترنت. الحجم التقريبي نحو 500 MB.';
+  }
+
+  String get _downloadsManagementInfoText =>
+      'اعرض الملفات الإضافية التي حملتها، وحجمها الحالي، واحذف ما لا تحتاجه لاحقًا.';
+
+  String get _reciterInfoText =>
+      'اختر التلاوة. عند التبديل يتوقف التشغيل الحالي، ولكل قارئ ملفاته المحمّلة الخاصة.';
+
+  String get _recitationBarButtonsOpacityInfoText =>
+      'تتحكم في وضوح أيقونات شريط التلاوة مثل التشغيل والتالي والتكرار. كلما اتجهت لليمين زاد الوضوح.';
+
+  String get _recitationBarBackgroundOpacityInfoText =>
+      'تتحكم في وضوح خلفية شريط التلاوة نفسه. كلما اتجهت لليمين زاد الوضوح.';
+
+  String get _systemScreenTimeoutInfoText =>
+      'عند تفعيل هذا الخيار يلتزم التطبيق بإعدادات الهاتف لقفل وإطفاء الشاشة. عند إيقافه تبقى الشاشة مستيقظة أثناء القراءة داخل التطبيق.';
 
   Future<void> _resetGuides() async {
     final prefs = await SharedPreferences.getInstance();
@@ -831,8 +845,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   onDownloadHq: _handleHighQualityImagesDownload,
                   onCancelHqDownload: _highQualityImagesService.cancelDownload,
                   onPauseHqDownload: _highQualityImagesService.pauseDownload,
-                  onInfo: () =>
-                      _presentCoachManually(SettingsCoachStep.pageQuality),
+                  onInfo: () => _showInfoNotice(_pageQualityInfoText),
                 );
               },
             );
@@ -844,11 +857,10 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (context, opacity, _) {
           return RecitationBarOpacityTile(
             title: 'شفافية أزرار شريط التلاوة',
-            description: 'تتحكم في وضوح أيقونات شريط التلاوة (تشغيل، تالي، تكرار...). '
-                'كلما اتجهت لليمين زاد الوضوح.',
             icon: Icons.opacity_rounded,
             opacity: opacity,
             onChanged: _recitationBarOpacityService.setOpacity,
+            onInfo: () => _showInfoNotice(_recitationBarButtonsOpacityInfoText),
           );
         },
       ),
@@ -857,15 +869,31 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (context, backgroundOpacity, _) {
           return RecitationBarOpacityTile(
             title: 'شفافية خلفية شريط التلاوة',
-            description: 'تتحكم في وضوح خلفية شريط التلاوة نفسه. '
-                'كلما اتجهت لليمين زاد الوضوح.',
             icon: Icons.gradient_rounded,
             opacity: backgroundOpacity,
             onChanged: _recitationBarOpacityService.setBackgroundOpacity,
+            onInfo:
+                () => _showInfoNotice(_recitationBarBackgroundOpacityInfoText),
           );
         },
       ),
-      // Add future advanced settings here.
+      ValueListenableBuilder<bool>(
+        valueListenable: _keepScreenAwakeService.enabled,
+        builder: (context, keepAwakeEnabled, _) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: CompactSwitchTile(
+              title: 'استخدام إعدادات الهاتف لقفل وإطفاء الشاشة',
+              icon: Icons.screen_lock_portrait_rounded,
+              onInfo: () => _showInfoNotice(_systemScreenTimeoutInfoText),
+              value: !keepAwakeEnabled,
+              onChanged: (useSystemScreenTimeout) {
+                _keepScreenAwakeService.setEnabled(!useSystemScreenTimeout);
+              },
+            ),
+          );
+        },
+      ),
     ];
 
     return SettingsCard(
@@ -929,10 +957,7 @@ class _SettingsPageState extends State<SettingsPage> {
         foregroundColor: const Color(0xFF2C2C2C),
         title: const Text(
           _settingsTitle,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
         ),
       ),
       body: SafeArea(
@@ -944,8 +969,8 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               AnimationLimiter(
                 child: ListView(
-                  physics: _activeCoachStep != null 
-                      ? const NeverScrollableScrollPhysics() 
+                  physics: _activeCoachStep != null
+                      ? const NeverScrollableScrollPhysics()
                       : const AlwaysScrollableScrollPhysics(),
                   controller: _scrollController,
                   padding: EdgeInsets.fromLTRB(
@@ -964,7 +989,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 4),
                       SettingsCard(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -975,7 +1003,11 @@ class _SettingsPageState extends State<SettingsPage> {
                                 child: Row(
                                   textDirection: TextDirection.rtl,
                                   children: [
-                                    const Icon(Icons.wb_sunny_rounded, color: Color(0xFF8B7355), size: 18),
+                                    const Icon(
+                                      Icons.wb_sunny_rounded,
+                                      color: Color(0xFF8B7355),
+                                      size: 18,
+                                    ),
                                     const SizedBox(width: 8),
                                     const Text(
                                       'إضاءة الشاشة',
@@ -996,16 +1028,25 @@ class _SettingsPageState extends State<SettingsPage> {
                                       child: SliderTheme(
                                         data: SliderTheme.of(context).copyWith(
                                           trackHeight: 3,
-                                          activeTrackColor: const Color(0xFF8D6E3F),
+                                          activeTrackColor: const Color(
+                                            0xFF8D6E3F,
+                                          ),
                                           thumbColor: const Color(0xFF8D6E3F),
-                                          overlayColor: const Color(0xFF8D6E3F).withValues(alpha: 0.1),
-                                          inactiveTrackColor: const Color(0xFF8D6E3F).withValues(alpha: 0.1),
+                                          overlayColor: const Color(
+                                            0xFF8D6E3F,
+                                          ).withValues(alpha: 0.1),
+                                          inactiveTrackColor: const Color(
+                                            0xFF8D6E3F,
+                                          ).withValues(alpha: 0.1),
                                         ),
                                         child: Slider(
                                           value: _brightness,
                                           onChanged: (v) async {
                                             setState(() => _brightness = v);
-                                            await ScreenBrightness().setApplicationScreenBrightness(v);
+                                            await ScreenBrightness()
+                                                .setApplicationScreenBrightness(
+                                                  v,
+                                                );
                                           },
                                         ),
                                       ),
@@ -1031,7 +1072,11 @@ class _SettingsPageState extends State<SettingsPage> {
                                 child: Row(
                                   textDirection: TextDirection.rtl,
                                   children: [
-                                    const Icon(Icons.dark_mode_rounded, color: Color(0xFF8B7355), size: 18),
+                                    const Icon(
+                                      Icons.dark_mode_rounded,
+                                      color: Color(0xFF8B7355),
+                                      size: 18,
+                                    ),
                                     const SizedBox(width: 8),
                                     const Text(
                                       'الوضع الليلي',
@@ -1053,7 +1098,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                       value: widget.isDarkMode,
                                       onChanged: widget.onToggleDarkMode,
                                       activeThumbColor: const Color(0xFF8D6E3F),
-                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      materialTapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
                                   ],
                                 ),
@@ -1116,20 +1162,23 @@ class _SettingsPageState extends State<SettingsPage> {
                                 value: isLandscape
                                     ? true
                                     : _localPortraitScrollMode,
-                                onChanged: (isLandscape
+                                onChanged:
+                                    (isLandscape
                                         ? false
                                         : _localAllowPortraitScrollMode)
                                     ? (value) {
                                         setState(() {
                                           _localPortraitScrollMode = value;
                                         });
-                                        widget.onTogglePortraitScrollMode(value);
+                                        widget.onTogglePortraitScrollMode(
+                                          value,
+                                        );
                                       }
                                     : (_) => _showSettingsNotice(
-                                          isLandscape
-                                              ? 'في الوضع الأفقي يكون التصفح دائمًا على التمرير.'
-                                              : scrollUnavailableInTabletNotice,
-                                        ),
+                                        isLandscape
+                                            ? 'في الوضع الأفقي يكون التصفح دائمًا على التمرير.'
+                                            : scrollUnavailableInTabletNotice,
+                                      ),
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -1185,14 +1234,16 @@ class _SettingsPageState extends State<SettingsPage> {
                             Container(
                               key: _twoPageKey,
                               child: Opacity(
-                                opacity: widget.showTabletLayoutSetting ? 1 : 0.5,
+                                opacity: widget.showTabletLayoutSetting
+                                    ? 1
+                                    : 0.5,
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: widget.showTabletLayoutSetting
                                       ? null
                                       : () => _showSettingsNotice(
-                                            tabletOnlyNotice,
-                                          ),
+                                          tabletOnlyNotice,
+                                        ),
                                   child: CompactSwitchTile(
                                     title: 'عرض الصفحتين',
                                     icon: Icons.auto_stories_rounded,
@@ -1206,30 +1257,19 @@ class _SettingsPageState extends State<SettingsPage> {
                                               _localTabletLayoutMode = value;
                                               if (value) {
                                                 _localAutoScrollEnabled = false;
-                                                _localPortraitScrollMode = false;
+                                                _localPortraitScrollMode =
+                                                    false;
                                               }
                                             });
-                                            widget.onToggleTabletLayoutMode(value);
+                                            widget.onToggleTabletLayoutMode(
+                                              value,
+                                            );
                                           }
                                         : (_) {},
                                   ),
                                 ),
                               ),
                             ),
-                            if (!isLandscape) ...[
-                              const SizedBox(height: 6),
-                              Container(
-                                key: _resetGuidesKey,
-                                child: CompactActionTile(
-                                  title: 'إعادة الإرشادات',
-                                  icon: Icons.tips_and_updates_rounded,
-                                  onInfo: () => _presentCoachManually(
-                                    SettingsCoachStep.resetGuides,
-                                  ),
-                                  onTap: _resetGuides,
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
@@ -1247,9 +1287,10 @@ class _SettingsPageState extends State<SettingsPage> {
                                     _marginImagesService.cancelDownload,
                                 onPauseDownload:
                                     _marginImagesService.pauseDownload,
-                                onToggleEnabled: _marginImagesService.setEnabled,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.marginImages,
+                                onToggleEnabled:
+                                    _marginImagesService.setEnabled,
+                                onInfo: () => _showInfoNotice(
+                                  _marginImagesInfoText,
                                 ),
                               );
                             },
@@ -1267,9 +1308,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 reciters: _reciterService.reciters,
                                 selected: selectedReciter,
                                 onSelect: _handleReciterSelect,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.reciter,
-                                ),
+                                onInfo: () => _showInfoNotice(_reciterInfoText),
                               );
                             },
                           ),
@@ -1290,7 +1329,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                   SettingsCoachStep.backgroundPlayback,
                                 ),
                                 value: enabled,
-                                onChanged: _backgroundPlaybackService.setEnabled,
+                                onChanged:
+                                    _backgroundPlaybackService.setEnabled,
                               );
                             },
                           ),
@@ -1306,10 +1346,12 @@ class _SettingsPageState extends State<SettingsPage> {
                               return AudioDownloadTile(
                                 state: audioState,
                                 onDownload: _audioDownloadService.downloadAll,
-                                onCancelDownload: _audioDownloadService.cancelDownload,
-                                onPauseDownload: _audioDownloadService.pauseDownload,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.audioDownload,
+                                onCancelDownload:
+                                    _audioDownloadService.cancelDownload,
+                                onPauseDownload:
+                                    _audioDownloadService.pauseDownload,
+                                onInfo: () => _showInfoNotice(
+                                  _audioDownloadInfoText,
                                 ),
                               );
                             },
@@ -1318,14 +1360,31 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       const SizedBox(height: 6),
                       _buildAdvancedSettingsSection(),
+                      if (!isLandscape) ...[
+                        const SizedBox(height: 6),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Container(
+                            key: _resetGuidesKey,
+                            child: CompactActionTile(
+                              title: 'إعادة الإرشادات',
+                              icon: Icons.tips_and_updates_rounded,
+                              onInfo: () => _presentCoachManually(
+                                SettingsCoachStep.resetGuides,
+                              ),
+                              onTap: _resetGuides,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Container(
                         key: _downloadsManagementKey,
                         child: SettingsCard(
                           child: DownloadsManagementTile(
                             onOpen: _openDownloadsManagementPage,
-                            onInfo: () => _presentCoachManually(
-                              SettingsCoachStep.downloadsManagement,
+                            onInfo: () => _showInfoNotice(
+                              _downloadsManagementInfoText,
                             ),
                           ),
                         ),

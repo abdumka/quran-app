@@ -16,6 +16,7 @@ import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
 import 'services/background_playback_service.dart';
+import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
 import 'services/high_quality_images_service.dart';
 import 'services/page_quality_service.dart';
@@ -269,6 +270,8 @@ class _QuranPagesState extends State<QuranPages>
   late PageController _portraitController;
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
+  final KeepScreenAwakeService _keepScreenAwakeService =
+      KeepScreenAwakeService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
   final HighQualityImagesService _highQualityImagesService =
       HighQualityImagesService.instance;
@@ -452,7 +455,12 @@ class _QuranPagesState extends State<QuranPages>
     _loadLastPage();
     _loadBookmark();
     _loadBookmarkGuidePreference();
+    _keepScreenAwakeService.enabled.addListener(_handleKeepScreenAwakeChanged);
     _setReadingMode(true);
+    _keepScreenAwakeService.load().then((_) {
+      if (!mounted) return;
+      _handleKeepScreenAwakeChanged();
+    });
     _resetHideTimer();
 
     QuranJsonService.loadQuranPages().then((data) {
@@ -553,6 +561,9 @@ class _QuranPagesState extends State<QuranPages>
       _handleAudioPlaybackNotice,
     );
     AudioService.instance.stop();
+    _keepScreenAwakeService.enabled.removeListener(
+      _handleKeepScreenAwakeChanged,
+    );
     _setReadingMode(false);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
     _highQualityImagesService.state.removeListener(
@@ -595,6 +606,10 @@ class _QuranPagesState extends State<QuranPages>
 
   Future<void> _setReadingMode(bool enabled) async {
     await WakelockPlus.toggle(enable: enabled);
+  }
+
+  void _handleKeepScreenAwakeChanged() {
+    _setReadingMode(_keepScreenAwakeService.enabled.value);
   }
 
   bool _isPhoneLandscape(BuildContext context) {
@@ -2058,6 +2073,7 @@ class _QuranPagesState extends State<QuranPages>
       _tabletLayoutModePrefKey,
       _hifzModePrefKey,
       _fullScreenModePrefKey,
+      KeepScreenAwakeService.prefKey,
       'isDarkMode',
       'recitation_guide_dismissed',
       'hideBarGuideDismissed',
@@ -2074,6 +2090,7 @@ class _QuranPagesState extends State<QuranPages>
     }
 
     await ThemeService.setDarkMode(false);
+    await _keepScreenAwakeService.setEnabled(true);
     await _marginImagesService.setEnabled(false);
 
     if (!mounted) return;
