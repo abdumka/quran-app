@@ -1011,7 +1011,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
-                            vertical: 8,
+                            vertical: 5,
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,

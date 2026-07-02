@@ -269,7 +269,7 @@ class CompactSwitchTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFE8DCC8), width: 0.5),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
           child: Row(
             textDirection: TextDirection.rtl,
             children: [
@@ -317,25 +317,36 @@ class DownloadsManagementTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          SettingsTileHeader(title: 'إدارة الملفات المحمّلة', onInfo: onInfo),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.folder_outlined, color: Color(0xFF8B7355), size: 18),
-            label: const Text('فتح إدارة الملفات',
-                style: TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Color(0xFF8B7355)),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 40),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          children: [
+            Expanded(
+              child: SettingsTileHeader(
+                title: 'إدارة الملفات المحمّلة',
+                onInfo: onInfo,
+              ),
             ),
-            onPressed: onOpen,
-          ),
-        ],
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.folder_outlined,
+                  color: Color(0xFF8B7355), size: 16),
+              label: const Text('فتح',
+                  style: TextStyle(color: Color(0xFF8B7355), fontSize: 12.5)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF8B7355)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: onOpen,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -410,7 +421,7 @@ class ReciterTile extends StatelessWidget {
       orElse: () => reciters.first,
     );
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       child: Row(
         textDirection: TextDirection.rtl,
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -431,7 +442,7 @@ class ReciterTile extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFF3EFE6),
                 borderRadius: BorderRadius.circular(12),
@@ -444,6 +455,7 @@ class ReciterTile extends StatelessWidget {
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<Reciter>(
                     isExpanded: true,
+                    isDense: true,
                     value: current,
                     itemHeight: 54,
                     borderRadius: BorderRadius.circular(12),
@@ -497,52 +509,72 @@ class AudioDownloadTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool showInlineAction =
         !state.isComplete && !state.isDownloading && !state.isPaused;
+    // Single-line states (idle / complete) use the same tight metrics as the
+    // other settings rows; the busy states keep room for the progress UI.
+    final bool isBusy = state.isDownloading || state.isPaused;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: isBusy ? 10 : 5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              Expanded(
-                child: SettingsTileHeader(
-                  title: 'تحميل جميع الصوتيات',
-                  onInfo: onInfo,
-                ),
-              ),
-              if (showInlineAction) const SizedBox(width: 8),
-              if (showInlineAction)
-                OutlinedButton.icon(
-                  onPressed: onDownload,
-                  icon: const Icon(
-                    Icons.download_rounded,
-                    color: Color(0xFF8B7355),
-                    size: 16,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 40),
+            child: Row(
+              textDirection: TextDirection.rtl,
+              children: [
+                Expanded(
+                  child: SettingsTileHeader(
+                    title: 'تحميل جميع الصوتيات',
+                    onInfo: onInfo,
                   ),
-                  label: Text(
-                    state.downloadedFiles > 0 ? 'استئناف' : 'تحميل',
-                    style: const TextStyle(
+                ),
+                if (state.isComplete) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.check_circle_rounded,
+                      size: 19, color: Color(0xFF4B7F3A)),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'محمّل بالكامل',
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF4B7F3A),
+                    ),
+                  ),
+                ],
+                if (showInlineAction) const SizedBox(width: 8),
+                if (showInlineAction)
+                  OutlinedButton.icon(
+                    onPressed: onDownload,
+                    icon: const Icon(
+                      Icons.download_rounded,
                       color: Color(0xFF8B7355),
-                      fontSize: 12.5,
+                      size: 16,
+                    ),
+                    label: Text(
+                      state.downloadedFiles > 0 ? 'استئناف' : 'تحميل',
+                      style: const TextStyle(
+                        color: Color(0xFF8B7355),
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF8B7355)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      visualDensity: VisualDensity.compact,
                     ),
                   ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF8B7355)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
-          if (showInlineAction) const SizedBox(height: 2),
           if (state.isPaused && !state.isDownloading) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
@@ -614,20 +646,6 @@ class AudioDownloadTile extends StatelessWidget {
               ],
             ),
           ],
-          if (state.isComplete)
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              textDirection: TextDirection.rtl,
-              children: [
-                Icon(Icons.check_circle_rounded, size: 19, color: Color(0xFF4B7F3A)),
-                SizedBox(width: 6),
-                Text(
-                  'الصوت محمّل بالكامل',
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF4B7F3A)),
-                ),
-              ],
-            ),
         ],
       ),
     );
@@ -993,7 +1011,12 @@ class MarginImagesTile extends StatelessWidget {
         !state.isAvailable && !state.isDownloading && !state.isPaused;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: 12,
+        // Once the pack is available the tile is just a title + switch, so it
+        // uses the same tight padding as the other inline toggle settings.
+        vertical: state.isAvailable ? 5 : 10,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -1006,6 +1029,15 @@ class MarginImagesTile extends StatelessWidget {
                   onInfo: onInfo,
                 ),
               ),
+              if (state.isAvailable) ...[
+                const SizedBox(width: 4),
+                Switch(
+                  activeThumbColor: const Color(0xFF8B7355),
+                  value: state.isEnabled,
+                  onChanged: onToggleEnabled,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
               if (showInlineAction) const SizedBox(width: 8),
               if (showInlineAction)
                 OutlinedButton.icon(
@@ -1134,24 +1166,6 @@ class MarginImagesTile extends StatelessWidget {
               ],
             ),
           ],
-          if (state.isAvailable)
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              title: const Text(
-                'تفعيل عرض الهوامش',
-                textDirection: TextDirection.rtl,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF2C2C2C),
-                ),
-              ),
-              activeThumbColor: const Color(0xFF8B7355),
-              value: state.isEnabled,
-              onChanged: onToggleEnabled,
-            ),
         ],
       ),
     );
