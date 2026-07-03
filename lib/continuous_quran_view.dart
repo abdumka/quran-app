@@ -61,9 +61,14 @@ class ContinuousQuranView extends StatefulWidget {
 
 class ContinuousQuranViewState extends State<ContinuousQuranView> {
   static const bool _debugTransitions = false;
-  // Warm a couple of pages on each side into the image cache so faster scrolls
+  // Warm a few pages on each side into the image cache so faster scrolls
   // (beyond what scrollCacheExtent builds) still find their pages already decoded.
   static const int _precacheRadius = 2;
+  // During auto-scroll the viewport keeps moving forward, so we look further
+  // *ahead* (in the scroll direction) to keep decoded pages queued up before
+  // they reach the screen. Without this, fast auto-scroll can outrun the
+  // decoder and briefly show the blank cream page background.
+  static const int _autoScrollLookahead = 4;
 
 
   late final ScrollController _controller;
@@ -306,6 +311,13 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
       return;
     }
 
+    // Prime the lookahead cache at the current position before motion begins,
+    // so the first pages scrolled into view are already decoded. Reset the
+    // dedupe guard so this warm-up isn't skipped when the center page happens to
+    // match the last precache center.
+    _lastPrecacheCenterPage = -1;
+    _precacheNearbyPages(_pageFromOffset(_controller.offset));
+
     const frameInterval = Duration(milliseconds: 16);
     final double deltaPerTick =
         widget.autoScrollPixelsPerSecond * (frameInterval.inMilliseconds / 1000);
@@ -384,22 +396,33 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
     if (!mounted) return;
     if (centerPage == _lastPrecacheCenterPage) return;
 
+    // While auto-scrolling, precache eagerly and asymmetrically (further ahead
+    // in the scroll direction). The debounced path below is skipped because the
+    // viewport never settles for 150ms during a continuous scroll, which would
+    // otherwise starve precache and leave upcoming pages undecoded (blank).
+    if (widget.autoScrollEnabled) {
+      _precacheDebounceTimer?.cancel();
+      _lastPrecacheCenterPage = centerPage;
+      _precacheRange(centerPage - _precacheRadius, centerPage + _autoScrollLookahead);
+      return;
+    }
+
     _precacheDebounceTimer?.cancel();
     _precacheDebounceTimer = Timer(const Duration(milliseconds: 150), () {
       if (!mounted) return;
       _lastPrecacheCenterPage = centerPage;
-      final ctx = context;
-      for (int i = centerPage - _precacheRadius;
-          i <= centerPage + _precacheRadius;
-          i++) {
-        if (i < 0 || i >= widget.pages.length) continue;
-        if (!mounted) return;
-        precacheImage(
-          widget.pageImageProviderBuilder(i),
-          ctx,
-        );
-      }
+      _precacheRange(centerPage - _precacheRadius, centerPage + _precacheRadius);
     });
+  }
+
+  void _precacheRange(int from, int to) {
+    if (!mounted) return;
+    final ctx = context;
+    for (int i = from; i <= to; i++) {
+      if (i < 0 || i >= widget.pages.length) continue;
+      if (!mounted) return;
+      precacheImage(widget.pageImageProviderBuilder(i), ctx);
+    }
   }
 
   void scrollToPage(int pageIndex, {double yOffsetRatio = 0.0}) {
