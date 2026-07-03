@@ -712,6 +712,19 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   bool get _isMarginImagesEnabled => _marginImagesService.state.value.isEnabled;
+
+  /// True when the reader is serving page images from disk (`FileImage`) rather
+  /// than bundled assets — i.e. margin view, or the level-3 high-fidelity pack.
+  /// Disk-backed images decode noticeably slower, so the continuous view widens
+  /// its auto-scroll look-ahead to keep them decoded before they scroll in.
+  bool get _isServingDiskBackedPages {
+    if (_isMarginImagesEnabled) return true;
+    final hqState = _highQualityImagesService.state.value;
+    return _pageQualityService.level.value >= PageQualityService.highFidelity &&
+        hqState.isEnabled &&
+        hqState.imagesDirectoryPath != null;
+  }
+
   double get _activePageAspectRatio =>
       _isMarginImagesEnabled ? _marginPageAspectRatio : _defaultPageAspectRatio;
 
@@ -2802,6 +2815,7 @@ class _QuranPagesState extends State<QuranPages>
                   filterQuality: _pageQualityService.filterQuality,
                   pageImageProviderBuilder: (pageIndex) =>
                       _imageProviderForPage(pageIndex, pages[pageIndex]),
+                  diskBackedImages: _isServingDiskBackedPages,
                   initialPage: _currentPage,
                   viewportWidth: constraints.maxWidth,
                   pageAspectRatio: _activePageAspectRatio,

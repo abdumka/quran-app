@@ -28,6 +28,7 @@ class ContinuousQuranView extends StatefulWidget {
     this.onTap,
     this.hifzModeEnabled = false,
     this.filterQuality = FilterQuality.low,
+    this.diskBackedImages = false,
   });
 
   final List<String> pages;
@@ -55,6 +56,11 @@ class ContinuousQuranView extends StatefulWidget {
   final VoidCallback? onTap;
   final bool hifzModeEnabled;
 
+  /// When true, page images are read from disk (`FileImage`) instead of bundled
+  /// assets. Disk images decode slower, so the auto-scroll look-ahead is
+  /// widened to avoid blank pages while a page is still decoding.
+  final bool diskBackedImages;
+
   @override
   State<ContinuousQuranView> createState() => ContinuousQuranViewState();
 }
@@ -67,8 +73,13 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   // During auto-scroll the viewport keeps moving forward, so we look further
   // *ahead* (in the scroll direction) to keep decoded pages queued up before
   // they reach the screen. Without this, fast auto-scroll can outrun the
-  // decoder and briefly show the blank cream page background.
+  // decoder and briefly show the blank cream page background. Disk-backed
+  // images (margin view / HQ pack) decode slower, so they get a deeper queue.
   static const int _autoScrollLookahead = 4;
+  static const int _autoScrollLookaheadDisk = 8;
+
+  int get _lookahead =>
+      widget.diskBackedImages ? _autoScrollLookaheadDisk : _autoScrollLookahead;
 
 
   late final ScrollController _controller;
@@ -403,7 +414,7 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
     if (widget.autoScrollEnabled) {
       _precacheDebounceTimer?.cancel();
       _lastPrecacheCenterPage = centerPage;
-      _precacheRange(centerPage - _precacheRadius, centerPage + _autoScrollLookahead);
+      _precacheRange(centerPage - _precacheRadius, centerPage + _lookahead);
       return;
     }
 
