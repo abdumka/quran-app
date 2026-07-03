@@ -100,7 +100,9 @@
       "Bash(python -)",
       "Bash(rm assets/images/splash_screen.png)",
       "Bash(flutter test *)",
-      "PowerShell(flutter analyze lib/search_page.dart)"
+      "PowerShell(flutter analyze lib/search_page.dart)",
+      "PowerShell(flutter analyze lib/widgets/top_overlay_bar.dart lib/widgets/menu/bottom_overlay_menu.dart lib/services/page_quality_service.dart lib/widgets/settings/settings_page.dart lib/quran_pages.dart)",
+      "PowerShell(flutter analyze lib/quran_pages.dart)"
     ]
   }
 }

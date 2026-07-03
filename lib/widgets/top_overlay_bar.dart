@@ -37,6 +37,16 @@ class TopOverlayBar extends StatelessWidget {
     final String surahName = getSurahName(currentPage);
     final int hizbNumber = getHizbNumber(currentPage);
 
+    // In landscape the vertical space is scarce, so the chrome is made
+    // noticeably more compact (smaller paddings, fonts and icons) to free up
+    // screen real estate for the page image.
+    final bool isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final double verticalPadding = isLandscape ? 4 : 12;
+    final double pageFontSize = isLandscape ? 13 : 16;
+    final double hizbFontSize = isLandscape ? 10 : 12;
+    final double surahFontSize = isLandscape ? 15 : 18;
+
     return Material(
       color: Colors.transparent,
       child: Container(
@@ -47,7 +57,7 @@ class TopOverlayBar extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: EdgeInsets.symmetric(vertical: verticalPadding),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -58,9 +68,9 @@ class TopOverlayBar extends StatelessWidget {
                 children: [
                   Text(
                     'صفحة $pageNumber',
-                    style: const TextStyle(
-                      color: Color(0xFFD2B97E),
-                      fontSize: 16,
+                    style: TextStyle(
+                      color: const Color(0xFFD2B97E),
+                      fontSize: pageFontSize,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -68,7 +78,7 @@ class TopOverlayBar extends StatelessWidget {
                     'الحزب $hizbNumber',
                     style: TextStyle(
                       color: const Color(0xFFD2B97E).withValues(alpha: 0.8),
-                      fontSize: 12,
+                      fontSize: hizbFontSize,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -80,9 +90,9 @@ class TopOverlayBar extends StatelessWidget {
                   surahName.contains(' - ') ? surahName : 'سورة $surahName',
                   textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFD2B97E),
-                    fontSize: 18,
+                  style: TextStyle(
+                    color: const Color(0xFFD2B97E),
+                    fontSize: surahFontSize,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Tajawal',
                   ),
@@ -100,11 +110,14 @@ class TopOverlayBar extends StatelessWidget {
                       color: isFullScreenMode
                           ? const Color(0xFFD2B97E)
                           : const Color(0xFFD2B97E).withValues(alpha: 0.5),
-                      size: 24,
+                      size: isLandscape ? 20 : 24,
                     ),
                     onPressed: () => onToggleFullScreenMode(!isFullScreenMode),
-                    padding: const EdgeInsets.all(6),
-                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                    padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                    constraints: BoxConstraints(
+                      minWidth: isLandscape ? 32 : 40,
+                      minHeight: isLandscape ? 32 : 40,
+                    ),
                     tooltip: isFullScreenMode
                         ? 'إيقاف وضع ملء الشاشة'
                         : 'تفعيل وضع ملء الشاشة',
@@ -117,22 +130,28 @@ class TopOverlayBar extends StatelessWidget {
                       color: isHideBarEnabled
                           ? const Color(0xFFD2B97E)
                           : const Color(0xFFD2B97E).withValues(alpha: 0.5),
-                      size: 24,
+                      size: isLandscape ? 20 : 24,
                     ),
                     onPressed: () => onToggleHideBar(!isHideBarEnabled),
-                    padding: const EdgeInsets.all(6),
-                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                    padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                    constraints: BoxConstraints(
+                      minWidth: isLandscape ? 32 : 40,
+                      minHeight: isLandscape ? 32 : 40,
+                    ),
                     tooltip: isHideBarEnabled ? 'إخفاء شريط الإخفاء' : 'إظهار شريط الإخفاء',
                   ),
                   IconButton(
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.settings_outlined,
-                      color: Color(0xFFD2B97E),
-                      size: 26,
+                      color: const Color(0xFFD2B97E),
+                      size: isLandscape ? 22 : 26,
                     ),
                     onPressed: onSettingsPressed,
-                    padding: const EdgeInsets.all(8),
-                    constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                    padding: EdgeInsets.all(isLandscape ? 4 : 8),
+                    constraints: BoxConstraints(
+                      minWidth: isLandscape ? 36 : 44,
+                      minHeight: isLandscape ? 36 : 44,
+                    ),
                   ),
                 ],
               ),

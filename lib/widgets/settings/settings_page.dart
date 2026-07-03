@@ -209,13 +209,10 @@ class _SettingsPageState extends State<SettingsPage> {
       _showBackgroundPlaybackGuide =
           !(prefs.getBool(_backgroundPlaybackGuideDismissedPrefKey) ?? false);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      // Wait for staggered list animations (SlideAnimation) to fully complete
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (mounted) _showNextCoachStep();
-      });
-    });
+    // Note: the first-time auto-tour (formerly triggered here) was removed so
+    // the settings screen no longer pops up a chain of coach marks on open.
+    // Each setting's guidance is now available on demand via its ℹ️ button,
+    // which calls [_presentCoachManually] / [_showInfoNotice].
   }
 
   Future<void> _dismissGuide(String key) async {
@@ -639,23 +636,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _handleHighQualityImagesDownload() async {
-    final shouldContinue = await _confirmDownload(
-      title: 'تنزيل حزمة الجودة الفائقة',
-      body:
-          'سيتم تنزيل حزمة الصور الأنقى بحجم تقريبي ${_highQualityImagesService.state.value.packageSizeLabel}. '
-          'الصور بنفس الأبعاد (720 نقطة) لكن بضغط أقل وجودة أنقى. هل تريد المتابعة؟',
-    );
-    if (!shouldContinue || !mounted) return;
-
-    try {
-      await _highQualityImagesService.downloadAndEnable();
-    } catch (error) {
-      if (!mounted) return;
-      _showSettingsNotice(_describeMarginImagesError(error));
-    }
-  }
-
   String _describeMarginImagesError(Object error) {
     final text = error.toString();
 
@@ -739,9 +719,6 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showInfoNotice(String text) {
     _showSettingsNotice(text);
   }
-
-  String get _pageQualityInfoText =>
-      'جرّب الخيارات على جهازك ثم اختر الأنسب. جميع الصور بعرض 720 نقطة، فالفرق في نعومة العرض وجودة الضغط لا في الأبعاد.';
 
   String get _marginImagesInfoText =>
       _marginImagesService.state.value.isAvailable
@@ -835,28 +812,9 @@ class _SettingsPageState extends State<SettingsPage> {
   /// entries, so no further layout wiring is needed.
   Widget _buildAdvancedSettingsSection() {
     final advancedChildren = <Widget>[
-      Container(
-        key: _pageQualityKey,
-        child: ValueListenableBuilder<int>(
-          valueListenable: _pageQualityService.level,
-          builder: (context, level, _) {
-            return ValueListenableBuilder<HighQualityImagesState>(
-              valueListenable: _highQualityImagesService.state,
-              builder: (context, hqState, _) {
-                return PageQualityTile(
-                  level: level,
-                  hqState: hqState,
-                  onSelectLevel: _pageQualityService.setLevel,
-                  onDownloadHq: _handleHighQualityImagesDownload,
-                  onCancelHqDownload: _highQualityImagesService.cancelDownload,
-                  onPauseHqDownload: _highQualityImagesService.pauseDownload,
-                  onInfo: () => _showInfoNotice(_pageQualityInfoText),
-                );
-              },
-            );
-          },
-        ),
-      ),
+      // The "جودة عرض الصفحات" quality picker was removed: page images now
+      // always render at the highest fidelity ("فائق الجودة"), which is bundled
+      // in the app, so there is nothing left for the user to choose or download.
       ValueListenableBuilder<double>(
         valueListenable: _recitationBarOpacityService.opacity,
         builder: (context, opacity, _) {

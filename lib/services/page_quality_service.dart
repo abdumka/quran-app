@@ -1,7 +1,4 @@
 import 'package:flutter/widgets.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import '../config/image_config.dart';
 
 /// User-selected quality for the rendered Qur'an page images.
 ///
@@ -18,18 +15,17 @@ class PageQualityService {
   PageQualityService._();
   static final PageQualityService instance = PageQualityService._();
 
-  static const String _prefKey = 'pageQualityLevel';
-
   static const int standard = 1;
   static const int enhanced = 2;
   static const int highFidelity = 3;
 
-  /// Default level for a fresh install: high-fidelity when the HQ pack is
-  /// bundled in the app, otherwise the lightest standard mode.
-  static const int _defaultLevel =
-      kBundleHighFidelityImages ? highFidelity : standard;
+  /// The quality picker has been retired: page images are now always rendered
+  /// at the highest fidelity ("فائق الجودة") and the level can no longer be
+  /// changed by the user. The bundled HQ pack makes this free (no download).
+  static const int _defaultLevel = highFidelity;
 
-  /// Currently selected level. Listen to rebuild image widgets when it changes.
+  /// Currently selected level. Fixed at [highFidelity]; kept as a notifier so
+  /// image widgets that listen to it continue to work unchanged.
   final ValueNotifier<int> level = ValueNotifier<int>(_defaultLevel);
 
   bool _loaded = false;
@@ -37,18 +33,12 @@ class PageQualityService {
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getInt(_prefKey) ?? _defaultLevel;
-    level.value = _clamp(stored);
+    // Always high fidelity, regardless of any value stored by older builds.
+    level.value = _defaultLevel;
   }
 
-  Future<void> setLevel(int value) async {
-    final next = _clamp(value);
-    if (level.value == next) return;
-    level.value = next;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_prefKey, next);
-  }
+  /// Retained for API compatibility; the level is now fixed so this is a no-op.
+  Future<void> setLevel(int value) async {}
 
   /// Levels 2 and 3 decode at native size and draw with a high-quality filter;
   /// level 1 keeps the original 720px resize + low filter.
@@ -56,6 +46,4 @@ class PageQualityService {
 
   FilterQuality get filterQuality =>
       level.value == standard ? FilterQuality.low : FilterQuality.high;
-
-  int _clamp(int v) => (v < standard || v > highFidelity) ? standard : v;
 }

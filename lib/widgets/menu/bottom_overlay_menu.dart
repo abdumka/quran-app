@@ -86,7 +86,12 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
   @override
   Widget build(BuildContext context) {
     final double safeBottom = MediaQuery.of(context).padding.bottom;
-    
+    // Landscape has far less vertical room, so the action bar is made shorter
+    // and its items are drawn more compactly to free up the page area.
+    final bool isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final double barHeight = isLandscape ? 52 : 75;
+
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       left: 0,
@@ -101,7 +106,7 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
         child: Material(
           color: Colors.transparent,
         child: Container(
-          height: 75 + (widget.bottomOffset > 0 ? 0 : safeBottom), // Don't add safeBottom if pushed above recitation bar
+          height: barHeight + (widget.bottomOffset > 0 ? 0 : safeBottom), // Don't add safeBottom if pushed above recitation bar
         decoration: const BoxDecoration(
           color: Color(0xFF1C1C1E),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -118,30 +123,35 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
                       icon: Icons.search_rounded,
                       label: 'البحث',
                       isSelected: _selectedItem == 'البحث',
+                      compact: isLandscape,
                       onTap: () => _handleTap('البحث'),
                     ),
                     _NavItem(
                       imagePath: 'assets/images/tafsir_icon.png',
                       label: 'التفسير',
                       isSelected: _selectedItem == 'التفسير',
+                      compact: isLandscape,
                       onTap: () => _handleTap('التفسير'),
                     ),
                     _NavItem(
                       icon: Icons.play_circle_rounded,
                       label: 'التلاوة',
                       isSelected: _selectedItem == 'التلاوة',
+                      compact: isLandscape,
                       onTap: () => _handleTap('التلاوة'),
                     ),
                     _NavItem(
                       icon: Icons.bookmark_rounded,
                       label: 'العلامات',
                       isSelected: _selectedItem == 'العلامات',
+                      compact: isLandscape,
                       onTap: () => _handleTap('العلامات'),
                     ),
                     _NavItem(
                       icon: Icons.menu_book_rounded,
                       label: 'الفهرس',
                       isSelected: _selectedItem == 'الفهرس',
+                      compact: isLandscape,
                       onTap: () => _handleTap('الفهرس'),
                     ),
                   ],
@@ -163,6 +173,7 @@ class _NavItem extends StatelessWidget {
   final String? imagePath;
   final String label;
   final bool isSelected;
+  final bool compact;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -171,17 +182,21 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.isSelected = false,
+    this.compact = false,
   }) : assert(icon != null || imagePath != null);
 
   @override
   Widget build(BuildContext context) {
     final color = isSelected ? const Color(0xFFD2B97E) : const Color(0xFF888888);
-    
+    final double iconSize = compact ? 22 : 30;
+    final double gap = compact ? 2 : 6;
+    final double fontSize = compact ? 10 : 13;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: 4, vertical: compact ? 2 : 8),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
@@ -189,22 +204,22 @@ class _NavItem extends StatelessWidget {
             if (imagePath != null)
               Image.asset(
                 imagePath!,
-                width: 30,
-                height: 30,
+                width: iconSize,
+                height: iconSize,
                 color: color,
               )
             else
               Icon(
                 icon,
                 color: color,
-                size: 30,
+                size: iconSize,
               ),
-            const SizedBox(height: 6),
+            SizedBox(height: gap),
             Text(
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 13,
+                fontSize: fontSize,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.3,
               ),

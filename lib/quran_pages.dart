@@ -4876,6 +4876,23 @@ class _QuranPagesState extends State<QuranPages>
         final pageRepeatLabel = audio.pageRepeatLabel;
 
         final double systemBottom = MediaQuery.of(context).padding.bottom;
+        // Landscape has limited vertical room, so the recitation bar uses a
+        // tighter top/bottom padding to give the page more space.
+        final bool isLandscape =
+            MediaQuery.of(context).orientation == Orientation.landscape;
+        final double barTopPadding = isLandscape ? 6 : 16;
+        final double barBottomPadding = isLandscape ? 4 : 12;
+        // Control sizes also shrink in landscape so the whole bar is shorter.
+        final double repeatIconBoxW = isLandscape ? 34 : 42;
+        final double repeatIconBoxH = isLandscape ? 26 : 34;
+        final double repeatIconW = isLandscape ? 27 : 34;
+        final double repeatIconH = isLandscape ? 24 : 30;
+        final double skipIconSize = isLandscape ? 28 : 36;
+        final double playCircleSize = isLandscape ? 46 : 60;
+        final double playIconSize = isLandscape ? 30 : 40;
+        final double ayahFontSize = isLandscape ? 13 : 15;
+        final double closeIconSize = isLandscape ? 22 : 28;
+        final double helpIconSize = isLandscape ? 19 : 24;
         // The bar floats over the page: a transparent backdrop keeps the
         // page text readable through it while the controls stay legible. The
         // GestureDetector absorbs taps so touching the bar doesn't toggle the
@@ -4912,8 +4929,8 @@ class _QuranPagesState extends State<QuranPages>
                   padding: EdgeInsets.only(
                     left: 6,
                     right: 6,
-                    top: 16,
-                    bottom: systemBottom > 0 ? systemBottom : 12,
+                    top: barTopPadding,
+                    bottom: systemBottom > 0 ? systemBottom : barBottomPadding,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -4930,8 +4947,8 @@ class _QuranPagesState extends State<QuranPages>
                           audio.cyclePageRepeatMode();
                         },
                         icon: SizedBox(
-                          width: 42,
-                          height: 34,
+                          width: repeatIconBoxW,
+                          height: repeatIconBoxH,
                           child: Stack(
                             clipBehavior: Clip.none,
                             alignment: Alignment.center,
@@ -4945,8 +4962,8 @@ class _QuranPagesState extends State<QuranPages>
                                 scale: 1.3,
                                 child: Image.asset(
                                   'assets/images/icon_repeat_page.png',
-                                  width: 34,
-                                  height: 30,
+                                  width: repeatIconW,
+                                  height: repeatIconH,
                                   fit: BoxFit.contain,
                                   color: iconColor,
                                   colorBlendMode: BlendMode.modulate,
@@ -4996,7 +5013,7 @@ class _QuranPagesState extends State<QuranPages>
                         icon: Icon(
                           Icons.skip_previous_rounded,
                           color: iconColor,
-                          size: 36,
+                          size: skipIconSize,
                         ),
                         onPressed: () {
                           _resetHideTimer();
@@ -5031,7 +5048,7 @@ class _QuranPagesState extends State<QuranPages>
                                 : 'آية 1',
                             style: TextStyle(
                               color: iconColor,
-                              fontSize: 15,
+                              fontSize: ayahFontSize,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -5054,8 +5071,8 @@ class _QuranPagesState extends State<QuranPages>
                           }
                         },
                         child: Container(
-                          width: 60,
-                          height: 60,
+                          width: playCircleSize,
+                          height: playCircleSize,
                           decoration: BoxDecoration(
                             color: accentColor.withValues(alpha: 0.25),
                             shape: BoxShape.circle,
@@ -5068,7 +5085,7 @@ class _QuranPagesState extends State<QuranPages>
                                 ? Icons.pause_rounded
                                 : Icons.play_arrow_rounded,
                             color: iconColor,
-                            size: 40,
+                            size: playIconSize,
                           ),
                         ),
                       ),
@@ -5083,7 +5100,7 @@ class _QuranPagesState extends State<QuranPages>
                         icon: Icon(
                           Icons.skip_next_rounded,
                           color: iconColor,
-                          size: 36,
+                          size: skipIconSize,
                         ),
                         onPressed: () {
                           _resetHideTimer();
@@ -5104,8 +5121,8 @@ class _QuranPagesState extends State<QuranPages>
                           audio.cycleAyahRepeatMode();
                         },
                         icon: SizedBox(
-                          width: 42,
-                          height: 34,
+                          width: repeatIconBoxW,
+                          height: repeatIconBoxH,
                           child: Stack(
                             clipBehavior: Clip.none,
                             alignment: Alignment.center,
@@ -5114,8 +5131,8 @@ class _QuranPagesState extends State<QuranPages>
                               // signals that ayah-repeat is active and how many times.
                               Image.asset(
                                 'assets/images/icon_repeat_ayah.png',
-                                width: 34,
-                                height: 30,
+                                width: repeatIconW,
+                                height: repeatIconH,
                                 fit: BoxFit.contain,
                                 color: iconColor,
                                 colorBlendMode: BlendMode.modulate,
@@ -5164,7 +5181,7 @@ class _QuranPagesState extends State<QuranPages>
                         icon: Icon(
                           Icons.close_rounded,
                           color: iconColor,
-                          size: 28,
+                          size: closeIconSize,
                         ),
                         onPressed: () {
                           _resetHideTimer();
@@ -5183,7 +5200,7 @@ class _QuranPagesState extends State<QuranPages>
                         icon: Icon(
                           Icons.help_outline_rounded,
                           color: iconColor,
-                          size: 24,
+                          size: helpIconSize,
                         ),
                         onPressed: () {
                           _resetHideTimer();
