@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../services/app_update_service.dart';
+
 class AboutContent extends StatelessWidget {
   const AboutContent({super.key});
 
@@ -57,7 +59,9 @@ class AboutContent extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'الإصدار: 2.0.3',
+                AppUpdateService.instance.currentVersion.isEmpty
+                    ? 'الإصدار'
+                    : 'الإصدار: ${AppUpdateService.instance.currentVersion}',
                 textAlign: TextAlign.center,
                 textDirection: TextDirection.rtl,
                 style: TextStyle(

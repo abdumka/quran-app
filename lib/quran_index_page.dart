@@ -8,13 +8,8 @@ enum QuranIndexTab {
   surahs,
   juzs,
   hizbs,
+  pages,
   sajdas,
-  thumns,
-}
-
-enum ThumnLayout {
-  columns,
-  rows,
 }
 
 class QuranIndexPage extends StatefulWidget {
@@ -56,7 +51,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
   final TextEditingController _searchController = TextEditingController();
   late QuranIndexTab _selectedTab;
-  ThumnLayout _thumnLayout = ThumnLayout.rows;
+  final Set<int> _expandedHizbs = <int>{};
+  bool _expandedHizbsInitialized = false;
+  final TextEditingController _hizbSearchController = TextEditingController();
 
   @override
   void initState() {
@@ -67,6 +64,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   @override
   void dispose() {
     _searchController.dispose();
+    _hizbSearchController.dispose();
     super.dispose();
   }
 
@@ -118,19 +116,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     for (int i = 0; i < 30; i++) {
       final start = hizbStartPages[i * 2];
       final end = i < 29 ? hizbStartPages[(i * 2) + 2] - 1 : 602;
-      if (realPage >= start && realPage <= end) {
-        return i + 1;
-      }
-    }
-    return 1;
-  }
-
-  int _currentHizbNumber() {
-    final realPage = widget.currentPage + 1;
-    for (int i = 0; i < hizbStartPages.length; i++) {
-      final start = hizbStartPages[i];
-      final end =
-          i < hizbStartPages.length - 1 ? hizbStartPages[i + 1] - 1 : 602;
       if (realPage >= start && realPage <= end) {
         return i + 1;
       }
@@ -307,7 +292,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: EdgeInsets.symmetric(
-            horizontal: isLandscape ? 10 : 11,
+            horizontal: isLandscape ? 9 : 9,
             vertical: isLandscape ? 8 : 9,
           ),
           decoration: BoxDecoration(
@@ -331,7 +316,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             textDirection: TextDirection.rtl,
             maxLines: 1,
             style: TextStyle(
-              fontSize: isLandscape ? 12 : 12.5,
+              fontSize: isLandscape ? 11.5 : 12,
               fontWeight: FontWeight.w800,
               color: isSelected ? Colors.white : const Color(0xFF4C3A22),
             ),
@@ -343,8 +328,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     final chips = [
       chip(QuranIndexTab.surahs, 'السور'),
       chip(QuranIndexTab.juzs, 'الأجزاء'),
-      chip(QuranIndexTab.hizbs, 'الأحزاب'),
-      chip(QuranIndexTab.thumns, 'الثمن والصفحة'),
+      chip(QuranIndexTab.hizbs, 'الأحزاب والأثمان'),
+      chip(QuranIndexTab.pages, 'الصفحات'),
       chip(QuranIndexTab.sajdas, 'السجدات'),
     ];
 
@@ -370,7 +355,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     for (int i = 0; i < chips.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 6),
+                      if (i > 0) const SizedBox(width: 4),
                       chips[i],
                     ],
                   ],
@@ -667,17 +652,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
-  Widget _buildHizbGrid() {
-    final currentHizb = _currentHizbNumber();
-
-    return _buildFullScreenLabelGrid(
-      itemCount: hizbStartPages.length,
-      titleBuilder: (index) => 'الحزب ${index + 1}',
-      isCurrentBuilder: (index) => (index + 1) == currentHizb,
-      pageBuilder: (index) => hizbStartPages[index],
-    );
-  }
-
   int _currentThumnIndex() {
     final realPage = widget.currentPage + 1;
     int result = 0;
@@ -704,161 +678,67 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     return name;
   }
 
-  Widget _buildThumnLayoutToggle() {
+  // "الصفحات" view: a dense grid of all page numbers, styled like the surah
+  // grid, so the user can jump straight to any page.
+  Widget _buildPagesGrid() {
+    const totalPages = 604;
+    final currentRealPage = widget.currentPage + 1;
+    final isTablet = ResponsiveHelper.isTablet(context);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
 
-    Widget segment(ThumnLayout layout, IconData icon, String label) {
-      final isSelected = _thumnLayout == layout;
-      return Expanded(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () {
-            setState(() {
-              _thumnLayout = layout;
-            });
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            padding: EdgeInsets.symmetric(vertical: isLandscape ? 7 : 9),
-            decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF8D6E3F) : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: isSelected ? Colors.white : const Color(0xFF6A5330),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: isSelected ? Colors.white : const Color(0xFF4C3A22),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(12, 0, 12, isLandscape ? 6 : 8),
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: const Color(0xFF8D6E3F).withValues(alpha: 0.16),
-          ),
-        ),
-        child: Directionality(
-          textDirection: TextDirection.rtl,
-          child: Row(
-            children: [
-              segment(ThumnLayout.rows, Icons.view_agenda_rounded, 'قائمة'),
-              const SizedBox(width: 4),
-              segment(ThumnLayout.columns, Icons.view_column_rounded, 'أعمدة'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildThumnBody() {
-    return Column(
-      children: [
-        _buildThumnLayoutToggle(),
-        Expanded(
-          child: _thumnLayout == ThumnLayout.rows
-              ? _buildThumnRowsList()
-              : _buildThumnColumns(),
-        ),
-      ],
-    );
-  }
-
-  // Design B: one aligned row per thumn (number | text | hizb | page).
-  Widget _buildThumnRowsList() {
-    final currentIndex = _currentThumnIndex();
+    final crossAxisCount = isTablet
+        ? (isLandscape ? 10 : 7)
+        : (isLandscape ? 9 : 5);
 
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: ListView.builder(
+      child: GridView.builder(
         padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
-        itemCount: thumnEntries.length,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: 1.15,
+        ),
+        itemCount: totalPages,
         itemBuilder: (context, index) {
-          final entry = thumnEntries[index];
-          final isCurrent = index == currentIndex;
+          final page = index + 1;
+          final isCurrent = page == currentRealPage;
 
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => _goToPageAndClose(entry.page),
-                child: Ink(
-                  decoration: BoxDecoration(
-                    color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isCurrent
-                          ? const Color(0xFF8D6E3F)
-                          : const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => _goToPageAndClose(page),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isCurrent
+                        ? const Color(0xFF8D6E3F)
+                        : const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                  ],
+                ),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '$page',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF2F2418),
                       ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      _ThumnNumberBadge(number: entry.number),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          entry.text,
-                          textDirection: TextDirection.rtl,
-                          textAlign: TextAlign.right,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF2F2418),
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      _ThumnMetaChip(
-                        label: 'الحزب',
-                        value: '${entry.hizb}',
-                      ),
-                      const SizedBox(width: 6),
-                      _ThumnMetaChip(
-                        label: 'صفحة',
-                        value: '${entry.page}',
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -869,161 +749,518 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
-  // Design A: four independently-scrollable columns.
-  Widget _buildThumnColumns() {
-    final currentIndex = _currentThumnIndex();
+  // Converts Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digits to
+  // ASCII 0-9 so numeric searches work regardless of keyboard.
+  String _toAsciiDigits(String input) {
+    final buffer = StringBuffer();
+    for (final rune in input.runes) {
+      if (rune >= 0x0660 && rune <= 0x0669) {
+        buffer.writeCharCode(rune - 0x0660 + 0x30);
+      } else if (rune >= 0x06F0 && rune <= 0x06F9) {
+        buffer.writeCharCode(rune - 0x06F0 + 0x30);
+      } else {
+        buffer.writeCharCode(rune);
+      }
+    }
+    return buffer.toString();
+  }
 
-    Widget column({
-      required String header,
-      required int flex,
-      required Widget Function(int index, ThumnEntry entry, bool isCurrent)
-          cellBuilder,
-    }) {
-      return Expanded(
-        flex: flex,
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8D6E3F).withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                header,
-                textAlign: TextAlign.center,
-                textDirection: TextDirection.rtl,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF4C3A22),
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 14),
-                itemCount: thumnEntries.length,
-                itemBuilder: (context, index) {
-                  final entry = thumnEntries[index];
-                  final isCurrent = index == currentIndex;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: cellBuilder(index, entry, isCurrent),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      );
+  // Returns the hizb numbers (1-60) that match the current search query,
+  // in order. Empty query = all 60. A query auto-expands matching hizbs.
+  List<int> _filteredHizbNumbers(String query) {
+    if (query.isEmpty) {
+      return List<int>.generate(60, (i) => i + 1);
     }
 
-    Widget cell({
-      required Widget child,
-      required bool isCurrent,
-      VoidCallback? onTap,
-    }) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: Container(
-            height: 64,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isCurrent
-                    ? const Color(0xFF8D6E3F)
-                    : const Color(0xFF8D6E3F).withValues(alpha: 0.10),
-              ),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: child,
-          ),
-        ),
-      );
+    // Extract a bare number if present (matches "حزب 14", "14", "الحزب ١٤").
+    // Convert Arabic-Indic digits (٠-٩) to ASCII first.
+    final digits = _toAsciiDigits(query).replaceAll(RegExp(r'[^0-9]'), '');
+    final queryNumber = digits.isNotEmpty ? int.tryParse(digits) : null;
+
+    // Drop the "حزب"/"الحزب" keyword and any digits from the text portion of
+    // the query so "حزب 14" or a bare "حزب" doesn't wipe out results.
+    String textQuery = _normalizeArabic(query);
+    textQuery = textQuery
+        .replaceAll(RegExp(r'[0-9٠-٩۰-۹]'), '')
+        .replaceAll('حزب', '')
+        .trim();
+    final normalizedQuery = textQuery;
+    final compactQuery = normalizedQuery.replaceAll(' ', '');
+
+    // "حزب" or "الحزب" alone (no number, no other text) => show all.
+    if (queryNumber == null && normalizedQuery.isEmpty) {
+      return List<int>.generate(60, (i) => i + 1);
+    }
+
+    final result = <int>[];
+    for (int hizb = 1; hizb <= 60; hizb++) {
+      final title = hizb - 1 < hizbTitles.length
+          ? _normalizeArabic(hizbTitles[hizb - 1])
+          : '';
+      final athman = thumnEntries.where((e) => e.hizb == hizb);
+
+      final numberMatch = queryNumber != null && queryNumber == hizb;
+      final titleMatch = normalizedQuery.isNotEmpty &&
+          (title.contains(normalizedQuery) ||
+              title.replaceAll(' ', '').contains(compactQuery));
+      final thumnMatch = normalizedQuery.isNotEmpty &&
+          athman.any((e) {
+            final t = _normalizeArabic(e.text);
+            return t.contains(normalizedQuery) ||
+                t.replaceAll(' ', '').contains(compactQuery);
+          });
+
+      if (numberMatch || titleMatch || thumnMatch) {
+        result.add(hizb);
+      }
+    }
+    return result;
+  }
+
+  // "الأحزاب والأثمان" view: the 480 athman grouped into 60 collapsible
+  // hizb sections. A search bar filters by hizb number/name or thumn text;
+  // the expand/collapse-all button sits inline to the left of it.
+  Widget _buildThumnsByHizb() {
+    final currentIndex = _currentThumnIndex();
+    final currentHizb = thumnEntries[currentIndex].hizb;
+
+    if (!_expandedHizbsInitialized) {
+      _expandedHizbsInitialized = true;
+      _expandedHizbs.add(currentHizb);
+    }
+
+    final query = _hizbSearchController.text.trim();
+    final hasQuery = query.isNotEmpty;
+    final visibleHizbs = _filteredHizbNumbers(query);
+    // Text portion only (digits and the "حزب" keyword removed) so highlighting
+    // matches the same rule the filter uses.
+    final textQuery = _normalizeArabic(query)
+        .replaceAll(RegExp(r'[0-9٠-٩۰-۹]'), '')
+        .replaceAll('حزب', '')
+        .trim();
+    final compactQuery = textQuery.replaceAll(' ', '');
+    final allExpanded = _expandedHizbs.length >= 60;
+
+    bool thumnMatchesQuery(ThumnEntry e) {
+      if (!hasQuery || textQuery.isEmpty) return false;
+      final t = _normalizeArabic(e.text);
+      return t.contains(textQuery) ||
+          t.replaceAll(' ', '').contains(compactQuery);
     }
 
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            column(
-              header: 'الثمن',
-              flex: 74,
-              cellBuilder: (index, entry, isCurrent) => cell(
-                isCurrent: isCurrent,
-                onTap: () => _goToPageAndClose(entry.page),
-                child: Row(
-                  children: [
-                    _ThumnNumberBadge(number: entry.number),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            entry.text,
-                            textDirection: TextDirection.rtl,
-                            textAlign: TextAlign.right,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF2F2418),
-                              height: 1.25,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'الحزب ${entry.hizb} • ${_surahNameForPage(entry.page)}',
-                            textDirection: TextDirection.rtl,
-                            textAlign: TextAlign.right,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF8A7757),
-                              height: 1.1,
-                            ),
-                          ),
-                        ],
+      child: Column(
+        children: [
+          _buildHizbSearchHeader(allExpanded: allExpanded),
+          Expanded(
+            child: visibleHizbs.isEmpty
+                ? const Center(
+                    child: Text(
+                      'لا توجد نتيجة',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF6A5A45),
                       ),
                     ),
-                  ],
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
+                    itemCount: visibleHizbs.length,
+                    itemBuilder: (context, index) {
+                      final hizbNumber = visibleHizbs[index];
+                      // When searching, force the matching hizbs open.
+                      final isExpanded = hasQuery ||
+                          _expandedHizbs.contains(hizbNumber);
+                      return _buildHizbCard(
+                        hizbNumber: hizbNumber,
+                        isExpanded: isExpanded,
+                        isCurrentHizb: hizbNumber == currentHizb,
+                        currentIndex: currentIndex,
+                        toggleEnabled: !hasQuery,
+                        highlight: thumnMatchesQuery,
+                        // When the search matches thumn text, show only the
+                        // matching thumns within each hizb.
+                        onlyMatching: hasQuery && textQuery.isNotEmpty,
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHizbSearchHeader({required bool allExpanded}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+      child: Row(
+        children: [
+          _buildExpandAllButton(allExpanded: allExpanded),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _hizbSearchController,
+              onChanged: (_) => setState(() {}),
+              textAlign: TextAlign.right,
+              textDirection: TextDirection.rtl,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'ابحث: حزب ١٤ أو اسم الحزب أو الثمن',
+                hintTextDirection: TextDirection.rtl,
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _hizbSearchController.text.isNotEmpty
+                    ? IconButton(
+                        onPressed: () {
+                          _hizbSearchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.96),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
                 ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            column(
-              header: 'الصفحة',
-              flex: 16,
-              cellBuilder: (index, entry, isCurrent) => cell(
-                isCurrent: isCurrent,
-                onTap: () => _goToPageAndClose(entry.page),
-                child: Text(
-                  '${entry.page}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF6A5330),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF8D6E3F),
+                    width: 1.2,
                   ),
                 ),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpandAllButton({required bool allExpanded}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          setState(() {
+            if (allExpanded) {
+              _expandedHizbs.clear();
+            } else {
+              _expandedHizbs
+                ..clear()
+                ..addAll(List.generate(60, (i) => i + 1));
+            }
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFF8D6E3F).withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                allExpanded
+                    ? Icons.unfold_less_rounded
+                    : Icons.unfold_more_rounded,
+                size: 16,
+                color: const Color(0xFF6A5330),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                allExpanded ? 'طي الكل' : 'توسيع الكل',
+                textDirection: TextDirection.rtl,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF4C3A22),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHizbCard({
+    required int hizbNumber,
+    required bool isExpanded,
+    required bool isCurrentHizb,
+    required int currentIndex,
+    required bool toggleEnabled,
+    required bool Function(ThumnEntry) highlight,
+    bool onlyMatching = false,
+  }) {
+    final hizbTitle = hizbNumber - 1 < hizbTitles.length
+        ? hizbTitles[hizbNumber - 1]
+        : '';
+    final allAthman =
+        thumnEntries.where((e) => e.hizb == hizbNumber).toList();
+    final hasMatch = allAthman.any(highlight);
+    // Each thumn keeps its real position within the hizb (1-8) even when we
+    // only render the matching ones. If this hizb matched by title/number
+    // (no thumn text match), fall back to showing all its thumns.
+    final filterThisHizb = onlyMatching && hasMatch;
+    final athman = <MapEntry<int, ThumnEntry>>[
+      for (int i = 0; i < allAthman.length; i++)
+        if (!filterThisHizb || highlight(allAthman[i]))
+          MapEntry(i + 1, allAthman[i]),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isCurrentHizb && !isExpanded
+              ? const Color(0xFFE7D7AF)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isCurrentHizb
+                ? const Color(0xFF8D6E3F)
+                : const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
           ],
+        ),
+        child: Column(
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: toggleEnabled
+                    ? () {
+                        setState(() {
+                          if (_expandedHizbs.contains(hizbNumber)) {
+                            _expandedHizbs.remove(hizbNumber);
+                          } else {
+                            _expandedHizbs.add(hizbNumber);
+                          }
+                        });
+                      }
+                    : null,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                            colors: [
+                              Color(0xFFA8844A),
+                              Color(0xFF8D6E3F),
+                            ],
+                          ),
+                          border: Border.all(
+                            color: const Color(0xFFE7D7B5),
+                            width: 1.6,
+                          ),
+                        ),
+                        child: Text(
+                          '$hizbNumber',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'الحزب $hizbNumber',
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF2F2418),
+                              ),
+                            ),
+                            if (hizbTitle.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '﴿ $hizbTitle ﴾',
+                                textDirection: TextDirection.rtl,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF8A7757),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: isExpanded ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        child: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: Color(0xFF8D6E3F),
+                          size: 26,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 180),
+              crossFadeState: isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild: const SizedBox(width: double.infinity),
+              secondChild: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: Column(
+                  children: [
+                    for (final e in athman)
+                      _buildThumnRow(
+                        e.value,
+                        e.key,
+                        thumnEntries.indexOf(e.value) == currentIndex,
+                        matched: highlight(e.value),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThumnRow(
+    ThumnEntry entry,
+    int ordinal,
+    bool isCurrent, {
+    bool matched = false,
+  }) {
+    final Color background = isCurrent
+        ? const Color(0xFFE7D7AF)
+        : matched
+            ? const Color(0xFFFBF3DC)
+            : const Color(0xFFF6F1E5);
+    final Color borderColor = isCurrent || matched
+        ? const Color(0xFF8D6E3F)
+        : const Color(0xFF8D6E3F).withValues(alpha: 0.08);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _goToPageAndClose(entry.page),
+          child: Container(
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+                  ),
+                  child: Text(
+                    '$ordinal',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF6A5330),
+                      height: 1,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.text,
+                        textDirection: TextDirection.rtl,
+                        textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF2F2418),
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _surahNameForPage(entry.page),
+                        textDirection: TextDirection.rtl,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF8A7757),
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1058,11 +1295,11 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       case QuranIndexTab.juzs:
         return _buildJuzGrid();
       case QuranIndexTab.hizbs:
-        return _buildHizbGrid();
+        return _buildThumnsByHizb();
+      case QuranIndexTab.pages:
+        return _buildPagesGrid();
       case QuranIndexTab.sajdas:
         return _buildSajdaGrid();
-      case QuranIndexTab.thumns:
-        return _buildThumnBody();
     }
   }
 
@@ -1087,82 +1324,6 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             Expanded(child: _buildBody()),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ThumnNumberBadge extends StatelessWidget {
-  final int number;
-
-  const _ThumnNumberBadge({required this.number});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [Color(0xFFA8844A), Color(0xFF8D6E3F)],
-        ),
-        border: Border.all(color: const Color(0xFFE7D7B5), width: 1.6),
-      ),
-      child: Text(
-        '$number',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w900,
-          fontSize: 15,
-          height: 1,
-        ),
-      ),
-    );
-  }
-}
-
-class _ThumnMetaChip extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _ThumnMetaChip({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: const Color(0xFF8D6E3F).withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            textDirection: TextDirection.rtl,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF8A7757),
-              height: 1,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF6A5330),
-              height: 1,
-            ),
-          ),
-        ],
       ),
     );
   }

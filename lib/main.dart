@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'services/app_update_service.dart';
 import 'services/background_playback_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/debug_log_service.dart';
@@ -70,6 +71,7 @@ Future<void> main() async {
   await Future.wait([
     ThemeService.loadTheme(),
     ReciterService.instance.load(),
+    AppUpdateService.instance.load(),
     BackgroundPlaybackService.instance.load(),
     PageZoomService.instance.load(),
     RecitationBarOpacityService.instance.load(),

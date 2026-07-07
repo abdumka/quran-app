@@ -23,6 +23,8 @@ import 'services/high_quality_images_service.dart';
 import 'services/page_quality_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
 
+import 'services/app_update_service.dart';
+import 'services/update_notification_service.dart';
 import 'services/theme_service.dart';
 import 'services/tafsir_service.dart';
 import 'services/audio_service.dart';
@@ -36,6 +38,7 @@ import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
+import 'widgets/update_available_dialog.dart';
 import 'search_page.dart';
 
 class QuranPages extends StatefulWidget {
@@ -464,6 +467,7 @@ class _QuranPagesState extends State<QuranPages>
     _loadLastPage();
     _loadBookmark();
     _loadBookmarkGuidePreference();
+    _checkForUpdate();
     _keepScreenAwakeService.enabled.addListener(_handleKeepScreenAwakeChanged);
     _setReadingMode(true);
     _keepScreenAwakeService.load().then((_) {
@@ -2388,6 +2392,40 @@ class _QuranPagesState extends State<QuranPages>
         ),
       ),
     );
+  }
+
+  /// Startup update check. Runs off the critical launch path (fire-and-forget),
+  /// stays silent when up to date / offline, and surfaces a given version only
+  /// once unless it's marked mandatory. Honors the user's in-app vs.
+  /// notification delivery preference (default: in-app only).
+  Future<void> _checkForUpdate() async {
+    try {
+      final info = await AppUpdateService.instance.fetchIfUpdateAvailable();
+      if (info == null || !mounted) return;
+      if (!await AppUpdateService.instance.shouldSurface(info)) return;
+      if (!mounted) return;
+
+      // Let the splash→reader transition finish so the dialog lands on a
+      // settled screen instead of fighting the animation.
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+
+      await AppUpdateService.instance.markSurfaced(info);
+
+      if (AppUpdateService.instance.notifyMode.value ==
+          UpdateNotifyMode.notification) {
+        await UpdateNotificationService.instance.showUpdateNotification(
+          title: 'يوجد تحديث جديد',
+          body: 'الإصدار ${info.latestVersion} متوفر الآن. اضغط للتحديث.',
+          storeUrl: info.storeUrl,
+        );
+      }
+
+      if (!mounted) return;
+      await UpdateAvailableDialog.show(context, info);
+    } catch (_) {
+      // An update check must never disrupt the app; swallow any failure.
+    }
   }
 
   void _openSettings() {

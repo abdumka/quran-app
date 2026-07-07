@@ -125,7 +125,18 @@
       "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 970 2350)",
       "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 970 2280)",
       "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 366 350)",
-      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell monkey -p com.mahfodqr.qalon_mushaf 1)"
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell monkey -p com.mahfodqr.qalon_mushaf 1)",
+      "Bash(grep -iv \"hizb\\\\|//\\\\|602\")",
+      "Read(//c/Users/keilani/AppData/Local/Temp/3/claude/d--quran-app-quran-app-main/0bb68d7d-7f76-4f80-96a2-4ccb88928719/scratchpad/**)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell 'sleep 6')",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell 'sleep 4')",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 965 2300)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 972 2345)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 exec-out uiautomator dump /dev/tty)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell 'sleep 8')",
+      "Bash(flutter pub *)",
+      "Bash(grep -iA6 \"checkDebugAarMetadata\\\\|What went wrong\")",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 960 2340)"
     ],
     "additionalDirectories": [
       "d:\\quran app\\quran-app-main\\lib"

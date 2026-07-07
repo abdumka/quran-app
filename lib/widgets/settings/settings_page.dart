@@ -9,6 +9,9 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/reciter.dart';
+import '../../services/app_update_service.dart';
+import '../../services/update_notification_service.dart';
+import '../update_available_dialog.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
 import '../../services/page_zoom_service.dart';
@@ -113,6 +116,8 @@ class _SettingsPageState extends State<SettingsPage> {
   final PageQualityService _pageQualityService = PageQualityService.instance;
   final RecitationBarOpacityService _recitationBarOpacityService =
       RecitationBarOpacityService.instance;
+  final AppUpdateService _appUpdateService = AppUpdateService.instance;
+  bool _isCheckingForUpdate = false;
 
   final GlobalKey _settingsOverlayKey = GlobalKey();
   final GlobalKey _browseModeCardKey = GlobalKey();
@@ -737,6 +742,53 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String get _reciterInfoText =>
       'اختر التلاوة. عند التبديل يتوقف التشغيل الحالي، ولكل قارئ ملفاته المحمّلة الخاصة.';
+
+  String get _updateNotifyInfoText =>
+      'عند تفعيله ستصلك رسالة التحديث كإشعار من النظام أيضًا. عند إيقافه تظهر الرسالة داخل التطبيق فقط عند فتحه.';
+
+  /// Manual "check for updates" from Settings. Unlike the startup check, this
+  /// always tells the user the result — including "you're up to date".
+  Future<void> _handleCheckForUpdate() async {
+    if (_isCheckingForUpdate) return;
+    setState(() => _isCheckingForUpdate = true);
+    try {
+      final info = await _appUpdateService.fetchIfUpdateAvailable();
+      if (!mounted) return;
+      if (info == null) {
+        _showSettingsNotice('أنت تستخدم أحدث إصدار من التطبيق.');
+        return;
+      }
+      await _appUpdateService.markSurfaced(info);
+      if (!mounted) return;
+      await UpdateAvailableDialog.show(context, info);
+    } catch (_) {
+      if (mounted) {
+        _showSettingsNotice('تعذر التحقق من التحديثات. تحقق من اتصالك بالإنترنت.');
+      }
+    } finally {
+      if (mounted) setState(() => _isCheckingForUpdate = false);
+    }
+  }
+
+  Future<void> _handleToggleUpdateNotifications(bool useNotifications) async {
+    final mode = useNotifications
+        ? UpdateNotifyMode.notification
+        : UpdateNotifyMode.inApp;
+    // Ask for the OS notification permission the moment the user opts in, so a
+    // later update actually reaches them.
+    if (useNotifications) {
+      final granted =
+          await UpdateNotificationService.instance.requestPermission();
+      if (!mounted) return;
+      if (!granted) {
+        _showSettingsNotice(
+          'لم يتم منح إذن الإشعارات. فعّله من إعدادات النظام لاستقبال إشعار التحديث.',
+        );
+        // Still persist the choice; the message will appear in-app regardless.
+      }
+    }
+    await _appUpdateService.setNotifyMode(mode);
+  }
 
   String get _recitationBarButtonsOpacityInfoText =>
       'تتحكم في وضوح أيقونات شريط التلاوة مثل التشغيل والتالي والتكرار. كلما اتجهت لليمين زاد الوضوح.';
@@ -1365,6 +1417,38 @@ class _SettingsPageState extends State<SettingsPage> {
                               _downloadsManagementInfoText,
                             ),
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      // App update: manual check + delivery preference
+                      // (in-app by default, or a system notification too).
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            CompactActionTile(
+                              title: _isCheckingForUpdate
+                                  ? 'جارٍ التحقق...'
+                                  : 'التحقق من وجود تحديث',
+                              icon: Icons.system_update_rounded,
+                              onTap: _handleCheckForUpdate,
+                            ),
+                            const SizedBox(height: 6),
+                            ValueListenableBuilder<UpdateNotifyMode>(
+                              valueListenable: _appUpdateService.notifyMode,
+                              builder: (context, mode, _) {
+                                return CompactSwitchTile(
+                                  title: 'إشعار عند توفر تحديث',
+                                  icon: Icons.notifications_active_rounded,
+                                  onInfo: () =>
+                                      _showInfoNotice(_updateNotifyInfoText),
+                                  value: mode == UpdateNotifyMode.notification,
+                                  onChanged: _handleToggleUpdateNotifications,
+                                );
+                              },
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 6),

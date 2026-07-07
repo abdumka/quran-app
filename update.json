@@ -1,0 +1,16 @@
+{
+  "_comment": "Publish this file to https://raw.githubusercontent.com/mahfodqr/quran-app-files/main/update.json . The app reads it on startup and from Settings > التحقق من وجود تحديث. Bump 'version'/'build' when you release, and edit 'changes'. Set 'mandatory': true to force the update (hides the 'Later' button and shows it every launch until updated). Per-platform keys (android/ios) override the shared top-level values; omit them to use the shared ones.",
+  "version": "2.0.4",
+  "build": 20,
+  "mandatory": false,
+  "changes": [
+    "إضافة خاصية التنبيه بالتحديثات الجديدة داخل التطبيق.",
+    "تحسينات في الأداء وإصلاح بعض المشكلات."
+  ],
+  "android": {
+    "storeUrl": "https://play.google.com/store/apps/details?id=com.mahfodqr.qalon_mushaf"
+  },
+  "ios": {
+    "storeUrl": "https://apps.apple.com/us/app/id6783147903"
+  }
+}
