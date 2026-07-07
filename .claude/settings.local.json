@@ -107,7 +107,28 @@
       "PowerShell(flutter analyze lib/continuous_quran_view.dart lib/quran_pages.dart)",
       "Bash(git worktree *)",
       "Bash(grep -E \"\\\\.dart$\")",
-      "Bash(PYTHONIOENCODING=utf-8 python -c \"import json; r=json.load\\(open\\('hafs_to_qaloon.json',encoding='utf-8'\\)\\)['hafs_to_qalun']; print\\('1:',r['1']\\); print\\('2 ayah7:',r['2']['7']\\)\")"
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"import json; r=json.load\\(open\\('hafs_to_qaloon.json',encoding='utf-8'\\)\\)['hafs_to_qalun']; print\\('1:',r['1']\\); print\\('2 ayah7:',r['2']['7']\\)\")",
+      "Bash(iconv -f UTF-8 -t UTF-8)",
+      "Bash(python decode_test.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 gen_athman.py)",
+      "Bash(python3 -c \"import sys;sys.stdout.reconfigure\\(encoding='utf-8'\\);print\\(sys.stdin.buffer.read\\(\\).decode\\('utf-8'\\)[:0]\\)\")",
+      "Bash(cp \"C:/Users/keilani/AppData/Local/Temp/3/claude/d--quran-app-quran-app-main/0bb68d7d-7f76-4f80-96a2-4ccb88928719/scratchpad/thumn_data.dart\" \"d:/quran app/quran-app-main/lib/thumn_data.dart\" && echo \"copied\" && wc -l \"d:/quran app/quran-app-main/lib/thumn_data.dart\")",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell 'sleep 5')",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 exec-out screencap -p)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 540 1200)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell 'sleep 1')",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 970 2350)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 970 2280)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 366 350)",
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell monkey -p com.mahfodqr.qalon_mushaf 1)"
+    ],
+    "additionalDirectories": [
+      "d:\\quran app\\quran-app-main\\lib"
     ]
   }
 }

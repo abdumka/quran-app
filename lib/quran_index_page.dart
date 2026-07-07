@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'quran_constants.dart';
+import 'thumn_data.dart';
 import 'utils/responsive_helper.dart';
 
 enum QuranIndexTab {
@@ -8,6 +9,12 @@ enum QuranIndexTab {
   juzs,
   hizbs,
   sajdas,
+  thumns,
+}
+
+enum ThumnLayout {
+  columns,
+  rows,
 }
 
 class QuranIndexPage extends StatefulWidget {
@@ -49,6 +56,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
   final TextEditingController _searchController = TextEditingController();
   late QuranIndexTab _selectedTab;
+  ThumnLayout _thumnLayout = ThumnLayout.rows;
 
   @override
   void initState() {
@@ -299,8 +307,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: EdgeInsets.symmetric(
-            horizontal: isLandscape ? 12 : 14,
-            vertical: isLandscape ? 8 : 10,
+            horizontal: isLandscape ? 10 : 11,
+            vertical: isLandscape ? 8 : 9,
           ),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF8D6E3F) : Colors.white,
@@ -321,8 +329,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
           child: Text(
             label,
             textDirection: TextDirection.rtl,
+            maxLines: 1,
             style: TextStyle(
-              fontSize: isLandscape ? 12 : 13,
+              fontSize: isLandscape ? 12 : 12.5,
               fontWeight: FontWeight.w800,
               color: isSelected ? Colors.white : const Color(0xFF4C3A22),
             ),
@@ -330,6 +339,14 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         ),
       );
     }
+
+    final chips = [
+      chip(QuranIndexTab.surahs, 'السور'),
+      chip(QuranIndexTab.juzs, 'الأجزاء'),
+      chip(QuranIndexTab.hizbs, 'الأحزاب'),
+      chip(QuranIndexTab.thumns, 'الثمن والصفحة'),
+      chip(QuranIndexTab.sajdas, 'السجدات'),
+    ];
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -340,16 +357,27 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       ),
       child: Directionality(
         textDirection: TextDirection.rtl,
-        child: Wrap(
-          alignment: WrapAlignment.start,
-          spacing: isLandscape ? 6 : 8,
-          runSpacing: isLandscape ? 6 : 8,
-          children: [
-            chip(QuranIndexTab.surahs, 'السور'),
-            chip(QuranIndexTab.juzs, 'الأجزاء'),
-            chip(QuranIndexTab.hizbs, 'الأحزاب'),
-            chip(QuranIndexTab.sajdas, 'السجدات'),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Keep all five tabs on a single line. If they don't fit the
+            // available width, allow the row to scroll horizontally.
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (int i = 0; i < chips.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      chips[i],
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -650,6 +678,357 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
+  int _currentThumnIndex() {
+    final realPage = widget.currentPage + 1;
+    int result = 0;
+    for (int i = 0; i < thumnEntries.length; i++) {
+      if (thumnEntries[i].page <= realPage) {
+        result = i;
+      } else {
+        break;
+      }
+    }
+    return result;
+  }
+
+  String _surahNameForPage(int page) {
+    String name = '';
+    for (final surah in widget.surahs) {
+      final surahPage = (surah['page'] as num?)?.toInt() ?? 0;
+      if (surahPage <= page) {
+        name = (surah['name'] ?? '').toString();
+      } else {
+        break;
+      }
+    }
+    return name;
+  }
+
+  Widget _buildThumnLayoutToggle() {
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+
+    Widget segment(ThumnLayout layout, IconData icon, String label) {
+      final isSelected = _thumnLayout == layout;
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            setState(() {
+              _thumnLayout = layout;
+            });
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: EdgeInsets.symmetric(vertical: isLandscape ? 7 : 9),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF8D6E3F) : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isSelected ? Colors.white : const Color(0xFF6A5330),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: isSelected ? Colors.white : const Color(0xFF4C3A22),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 0, 12, isLandscape ? 6 : 8),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFF8D6E3F).withValues(alpha: 0.16),
+          ),
+        ),
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Row(
+            children: [
+              segment(ThumnLayout.rows, Icons.view_agenda_rounded, 'قائمة'),
+              const SizedBox(width: 4),
+              segment(ThumnLayout.columns, Icons.view_column_rounded, 'أعمدة'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThumnBody() {
+    return Column(
+      children: [
+        _buildThumnLayoutToggle(),
+        Expanded(
+          child: _thumnLayout == ThumnLayout.rows
+              ? _buildThumnRowsList()
+              : _buildThumnColumns(),
+        ),
+      ],
+    );
+  }
+
+  // Design B: one aligned row per thumn (number | text | hizb | page).
+  Widget _buildThumnRowsList() {
+    final currentIndex = _currentThumnIndex();
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
+        itemCount: thumnEntries.length,
+        itemBuilder: (context, index) {
+          final entry = thumnEntries[index];
+          final isCurrent = index == currentIndex;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _goToPageAndClose(entry.page),
+                child: Ink(
+                  decoration: BoxDecoration(
+                    color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isCurrent
+                          ? const Color(0xFF8D6E3F)
+                          : const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      _ThumnNumberBadge(number: entry.number),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          entry.text,
+                          textDirection: TextDirection.rtl,
+                          textAlign: TextAlign.right,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF2F2418),
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _ThumnMetaChip(
+                        label: 'الحزب',
+                        value: '${entry.hizb}',
+                      ),
+                      const SizedBox(width: 6),
+                      _ThumnMetaChip(
+                        label: 'صفحة',
+                        value: '${entry.page}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // Design A: four independently-scrollable columns.
+  Widget _buildThumnColumns() {
+    final currentIndex = _currentThumnIndex();
+
+    Widget column({
+      required String header,
+      required int flex,
+      required Widget Function(int index, ThumnEntry entry, bool isCurrent)
+          cellBuilder,
+    }) {
+      return Expanded(
+        flex: flex,
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                header,
+                textAlign: TextAlign.center,
+                textDirection: TextDirection.rtl,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF4C3A22),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 14),
+                itemCount: thumnEntries.length,
+                itemBuilder: (context, index) {
+                  final entry = thumnEntries[index];
+                  final isCurrent = index == currentIndex;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: cellBuilder(index, entry, isCurrent),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget cell({
+      required Widget child,
+      required bool isCurrent,
+      VoidCallback? onTap,
+    }) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            height: 64,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isCurrent
+                    ? const Color(0xFF8D6E3F)
+                    : const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+              ),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: child,
+          ),
+        ),
+      );
+    }
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            column(
+              header: 'الثمن',
+              flex: 74,
+              cellBuilder: (index, entry, isCurrent) => cell(
+                isCurrent: isCurrent,
+                onTap: () => _goToPageAndClose(entry.page),
+                child: Row(
+                  children: [
+                    _ThumnNumberBadge(number: entry.number),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            entry.text,
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF2F2418),
+                              height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'الحزب ${entry.hizb} • ${_surahNameForPage(entry.page)}',
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF8A7757),
+                              height: 1.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            column(
+              header: 'الصفحة',
+              flex: 16,
+              cellBuilder: (index, entry, isCurrent) => cell(
+                isCurrent: isCurrent,
+                onTap: () => _goToPageAndClose(entry.page),
+                child: Text(
+                  '${entry.page}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF6A5330),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSajdaGrid() {
     final entries = _sajdaNotices.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -682,6 +1061,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         return _buildHizbGrid();
       case QuranIndexTab.sajdas:
         return _buildSajdaGrid();
+      case QuranIndexTab.thumns:
+        return _buildThumnBody();
     }
   }
 
@@ -706,6 +1087,82 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             Expanded(child: _buildBody()),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ThumnNumberBadge extends StatelessWidget {
+  final int number;
+
+  const _ThumnNumberBadge({required this.number});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [Color(0xFFA8844A), Color(0xFF8D6E3F)],
+        ),
+        border: Border.all(color: const Color(0xFFE7D7B5), width: 1.6),
+      ),
+      child: Text(
+        '$number',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+          fontSize: 15,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _ThumnMetaChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ThumnMetaChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF8D6E3F).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF8A7757),
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF6A5330),
+              height: 1,
+            ),
+          ),
+        ],
       ),
     );
   }
