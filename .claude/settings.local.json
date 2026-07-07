@@ -104,7 +104,10 @@
       "PowerShell(flutter analyze lib/widgets/top_overlay_bar.dart lib/widgets/menu/bottom_overlay_menu.dart lib/services/page_quality_service.dart lib/widgets/settings/settings_page.dart lib/quran_pages.dart)",
       "PowerShell(flutter analyze lib/quran_pages.dart)",
       "PowerShell(flutter analyze lib/continuous_quran_view.dart)",
-      "PowerShell(flutter analyze lib/continuous_quran_view.dart lib/quran_pages.dart)"
+      "PowerShell(flutter analyze lib/continuous_quran_view.dart lib/quran_pages.dart)",
+      "Bash(git worktree *)",
+      "Bash(grep -E \"\\\\.dart$\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"import json; r=json.load\\(open\\('hafs_to_qaloon.json',encoding='utf-8'\\)\\)['hafs_to_qalun']; print\\('1:',r['1']\\); print\\('2 ayah7:',r['2']['7']\\)\")"
     ]
   }
 }

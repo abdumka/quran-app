@@ -736,18 +736,24 @@ class AudioService {
   bool _isPlayableAyah(QuranAyahData ayah) =>
       _getAudioFilesForAyah(ayah).isNotEmpty;
 
-  /// Cycle through repeat modes: off → 1× → 2× → 3× → infinite (∞) → off
+  /// Cycle through repeat modes: off → 2× → 3× → infinite (∞) → off
+  ///
+  /// The count is the *total number of times the ayah plays*, so the smallest
+  /// meaningful repeat is 2× (play once, then again). We deliberately skip a
+  /// "1×" state: 1× means "play a single time" — identical to no repeat — which
+  /// made users think the button was broken. The first tap now always produces
+  /// a real, audible repeat.
   void cycleAyahRepeatMode() {
     _currentRepeatIteration = 0;
     final mode = repeatMode.value;
     if (mode == AyahRepeatMode.off) {
-      // First tap: repeat once.
-      repeatCount.value = 1;
+      // First tap: play twice (one real repeat).
+      repeatCount.value = 2;
       repeatMode.value = AyahRepeatMode.count;
     } else if (mode == AyahRepeatMode.count) {
       final current = repeatCount.value;
       if (current < 3) {
-        // 1× → 2× → 3×
+        // 2× → 3×
         repeatCount.value = current + 1;
       } else {
         // After 3× comes infinite.
@@ -756,6 +762,15 @@ class AudioService {
     } else {
       // infinite → off (cancel).
       repeatMode.value = AyahRepeatMode.off;
+      return;
+    }
+
+    // Restart the current ayah immediately so the user gets instant proof
+    // that repeat is engaged, instead of waiting for it to play through
+    // naturally (by which point they'd have forgotten they tapped it).
+    if (currentAyah.value != null) {
+      _currentFileIndexWithinAyah = 0;
+      _playCurrentAyah();
     }
   }
 
@@ -771,18 +786,22 @@ class AudioService {
     }
   }
 
-  /// Cycle through page repeat modes: off → 1× → 2× → 3× → infinite (∞) → off
+  /// Cycle through page repeat modes: off → 2× → 3× → infinite (∞) → off
+  ///
+  /// Like [cycleAyahRepeatMode], the count is the total number of times the
+  /// page plays, so we start at 2× (a real repeat) and skip the misleading
+  /// "1×" (= play once = no repeat) state.
   void cyclePageRepeatMode() {
     _pageRepeatIteration = 0;
     final mode = pageRepeatMode.value;
     if (mode == AyahRepeatMode.off) {
-      // First tap: repeat once.
-      pageRepeatCount.value = 1;
+      // First tap: play the page twice (one real repeat).
+      pageRepeatCount.value = 2;
       pageRepeatMode.value = AyahRepeatMode.count;
     } else if (mode == AyahRepeatMode.count) {
       final current = pageRepeatCount.value;
       if (current < 3) {
-        // 1× → 2× → 3×
+        // 2× → 3×
         pageRepeatCount.value = current + 1;
       } else {
         // After 3× comes infinite.
@@ -792,6 +811,9 @@ class AudioService {
       // infinite → off (cancel).
       pageRepeatMode.value = AyahRepeatMode.off;
     }
+    // Unlike ayah repeat, we do NOT restart playback here. Page repeat should
+    // let the current page keep reading to its end, then repeat — jumping back
+    // to the first ayah mid-page would wrongly interrupt the recitation.
   }
 
   /// Get a human-readable label for current page repeat mode.
