@@ -924,6 +924,29 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         },
       ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: CompactActionTile(
+          title: _isCheckingForUpdate ? 'جارٍ التحقق...' : 'التحقق من وجود تحديث',
+          icon: Icons.system_update_rounded,
+          onTap: _handleCheckForUpdate,
+        ),
+      ),
+      ValueListenableBuilder<UpdateNotifyMode>(
+        valueListenable: _appUpdateService.notifyMode,
+        builder: (context, mode, _) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: CompactSwitchTile(
+              title: 'إشعار عند توفر تحديث',
+              icon: Icons.notifications_active_rounded,
+              onInfo: () => _showInfoNotice(_updateNotifyInfoText),
+              value: mode == UpdateNotifyMode.notification,
+              onChanged: _handleToggleUpdateNotifications,
+            ),
+          );
+        },
+      ),
     ];
 
     return SettingsCard(
@@ -1417,38 +1440,6 @@ class _SettingsPageState extends State<SettingsPage> {
                               _downloadsManagementInfoText,
                             ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      // App update: manual check + delivery preference
-                      // (in-app by default, or a system notification too).
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            CompactActionTile(
-                              title: _isCheckingForUpdate
-                                  ? 'جارٍ التحقق...'
-                                  : 'التحقق من وجود تحديث',
-                              icon: Icons.system_update_rounded,
-                              onTap: _handleCheckForUpdate,
-                            ),
-                            const SizedBox(height: 6),
-                            ValueListenableBuilder<UpdateNotifyMode>(
-                              valueListenable: _appUpdateService.notifyMode,
-                              builder: (context, mode, _) {
-                                return CompactSwitchTile(
-                                  title: 'إشعار عند توفر تحديث',
-                                  icon: Icons.notifications_active_rounded,
-                                  onInfo: () =>
-                                      _showInfoNotice(_updateNotifyInfoText),
-                                  value: mode == UpdateNotifyMode.notification,
-                                  onChanged: _handleToggleUpdateNotifications,
-                                );
-                              },
-                            ),
-                          ],
                         ),
                       ),
                       const SizedBox(height: 6),
