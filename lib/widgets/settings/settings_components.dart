@@ -4,6 +4,7 @@ import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
+import '../../surah_data.dart';
 
 class PremiumIconWrapper extends StatelessWidget {
   final IconData icon;
@@ -491,6 +492,11 @@ class ReciterTile extends StatelessWidget {
 
 class AudioDownloadTile extends StatelessWidget {
   final AudioDownloadState state;
+
+  /// Opens the surah download picker (choose "all" or a specific surah).
+  final VoidCallback onOpenPicker;
+
+  /// Resume/continue a previously started *full* download in place.
   final Future<void> Function() onDownload;
   final void Function() onCancelDownload;
   final void Function() onPauseDownload;
@@ -499,6 +505,7 @@ class AudioDownloadTile extends StatelessWidget {
   const AudioDownloadTile({
     super.key,
     required this.state,
+    required this.onOpenPicker,
     required this.onDownload,
     required this.onCancelDownload,
     required this.onPauseDownload,
@@ -525,7 +532,7 @@ class AudioDownloadTile extends StatelessWidget {
               children: [
                 Expanded(
                   child: SettingsTileHeader(
-                    title: 'تحميل جميع الصوتيات',
+                    title: 'تحميل الصوتيات',
                     onInfo: onInfo,
                   ),
                 ),
@@ -547,14 +554,14 @@ class AudioDownloadTile extends StatelessWidget {
                 if (showInlineAction) const SizedBox(width: 8),
                 if (showInlineAction)
                   OutlinedButton.icon(
-                    onPressed: onDownload,
+                    onPressed: onOpenPicker,
                     icon: const Icon(
                       Icons.download_rounded,
                       color: Color(0xFF8B7355),
                       size: 16,
                     ),
                     label: Text(
-                      state.downloadedFiles > 0 ? 'استئناف' : 'تحميل',
+                      state.downloadedFiles > 0 ? 'متابعة التحميل' : 'تحميل',
                       style: const TextStyle(
                         color: Color(0xFF8B7355),
                         fontSize: 12.5,
@@ -1166,6 +1173,485 @@ class MarginImagesTile extends StatelessWidget {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet launched from [AudioDownloadTile]: lets the user download the
+/// whole Quran ("تحميل الكل") or any individual surah, with live per-surah
+/// progress and a search box. All downloads route through
+/// [AudioDownloadService] so the main settings tile stays in sync.
+class SurahDownloadSheet extends StatefulWidget {
+  const SurahDownloadSheet({super.key});
+
+  static const Color _gold = Color(0xFF8B7355);
+  static const Color _green = Color(0xFF4B7F3A);
+
+  /// Presents the sheet modally with the app's rounded, RTL styling.
+  static Future<void> show(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const SurahDownloadSheet(),
+    );
+  }
+
+  @override
+  State<SurahDownloadSheet> createState() => _SurahDownloadSheetState();
+}
+
+class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
+  final AudioDownloadService _service = AudioDownloadService.instance;
+  final TextEditingController _searchController = TextEditingController();
+
+  List<SurahDownloadStatus> _statuses = const [];
+  String _query = '';
+
+  static const List<String> _arabicDigits = [
+    '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshStatuses();
+    // Keep per-surah rows fresh while a download is running.
+    _service.surahState.addListener(_onSurahStateChanged);
+    _service.state.addListener(_onSurahStateChanged);
+  }
+
+  @override
+  void dispose() {
+    _service.surahState.removeListener(_onSurahStateChanged);
+    _service.state.removeListener(_onSurahStateChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSurahStateChanged() {
+    // When a download finishes (surah goes idle) recompute the cached counts.
+    if (_service.surahState.value.surah == 0 && !_service.state.value.isDownloading) {
+      _refreshStatuses();
+    }
+  }
+
+  Future<void> _refreshStatuses() async {
+    final statuses = await _service.computeSurahStatuses();
+    if (mounted) setState(() => _statuses = statuses);
+  }
+
+  String _toArabic(int n) => n
+      .toString()
+      .split('')
+      .map((c) => _arabicDigits[int.parse(c)])
+      .join();
+
+  String _ayahLabel(int count) => count == 1
+      ? 'آية واحدة'
+      : count == 2
+          ? 'آيتان'
+          : count <= 10
+              ? '${_toArabic(count)} آيات'
+              : '${_toArabic(count)} آية';
+
+  List<Map<String, dynamic>> get _filtered {
+    final q = _query.trim();
+    if (q.isEmpty) return surahList;
+    return surahList.where((s) {
+      final name = (s['name'] as String);
+      final number = s['number'].toString();
+      final arNumber = _toArabic(s['number'] as int);
+      return name.contains(q) || number.contains(q) || arNumber.contains(q);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFFFBF7EF),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                _grabber(),
+                _header(context),
+                _downloadAllRow(),
+                _searchField(),
+                const Divider(height: 1, color: Color(0xFFE8DCC8)),
+                Expanded(child: _surahList(scrollController)),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _grabber() => Container(
+        margin: const EdgeInsets.only(top: 10, bottom: 4),
+        width: 42,
+        height: 5,
+        decoration: BoxDecoration(
+          color: const Color(0xFFD9CBB2),
+          borderRadius: BorderRadius.circular(999),
+        ),
+      );
+
+  Widget _header(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'تحميل الصوتيات',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF2C2C2C),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Color(0xFF888888)),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      );
+
+  /// Prominent "download all" card, backed by the overall download state.
+  Widget _downloadAllRow() {
+    return ValueListenableBuilder<AudioDownloadState>(
+      valueListenable: _service.state,
+      builder: (context, state, _) {
+        final bool busy = state.isDownloading;
+        final bool anySurahDownloading = _service.surahState.value.surah != 0;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3EBDB),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE3D5BB)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFFEDE1C9),
+                      ),
+                      child: Icon(
+                        state.isComplete
+                            ? Icons.check_rounded
+                            : Icons.cloud_download_rounded,
+                        color: state.isComplete
+                            ? SurahDownloadSheet._green
+                            : SurahDownloadSheet._gold,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'تحميل الكل',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2C2C2C),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            state.isComplete
+                                ? 'كل السور محمّلة'
+                                : busy
+                                    ? state.progressLabel
+                                    : 'المصحف كامل للقارئ المختار · نحو ٥٠٠ م.ب',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF7A6A55),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _downloadAllAction(state, busy, anySurahDownloading),
+                  ],
+                ),
+                if (busy) ...[
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      minHeight: 6,
+                      value: state.progressFraction > 0
+                          ? state.progressFraction
+                          : null,
+                      backgroundColor:
+                          const Color(0xFFE8DCC8).withValues(alpha: 0.5),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          SurahDownloadSheet._gold),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _downloadAllAction(
+      AudioDownloadState state, bool busy, bool anySurahDownloading) {
+    if (state.isComplete) {
+      return const Icon(Icons.check_circle_rounded,
+          color: SurahDownloadSheet._green, size: 22);
+    }
+    if (busy) {
+      return IconButton(
+        icon: const Icon(Icons.cancel_rounded, color: Colors.red),
+        onPressed: _service.cancelDownload,
+        visualDensity: VisualDensity.compact,
+      );
+    }
+    return FilledButton(
+      onPressed: anySurahDownloading ? null : () => _service.downloadAll(),
+      style: FilledButton.styleFrom(
+        backgroundColor: SurahDownloadSheet._gold,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        visualDensity: VisualDensity.compact,
+      ),
+      child: Text(state.downloadedFiles > 0 ? 'متابعة' : 'تحميل',
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _searchField() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        child: TextField(
+          controller: _searchController,
+          onChanged: (v) => setState(() => _query = v),
+          textDirection: TextDirection.rtl,
+          decoration: InputDecoration(
+            hintText: 'ابحث عن سورة...',
+            hintStyle: const TextStyle(color: Color(0xFFAFA48F), fontSize: 14),
+            prefixIcon:
+                const Icon(Icons.search_rounded, color: Color(0xFFB0956E)),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(vertical: 0),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE8DCC8)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE8DCC8)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: SurahDownloadSheet._gold),
+            ),
+          ),
+        ),
+      );
+
+  Widget _surahList(ScrollController controller) {
+    final items = _filtered;
+    if (items.isEmpty) {
+      return const Center(
+        child: Text('لا توجد نتائج',
+            style: TextStyle(color: Color(0xFF888888), fontSize: 14)),
+      );
+    }
+    return ValueListenableBuilder<SurahDownloadState>(
+      valueListenable: _service.surahState,
+      builder: (context, surahState, _) {
+        return ListView.separated(
+          controller: controller,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 6),
+          itemBuilder: (context, i) => _surahRow(items[i], surahState),
+        );
+      },
+    );
+  }
+
+  Widget _surahRow(Map<String, dynamic> surah, SurahDownloadState surahState) {
+    final int number = surah['number'] as int;
+    final String name = surah['name'] as String;
+    final int ayahs = surah['ayahs'] as int;
+    final SurahDownloadStatus? status =
+        number - 1 < _statuses.length ? _statuses[number - 1] : null;
+
+    final bool isThisDownloading =
+        surahState.isDownloading && surahState.surah == number;
+    final bool anyDownloadActive =
+        surahState.surah != 0 || _service.state.value.isDownloading;
+    final bool isComplete = status?.isComplete ?? false;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isComplete
+              ? const Color(0xFFCDE3C2)
+              : const Color(0xFFEDE4D3),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isComplete
+                  ? const Color(0xFFE4F0DC)
+                  : const Color(0xFFF2EADB),
+            ),
+            child: Text(
+              _toArabic(number),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: isComplete
+                    ? SurahDownloadSheet._green
+                    : SurahDownloadSheet._gold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2C2C2C),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isThisDownloading
+                      ? 'جارٍ التحميل · ${(surahState.progressFraction * 100).round()}%'
+                      : _ayahLabel(ayahs),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: isThisDownloading
+                        ? SurahDownloadSheet._gold
+                        : const Color(0xFF9A8F7B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _surahTrailing(number, status, isThisDownloading, anyDownloadActive,
+              surahState),
+        ],
+      ),
+    );
+  }
+
+  Widget _surahTrailing(
+    int number,
+    SurahDownloadStatus? status,
+    bool isThisDownloading,
+    bool anyDownloadActive,
+    SurahDownloadState surahState,
+  ) {
+    if (isThisDownloading) {
+      return SizedBox(
+        width: 34,
+        height: 34,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularProgressIndicator(
+              strokeWidth: 3,
+              value: surahState.progressFraction > 0
+                  ? surahState.progressFraction
+                  : null,
+              backgroundColor: const Color(0xFFEDE4D3),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                  SurahDownloadSheet._gold),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded,
+                  size: 15, color: Color(0xFF888888)),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: _service.cancelDownload,
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (status?.isComplete ?? false) {
+      return const Icon(Icons.check_circle_rounded,
+          color: SurahDownloadSheet._green, size: 24);
+    }
+
+    final bool partial = status?.isPartial ?? false;
+    return OutlinedButton(
+      onPressed:
+          anyDownloadActive ? null : () => _service.downloadSurah(number),
+      style: OutlinedButton.styleFrom(
+        side: const BorderSide(color: SurahDownloadSheet._gold),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        visualDensity: VisualDensity.compact,
+        minimumSize: const Size(0, 34),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            partial ? Icons.download_for_offline_rounded : Icons.download_rounded,
+            size: 15,
+            color: SurahDownloadSheet._gold,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            partial ? 'إكمال' : 'تحميل',
+            style: const TextStyle(
+                fontSize: 12, color: SurahDownloadSheet._gold),
+          ),
         ],
       ),
     );

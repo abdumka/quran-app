@@ -4361,6 +4361,11 @@ class _QuranPagesState extends State<QuranPages>
                     'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، وسرعة التلاوة',
                     textColor,
                     borderColor,
+                    highlightColor: titleColor,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showTilawahOptionsSheet();
+                    },
                   ),
                   const SizedBox(height: 16),
                   Directionality(
@@ -5331,35 +5336,96 @@ class _QuranPagesState extends State<QuranPages>
     Color textColor,
     Color borderColor, {
     Widget? iconWidget,
+    Color? highlightColor,
+    VoidCallback? onTap,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        textDirection: TextDirection.rtl,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: borderColor.withValues(alpha: 0.18),
-              shape: BoxShape.circle,
+    final bool highlighted = highlightColor != null;
+
+    final Widget iconChip = Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: highlighted
+            ? highlightColor
+            : borderColor.withValues(alpha: 0.18),
+        shape: BoxShape.circle,
+      ),
+      child: iconWidget ??
+          Icon(icon,
+              color: highlighted ? Colors.white : textColor, size: 18),
+    );
+
+    final row = Row(
+      textDirection: TextDirection.rtl,
+      children: [
+        iconChip,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: highlighted ? FontWeight.w800 : FontWeight.w700,
+              color: highlighted ? highlightColor : textColor,
             ),
-            child: iconWidget ?? Icon(icon, color: textColor, size: 18),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
+        ),
+        if (highlighted) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: highlightColor,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: const Text(
+              'جديد',
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: textColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
               ),
             ),
           ),
         ],
+      ],
+    );
+
+    if (!highlighted) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: row,
+      );
+    }
+
+    // Highlighted rows get a tinted card so the feature clearly stands out
+    // from the plain button-explanation rows above it.
+    final borderRadius = BorderRadius.circular(12);
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: highlightColor.withValues(alpha: 0.12),
+        borderRadius: borderRadius,
+        border: Border.all(color: highlightColor.withValues(alpha: 0.55)),
       ),
+      child: row,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: onTap == null
+          ? card
+          : Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: borderRadius,
+                child: card,
+              ),
+            ),
     );
   }
 

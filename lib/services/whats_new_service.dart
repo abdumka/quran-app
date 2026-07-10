@@ -18,6 +18,7 @@ class WhatsNewService {
   /// nothing else) on each release that should show a "what's new" popup;
   /// leave it empty to skip the popup entirely for a release.
   static const List<String> currentReleaseChanges = [
+    'إمكانية تحميل سورة بعينها للاستماع بدون إنترنت، أو المصحف كاملًا.',
     'فهرس الأثمان.',
     'إصلاح منطق تكرار الآية/الصفحة.',
     'إمكانية استقبال إشعار عند توفر تحديث جديد.',

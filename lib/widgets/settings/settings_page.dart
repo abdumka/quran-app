@@ -736,7 +736,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final audioState = _audioDownloadService.state.value;
     return audioState.isComplete
         ? 'جميع ملفات الصوت للقارئ المختار محمّلة، ويمكن الاستماع للتلاوة بدون إنترنت.'
-        : 'نزّل ملفات الصوت كاملة للقارئ المختار فقط للاستماع بدون اتصال بالإنترنت. الحجم التقريبي نحو 500 MB.';
+        : 'نزّل الصوتيات للاستماع بدون إنترنت — إمّا المصحف كاملًا (نحو 500 MB) أو سورة بعينها. لكل قارئ ملفاته الخاصة.';
   }
 
   String get _downloadsManagementInfoText =>
@@ -1439,6 +1439,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             builder: (context, audioState, _) {
                               return AudioDownloadTile(
                                 state: audioState,
+                                onOpenPicker: () =>
+                                    SurahDownloadSheet.show(context),
                                 onDownload: _audioDownloadService.downloadAll,
                                 onCancelDownload:
                                     _audioDownloadService.cancelDownload,

@@ -59,6 +59,36 @@ class AudioDownloadState {
   }
 }
 
+/// Live progress for a single-surah download initiated from the picker. Only
+/// one surah downloads at a time; [surah] is 0 when no surah download is active.
+class SurahDownloadState {
+  final int surah;
+  final bool isDownloading;
+  final int downloadedFiles;
+  final int totalFiles;
+
+  const SurahDownloadState({
+    this.surah = 0,
+    this.isDownloading = false,
+    this.downloadedFiles = 0,
+    this.totalFiles = 0,
+  });
+
+  double get progressFraction =>
+      totalFiles > 0 ? downloadedFiles / totalFiles : 0;
+}
+
+/// Cached/total file counts for one surah, used to render its row in the
+/// download picker (idle / partial / complete).
+class SurahDownloadStatus {
+  final int cached;
+  final int total;
+  const SurahDownloadStatus(this.cached, this.total);
+
+  bool get isComplete => total > 0 && cached >= total;
+  bool get isPartial => cached > 0 && cached < total;
+}
+
 class AudioDownloadService {
   static final AudioDownloadService instance = AudioDownloadService._();
   AudioDownloadService._();
@@ -69,6 +99,10 @@ class AudioDownloadService {
 
   final ValueNotifier<AudioDownloadState> state =
       ValueNotifier(const AudioDownloadState());
+
+  /// Live progress for a single-surah download from the picker sheet.
+  final ValueNotifier<SurahDownloadState> surahState =
+      ValueNotifier(const SurahDownloadState());
 
   bool _cancelRequested = false;
   bool _pauseRequested = false;
@@ -103,37 +137,43 @@ class AudioDownloadService {
   /// Returns the complete list of unique MP3 filenames required to play the
   /// entire Quran with the currently selected reciter.
   List<String> getAllFilenames() {
-    if (ReciterService.instance.selected.value.nativeQalounScheme) {
-      return _naihiFilenames();
-    }
     final filenames = <String>{};
     for (int s = 1; s <= 114; s++) {
-      final ayahCount = _surahAyahCounts[s - 1];
-      final surahStr = s.toString().padLeft(3, '0');
-      final mergedFrom = _mergedThresholds[s];
-      for (int a = 1; a <= ayahCount; a++) {
-        final String filename;
-        if (mergedFrom != null && a >= mergedFrom) {
-          filename = '$surahStr${mergedFrom.toString().padLeft(3, '0')}.mp3';
-        } else {
-          filename = '$surahStr${a.toString().padLeft(3, '0')}.mp3';
-        }
-        filenames.add(filename);
-      }
+      filenames.addAll(getSurahFilenames(s));
     }
     return filenames.toList()..sort();
   }
 
-  /// al-Naihi mirror: native per-ayah files `SSS001..SSSmax` plus a basmala
-  /// file `SSS000` for every surah except At-Tawba (9).
-  List<String> _naihiFilenames() {
+  /// Returns the unique MP3 filenames required to play a single [surah] with
+  /// the currently selected reciter (1-based surah number).
+  List<String> getSurahFilenames(int surah) {
+    if (ReciterService.instance.selected.value.nativeQalounScheme) {
+      return _naihiSurahFilenames(surah);
+    }
     final filenames = <String>{};
-    for (int s = 1; s <= 114; s++) {
-      final surahStr = s.toString().padLeft(3, '0');
-      if (s != 9) filenames.add('${surahStr}000.mp3');
-      for (int a = 1; a <= Reciter.naihiMadaniAyahCounts[s - 1]; a++) {
-        filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
+    final ayahCount = _surahAyahCounts[surah - 1];
+    final surahStr = surah.toString().padLeft(3, '0');
+    final mergedFrom = _mergedThresholds[surah];
+    for (int a = 1; a <= ayahCount; a++) {
+      final String filename;
+      if (mergedFrom != null && a >= mergedFrom) {
+        filename = '$surahStr${mergedFrom.toString().padLeft(3, '0')}.mp3';
+      } else {
+        filename = '$surahStr${a.toString().padLeft(3, '0')}.mp3';
       }
+      filenames.add(filename);
+    }
+    return filenames.toList()..sort();
+  }
+
+  /// al-Naihi mirror per-surah: native per-ayah files `SSS001..SSSmax` plus a
+  /// basmala file `SSS000` for every surah except At-Tawba (9).
+  List<String> _naihiSurahFilenames(int surah) {
+    final filenames = <String>{};
+    final surahStr = surah.toString().padLeft(3, '0');
+    if (surah != 9) filenames.add('${surahStr}000.mp3');
+    for (int a = 1; a <= Reciter.naihiMadaniAyahCounts[surah - 1]; a++) {
+      filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
     }
     return filenames.toList()..sort();
   }
@@ -192,6 +232,7 @@ class AudioDownloadService {
   void _handleReciterChanged() {
     if (_isDownloading) _cancelRequested = true;
     state.value = const AudioDownloadState();
+    surahState.value = const SurahDownloadState();
     _didInitialize = false;
     initialize();
   }
@@ -264,6 +305,105 @@ class AudioDownloadService {
     }
   }
 
+  /// Downloads only the files for a single [surah] (1-based). Shares the
+  /// cancel/`_isDownloading` guard with [downloadAll], so only one download —
+  /// full or per-surah — runs at a time. Progress is reported on [surahState],
+  /// and the overall [state] (count / installed size / completeness) is kept in
+  /// sync as files land so the main tile stays accurate.
+  Future<void> downloadSurah(int surah) async {
+    if (_isDownloading) return;
+    _isDownloading = true;
+    _cancelRequested = false;
+    _pauseRequested = false;
+
+    final dir = await _getCacheDir();
+    final files = getSurahFilenames(surah);
+    final client = http.Client();
+
+    int overallDownloaded = state.value.downloadedFiles;
+    int installedBytes = state.value.installedBytes;
+    int surahDownloaded =
+        files.length - await _missingCount(dir, files);
+
+    surahState.value = SurahDownloadState(
+      surah: surah,
+      isDownloading: true,
+      downloadedFiles: surahDownloaded,
+      totalFiles: files.length,
+    );
+
+    try {
+      for (final filename in files) {
+        if (_cancelRequested) break;
+
+        final file = File(p.join(dir.path, filename));
+        if (await file.exists()) continue;
+
+        try {
+          final response = await client.get(Uri.parse('$_baseUrl$filename'));
+          if (response.statusCode == 200) {
+            await file.writeAsBytes(response.bodyBytes);
+            surahDownloaded++;
+            overallDownloaded++;
+            installedBytes += response.bodyBytes.length;
+            surahState.value = SurahDownloadState(
+              surah: surah,
+              isDownloading: true,
+              downloadedFiles: surahDownloaded,
+              totalFiles: files.length,
+            );
+            state.value = state.value.copyWith(
+              downloadedFiles: overallDownloaded,
+              installedBytes: installedBytes,
+              isComplete: overallDownloaded >= state.value.totalFiles,
+            );
+          }
+        } catch (_) {
+          // File will be downloaded on-demand during playback if skipped here.
+        }
+      }
+    } finally {
+      client.close();
+      _isDownloading = false;
+      _cancelRequested = false;
+      _pauseRequested = false;
+      surahState.value = const SurahDownloadState();
+    }
+  }
+
+  /// Counts how many of [files] are not yet present in [dir].
+  Future<int> _missingCount(Directory dir, List<String> files) async {
+    int missing = 0;
+    for (final filename in files) {
+      if (!await File(p.join(dir.path, filename)).exists()) missing++;
+    }
+    return missing;
+  }
+
+  /// Cached/total counts for every surah (1..114), for the picker list. Reads
+  /// the cache directory once, then tallies each surah's expected filenames.
+  Future<List<SurahDownloadStatus>> computeSurahStatuses() async {
+    final dir = await _getCacheDir();
+    final present = <String>{};
+    try {
+      if (await dir.exists()) {
+        await for (final entity in dir.list()) {
+          if (entity is File && entity.path.endsWith('.mp3')) {
+            present.add(p.basename(entity.path));
+          }
+        }
+      }
+    } catch (_) {}
+
+    final statuses = <SurahDownloadStatus>[];
+    for (int s = 1; s <= 114; s++) {
+      final files = getSurahFilenames(s);
+      final cached = files.where(present.contains).length;
+      statuses.add(SurahDownloadStatus(cached, files.length));
+    }
+    return statuses;
+  }
+
   void pauseDownload() {
     if (_isDownloading) _pauseRequested = true;
   }
@@ -284,6 +424,7 @@ class AudioDownloadService {
       _cancelRequested = true;
       await Future.delayed(const Duration(milliseconds: 200));
     }
+    surahState.value = const SurahDownloadState();
 
     final dir = await _getCacheDir();
     try {
