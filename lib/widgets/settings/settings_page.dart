@@ -12,6 +12,8 @@ import '../../models/reciter.dart';
 import '../../services/app_update_service.dart';
 import '../../services/update_notification_service.dart';
 import '../update_available_dialog.dart';
+import '../whats_new_dialog.dart';
+import '../../services/whats_new_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
 import '../../services/page_zoom_service.dart';
@@ -770,6 +772,14 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// Manual "what's new" from Settings. Shows the same popup as the one-time
+  /// startup dialog, but on demand and every time it's tapped (it doesn't
+  /// touch the "seen" flag, so it never affects whether the automatic startup
+  /// popup fires).
+  void _handleShowWhatsNew() {
+    WhatsNewDialog.show(context, WhatsNewService.currentReleaseChanges);
+  }
+
   Future<void> _handleToggleUpdateNotifications(bool useNotifications) async {
     final mode = useNotifications
         ? UpdateNotifyMode.notification
@@ -926,10 +936,41 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: CompactActionTile(
-          title: _isCheckingForUpdate ? 'جارٍ التحقق...' : 'التحقق من وجود تحديث',
-          icon: Icons.system_update_rounded,
-          onTap: _handleCheckForUpdate,
+        child: Row(
+          children: [
+            Expanded(
+              child: CompactActionTile(
+                title: _isCheckingForUpdate
+                    ? 'جارٍ التحقق...'
+                    : 'التحقق من وجود تحديث',
+                icon: Icons.system_update_rounded,
+                onTap: _handleCheckForUpdate,
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF8B7355)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: _handleShowWhatsNew,
+              child: const Text(
+                'ما الجديد',
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF8B7355),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
       ValueListenableBuilder<UpdateNotifyMode>(

@@ -39,7 +39,7 @@ class WhatsNewDialog extends StatelessWidget {
                 color: accent.withValues(alpha: isDark ? 0.26 : 0.15),
               ),
               child: const Icon(
-                Icons.auto_awesome_rounded,
+                Icons.campaign_rounded,
                 color: accent,
                 size: 28,
               ),
