@@ -136,7 +136,18 @@
       "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell 'sleep 8')",
       "Bash(flutter pub *)",
       "Bash(grep -iA6 \"checkDebugAarMetadata\\\\|What went wrong\")",
-      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 960 2340)"
+      "Bash(/c/Users/keilani/AppData/Local/Android/Sdk/platform-tools/adb.exe -s emulator-5554 shell input tap 960 2340)",
+      "PowerShell(flutter analyze lib/services/audio_service.dart lib/quran_pages.dart 2>&1)",
+      "Bash(grep -Hm1 ^description: '/d/quran app/quran-app-main/.claude/skills/*/SKILL.md')",
+      "Bash(echo \"---\")",
+      "Bash(ls '/d/quran app/quran-app-main/.claude/skills')",
+      "Bash(flutter devices *)",
+      "PowerShell(adb devices -l 2>&1)",
+      "Bash(head -5 assets/data/athman_page_hizb.csv)",
+      "Bash(head -1 assets/data/athman_page_hizb.csv)",
+      "Read(//tmp/**)",
+      "Bash(rm -f thumn_probe.txt)",
+      "Bash(python tools/build_thumn_boundaries.py)"
     ],
     "additionalDirectories": [
       "d:\\quran app\\quran-app-main\\lib"

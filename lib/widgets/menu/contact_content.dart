@@ -89,7 +89,7 @@ class ContactContent extends StatelessWidget {
           subtitle: 'مراسلة مباشرة',
           icon: Icons.chat_rounded,
           accentColor: const Color(0xFF25D366),
-          onTap: () => onOpenLink('https://wa.me/218915449613'),
+          onTap: () => onOpenLink('https://chat.whatsapp.com/CNYz1t7EvXzBU0LXlwfkoy'),
         ),
         const SizedBox(height: 12),
         buildContactButton(

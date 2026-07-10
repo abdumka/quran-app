@@ -25,11 +25,15 @@ import 'services/recitation_bar_opacity_service.dart';
 
 import 'services/app_update_service.dart';
 import 'services/update_notification_service.dart';
+import 'services/whats_new_service.dart';
 import 'services/theme_service.dart';
 import 'services/tafsir_service.dart';
 import 'services/audio_service.dart';
+import 'services/reciter_service.dart';
 import 'services/quran_json_service.dart';
 import 'models/quran_page_data.dart';
+import 'models/reciter.dart';
+import 'thumn_data.dart';
 import 'surah_data.dart';
 import 'quran_index_page.dart';
 import 'utils/responsive_helper.dart';
@@ -39,6 +43,7 @@ import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
 import 'widgets/update_available_dialog.dart';
+import 'widgets/whats_new_dialog.dart';
 import 'search_page.dart';
 
 class QuranPages extends StatefulWidget {
@@ -275,7 +280,8 @@ class _QuranPagesState extends State<QuranPages>
   // Pinch-to-zoom for the paged (flip) reader. While a page is zoomed in we lock
   // horizontal page-flipping so panning the zoomed page doesn't accidentally turn
   // the page; flipping resumes once the user pinches back to fit (scale 1).
-  final TransformationController _pageZoomController = TransformationController();
+  final TransformationController _pageZoomController =
+      TransformationController();
   bool _isPageZoomed = false;
   Offset? _lastDoubleTapPosition;
   ScrollController? _portraitAutoScrollController;
@@ -2398,34 +2404,63 @@ class _QuranPagesState extends State<QuranPages>
   /// stays silent when up to date / offline, and surfaces a given version only
   /// once unless it's marked mandatory. Honors the user's in-app vs.
   /// notification delivery preference (default: in-app only).
+  ///
+  /// Shows at most one popup per launch: the local "what's new" for changes
+  /// bundled in the currently installed build takes priority; the network
+  /// "update available" check (for a *newer*, not-yet-installed release) only
+  /// runs afterwards, and only if "what's new" didn't already show, so the two
+  /// never stack on top of each other.
   Future<void> _checkForUpdate() async {
     try {
-      final info = await AppUpdateService.instance.fetchIfUpdateAvailable();
-      if (info == null || !mounted) return;
-      if (!await AppUpdateService.instance.shouldSurface(info)) return;
-      if (!mounted) return;
-
-      // Let the splash→reader transition finish so the dialog lands on a
-      // settled screen instead of fighting the animation.
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
-
-      await AppUpdateService.instance.markSurfaced(info);
-
-      if (AppUpdateService.instance.notifyMode.value ==
-          UpdateNotifyMode.notification) {
-        await UpdateNotificationService.instance.showUpdateNotification(
-          title: 'يوجد تحديث جديد',
-          body: 'الإصدار ${info.latestVersion} متوفر الآن. اضغط للتحديث.',
-          storeUrl: info.storeUrl,
-        );
-      }
-
-      if (!mounted) return;
-      await UpdateAvailableDialog.show(context, info);
+      final shownWhatsNew = await _maybeShowWhatsNew();
+      if (shownWhatsNew || !mounted) return;
+      await _maybeShowUpdateAvailable();
     } catch (_) {
       // An update check must never disrupt the app; swallow any failure.
     }
+  }
+
+  /// Shows the local "what's new" popup once per build. Returns true if it was
+  /// shown (so the caller can skip the network update check this launch).
+  Future<bool> _maybeShowWhatsNew() async {
+    if (!await WhatsNewService.instance.shouldShow()) return false;
+    if (!mounted) return false;
+
+    // Let the splash→reader transition finish before interrupting with a
+    // dialog, so it doesn't fight the animation.
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return false;
+
+    await WhatsNewService.instance.markSeen();
+    if (!mounted) return false;
+    await WhatsNewDialog.show(context, WhatsNewService.currentReleaseChanges);
+    return true;
+  }
+
+  Future<void> _maybeShowUpdateAvailable() async {
+    final info = await AppUpdateService.instance.fetchIfUpdateAvailable();
+    if (info == null || !mounted) return;
+    if (!await AppUpdateService.instance.shouldSurface(info)) return;
+    if (!mounted) return;
+
+    // Let the splash→reader transition finish so the dialog lands on a
+    // settled screen instead of fighting the animation.
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+
+    await AppUpdateService.instance.markSurfaced(info);
+
+    if (AppUpdateService.instance.notifyMode.value ==
+        UpdateNotifyMode.notification) {
+      await UpdateNotificationService.instance.showUpdateNotification(
+        title: 'يوجد تحديث جديد',
+        body: 'الإصدار ${info.latestVersion} متوفر الآن. اضغط للتحديث.',
+        storeUrl: info.storeUrl,
+      );
+    }
+
+    if (!mounted) return;
+    await UpdateAvailableDialog.show(context, info);
   }
 
   void _openSettings() {
@@ -4321,6 +4356,12 @@ class _QuranPagesState extends State<QuranPages>
                     textColor,
                     borderColor,
                   ),
+                  _guideRow(
+                    Icons.tune_rounded,
+                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، وسرعة التلاوة',
+                    textColor,
+                    borderColor,
+                  ),
                   const SizedBox(height: 16),
                   Directionality(
                     textDirection: TextDirection.rtl,
@@ -4365,6 +4406,581 @@ class _QuranPagesState extends State<QuranPages>
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// Decides what a tap on the تكرار الثمن tile does:
+  ///   * If thumn repeat is already active, just cycle it (2×→3×→∞→off).
+  ///   * If engaging while paused AND the visible page has more than one thumn
+  ///     start, show the "اختر الثمن" chooser so the user picks which one.
+  ///   * Otherwise engage directly (the service picks by playing ayah / the
+  ///     visible page's single thumn).
+  void _handleThumnRepeatTap() {
+    final audio = AudioService.instance;
+    final engaging = audio.thumnRepeatMode.value == AyahRepeatMode.off;
+    final paused = !audio.isPlaying.value;
+    if (engaging && paused) {
+      final onPage = audio.thumnsStartingOnPage(_topBarCurrentPage);
+      if (onPage.length > 1) {
+        _showThumnChooser(onPage);
+        return;
+      }
+    }
+    audio.cycleThumnRepeatMode(visiblePageIndex: _topBarCurrentPage);
+  }
+
+  /// Small chooser shown when the visible page has two thumn starts. Picking
+  /// one engages repeat for that exact thumn.
+  void _showThumnChooser(List<ThumnEntry> options) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
+    const accentColor = Color(0xFFD2B97E);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: bgColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.repeat_rounded, color: titleColor, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'اختر الثمن',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: titleColor,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final entry in options)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _resetHideTimer();
+                      AudioService.instance.startThumnRepeatAt(entry);
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Text(
+                        entry.text,
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The Tilawah options sheet reached from the tune (⋯) button on the
+  /// recitation bar. Groups the "set-and-forget" choices — reciter (القارئ),
+  /// repeat-whole-thumn (تكرار الثمن) — plus a link to the button guide, so the
+  /// frequently-tapped transport controls on the bar itself stay uncluttered.
+  void _showTilawahOptionsSheet() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
+    final subTextColor = textColor.withValues(alpha: 0.6);
+    const accentColor = Color(0xFFD2B97E);
+
+    final audio = AudioService.instance;
+    final reciterService = ReciterService.instance;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: bgColor,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) {
+        // Anchors the pop-up vertical speed picker to the speed tile.
+        final speedTileKey = GlobalKey();
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Grab handle
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: borderColor,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+
+                      // Sheet title
+                      Center(
+                        child: Text(
+                          'خيارات التلاوة',
+                          style: TextStyle(
+                            color: titleColor,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // ── القارئ (reciter dropdown) ──
+                      _sheetSectionLabel(
+                        Icons.record_voice_over_rounded,
+                        'القارئ',
+                        titleColor,
+                      ),
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<Reciter>(
+                        valueListenable: reciterService.selected,
+                        builder: (context, selected, _) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: borderColor),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selected.id,
+                                isExpanded: true,
+                                icon: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: titleColor,
+                                ),
+                                dropdownColor: bgColor,
+                                borderRadius: BorderRadius.circular(12),
+                                items: [
+                                  for (final reciter in reciterService.reciters)
+                                    DropdownMenuItem(
+                                      value: reciter.id,
+                                      child: Text(
+                                        '${reciter.name} — ${reciter.riwaya}',
+                                        style: TextStyle(
+                                          color: textColor,
+                                          fontSize: 14.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                ],
+                                selectedItemBuilder: (context) => [
+                                  for (final reciter in reciterService.reciters)
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: Text(
+                                        reciter.name,
+                                        style: TextStyle(
+                                          color: textColor,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                ],
+                                onChanged: (id) {
+                                  if (id == null) return;
+                                  _resetHideTimer();
+                                  reciterService.select(
+                                    reciterService.reciters.firstWhere(
+                                      (r) => r.id == id,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // ── تكرار الثمن + سرعة التلاوة (side by side) ──
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ListenableBuilder(
+                              listenable: Listenable.merge([
+                                audio.thumnRepeatMode,
+                                audio.thumnRepeatCount,
+                              ]),
+                              builder: (context, _) {
+                                final isActive =
+                                    audio.thumnRepeatMode.value !=
+                                    AyahRepeatMode.off;
+                                return _optionTile(
+                                  icon: Icons.repeat_rounded,
+                                  title: 'تكرار الثمن',
+                                  valueLabel: isActive
+                                      ? audio.thumnRepeatLabel
+                                      : 'بدون',
+                                  isActive: isActive,
+                                  accentColor: accentColor,
+                                  borderColor: borderColor,
+                                  textColor: textColor,
+                                  subTextColor: subTextColor,
+                                  onTap: () {
+                                    _resetHideTimer();
+                                    _handleThumnRepeatTap();
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ListenableBuilder(
+                              listenable: audio.playbackSpeed,
+                              builder: (context, _) {
+                                final isActive =
+                                    audio.playbackSpeed.value != 1.0;
+                                return _optionTile(
+                                  key: speedTileKey,
+                                  icon: Icons.speed_rounded,
+                                  title: 'سرعة التلاوة',
+                                  valueLabel: audio.playbackSpeedLabel,
+                                  isActive: isActive,
+                                  accentColor: accentColor,
+                                  borderColor: borderColor,
+                                  textColor: textColor,
+                                  subTextColor: subTextColor,
+                                  onTap: () {
+                                    _resetHideTimer();
+                                    _showSpeedPopup(speedTileKey);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'يكرّر الثمن كاملاً وإن امتد على عدة صفحات — اضغط للتبديل',
+                        style: TextStyle(color: subTextColor, fontSize: 11.5),
+                      ),
+
+                      const SizedBox(height: 20),
+                      Divider(color: borderColor, height: 1),
+                      const SizedBox(height: 4),
+
+                      // ── الإرشادات (open the button guide) ──
+                      InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showRecitationBarGuide();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.help_outline_rounded,
+                                color: titleColor,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'شرح أزرار شريط التلاوة',
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Spacer(),
+                              Icon(
+                                Icons.chevron_left_rounded,
+                                color: subTextColor,
+                                size: 22,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// One row of the vertical playback-speed picker.
+  /// Pops up a compact vertical "level bar" of playback speeds floating just
+  /// above the speed tile ([anchorKey]) — the sheet itself doesn't move or
+  /// reflow. Tapping a value applies it instantly; tapping outside dismisses.
+  void _showSpeedPopup(GlobalKey anchorKey) {
+    final render = anchorKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (render == null || overlay == null) return;
+
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode
+        ? const Color(0xFF262016)
+        : const Color(0xFFFBF6E8);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
+    final subTextColor = textColor.withValues(alpha: 0.6);
+    const accentColor = Color(0xFFD2B97E);
+
+    // Tile position/size in overlay coordinates.
+    final topLeft = render.localToGlobal(Offset.zero, ancestor: overlay);
+    final tileWidth = render.size.width;
+    final tileTop = topLeft.dy;
+    final tileLeft = topLeft.dx;
+
+    // Fastest at the top, slowest at the bottom (like a level meter).
+    final speeds = AudioService.allowedPlaybackSpeeds.reversed.toList();
+    const rowHeight = 40.0;
+    final popupHeight = speeds.length * rowHeight + 12;
+
+    // Prefer floating above the tile; if there isn't room (tall sheet), drop
+    // it below instead so it never clips off the top of the screen.
+    final topSafe = MediaQuery.of(context).padding.top + 8;
+    final aboveTop = tileTop - popupHeight - 8;
+    final popupTop = aboveTop >= topSafe
+        ? aboveTop
+        : tileTop + render.size.height + 8;
+
+    final audio = AudioService.instance;
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) {
+        return Stack(
+          children: [
+            // Tap-outside barrier.
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => entry.remove(),
+              ),
+            ),
+            Positioned(
+              left: tileLeft,
+              width: tileWidth,
+              top: popupTop,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: borderColor),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: audio.playbackSpeed,
+                    builder: (context, currentSpeed, _) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final speed in speeds)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () {
+                                _resetHideTimer();
+                                audio.setPlaybackSpeed(speed);
+                                entry.remove();
+                              },
+                              child: Container(
+                                height: rowHeight,
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: speed == currentSpeed
+                                      ? accentColor.withValues(alpha: 0.22)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  AudioService.speedLabel(speed),
+                                  style: TextStyle(
+                                    color: speed == currentSpeed
+                                        ? accentColor
+                                        : (speed == 1.0
+                                              ? textColor
+                                              : subTextColor),
+                                    fontSize: 15,
+                                    fontWeight: speed == currentSpeed
+                                        ? FontWeight.w900
+                                        : FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    Overlay.of(context).insert(entry);
+  }
+
+  Widget _sheetSectionLabel(IconData icon, String label, Color color) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A compact square-ish tile used for the thumn-repeat and playback-speed
+  /// controls in the Tilawah options sheet. Both are single-tap-to-cycle
+  /// buttons, sized to sit side by side in the same row.
+  Widget _optionTile({
+    Key? key,
+    required IconData icon,
+    required String title,
+    required String valueLabel,
+    required bool isActive,
+    required Color accentColor,
+    required Color borderColor,
+    required Color textColor,
+    required Color subTextColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      key: key,
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: isActive
+              ? accentColor.withValues(alpha: 0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isActive ? accentColor : borderColor,
+            width: isActive ? 1.6 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: isActive ? accentColor : textColor, size: 16),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              valueLabel,
+              style: TextStyle(
+                color: isActive ? accentColor : subTextColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -5242,23 +5858,37 @@ class _QuranPagesState extends State<QuranPages>
                         tooltip: 'إغلاق',
                       ),
 
-                      // مساعدة
-                      IconButton(
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: Icon(
-                          Icons.help_outline_rounded,
-                          color: iconColor,
-                          size: helpIconSize,
-                        ),
-                        onPressed: () {
+                      // خيارات (القارئ، سرعة التلاوة، تكرار الثمن، الإرشادات)
+                      // Wrapped in a gold accent chip so it stands apart from
+                      // the plain-white transport icons and reads as "options".
+                      GestureDetector(
+                        onTap: () {
                           _resetHideTimer();
-                          _showRecitationBarGuide();
+                          _showTilawahOptionsSheet();
                         },
-                        tooltip: 'إرشادات',
+                        child: Tooltip(
+                          message: 'خيارات التلاوة',
+                          child: Container(
+                            padding: EdgeInsets.all(isLandscape ? 6 : 7),
+                            decoration: BoxDecoration(
+                              color: accentColor.withValues(
+                                alpha: 0.22 * iconOpacity,
+                              ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: accentColor.withValues(
+                                  alpha: 0.55 * iconOpacity,
+                                ),
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.tune_rounded,
+                              color: iconColor,
+                              size: helpIconSize,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
