@@ -99,10 +99,10 @@ class Reciter {
 
   /// Native Madani/Qaloun ayah count per surah for the al-Naihi mirror, taken
   /// from nquran.com's authoritative per-surah counts (see tools/download_naihi.py).
-  /// Matches the app's page-data ayah numbering 1:1, EXCEPT a few surahs the app
-  /// data numbers in Kufi style — e.g. surah 4 (app 176 vs Madani 175): the app's
-  /// extra trailing ayah has no distinct al-Naihi file (its audio is part of the
-  /// previous, combined ayah), so the mapping treats it as a silent "phantom".
+  /// Now matches the app's page-data ayah numbering 1:1 for every surah. (Surah 4
+  /// used to differ — the page data numbered it Kufi-style as 176 vs Madani 175 —
+  /// but the page data now uses the Madani 175 count, so no silent "phantom"
+  /// trailing ayah remains.)
   static const List<int> naihiMadaniAyahCounts = [
     7,   285, 200, 175, 122, 167, 206, 76,  130, 109, // 1-10
     122, 111, 44,  54,  99,  128, 110, 105, 98,  134, // 11-20

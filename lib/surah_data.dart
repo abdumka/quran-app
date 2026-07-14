@@ -43,7 +43,7 @@ const List<Map<String, dynamic>> surahList = [
 {"number":42,"name":"الشورى","english":"Ash-Shura","type":"مكية","ayahs":53,"page":482,"yOffsetRatio":0.0},
 {"number":43,"name":"الزخرف","english":"Az-Zukhruf","type":"مكية","ayahs":89,"page":488,"yOffsetRatio":0.262},
 {"number":44,"name":"الدخان","english":"Ad-Dukhan","type":"مكية","ayahs":59,"page":495,"yOffsetRatio":0.0},
-{"number":45,"name":"الجاثية","english":"Al-Jathiyah","type":"مكية","ayahs":37,"page":498,"yOffsetRatio":0.0},
+{"number":45,"name":"الجاثية","english":"Al-Jathiyah","type":"مكية","ayahs":37,"page":497,"yOffsetRatio":0.44},
 {"number":46,"name":"الأحقاف","english":"Al-Ahqaf","type":"مكية","ayahs":35,"page":501,"yOffsetRatio":0.0},
 {"number":47,"name":"محمد","english":"Muhammad","type":"مدنية","ayahs":38,"page":505,"yOffsetRatio":0.199},
 {"number":48,"name":"الفتح","english":"Al-Fath","type":"مدنية","ayahs":29,"page":509,"yOffsetRatio":0.0},

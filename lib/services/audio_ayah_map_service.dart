@@ -6,12 +6,12 @@ import 'package:flutter/services.dart' show rootBundle;
 /// own Qalun ayah file number(s).
 ///
 /// The page text/numbering (output.json) and the recitation audio use slightly
-/// different Qalun ayah divisions (different عدّ): they agree on surah totals in
-/// most surahs but split/merge a few verses differently (e.g. output.json counts
-/// An-Nisa as 176 ayahs vs the audio's 175; the audio keeps Ayat al-Kursi as one
-/// file while output.json splits it). Without this map, tapping an ayah plays a
-/// drifted recitation. Built offline by tools/build_audio_map.py and shipped as
-/// assets/data/audio_ayah_map.json. Only non-identity entries are listed.
+/// different Qalun ayah divisions (different عدّ): they now agree on surah totals
+/// for every surah but split/merge a few verses differently (e.g. the audio keeps
+/// Ayat al-Kursi as one file while output.json splits it). Without this map,
+/// tapping an ayah plays a drifted recitation. Built offline by
+/// tools/build_audio_map.py and shipped as assets/data/audio_ayah_map.json.
+/// Only non-identity entries are listed.
 class AudioAyahMapService {
   AudioAyahMapService._();
   static final AudioAyahMapService instance = AudioAyahMapService._();

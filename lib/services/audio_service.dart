@@ -294,8 +294,25 @@ class AudioService {
     final reciter = ReciterService.instance.selected.value;
     if (reciter.nativeQalounScheme) {
       String f(int n) => '$surahStr${n.toString().padLeft(3, '0')}.mp3';
-      final mapped = AudioAyahMapService.instance.lookup(s, a) ?? [a];
       final maxAyah = Reciter.naihiMadaniAyahCounts[s - 1];
+      List<int> mappedInts(int ayah) =>
+          (AudioAyahMapService.instance.lookup(s, ayah) ?? [ayah])
+              .where((n) => n >= 1 && n <= maxAyah)
+              .toList();
+      final mapped = mappedInts(a);
+      // Drop recitation files already recited by the previous displayed ayah.
+      // The corrected page text can split ONE recited file across two displayed
+      // ayat (e.g. 44:41+44:42 share file 41; Ayat al-Kursi 2:253+2:254 share
+      // file 253): without this the shared file would replay on the second ayah.
+      // The audio map is monotonic per surah, so a file whose number is <= the
+      // previous ayah's last file was already played.
+      if (a > 1) {
+        final prev = mappedInts(a - 1);
+        if (prev.isNotEmpty) {
+          final prevMax = prev.reduce((x, y) => x > y ? x : y);
+          mapped.removeWhere((n) => n <= prevMax);
+        }
+      }
       final files = <String>[];
       // Basmala before the first ayah — unless this reciter already recites it as
       // part of the ayah-1 file (قنيوه's الوقف الهبطي), which would double it.
@@ -304,7 +321,6 @@ class AudioService {
           AudioAyahMapService.instance.qaniwahBasmalaInAyah1(s);
       if (a == 1 && s != 9 && !basmalaInAyah1) files.add(f(0));
       for (final n in mapped) {
-        if (n < 1 || n > maxAyah) continue;
         // الوقف الهبطي (قنيوه): an ayah whose audio just repeats the previous
         // breath is skipped — the breath already played on the group's first
         // ayah. Returning no file lets playback advance to the next distinct ayah.
@@ -343,36 +359,6 @@ class AudioService {
   }
 
   // ─────────────────────────────────────
-  //  SPANNING AYAH INJECTION (Logic 36)
-  // ─────────────────────────────────────
-
-  /// Dynamically inject a spanning ayah into the first page if it's missing.
-  void _injectSpannedAyah(int fromPage, int toPage, int surah, int ayah) {
-    if (_quranPages == null) return;
-    final fromIndex = _quranPages!.indexWhere((p) => p.page == fromPage);
-    if (fromIndex != -1) {
-      final fromP = _quranPages![fromIndex];
-      if (!fromP.ayahs.any((a) => a.surah == surah && a.ayah == ayah)) {
-        // Find the ayah data from the target page
-        final toIndex = _quranPages!.indexWhere((p) => p.page == toPage);
-        if (toIndex != -1) {
-          final toP = _quranPages![toIndex];
-          final ayahData = toP.ayahs.firstWhere(
-            (a) => a.surah == surah && a.ayah == ayah,
-            orElse: () => QuranAyahData(
-              surah: surah,
-              surahName: '',
-              ayah: ayah,
-              text: '',
-            ),
-          );
-          fromP.ayahs.add(ayahData);
-        }
-      }
-    }
-  }
-
-  // ─────────────────────────────────────
   //  PLAYBACK
   // ─────────────────────────────────────
 
@@ -387,10 +373,6 @@ class AudioService {
     _isChangingPage = true;
     try {
       if (_quranPages == null) await init();
-
-      // Inject spanning ayahs (Logic 36) - dynamic, Hot Reload safe
-      _injectSpannedAyah(354, 355, 24, 36); // Surah 24 Ayah 36
-      _injectSpannedAyah(355, 356, 24, 42); // Surah 24 Ayah 42
 
       final int pageNumber = pageIndex + 1;
       _currentPageIndex = pageIndex;

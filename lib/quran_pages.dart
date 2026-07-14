@@ -4575,16 +4575,41 @@ class _QuranPagesState extends State<QuranPages>
                         ),
                       ),
 
-                      // Sheet title
-                      Center(
-                        child: Text(
-                          'خيارات التلاوة',
-                          style: TextStyle(
-                            color: titleColor,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
+                      // Sheet title, with an explicit close (X) button. Closing
+                      // the sheet only pops this route — it never touches audio,
+                      // so Tilawah mode stays active (only the إغلاق button on
+                      // the recitation bar ends it).
+                      Row(
+                        children: [
+                          IconButton(
+                            style: IconButton.styleFrom(
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: subTextColor,
+                              size: 22,
+                            ),
+                            onPressed: () => Navigator.of(context).pop(),
+                            tooltip: 'إغلاق',
                           ),
-                        ),
+                          Expanded(
+                            child: Center(
+                              child: Text(
+                                'خيارات التلاوة',
+                                style: TextStyle(
+                                  color: titleColor,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Balances the X button width so the title stays centered.
+                          const SizedBox(width: 32),
+                        ],
                       ),
                       const SizedBox(height: 16),
 

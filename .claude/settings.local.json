@@ -147,7 +147,23 @@
       "Bash(head -1 assets/data/athman_page_hizb.csv)",
       "Read(//tmp/**)",
       "Bash(rm -f thumn_probe.txt)",
-      "Bash(python tools/build_thumn_boundaries.py)"
+      "Bash(python tools/build_thumn_boundaries.py)",
+      "Bash(powershell -Command \"Get-Content 'assets/data/output.json' -TotalCount 3\")",
+      "Bash(python -c \"import quran_meta\")",
+      "Bash(python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/be521844-9113-4095-b7e6-1c1c27db2526/scratchpad/diag.py\")",
+      "Bash(cp assets/data/narration_map.json /tmp/narration_map.old.json)",
+      "Bash(python generate_narration_map.py)",
+      "Bash(python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/be521844-9113-4095-b7e6-1c1c27db2526/scratchpad/cmp_narr.py\")",
+      "Bash(python tools/build_audio_map.py)",
+      "Bash(echo \"=== exit $? ===\")",
+      "Bash(dart --version)",
+      "Bash(dart format *)",
+      "Bash(dart analyze *)",
+      "Bash(grep -nE \"assets/data|assets/$|- assets\" pubspec.yaml)",
+      "Bash(PYTHONIOENCODING=utf-8 python -)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"import json,sys; m=json.load\\(sys.stdin\\)['map']; print\\('OLD audio_ayah_map surah 44:', m.get\\('44'\\)\\)\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -c \"import json; d=json.load\\(open\\('assets/data/qaniwah_continuations.json',encoding='utf-8'\\)\\); print\\('cont 44:', d['continuations'].get\\('44'\\)\\); print\\('basmala_in_ayah1 sample:', d.get\\('basmala_in_ayah1',[]\\)[:5]\\)\")",
+      "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")"
     ],
     "additionalDirectories": [
       "d:\\quran app\\quran-app-main\\lib"
