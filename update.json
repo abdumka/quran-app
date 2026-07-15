@@ -1,14 +1,15 @@
 {
   "_comment": "Publish this file to https://raw.githubusercontent.com/abdumka/quran-app/main/update.json (the repo must be public). The app reads it on startup and from Settings > التحقق من وجود تحديث, and compares 'version'/'build' against the installed app. Set them to the LATEST released version: users on an older build get the update prompt; users already on it do not. Edit 'changes' for the changelog. Set 'mandatory': true to force the update (hides the 'Later' button and shows it every launch until updated). Per-platform keys (android/ios) override the shared top-level values; omit them to use the shared ones.",
   "version": "1.2.0",
-  "build": 20,
+  "build": 21,
   "mandatory": false,
   "changes": [
-    "فهرس الأثمان.",
+     "فهرس الأثمان.",
     "إصلاح منطق تكرار الآية/الصفحة.",
     "إمكانية استقبال إشعار عند توفر تحديث جديد.",
+    "إمكانية تحميل سورة بعينها للاستماع بدون إنترنت، أو المصحف كاملًا.",
     "تكرار الثمن.",
-    "تحديث رابط واتساب (رابط المجموعة الجديد للنقاش).",
+    "تحديث رابط واتساب (رابط مجموعة جديدة للنقاش).",
     "إمكانية تغيير سرعة التلاوة."
   ],
   "android": {
