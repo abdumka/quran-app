@@ -113,7 +113,7 @@ class MarginImagesService {
   static final MarginImagesService instance = MarginImagesService._();
 
   static const String downloadUrl =
-      'https://github.com/mahfodqr/quran-app-files/releases/download/v1.1.0/hawamesh.zip';
+      'https://github.com/abdumka/quran-app-files/releases/download/v1.1.0/hawamesh.zip';
   static const String expectedSha256 =
       '7564c80848837a1a5e25c73bdeef71dd2a5f1dc99323f497d450a43871a0f862';
   static const String _folderName = 'margin_images';

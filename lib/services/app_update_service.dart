@@ -89,12 +89,13 @@ class AppUpdateService {
   AppUpdateService._();
   static final AppUpdateService instance = AppUpdateService._();
 
-  /// The manifest lives in the same GitHub repo already used for downloadable
-  /// asset packages. Edit `update.json` there once per release.
-  /// `raw.githubusercontent` serves the file directly, and `main` is the
-  /// default branch.
+  /// The manifest lives in this fork's own source repo (abdumka/quran-app) so
+  /// update prompts are controlled here, not by the upstream project. Add
+  /// `update.json` at the repo root and edit it each release. The repo must be
+  /// public. `raw.githubusercontent` serves the file directly, and `main` is
+  /// the default branch.
   static const String manifestUrl =
-      'https://raw.githubusercontent.com/mahfodqr/quran-app-files/main/update.json';
+      'https://raw.githubusercontent.com/abdumka/quran-app/main/update.json';
 
   /// Store pages, used as a fallback when the manifest omits `storeUrl` so the
   /// "Update" button always has somewhere to go.

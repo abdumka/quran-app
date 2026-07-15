@@ -163,7 +163,11 @@
       "Bash(PYTHONIOENCODING=utf-8 python -)",
       "Bash(PYTHONIOENCODING=utf-8 python -c \"import json,sys; m=json.load\\(sys.stdin\\)['map']; print\\('OLD audio_ayah_map surah 44:', m.get\\('44'\\)\\)\")",
       "Bash(PYTHONIOENCODING=utf-8 python -c \"import json; d=json.load\\(open\\('assets/data/qaniwah_continuations.json',encoding='utf-8'\\)\\); print\\('cont 44:', d['continuations'].get\\('44'\\)\\); print\\('basmala_in_ayah1 sample:', d.get\\('basmala_in_ayah1',[]\\)[:5]\\)\")",
-      "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")"
+      "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")",
+      "Bash(python -c \"import json;json.load\\(open\\('update.json'\\)\\);print\\('valid json'\\)\")",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('update.json'\\)\\);console.log\\('valid json'\\)\")",
+      "Bash(gh auth *)",
+      "Bash(gh --version)"
     ],
     "additionalDirectories": [
       "d:\\quran app\\quran-app-main\\lib"

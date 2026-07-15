@@ -112,7 +112,7 @@ class HighQualityImagesService {
   static final HighQualityImagesService instance = HighQualityImagesService._();
 
   static const String downloadUrl =
-      'https://github.com/mahfodqr/quran-app-files/releases/download/v1.0.0/images.zip';
+      'https://github.com/abdumka/quran-app-files/releases/download/v1.0.0/images.zip';
   static const String expectedSha256 =
       '7605c40747d68ee64173f11c2230b34f8e270d0fe3980888a69e732649555394';
   static const String _folderName = 'high_quality_images';
