@@ -2,7 +2,7 @@ name: islamic_dawah_mushaf
 description: "Mushaf Al-Dawah Al-Islamia Al-Jame."
 publish_to: 'none'
 
-version: 1.2.0+20
+version: 1.2.0+21
 
 environment:
   sdk: ^3.11.1
