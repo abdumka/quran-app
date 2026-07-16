@@ -257,11 +257,24 @@ class AudioService {
     }
   }
 
-  /// Called when the selected reciter changes. Stops playback and forces the
-  /// cache directory to be recomputed for the new reciter on next play.
+  /// Called when the selected reciter changes. Playback must restart cleanly —
+  /// the base URL and cache folder both change — but switching reciter must NOT
+  /// drop the user out of Tilawah. [stop] also closes the recitation bar, so
+  /// when the bar was open we re-prime the same page/ayah against the new
+  /// reciter and keep it open: the user stays in التلاوة and simply presses play
+  /// (or keeps playing, if they already were).
   void _handleReciterChanged() {
+    final wasVisible = isRecitationBarVisible.value;
+    final wasPlaying = isPlaying.value;
+    final pageIndex = _currentPageIndex;
+    final ayahIndex = _currentGlobalAyahIndex;
     stop();
     _cacheDir = null;
+    if (wasVisible && pageIndex >= 0) {
+      // Fire and forget: reloads the playlist and audio source from the newly
+      // selected reciter and re-opens the recitation bar.
+      playPage(pageIndex, startFromAyahIndex: ayahIndex, autoPlay: wasPlaying);
+    }
   }
 
   Future<Directory> _getAudioCacheDir() async {

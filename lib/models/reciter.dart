@@ -125,7 +125,7 @@ class Reciter {
   static const Reciter qaniwahQaloun = Reciter(
     id: 'qaniwah_qaloun',
     name: 'الأمين محمد قنيوه',
-    riwaya: 'رواية قالون - الوقف الهبطي',
+    riwaya: 'رواية قالون ',
     audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/qaniwah/',
     cacheFolder: 'audio_cache_qaniwah',
     nativeQalounScheme: true,
