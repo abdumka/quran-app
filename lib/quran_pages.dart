@@ -16,6 +16,7 @@ import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
 import 'services/background_playback_service.dart';
+import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
@@ -61,6 +62,28 @@ class QuranPages extends StatefulWidget {
 
 class _QuranPagesState extends State<QuranPages>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const ColorFilter _darkPageColorFilter = ColorFilter.matrix([
+    -1,
+    0,
+    0,
+    0,
+    255,
+    0,
+    -1,
+    0,
+    0,
+    255,
+    0,
+    0,
+    -1,
+    0,
+    255,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ]);
   static const double _defaultPageAspectRatio = 720 / 1640;
   static const double _marginPageAspectRatio = 1178 / 1878;
   static const String _portraitScrollModePrefKey = 'portraitScrollMode';
@@ -292,6 +315,7 @@ class _QuranPagesState extends State<QuranPages>
   final HighQualityImagesService _highQualityImagesService =
       HighQualityImagesService.instance;
   final PageQualityService _pageQualityService = PageQualityService.instance;
+  final PageColorService _pageColorService = PageColorService.instance;
 
   final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
       GlobalKey<ContinuousQuranViewState>();
@@ -453,6 +477,7 @@ class _QuranPagesState extends State<QuranPages>
       _handleHighQualityImagesChanged,
     );
     _pageQualityService.level.addListener(_handlePageQualityChanged);
+    _pageColorService.selected.addListener(_handlePageColorChanged);
     // Use the page passed from SplashScreen so we never flash Al-Fatiha
     if (widget.initialPage > 0) {
       _readingCoordinator.setCurrentPage(widget.initialPage);
@@ -464,6 +489,7 @@ class _QuranPagesState extends State<QuranPages>
     _marginImagesService.initialize();
     _highQualityImagesService.initialize();
     _pageQualityService.load();
+    _pageColorService.load();
 
     // Set scroll mode immediately from SplashScreen to avoid delayed setState blank flash
     _isPortraitScrollMode = widget.initialPortraitScrollMode;
@@ -594,6 +620,7 @@ class _QuranPagesState extends State<QuranPages>
       _handleHighQualityImagesChanged,
     );
     _pageQualityService.level.removeListener(_handlePageQualityChanged);
+    _pageColorService.selected.removeListener(_handlePageColorChanged);
     _readingCoordinator.removeListener(_handleReadingCoordinatorChanged);
     _readingCoordinator.dispose();
     _bookmarkGuideAnimationController.dispose();
@@ -703,6 +730,18 @@ class _QuranPagesState extends State<QuranPages>
     if (!mounted) return;
     // Re-evaluate image providers and filterQuality for the new level.
     setState(() {});
+  }
+
+  void _handlePageColorChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  ColorFilter _pageColorFilter(BuildContext context) {
+    if (Theme.of(context).brightness == Brightness.dark) {
+      return _darkPageColorFilter;
+    }
+    return _pageColorService.selected.value.lightModeFilter;
   }
 
   bool _prevHqEnabled = false;
@@ -2135,6 +2174,7 @@ class _QuranPagesState extends State<QuranPages>
     }
 
     await ThemeService.setDarkMode(false);
+    await _pageColorService.reset();
     await _keepScreenAwakeService.setEnabled(true);
     await _marginImagesService.setEnabled(false);
 
@@ -2852,30 +2892,7 @@ class _QuranPagesState extends State<QuranPages>
     return LayoutBuilder(
       builder: (context, constraints) {
         return ColorFiltered(
-          colorFilter: Theme.of(context).brightness == Brightness.dark
-              ? const ColorFilter.matrix([
-                  -1,
-                  0,
-                  0,
-                  0,
-                  255,
-                  0,
-                  -1,
-                  0,
-                  0,
-                  255,
-                  0,
-                  0,
-                  -1,
-                  0,
-                  255,
-                  0,
-                  0,
-                  0,
-                  1,
-                  0,
-                ])
-              : const ColorFilter.mode(Color(0xFFFAF6EE), BlendMode.multiply),
+          colorFilter: _pageColorFilter(context),
           child: Stack(
             children: [
               GestureDetector(
@@ -3183,30 +3200,7 @@ class _QuranPagesState extends State<QuranPages>
         }
 
         return ColorFiltered(
-          colorFilter: Theme.of(context).brightness == Brightness.dark
-              ? const ColorFilter.matrix([
-                  -1,
-                  0,
-                  0,
-                  0,
-                  255,
-                  0,
-                  -1,
-                  0,
-                  0,
-                  255,
-                  0,
-                  0,
-                  -1,
-                  0,
-                  255,
-                  0,
-                  0,
-                  0,
-                  1,
-                  0,
-                ])
-              : const ColorFilter.mode(Color(0xFFFAF6EE), BlendMode.multiply),
+          colorFilter: _pageColorFilter(context),
           child: readerContent,
         );
       },

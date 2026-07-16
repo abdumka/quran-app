@@ -17,6 +17,7 @@ import '../../services/whats_new_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
 import '../../services/page_zoom_service.dart';
+import '../../services/page_color_service.dart';
 import '../../services/keep_screen_awake_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
@@ -110,6 +111,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final BackgroundPlaybackService _backgroundPlaybackService =
       BackgroundPlaybackService.instance;
   final PageZoomService _pageZoomService = PageZoomService.instance;
+  final PageColorService _pageColorService = PageColorService.instance;
   final KeepScreenAwakeService _keepScreenAwakeService =
       KeepScreenAwakeService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
@@ -162,6 +164,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _marginImagesService.initialize();
     _highQualityImagesService.initialize();
     _pageQualityService.load();
+    _pageColorService.load();
     _recitationBarOpacityService.load();
     _loadGuidePreferences();
     _loadCurrentBrightness();
@@ -812,6 +815,9 @@ class _SettingsPageState extends State<SettingsPage> {
   String get _pageZoomInfoText =>
       'يتيح لك تكبير صفحة المصحف بتقريب أصابعك (Pinch) مثل الصور. عند إيقاف هذا الخيار لا يمكن تكبير الصفحة.';
 
+  String get _pageColorInfoText =>
+      'يغيّر لون ورق الصور بوضوح مع الحفاظ على وضوح النص. اختر «أصلي» لعرض الصور بلونها الطبيعي. في الوضع الداكن يبقى العرض الداكن.';
+
   Future<void> _resetGuides() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_marginGuideDismissedPrefKey);
@@ -985,6 +991,16 @@ class _SettingsPageState extends State<SettingsPage> {
               value: mode == UpdateNotifyMode.notification,
               onChanged: _handleToggleUpdateNotifications,
             ),
+          );
+        },
+      ),
+      ValueListenableBuilder<PageColorTheme>(
+        valueListenable: _pageColorService.selected,
+        builder: (context, selectedColor, _) {
+          return PageColorTile(
+            selected: selectedColor,
+            onChanged: _pageColorService.setSelected,
+            onInfo: () => _showInfoNotice(_pageColorInfoText),
           );
         },
       ),

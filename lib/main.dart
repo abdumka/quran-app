@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/app_update_service.dart';
 import 'services/background_playback_service.dart';
+import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/debug_log_service.dart';
 import 'services/reciter_service.dart';
@@ -73,6 +74,7 @@ Future<void> main() async {
     ReciterService.instance.load(),
     AppUpdateService.instance.load(),
     BackgroundPlaybackService.instance.load(),
+    PageColorService.instance.load(),
     PageZoomService.instance.load(),
     RecitationBarOpacityService.instance.load(),
     SystemChrome.setPreferredOrientations([

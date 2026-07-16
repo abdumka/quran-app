@@ -4,6 +4,7 @@ import '../../models/reciter.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
+import '../../services/page_color_service.dart';
 import '../../surah_data.dart';
 
 class PremiumIconWrapper extends StatelessWidget {
@@ -922,6 +923,115 @@ class PageQualityTile extends StatelessWidget {
         side: const BorderSide(color: _gold),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      ),
+    );
+  }
+}
+
+class PageColorTile extends StatelessWidget {
+  const PageColorTile({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+    this.onInfo,
+  });
+
+  final PageColorTheme selected;
+  final ValueChanged<PageColorTheme> onChanged;
+  final VoidCallback? onInfo;
+
+  static const Color _gold = Color(0xFF8B7355);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          SettingsTileHeader(title: 'لون صفحات المصحف', onInfo: onInfo),
+          const SizedBox(height: 10),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            children: PageColorTheme.values.map((option) {
+              final isSelected = selected == option;
+              return Semantics(
+                button: true,
+                selected: isSelected,
+                label: option.arabicLabel,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => onChanged(option),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      width: 105,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFFF6EFE2)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected ? _gold : const Color(0xFFE8DCC8),
+                          width: isSelected ? 1.4 : 0.7,
+                        ),
+                      ),
+                      child: Row(
+                        textDirection: TextDirection.rtl,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: option.color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected
+                                    ? _gold
+                                    : const Color(0xFFB8AA94),
+                              ),
+                            ),
+                            child: isSelected
+                                ? const Icon(
+                                    Icons.check_rounded,
+                                    size: 15,
+                                    color: Color(0xFF5F4B32),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              option.arabicLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: isSelected
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                                color: const Color(0xFF3E3428),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
