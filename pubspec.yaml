@@ -48,6 +48,8 @@ flutter:
     - assets/images/
     - assets/data/output.json
     - assets/data/ar.saddi.json
+    - assets/data/ar.muyassar.json
+    - assets/data/ar.jalalayn.json
     - assets/data/narration_map.json
     - assets/data/ayah_positions.json
     - assets/data/audio_ayah_map.json

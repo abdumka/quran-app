@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python tools/build_tafsir_pages.py)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(git check-ignore *)",
+      "Bash(python tools/build_tafsir_pages.py jalalayn)",
+      "Bash(flutter devices *)",
+      "Bash(python -c \"import boto3, truststore; print\\('boto3', boto3.__version__, '+ truststore OK'\\)\")",
+      "Bash(flutter run *)",
+      "Bash(python tools/mirror_tafsir_to_r2.py)",
+      "Bash(curl.exe -s -A 'Dart/3.9 \\(dart:io\\)' \"https://pub-5025f0d14b9046309795201770f30da1.r2.dev/tafsir/ibn_kathir/page_313.json\")",
+      "Bash(flutter --version)",
+      "Read(//c/Users/keilani/flutter/packages/flutter/lib/src/widgets/**)"
+    ]
+  }
+}

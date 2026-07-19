@@ -438,7 +438,7 @@ class AudioService {
 
   Future<void> _preloadNextPage(int currentPageIndex) async {
     final nextPageIndex = currentPageIndex + 1;
-    if (nextPageIndex >= 604 || _quranPages == null) return;
+    if (nextPageIndex >= 602 || _quranPages == null) return;
     final nextPageNumber = nextPageIndex + 1;
     final nextPage = _quranPages!.firstWhere(
       (p) => p.page == nextPageNumber,

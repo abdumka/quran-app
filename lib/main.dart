@@ -11,6 +11,7 @@ import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/debug_log_service.dart';
 import 'services/reciter_service.dart';
+import 'services/tafsir_edition_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
 import 'splash_screen.dart';
@@ -72,6 +73,7 @@ Future<void> main() async {
   await Future.wait([
     ThemeService.loadTheme(),
     ReciterService.instance.load(),
+    TafsirEditionService.instance.load(),
     AppUpdateService.instance.load(),
     BackgroundPlaybackService.instance.load(),
     PageColorService.instance.load(),

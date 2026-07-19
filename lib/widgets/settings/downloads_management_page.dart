@@ -3,15 +3,19 @@ import '../../config/image_config.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
+import '../../services/tafsir_cache_service.dart';
+import '../../models/tafsir_edition.dart';
 class DownloadsManagementPage extends StatefulWidget {
   final AudioDownloadService audioDownloadService;
   final MarginImagesService marginImagesService;
   final HighQualityImagesService highQualityImagesService;
+  final TafsirCacheService tafsirCacheService;
 
   const DownloadsManagementPage({super.key,
     required this.audioDownloadService,
     required this.marginImagesService,
     required this.highQualityImagesService,
+    required this.tafsirCacheService,
   });
 
   @override
@@ -91,9 +95,13 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
             return ValueListenableBuilder<HighQualityImagesState>(
               valueListenable: widget.highQualityImagesService.state,
               builder: (context, hqState, _) {
+            return ValueListenableBuilder<TafsirCacheState>(
+              valueListenable: widget.tafsirCacheService.state,
+              builder: (context, tafsirState, _) {
             final totalBytes = audioState.installedBytes +
                 marginState.installedBytes +
-                hqState.installedBytes;
+                hqState.installedBytes +
+                tafsirState.installedBytes;
 
             return Scaffold(
               backgroundColor: const Color(0xFFF6F1E5),
@@ -242,8 +250,12 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                           : null,
                     ),
                   ],
+                  const SizedBox(height: 10),
+                  TafsirDownloadsSection(service: widget.tafsirCacheService),
                 ],
               ),
+            );
+              },
             );
               },
             );
@@ -368,6 +380,178 @@ class InfoChip extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: Color(0xFF5C4522),
         ),
+      ),
+    );
+  }
+}
+
+/// One card per online tafsir edition (Ibn Kathir / Tabari / Qurtubi) letting the
+/// user download the whole edition for offline reading, watch progress, and
+/// delete just that edition's cached pages. On-demand page caching also lands
+/// here, so this reflects everything cached.
+class TafsirDownloadsSection extends StatefulWidget {
+  final TafsirCacheService service;
+  const TafsirDownloadsSection({super.key, required this.service});
+
+  @override
+  State<TafsirDownloadsSection> createState() => _TafsirDownloadsSectionState();
+}
+
+class _TafsirDownloadsSectionState extends State<TafsirDownloadsSection> {
+  final Map<String, int> _counts = {};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.service.downloadState.addListener(_onDownloadChanged);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    widget.service.downloadState.removeListener(_onDownloadChanged);
+    super.dispose();
+  }
+
+  void _onDownloadChanged() {
+    // When a download finishes (goes idle), re-read cached page counts.
+    if (!widget.service.downloadState.value.isDownloading) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    for (final e in TafsirEdition.onlineEditions) {
+      final count = await widget.service.cachedPageCount(e);
+      if (!mounted) return;
+      setState(() => _counts[e.id] = count);
+    }
+  }
+
+  Future<void> _delete(TafsirEdition e) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('حذف ${e.name}', textDirection: TextDirection.rtl),
+        content: Text(
+          'سيتم حذف صفحات ${e.name} المحمّلة من الجهاز. يمكن إعادة تنزيلها لاحقًا. هل تريد المتابعة؟',
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await widget.service.deleteEdition(e);
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TafsirDownloadState>(
+      valueListenable: widget.service.downloadState,
+      builder: (context, dl, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final e in TafsirEdition.onlineEditions) ...[
+              _editionCard(e, dl),
+              const SizedBox(height: 10),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _editionCard(TafsirEdition e, TafsirDownloadState dl) {
+    const total = TafsirEdition.onlinePageCount;
+    final bool activeHere = dl.isDownloading && dl.editionId == e.id;
+    final bool activeOther = dl.isDownloading && dl.editionId != e.id;
+    final int cached = activeHere ? dl.done : (_counts[e.id] ?? 0);
+    final bool complete = cached >= total;
+
+    final String statusLabel = activeHere
+        ? 'جارٍ التحميل'
+        : complete
+            ? 'مكتملة'
+            : cached > 0
+                ? 'جزئية'
+                : 'غير محمّلة';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3EFE6),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            textDirection: TextDirection.rtl,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.menu_book_rounded, color: Color(0xFF5C4522)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e.name,
+                      textDirection: TextDirection.rtl,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2F2418),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      e.subtitle,
+                      textDirection: TextDirection.rtl,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Color(0xFF6A5A45),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Download lives in Settings (TafsirDownloadTile) — this page only
+          // shows what's cached and lets the user delete it.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            textDirection: TextDirection.rtl,
+            children: [
+              InfoChip(label: '$cached / $total صفحة'),
+              InfoChip(label: statusLabel),
+              if (cached > 0 && !activeHere)
+                FilledButton.tonal(
+                  onPressed: activeOther ? null : () => _delete(e),
+                  child: const Text('حذف'),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

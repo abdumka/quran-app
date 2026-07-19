@@ -99,3 +99,8 @@ tools/naihi_durations.json
 
 # Cloudflare R2 credentials (never commit)
 tools/.r2_secret
+
+# Tafsir build cache: source surah files fetched by tools/build_tafsir_pages.py.
+# The bundled output (assets/data/ar.muyassar.json) IS committed; the online
+# per-page output lives under /build/tafsir and is uploaded to R2, not committed.
+.tafsir_tmp/

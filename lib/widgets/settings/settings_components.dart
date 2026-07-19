@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../config/image_config.dart';
 import '../../models/reciter.dart';
+import '../../models/tafsir_edition.dart';
 import '../../services/audio_download_service.dart';
+import '../../services/tafsir_cache_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
 import '../../services/page_color_service.dart';
@@ -318,36 +320,28 @@ class DownloadsManagementTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 40),
-        child: Row(
-          textDirection: TextDirection.rtl,
-          children: [
-            Expanded(
-              child: SettingsTileHeader(
-                title: 'إدارة الملفات المحمّلة',
-                onInfo: onInfo,
+    // The whole row is tappable (no separate "فتح" button): tapping the title
+    // opens the downloads management page. The ℹ button keeps its own tap.
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              Expanded(
+                child: SettingsTileHeader(
+                  title: 'إدارة الملفات المحمّلة',
+                  onInfo: onInfo,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.folder_outlined,
-                  color: Color(0xFF8B7355), size: 16),
-              label: const Text('فتح',
-                  style: TextStyle(color: Color(0xFF8B7355), fontSize: 12.5)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                visualDensity: VisualDensity.compact,
-              ),
-              onPressed: onOpen,
-            ),
-          ],
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_left_rounded, color: Color(0xFF8B7355)),
+            ],
+          ),
         ),
       ),
     );
@@ -478,6 +472,148 @@ class ReciterTile extends StatelessWidget {
                         DropdownMenuItem<Reciter>(
                           value: r,
                           child: _reciterRow(r, checked: r.id == selected.id),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Settings dropdown for choosing the default tafsir edition. Mirrors
+/// [ReciterTile]; the reader can also switch editions live from the tafsir
+/// sheet header.
+class TafsirEditionTile extends StatelessWidget {
+  final List<TafsirEdition> editions;
+  final TafsirEdition selected;
+  final ValueChanged<TafsirEdition> onSelect;
+  final VoidCallback? onInfo;
+
+  const TafsirEditionTile({
+    super.key,
+    required this.editions,
+    required this.selected,
+    required this.onSelect,
+    this.onInfo,
+  });
+
+  Widget _editionRow(
+    TafsirEdition e, {
+    required bool checked,
+    bool showSubtitle = true,
+  }) {
+    return Row(
+      textDirection: TextDirection.rtl,
+      children: [
+        Icon(
+          checked
+              ? Icons.check_circle_rounded
+              : (e.isBundled
+                  ? Icons.offline_pin_outlined
+                  : Icons.cloud_outlined),
+          size: 18,
+          color: checked ? const Color(0xFF8B7355) : const Color(0xFFB7A88E),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                e.name,
+                textDirection: TextDirection.rtl,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2C2C2C),
+                ),
+              ),
+              if (showSubtitle)
+                Text(
+                  e.isBundled ? e.subtitle : '${e.subtitle} • يتطلب إنترنت',
+                  textDirection: TextDirection.rtl,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF888888),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = editions.firstWhere(
+      (e) => e.id == selected.id,
+      orElse: () => editions.first,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            'التفسير',
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2C2C2C),
+            ),
+          ),
+          if (onInfo != null) ...[
+            const SizedBox(width: 4),
+            InfoHintButton(onTap: onInfo!),
+          ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EFE6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF8D6E3F).withValues(alpha: 0.20),
+                ),
+              ),
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<TafsirEdition>(
+                    isExpanded: true,
+                    isDense: true,
+                    value: current,
+                    itemHeight: 54,
+                    borderRadius: BorderRadius.circular(12),
+                    dropdownColor: const Color(0xFFF6F1E5),
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF8B7355),
+                    ),
+                    onChanged: (e) {
+                      if (e != null && e.id != selected.id) onSelect(e);
+                    },
+                    selectedItemBuilder: (context) => [
+                      for (final e in editions)
+                        _editionRow(e, checked: false, showSubtitle: false),
+                    ],
+                    items: [
+                      for (final e in editions)
+                        DropdownMenuItem<TafsirEdition>(
+                          value: e,
+                          child: _editionRow(e, checked: e.id == selected.id),
                         ),
                     ],
                   ),
@@ -656,6 +792,239 @@ class AudioDownloadTile extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Downloads the currently selected tafsir for offline reading — the tafsir
+/// analogue of [AudioDownloadTile]. Bundled editions (Sa'di/Muyassar/Jalalayn)
+/// ship with the app so they show "محمّل مع التطبيق"; online editions (Ibn
+/// Kathir/Tabari/Qurtubi) download their whole set of pages with progress.
+class TafsirDownloadTile extends StatefulWidget {
+  final TafsirCacheService service;
+  final TafsirEdition edition;
+  final VoidCallback? onInfo;
+
+  const TafsirDownloadTile({
+    super.key,
+    required this.service,
+    required this.edition,
+    this.onInfo,
+  });
+
+  @override
+  State<TafsirDownloadTile> createState() => _TafsirDownloadTileState();
+}
+
+class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
+  int _cached = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.service.downloadState.addListener(_onDownloadChanged);
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(TafsirDownloadTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.edition.id != widget.edition.id) _refresh();
+  }
+
+  @override
+  void dispose() {
+    widget.service.downloadState.removeListener(_onDownloadChanged);
+    super.dispose();
+  }
+
+  void _onDownloadChanged() {
+    if (!widget.service.downloadState.value.isDownloading) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    if (!widget.edition.isOnline) {
+      if (mounted) setState(() => _cached = 0);
+      return;
+    }
+    final count = await widget.service.cachedPageCount(widget.edition);
+    if (mounted) setState(() => _cached = count);
+  }
+
+  /// Names the tafsir and its approximate download size, then downloads it only
+  /// on confirmation.
+  Future<void> _confirmAndDownload(TafsirEdition e, int cached) async {
+    const total = TafsirEdition.onlinePageCount;
+    final remaining = total - cached;
+    // Approximate the remaining size from the whole-edition estimate.
+    final int remainingMb = e.approxDownloadMb > 0
+        ? ((e.approxDownloadMb * remaining) / total).ceil()
+        : 0;
+    final String fullSize =
+        e.approxDownloadMb > 0 ? '، نحو ${e.approxDownloadMb} ميجابايت' : '';
+    final String remSize = remainingMb > 0 ? '، نحو $remainingMb ميجابايت' : '';
+    final body = cached > 0
+        ? 'سيتم تحميل ما تبقّى من «${e.name}» ($remaining صفحة$remSize) لقراءته بدون إنترنت. قد يستهلك بيانات. هل تريد المتابعة؟'
+        : 'سيتم تحميل «${e.name}» كاملًا ($total صفحة$fullSize) لقراءته بدون إنترنت. قد يستغرق ذلك بعض الوقت ويستهلك بيانات. هل تريد المتابعة؟';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('تحميل ${e.name}', textDirection: TextDirection.rtl),
+        content: Text(body, textDirection: TextDirection.rtl),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('تحميل'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) widget.service.downloadEdition(e);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TafsirDownloadState>(
+      valueListenable: widget.service.downloadState,
+      builder: (context, dl, _) {
+        final e = widget.edition;
+        const total = TafsirEdition.onlinePageCount;
+        final bool activeHere = dl.isDownloading && dl.editionId == e.id;
+        final bool activeOther = dl.isDownloading && dl.editionId != e.id;
+        final int cached = activeHere ? dl.done : _cached;
+        final bool complete = e.isOnline && cached >= total;
+        final double fraction =
+            activeHere ? dl.fraction : (total > 0 ? cached / total : 0);
+
+        return Padding(
+          padding:
+              EdgeInsets.symmetric(horizontal: 12, vertical: activeHere ? 10 : 5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 40),
+                child: Row(
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    Expanded(
+                      child: SettingsTileHeader(
+                        title: 'تحميل التفسير',
+                        onInfo: widget.onInfo,
+                      ),
+                    ),
+                    if (!e.isOnline) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.offline_pin_rounded,
+                          size: 19, color: Color(0xFF4B7F3A)),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'محمّل مع التطبيق',
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF4B7F3A),
+                        ),
+                      ),
+                    ] else if (complete) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.check_circle_rounded,
+                          size: 19, color: Color(0xFF4B7F3A)),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'محمّل بالكامل',
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF4B7F3A),
+                        ),
+                      ),
+                    ] else if (!activeHere) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: activeOther
+                            ? null
+                            : () => _confirmAndDownload(e, cached),
+                        icon: const Icon(Icons.download_rounded,
+                            color: Color(0xFF8B7355), size: 16),
+                        label: Text(
+                          cached > 0 ? 'متابعة التحميل' : 'تحميل',
+                          style: const TextStyle(
+                            color: Color(0xFF8B7355),
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF8B7355)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (activeHere) ...[
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.cancel_rounded, color: Colors.red),
+                      onPressed: widget.service.cancelDownload,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          minHeight: 8,
+                          value: fraction > 0 ? fraction : null,
+                          backgroundColor:
+                              const Color(0xFFE8DCC8).withValues(alpha: 0.3),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              Color(0xFF8B7355)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    Text(
+                      '$cached / $total صفحة',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF888888)),
+                    ),
+                    Text(
+                      '${(fraction * 100).round()}%',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF8B7355)),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -934,13 +1303,15 @@ class PageColorTile extends StatelessWidget {
     required this.selected,
     required this.onChanged,
     this.onInfo,
+    this.onPreview,
   });
 
   final PageColorTheme selected;
   final ValueChanged<PageColorTheme> onChanged;
   final VoidCallback? onInfo;
 
-  static const Color _gold = Color(0xFF8B7355);
+  /// Opens the full-screen live preview (mushaf page + swatches + save).
+  final VoidCallback? onPreview;
 
   @override
   Widget build(BuildContext context) {
@@ -951,87 +1322,342 @@ class PageColorTile extends StatelessWidget {
         children: [
           SettingsTileHeader(title: 'لون صفحات المصحف', onInfo: onInfo),
           const SizedBox(height: 10),
+          // Live preview — recolors instantly as swatches are tapped, and
+          // opens the full-screen preview when tapped.
+          if (onPreview != null) ...[
+            _PageColorPreviewThumbnail(theme: selected, onTap: onPreview!),
+            const SizedBox(height: 12),
+          ],
           Wrap(
             alignment: WrapAlignment.end,
             spacing: 8,
             runSpacing: 8,
             children: PageColorTheme.values.map((option) {
-              final isSelected = selected == option;
-              return Semantics(
-                button: true,
-                selected: isSelected,
-                label: option.arabicLabel,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: () => onChanged(option),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      width: 105,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFFF6EFE2)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isSelected ? _gold : const Color(0xFFE8DCC8),
-                          width: isSelected ? 1.4 : 0.7,
-                        ),
-                      ),
-                      child: Row(
-                        textDirection: TextDirection.rtl,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: option.color,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isSelected
-                                    ? _gold
-                                    : const Color(0xFFB8AA94),
-                              ),
-                            ),
-                            child: isSelected
-                                ? const Icon(
-                                    Icons.check_rounded,
-                                    size: 15,
-                                    color: Color(0xFF5F4B32),
-                                  )
-                                : null,
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(
-                            child: Text(
-                              option.arabicLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: isSelected
-                                    ? FontWeight.w700
-                                    : FontWeight.w600,
-                                color: const Color(0xFF3E3428),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+              return PageColorSwatch(
+                option: option,
+                isSelected: selected == option,
+                onTap: () => onChanged(option),
               );
             }).toList(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A single selectable paper-color chip. Shared by the settings tile and the
+/// full-screen preview page so both look identical.
+class PageColorSwatch extends StatelessWidget {
+  const PageColorSwatch({
+    super.key,
+    required this.option,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final PageColorTheme option;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  static const Color _gold = Color(0xFF8B7355);
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: option.arabicLabel,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 105,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFFF6EFE2) : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isSelected ? _gold : const Color(0xFFE8DCC8),
+                width: isSelected ? 1.4 : 0.7,
+              ),
+            ),
+            child: Row(
+              textDirection: TextDirection.rtl,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: option.color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? _gold : const Color(0xFFB8AA94),
+                    ),
+                  ),
+                  child: isSelected
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 15,
+                          color: Color(0xFF5F4B32),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    option.arabicLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight:
+                          isSelected ? FontWeight.w700 : FontWeight.w600,
+                      color: const Color(0xFF3E3428),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Renders a real mushaf page with the paper-color filter applied, so the user
+/// sees exactly how the reader will look. When [croppedHeight] is set it shows
+/// a fixed-height top crop (settings thumbnail); otherwise it shows the whole
+/// page keeping its aspect ratio (full-screen preview).
+class PageColorSamplePreview extends StatelessWidget {
+  const PageColorSamplePreview({
+    super.key,
+    required this.theme,
+    this.croppedHeight,
+  });
+
+  final PageColorTheme theme;
+  final double? croppedHeight;
+
+  static const String _sampleAsset = 'assets/images/page_3.webp';
+  static const double _pageAspectRatio = 720 / 1640;
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = ColorFiltered(
+      colorFilter: theme.lightModeFilter,
+      child: Image.asset(
+        _sampleAsset,
+        fit: croppedHeight != null ? BoxFit.cover : BoxFit.contain,
+        alignment: Alignment.topCenter,
+        gaplessPlayback: true,
+      ),
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0D3BC)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(11),
+        child: croppedHeight != null
+            ? SizedBox(
+                height: croppedHeight,
+                width: double.infinity,
+                child: filtered,
+              )
+            : AspectRatio(aspectRatio: _pageAspectRatio, child: filtered),
+      ),
+    );
+  }
+}
+
+/// The tappable thumbnail shown inside [PageColorTile] with a "full-screen
+/// preview" hint pill overlaid.
+class _PageColorPreviewThumbnail extends StatelessWidget {
+  const _PageColorPreviewThumbnail({
+    required this.theme,
+    required this.onTap,
+  });
+
+  final PageColorTheme theme;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'معاينة لون الصفحة بملء الشاشة',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Stack(
+          children: [
+            PageColorSamplePreview(theme: theme, croppedHeight: 150),
+            Positioned(
+              left: 8,
+              bottom: 8,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.fullscreen_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                    SizedBox(width: 4),
+                    Text(
+                      'معاينة',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen live preview: pick a paper color and see it applied to a real
+/// mushaf page immediately, then save. Backing out leaves the saved color
+/// untouched — the service is only written on save.
+class PageColorPreviewPage extends StatefulWidget {
+  const PageColorPreviewPage({super.key});
+
+  @override
+  State<PageColorPreviewPage> createState() => _PageColorPreviewPageState();
+}
+
+class _PageColorPreviewPageState extends State<PageColorPreviewPage> {
+  final PageColorService _service = PageColorService.instance;
+  late PageColorTheme _selected;
+
+  static const Color _bg = Color(0xFFF6F1E5);
+  static const Color _gold = Color(0xFF8D6E3F);
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = _service.selected.value;
+  }
+
+  bool get _hasChanges => _selected != _service.selected.value;
+
+  Future<void> _save() async {
+    await _service.setSelected(_selected);
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: _bg,
+        appBar: AppBar(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: _bg,
+          foregroundColor: const Color(0xFF3D3122),
+          title: const Text(
+            'لون صفحات المصحف',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+                child: Text(
+                  'اختر لونًا لتشاهد أثره مباشرة على صفحة المصحف، ثم اضغط حفظ.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: Color(0xFF6A5A45),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Center(
+                    child: PageColorSamplePreview(theme: _selected),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: PageColorTheme.values.map((option) {
+                    return PageColorSwatch(
+                      option: option,
+                      isSelected: _selected == option,
+                      onTap: () => setState(() => _selected = option),
+                    );
+                  }).toList(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _gold,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: _hasChanges
+                        ? _save
+                        : () => Navigator.of(context).pop(false),
+                    child: Text(
+                      _hasChanges ? 'حفظ' : 'تم',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

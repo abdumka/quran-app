@@ -29,6 +29,7 @@ import 'services/update_notification_service.dart';
 import 'services/whats_new_service.dart';
 import 'services/theme_service.dart';
 import 'services/tafsir_service.dart';
+import 'services/tafsir_edition_service.dart';
 import 'services/audio_service.dart';
 import 'services/reciter_service.dart';
 import 'services/quran_json_service.dart';
@@ -6058,7 +6059,106 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
   void initState() {
     super.initState();
     _currentPage = widget.initialPageIndex;
+    // Switching tafsir edition from the header picker reloads the current page.
+    TafsirEditionService.instance.selected.addListener(_onEditionChanged);
     _loadTafsir(_currentPage);
+  }
+
+  @override
+  void dispose() {
+    TafsirEditionService.instance.selected.removeListener(_onEditionChanged);
+    super.dispose();
+  }
+
+  void _onEditionChanged() => _loadTafsir(_currentPage);
+
+  Future<void> _openEditionPicker() async {
+    final service = TafsirEditionService.instance;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: widget.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) {
+        final selectedId = service.selected.value.id;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: widget.borderColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'اختر التفسير',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: widget.titleColor,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  children: [
+                    for (final edition in service.editions)
+                      ListTile(
+                        onTap: () {
+                          service.select(edition);
+                          Navigator.of(sheetContext).pop();
+                        },
+                        leading: Icon(
+                          edition.id == selectedId
+                              ? Icons.check_circle_rounded
+                              : Icons.menu_book_outlined,
+                          color: edition.id == selectedId
+                              ? widget.accentColor
+                              : widget.borderColor,
+                        ),
+                        title: Text(
+                          edition.name,
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: widget.titleColor,
+                          ),
+                        ),
+                        subtitle: Text(
+                          edition.isBundled
+                              ? edition.subtitle
+                              : '${edition.subtitle} • يتطلب إنترنت لأول مرة',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: widget.titleColor.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        trailing: Icon(
+                          edition.isBundled
+                              ? Icons.offline_pin_outlined
+                              : Icons.cloud_outlined,
+                          size: 18,
+                          color: widget.titleColor.withValues(alpha: 0.45),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _loadTafsir(int pageIndex) async {
@@ -6072,7 +6172,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
   }
 
   void _goToPage(int newPage) {
-    if (newPage < 0 || newPage >= 604) return;
+    if (newPage < 0 || newPage >= 602) return;
     setState(() => _currentPage = newPage);
     widget.onPageChanged(newPage);
     _loadTafsir(newPage);
@@ -6117,7 +6217,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
-                        onPressed: _currentPage < 603
+                        onPressed: _currentPage < 601
                             ? () => _goToPage(_currentPage + 1)
                             : null,
                         icon: Icon(
@@ -6134,14 +6234,70 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                       ),
                     ),
                     Expanded(
-                      child: Text(
-                        'تفسير السعدي - الصفحة ${_currentPage + 1}',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: widget.titleColor,
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Tap-to-change-tafsir affordance: a filled, bordered
+                          // pill with the ⇕ glyph so it clearly reads as a
+                          // selector with other options, not a plain title.
+                          Center(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _openEditionPicker,
+                                borderRadius: BorderRadius.circular(22),
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                      8, 6, 12, 6),
+                                  decoration: BoxDecoration(
+                                    color: widget.accentColor
+                                        .withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(22),
+                                    border: Border.all(
+                                      color: widget.accentColor
+                                          .withValues(alpha: 0.55),
+                                      width: 1.3,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.unfold_more_rounded,
+                                        size: 20,
+                                        color: widget.accentColor,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          TafsirEditionService
+                                              .instance.selected.value.name,
+                                          textAlign: TextAlign.center,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.bold,
+                                            color: widget.titleColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'الصفحة ${_currentPage + 1} • اضغط لاختيار تفسير آخر',
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: widget.accentColor.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     // Previous page (right arrow in RTL = previous page)
@@ -6189,7 +6345,20 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                           ),
                         ),
                       )
-                    : ListView.separated(
+                    // A smooth, always-visible position indicator. It is NOT
+                    // interactive on purpose: an interactive/draggable scrollbar
+                    // fights the DraggableScrollableSheet (they share a scroll
+                    // controller whose extent changes as the sheet resizes),
+                    // which caused the thumb to snap and jump to the ends.
+                    // Scrolling is done by dragging the content, which is smooth.
+                    : RawScrollbar(
+                        controller: scrollController,
+                        thumbVisibility: true,
+                        thickness: 5,
+                        radius: const Radius.circular(4),
+                        thumbColor:
+                            widget.accentColor.withValues(alpha: 0.5),
+                        child: ListView.separated(
                         controller: scrollController,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -6237,6 +6406,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                             ],
                           );
                         },
+                      ),
                       ),
               ),
             ],

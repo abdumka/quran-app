@@ -9,6 +9,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/reciter.dart';
+import '../../models/tafsir_edition.dart';
 import '../../services/app_update_service.dart';
 import '../../services/update_notification_service.dart';
 import '../update_available_dialog.dart';
@@ -23,6 +24,8 @@ import '../../services/margin_images_service.dart';
 import '../../services/high_quality_images_service.dart';
 import '../../services/page_quality_service.dart';
 import '../../services/reciter_service.dart';
+import '../../services/tafsir_edition_service.dart';
+import '../../services/tafsir_cache_service.dart';
 import '../../services/recitation_bar_opacity_service.dart';
 import '../../utils/responsive_helper.dart';
 
@@ -117,11 +120,20 @@ class _SettingsPageState extends State<SettingsPage> {
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
   final HighQualityImagesService _highQualityImagesService =
       HighQualityImagesService.instance;
+  final TafsirEditionService _tafsirEditionService =
+      TafsirEditionService.instance;
+  final TafsirCacheService _tafsirCacheService = TafsirCacheService.instance;
   final PageQualityService _pageQualityService = PageQualityService.instance;
   final RecitationBarOpacityService _recitationBarOpacityService =
       RecitationBarOpacityService.instance;
   final AppUpdateService _appUpdateService = AppUpdateService.instance;
   bool _isCheckingForUpdate = false;
+
+  // Controls the collapsible "إعدادات التلاوة والتفسير" section so it can be
+  // opened programmatically (e.g. before its background-playback coach step
+  // measures the — otherwise unmounted — tile).
+  final ExpansibleController _recitationTafsirController =
+      ExpansibleController();
 
   final GlobalKey _settingsOverlayKey = GlobalKey();
   final GlobalKey _browseModeCardKey = GlobalKey();
@@ -163,6 +175,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _keepScreenAwakeService.load();
     _marginImagesService.initialize();
     _highQualityImagesService.initialize();
+    _tafsirEditionService.load();
+    _tafsirCacheService.initialize();
     _pageQualityService.load();
     _pageColorService.load();
     _recitationBarOpacityService.load();
@@ -335,6 +349,12 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _activateCoachStep(SettingsCoachStep step) {
+    // The background-playback tile now lives inside the collapsible
+    // "إعدادات التلاوة والتفسير" section; open it first so the tile is mounted
+    // and can be measured/highlighted (expand() is a no-op if already open).
+    if (step == SettingsCoachStep.backgroundPlayback) {
+      _recitationTafsirController.expand();
+    }
     final targetContext = _coachTargetKey(step).currentContext;
 
     if (targetContext != null) {
@@ -713,6 +733,19 @@ class _SettingsPageState extends State<SettingsPage> {
     _showSettingsNotice('تم اختيار تلاوة ${reciter.name}.');
   }
 
+  Future<void> _handleTafsirSelect(TafsirEdition edition) async {
+    if (_tafsirEditionService.selected.value.id == edition.id) return;
+    await _tafsirEditionService.select(edition);
+    if (!mounted) return;
+    _showSettingsNotice('تم اختيار ${edition.name}.');
+  }
+
+  String get _tafsirInfoText =>
+      'اختر التفسير الافتراضي. التفاسير الكبيرة (ابن كثير، الطبري، القرطبي) تُنزَّل صفحاتها من الإنترنت عند فتحها وتُحفظ للقراءة لاحقًا بدون إنترنت. يمكنك أيضًا تبديل التفسير من أعلى نافذة التفسير.';
+
+  String get _tafsirDownloadInfoText =>
+      'نزّل التفسير المختار كاملًا لقراءته بدون إنترنت. التفاسير المدمجة (السعدي، الميسّر، الجلالين) متوفرة دائمًا بدون تنزيل، أما الكبيرة (ابن كثير، الطبري، القرطبي) فتُحمَّل صفحاتها هنا. يمكنك حذف ما نزّلته من إدارة الملفات المحمّلة.';
+
   void _openDownloadsManagementPage() {
     Navigator.push(
       context,
@@ -721,8 +754,16 @@ class _SettingsPageState extends State<SettingsPage> {
           audioDownloadService: _audioDownloadService,
           marginImagesService: _marginImagesService,
           highQualityImagesService: _highQualityImagesService,
+          tafsirCacheService: _tafsirCacheService,
         ),
       ),
+    );
+  }
+
+  void _openPageColorPreview() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PageColorPreviewPage()),
     );
   }
 
@@ -874,6 +915,134 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  /// Collapsed "إعدادات التلاوة والتفسير" section: only the title is shown until
+  /// the user taps it, then the recitation/tafsir settings (reciter picker,
+  /// audio download, background playback and the tafsir edition picker) expand
+  /// inline. Built exactly like [_buildAdvancedSettingsSection]; the
+  /// [_recitationTafsirController] lets the background-playback coach step open
+  /// the section before it measures that tile.
+  Widget _buildRecitationTafsirSection() {
+    final children = <Widget>[
+      Container(
+        key: _reciterKey,
+        child: ValueListenableBuilder<Reciter>(
+          valueListenable: _reciterService.selected,
+          builder: (context, selectedReciter, _) {
+            return ReciterTile(
+              reciters: _reciterService.reciters,
+              selected: selectedReciter,
+              onSelect: _handleReciterSelect,
+              onInfo: () => _showInfoNotice(_reciterInfoText),
+            );
+          },
+        ),
+      ),
+      Container(
+        key: _audioDownloadKey,
+        child: ValueListenableBuilder<AudioDownloadState>(
+          valueListenable: _audioDownloadService.state,
+          builder: (context, audioState, _) {
+            return AudioDownloadTile(
+              state: audioState,
+              onOpenPicker: () => SurahDownloadSheet.show(context),
+              onDownload: _audioDownloadService.downloadAll,
+              onCancelDownload: _audioDownloadService.cancelDownload,
+              onPauseDownload: _audioDownloadService.pauseDownload,
+              onInfo: () => _showInfoNotice(_audioDownloadInfoText),
+            );
+          },
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Container(
+          key: _backgroundPlaybackKey,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _backgroundPlaybackService.enabled,
+            builder: (context, enabled, _) {
+              return CompactSwitchTile(
+                title: 'تشغيل التلاوة في الخلفية',
+                icon: Icons.headset_rounded,
+                onInfo: () => _presentCoachManually(
+                  SettingsCoachStep.backgroundPlayback,
+                ),
+                value: enabled,
+                onChanged: _backgroundPlaybackService.setEnabled,
+              );
+            },
+          ),
+        ),
+      ),
+      ValueListenableBuilder<TafsirEdition>(
+        valueListenable: _tafsirEditionService.selected,
+        builder: (context, selectedEdition, _) {
+          return TafsirEditionTile(
+            editions: _tafsirEditionService.editions,
+            selected: selectedEdition,
+            onSelect: _handleTafsirSelect,
+            onInfo: () => _showInfoNotice(_tafsirInfoText),
+          );
+        },
+      ),
+      ValueListenableBuilder<TafsirEdition>(
+        valueListenable: _tafsirEditionService.selected,
+        builder: (context, selectedEdition, _) {
+          return TafsirDownloadTile(
+            service: _tafsirCacheService,
+            edition: selectedEdition,
+            onInfo: () => _showInfoNotice(_tafsirDownloadInfoText),
+          );
+        },
+      ),
+    ];
+
+    return SettingsCard(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            controller: _recitationTafsirController,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+            childrenPadding: EdgeInsets.zero,
+            iconColor: const Color(0xFF8B7355),
+            collapsedIconColor: const Color(0xFF8B7355),
+            shape: const Border(),
+            collapsedShape: const Border(),
+            title: const Row(
+              children: [
+                Icon(Icons.headphones_rounded,
+                    color: Color(0xFF8B7355), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'إعدادات التلاوة والتفسير',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2C2C2C),
+                  ),
+                ),
+              ],
+            ),
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0)
+                  const Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    indent: 12,
+                    endIndent: 12,
+                    color: Color(0xFFE8DCC8),
+                  ),
+                children[i],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Collapsed "advanced settings" section, shown just below the audio
   /// download tile. To add a new advanced setting later, append its widget to
   /// [advancedChildren] — a thin divider is inserted automatically between
@@ -1001,6 +1170,7 @@ class _SettingsPageState extends State<SettingsPage> {
             selected: selectedColor,
             onChanged: _pageColorService.setSelected,
             onInfo: () => _showInfoNotice(_pageColorInfoText),
+            onPreview: _openPageColorPreview,
           );
         },
       ),
@@ -1408,68 +1578,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      Container(
-                        key: _reciterKey,
-                        child: SettingsCard(
-                          child: ValueListenableBuilder<Reciter>(
-                            valueListenable: _reciterService.selected,
-                            builder: (context, selectedReciter, _) {
-                              return ReciterTile(
-                                reciters: _reciterService.reciters,
-                                selected: selectedReciter,
-                                onSelect: _handleReciterSelect,
-                                onInfo: () => _showInfoNotice(_reciterInfoText),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Container(
-                          key: _backgroundPlaybackKey,
-                          child: ValueListenableBuilder<bool>(
-                            valueListenable: _backgroundPlaybackService.enabled,
-                            builder: (context, enabled, _) {
-                              return CompactSwitchTile(
-                                title: 'تشغيل التلاوة في الخلفية',
-                                icon: Icons.headset_rounded,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.backgroundPlayback,
-                                ),
-                                value: enabled,
-                                onChanged:
-                                    _backgroundPlaybackService.setEnabled,
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        key: _audioDownloadKey,
-                        child: SettingsCard(
-                          child: ValueListenableBuilder<AudioDownloadState>(
-                            valueListenable: _audioDownloadService.state,
-                            builder: (context, audioState, _) {
-                              return AudioDownloadTile(
-                                state: audioState,
-                                onOpenPicker: () =>
-                                    SurahDownloadSheet.show(context),
-                                onDownload: _audioDownloadService.downloadAll,
-                                onCancelDownload:
-                                    _audioDownloadService.cancelDownload,
-                                onPauseDownload:
-                                    _audioDownloadService.pauseDownload,
-                                onInfo: () => _showInfoNotice(
-                                  _audioDownloadInfoText,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
+                      _buildRecitationTafsirSection(),
                       const SizedBox(height: 6),
                       _buildAdvancedSettingsSection(),
                       if (!isLandscape) ...[

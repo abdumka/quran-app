@@ -681,7 +681,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   // "الصفحات" view: a dense grid of all page numbers, styled like the surah
   // grid, so the user can jump straight to any page.
   Widget _buildPagesGrid() {
-    const totalPages = 604;
+    const totalPages = 602;
     final currentRealPage = widget.currentPage + 1;
     final isTablet = ResponsiveHelper.isTablet(context);
     final isLandscape =
