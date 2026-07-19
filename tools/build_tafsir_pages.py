@@ -67,6 +67,7 @@ HAFS_COUNTS = [7, 286, 200, 176, 120, 165, 206, 75, 129, 109, 123, 111, 43, 52, 
 #   "jalalayn": ("تفسير الجلالين", "ar-tafsir-al-jalalayn", False),
 #   "baghawi":  ("تفسير البغوي",    "ar-tafsir-al-baghawi",  False),
 EDITIONS = {
+    "saddi":      ("تفسير السعدي",   "ar-tafseer-al-saddi",   True),
     "muyassar":   ("التفسير الميسر", "ar-tafsir-muyassar",    True),
     "jalalayn":   ("تفسير الجلالين", "ar-tafsir-al-jalalayn", True),
     "ibn_kathir": ("ابن كثير",       "ar-tafsir-ibn-kathir",  False),
@@ -95,6 +96,11 @@ _TAG_BR = re.compile(r"<br\s*/?>", re.I)
 _TAG_ANY = re.compile(r"<[^>]+>")
 _WS_INLINE = re.compile(r"[ \t]+")
 _WS_NL = re.compile(r"\n{3,}")
+# Inline critical apparatus from the printed editions ("[[زيادة من جـ، ط...]]",
+# manuscript-variant notes). Standalone asides — stripping them never breaks the
+# main sentence, and app readers shouldn't see raw editorial markup.
+_APPARATUS = re.compile(r"\[\[.*?\]\]", re.S)
+_ARABIC_LETTER = re.compile(r"[ء-ي]")
 
 
 def clean_text(t):
@@ -107,9 +113,24 @@ def clean_text(t):
     t = _TAG_BR.sub("\n", t)
     t = _TAG_ANY.sub("", t)
     t = html.unescape(t)
+    t = _APPARATUS.sub(" ", t)
     t = _WS_INLINE.sub(" ", t)
     t = _WS_NL.sub("\n\n", t)
     return t.strip()
+
+
+def collapse_repeated_segments(text):
+    """Collapses immediately-repeated identical paragraphs. Needed where a Qalun
+    ayah spans two Hafs ayahs whose texts share a boundary paragraph (e.g. both
+    open with the basmala, or a surah's first block is stored on both slots with
+    an intro prefix on the first) — the join would otherwise show it twice."""
+    segs = text.split("\n\n")
+    out = []
+    for s in segs:
+        if out and out[-1] == s and s.strip():
+            continue
+        out.append(s)
+    return "\n\n".join(out)
 
 
 def load_surah_entries(folder, surah):
@@ -123,7 +144,13 @@ def load_surah_entries(folder, surah):
     for it in raw:
         if not isinstance(it, dict):
             continue
-        out.append((int(it.get("ayah") or 0), clean_text(it.get("text") or "")))
+        text = clean_text(it.get("text") or "")
+        # Damaged placeholder entries (e.g. Sa'di 2:52 is just "×"): a "text"
+        # with no Arabic letters is junk — treat as empty so the previous
+        # commentary block expands over the slot instead.
+        if text and not _ARABIC_LETTER.search(text):
+            text = ""
+        out.append((int(it.get("ayah") or 0), text))
     return out
 
 
@@ -133,7 +160,14 @@ def expand_to_hafs(folder):
     tafsir = []
     for s in range(1, 115):
         n = HAFS_COUNTS[s - 1]
-        entries = sorted(load_surah_entries(folder, s), key=lambda e: e[0])
+        # Drop entries whose cleaned text is empty (damaged placeholders like
+        # Sa'di 2:52 "×", or apparatus-only notes): removing the entry lets the
+        # previous commentary block expand across the slot instead of leaving a
+        # hole.
+        entries = sorted(
+            (e for e in load_surah_entries(folder, s) if e[1].strip()),
+            key=lambda e: e[0],
+        )
         texts = [""] * n
         for idx, (start, text) in enumerate(entries):
             end = entries[idx + 1][0] - 1 if idx + 1 < len(entries) else n
@@ -202,7 +236,7 @@ def build_online(edition_id, tafsir, pages, narration):
                 # join in TafsirService._bundledPage — keep the two in lockstep.
                 if part.strip() and (not parts or parts[-1] != part):
                     parts.append(part)
-            text = "\n\n".join(parts)
+            text = collapse_repeated_segments("\n\n".join(parts))
             if not text.strip():
                 empties.append((page_no, s, a))
             ayat.append({"surah": s, "ayah": a, "text": text})
