@@ -32,7 +32,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.path.join(ROOT, "build", "tafsir")
 
-ONLINE_EDITIONS = ["ibn_kathir", "tabari", "qurtubi"]
+ONLINE_EDITIONS = ["ibn_kathir", "tabari", "qurtubi", "zad_almasir"]
 
 args = [a for a in sys.argv[1:]]
 force = "--force" in args

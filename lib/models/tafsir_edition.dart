@@ -152,6 +152,19 @@ class TafsirEdition {
     approxDownloadMb: 77,
   );
 
+  /// Zad al-Masir fi 'ilm al-tafsir — Ibn al-Jawzi — online. Not available from
+  /// quran.com/spa5k; built from the Shamela export (دار الكتاب العربي edition)
+  /// by tools/build_zad_almasir.py and served from our R2 bucket.
+  static const TafsirEdition zadAlmasir = TafsirEdition(
+    id: 'zad_almasir',
+    name: 'زاد المسير',
+    subtitle: 'ابن الجوزي',
+    isBundled: false,
+    cacheFolder: 'tafsir_cache_zad_almasir',
+    pageBaseUrl: '${_r2Root}zad_almasir/',
+    approxDownloadMb: 39,
+  );
+
   /// All editions offered in the picker, in display order (concise/bundled
   /// first, then the large online classical tafaseer).
   static const List<TafsirEdition> all = [
@@ -161,6 +174,7 @@ class TafsirEdition {
     ibnKathir,
     tabari,
     qurtubi,
+    zadAlmasir,
   ];
 
   /// Editions fetched from the network (used to size / clear the tafsir cache).
@@ -168,6 +182,7 @@ class TafsirEdition {
     ibnKathir,
     tabari,
     qurtubi,
+    zadAlmasir,
   ];
 
   /// The edition used before the user has chosen one.

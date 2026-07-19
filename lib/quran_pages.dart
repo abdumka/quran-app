@@ -6077,6 +6077,9 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: widget.backgroundColor,
+      // Size the sheet to its content instead of the default ~half-screen cap,
+      // so every edition is visible at once without scrolling.
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
@@ -6112,6 +6115,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                   children: [
                     for (final edition in service.editions)
                       ListTile(
+                        dense: true,
+                        visualDensity: const VisualDensity(vertical: -1),
                         onTap: () {
                           service.select(edition);
                           Navigator.of(sheetContext).pop();

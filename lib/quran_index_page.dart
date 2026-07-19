@@ -55,16 +55,33 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   bool _expandedHizbsInitialized = false;
   final TextEditingController _hizbSearchController = TextEditingController();
 
+  // Remembers the tab the user last picked an item from, so reopening the index
+  // returns to it (e.g. jump to page 602 from "الصفحات" → next open shows
+  // "الصفحات" scrolled to 602). Kept in memory for the app session.
+  static QuranIndexTab? _lastSelectedTab;
+
+  // Scroll controllers are created lazily with an initialScrollOffset that
+  // centers the current reading position, so each scrollable tab opens already
+  // scrolled to where the user is (no visible jump).
+  ScrollController? _pagesScrollController;
+  ScrollController? _surahsScrollController;
+  ScrollController? _hizbScrollController;
+  final GlobalKey _currentHizbKey = GlobalKey();
+  bool _hizbEnsuredVisible = false;
+
   @override
   void initState() {
     super.initState();
-    _selectedTab = widget.initialTab;
+    _selectedTab = _lastSelectedTab ?? widget.initialTab;
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _hizbSearchController.dispose();
+    _pagesScrollController?.dispose();
+    _surahsScrollController?.dispose();
+    _hizbScrollController?.dispose();
     super.dispose();
   }
 
@@ -105,6 +122,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   }
 
   void _goToPageAndClose(int page, {double yOffsetRatio = 0.0}) {
+    // Remember which tab this selection came from so the next open returns here.
+    _lastSelectedTab = _selectedTab;
     Navigator.pop(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onGoToPage(page, yOffsetRatio: yOffsetRatio);
@@ -121,6 +140,33 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       }
     }
     return 1;
+  }
+
+  // Pixel offset that vertically centers [targetIndex] within a fixed-count
+  // grid of the given geometry. Used to seed a scroll controller's
+  // initialScrollOffset so the tab opens scrolled to the current item. The
+  // scroll physics clamp any over-/under-shoot on the first layout pass.
+  double _gridScrollOffset({
+    required double maxWidth,
+    required double maxHeight,
+    required int crossAxisCount,
+    required double childAspectRatio,
+    required double spacing,
+    required double topPadding,
+    required double horizontalPadding,
+    required int targetIndex,
+  }) {
+    if (targetIndex <= 0 || crossAxisCount <= 0) return 0.0;
+    final availableWidth = maxWidth - (horizontalPadding * 2);
+    if (availableWidth <= 0) return 0.0;
+    final tileWidth =
+        (availableWidth - ((crossAxisCount - 1) * spacing)) / crossAxisCount;
+    final tileHeight = tileWidth / childAspectRatio;
+    final rowStride = tileHeight + spacing;
+    final targetRow = targetIndex ~/ crossAxisCount;
+    final offset =
+        topPadding + (targetRow * rowStride) + (tileHeight / 2) - (maxHeight / 2);
+    return offset < 0 ? 0.0 : offset;
   }
 
   int _crossAxisCount() {
@@ -625,19 +671,41 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       );
     }
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: _crossAxisCount(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: _surahAspectRatio(),
-        ),
-        itemCount: surahs.length,
-        itemBuilder: (context, index) => _buildSurahChip(surahs[index]),
-      ),
+    final crossAxisCount = _crossAxisCount();
+    final aspectRatio = _surahAspectRatio();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _surahsScrollController ??= ScrollController(
+          initialScrollOffset: _gridScrollOffset(
+            maxWidth: constraints.maxWidth,
+            maxHeight: constraints.maxHeight,
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: aspectRatio,
+            spacing: 10,
+            topPadding: 0,
+            horizontalPadding: 12,
+            targetIndex: surahs.indexWhere(
+              (s) => (s['number'] as int?) == widget.currentSurahNumber,
+            ),
+          ),
+        );
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: GridView.builder(
+            controller: _surahsScrollController,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: aspectRatio,
+            ),
+            itemCount: surahs.length,
+            itemBuilder: (context, index) => _buildSurahChip(surahs[index]),
+          ),
+        );
+      },
     );
   }
 
@@ -691,22 +759,37 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         ? (isLandscape ? 10 : 7)
         : (isLandscape ? 9 : 5);
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 1.15,
-        ),
-        itemCount: totalPages,
-        itemBuilder: (context, index) {
-          final page = index + 1;
-          final isCurrent = page == currentRealPage;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _pagesScrollController ??= ScrollController(
+          initialScrollOffset: _gridScrollOffset(
+            maxWidth: constraints.maxWidth,
+            maxHeight: constraints.maxHeight,
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 1.15,
+            spacing: 8,
+            topPadding: 2,
+            horizontalPadding: 12,
+            targetIndex: currentRealPage - 1,
+          ),
+        );
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: GridView.builder(
+            controller: _pagesScrollController,
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 1.15,
+            ),
+            itemCount: totalPages,
+            itemBuilder: (context, index) {
+              final page = index + 1;
+              final isCurrent = page == currentRealPage;
 
-          return Material(
+              return Material(
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
@@ -744,8 +827,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
               ),
             ),
           );
-        },
-      ),
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -848,6 +933,35 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
           t.replaceAll(' ', '').contains(compactQuery);
     }
 
+    // On the first open (no active search) seed the list roughly at the current
+    // hizb using an estimated collapsed-card height, then fine-tune with
+    // ensureVisible once the cards are laid out so it's precisely in view.
+    if (_hizbScrollController == null) {
+      double initialOffset = 0.0;
+      if (!hasQuery) {
+        final targetListIndex = visibleHizbs.indexOf(currentHizb);
+        const collapsedStride = 70.0; // approx. height of a collapsed hizb card
+        initialOffset =
+            targetListIndex <= 1 ? 0.0 : (targetListIndex - 1) * collapsedStride;
+      }
+      _hizbScrollController =
+          ScrollController(initialScrollOffset: initialOffset);
+    }
+    if (!hasQuery && !_hizbEnsuredVisible) {
+      _hizbEnsuredVisible = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = _currentHizbKey.currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(
+            ctx,
+            alignment: 0.12,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Column(
@@ -866,6 +980,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                     ),
                   )
                 : ListView.builder(
+                    controller: _hizbScrollController,
                     padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
                     itemCount: visibleHizbs.length,
                     itemBuilder: (context, index) {
@@ -883,6 +998,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                         // When the search matches thumn text, show only the
                         // matching thumns within each hizb.
                         onlyMatching: hasQuery && textQuery.isNotEmpty,
+                        // Key the current hizb so ensureVisible can scroll to it.
+                        cardKey:
+                            hizbNumber == currentHizb ? _currentHizbKey : null,
                       );
                     },
                   ),
@@ -1012,6 +1130,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     required bool toggleEnabled,
     required bool Function(ThumnEntry) highlight,
     bool onlyMatching = false,
+    Key? cardKey,
   }) {
     final hizbTitle = hizbNumber - 1 < hizbTitles.length
         ? hizbTitles[hizbNumber - 1]
@@ -1030,6 +1149,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     ];
 
     return Padding(
+      key: cardKey,
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Container(
         decoration: BoxDecoration(

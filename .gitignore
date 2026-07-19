@@ -104,3 +104,7 @@ tools/.r2_secret
 # The bundled output (assets/data/ar.muyassar.json) IS committed; the online
 # per-page output lives under /build/tafsir and is uploaded to R2, not committed.
 .tafsir_tmp/
+
+# Zad al-Masir source material (Shamela HTML export + OCR review build): build
+# input for tools/build_zad_almasir.py, not app assets — keep out of the repo.
+assets/temp/
