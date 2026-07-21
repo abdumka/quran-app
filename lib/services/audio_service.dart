@@ -195,7 +195,13 @@ class AudioService {
     await ReciterService.instance.load();
     await AudioAyahMapService.instance.load();
     _quranPages ??= await QuranJsonService.loadQuranPages();
-    _cacheDir ??= await _getAudioCacheDir();
+    // The web has no dart:io filesystem, so there's no local audio cache — we
+    // stream each ayah straight from the reciter's mirror instead. Calling
+    // getApplicationSupportDirectory() on web throws, which would abort init
+    // and leave audio dead, so skip it entirely.
+    if (!kIsWeb) {
+      _cacheDir ??= await _getAudioCacheDir();
+    }
 
     // Re-point (and stop) when the user switches reciter: the cache folder and
     // base URL both change, so anything mid-playback must restart cleanly.
@@ -481,6 +487,9 @@ class AudioService {
   }
 
   Future<void> _downloadPageAyahs(List<QuranAyahData> ayahs) async {
+    // No local file cache on web — playback streams each file directly, so
+    // there's nothing to pre-download here.
+    if (kIsWeb) return;
     final dir = _cacheDir ?? await _getAudioCacheDir();
     bool? internetAvailable;
 
@@ -576,20 +585,26 @@ class AudioService {
     bool autoPlay = true,
   }) async {
     try {
-      final dir = _cacheDir ?? await _getAudioCacheDir();
-      final localFile = File(p.join(dir.path, fileName));
+      final Uri uri;
+      if (kIsWeb) {
+        // Web has no local file cache — always stream from the reciter mirror.
+        uri = Uri.parse('$_baseUrl$fileName');
+      } else {
+        final dir = _cacheDir ?? await _getAudioCacheDir();
+        final localFile = File(p.join(dir.path, fileName));
 
-      final hasLocalFile = localFile.existsSync();
-      if (!hasLocalFile && !await _hasInternetConnection()) {
-        _showPlaybackNotice(
-          'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
-        );
-        return false;
+        final hasLocalFile = localFile.existsSync();
+        if (!hasLocalFile && !await _hasInternetConnection()) {
+          _showPlaybackNotice(
+            'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
+          );
+          return false;
+        }
+
+        uri = hasLocalFile
+            ? Uri.file(localFile.path)
+            : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
       }
-
-      final Uri uri = hasLocalFile
-          ? Uri.file(localFile.path)
-          : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
       await _player.setAudioSource(
         AudioSource.uri(uri, tag: _mediaItemFor(uri)),
       );
@@ -618,6 +633,9 @@ class AudioService {
   // ─────────────────────────────────────
 
   Future<bool> _hasInternetConnection() async {
+    // InternetAddress.lookup (dart:io) isn't available on web. Assume online
+    // and let the actual audio request surface any real failure.
+    if (kIsWeb) return true;
     try {
       final result = await InternetAddress.lookup(
         'example.com',

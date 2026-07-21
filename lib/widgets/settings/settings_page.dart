@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'settings_constants.dart';
@@ -221,7 +222,9 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _showBrowseModeGuide =
           !(prefs.getBool(_browseModeGuideDismissedPrefKey) ?? false);
-      _showMarginGuide =
+      // The margins tile is hidden on web (no device filesystem to store the
+      // downloaded images), so never run its coach step there.
+      _showMarginGuide = !kIsWeb &&
           !(prefs.getBool(_marginGuideDismissedPrefKey) ?? false);
       _showAutoScrollGuide =
           !(prefs.getBool(_autoScrollGuideDismissedPrefKey) ?? false);
@@ -875,7 +878,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() {
       _showBrowseModeGuide = true;
-      _showMarginGuide = true;
+      _showMarginGuide = !kIsWeb; // tile hidden on web — no coach step there
       _showAutoScrollGuide = true;
       _showHifzLensGuide = true;
       _showFullScreenGuide = true;
@@ -1226,7 +1229,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final isTablet = ResponsiveHelper.isTablet(context);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
-    _ensureLandscapeScrollMode(isLandscape);
+    // On a phone, landscape means "held sideways" so we lock into scroll mode.
+    // On the web the window is just wide, so don't force/lock scroll there —
+    // the user can freely switch between paged and scroll mode.
+    final landscapeForcesScroll = isLandscape && !kIsWeb;
+    _ensureLandscapeScrollMode(landscapeForcesScroll);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F1E5),
@@ -1439,11 +1446,11 @@ class _SettingsPageState extends State<SettingsPage> {
                                 onInfo: () => _presentCoachManually(
                                   SettingsCoachStep.browseMode,
                                 ),
-                                value: isLandscape
+                                value: landscapeForcesScroll
                                     ? true
                                     : _localPortraitScrollMode,
                                 onChanged:
-                                    (isLandscape
+                                    (landscapeForcesScroll
                                         ? false
                                         : _localAllowPortraitScrollMode)
                                     ? (value) {
@@ -1455,7 +1462,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                         );
                                       }
                                     : (_) => _showSettingsNotice(
-                                        isLandscape
+                                        landscapeForcesScroll
                                             ? 'في الوضع الأفقي يكون التصفح دائمًا على التمرير.'
                                             : scrollUnavailableInTabletNotice,
                                       ),
@@ -1554,6 +1561,12 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
+                      // Margin images (هوامش) are delivered as a downloadable zip
+                      // extracted to device storage, which the web has no
+                      // filesystem for — so the feature can't work in the
+                      // browser. Hide the whole tile on web (it stays fully
+                      // available on Android/iOS).
+                      if (!kIsWeb)
                       Container(
                         key: _marginImagesCardKey,
                         child: SettingsCard(

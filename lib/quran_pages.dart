@@ -3,6 +3,7 @@ import 'dart:async'; // Quran Pages View
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent, RenderProxyBox;
 import 'package:flutter/services.dart';
@@ -665,6 +666,12 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   bool _isPhoneLandscape(BuildContext context) {
+    // On the web a desktop browser window is almost always wider than tall, so
+    // its orientation reports as landscape. On a phone that means "held
+    // sideways" and we force continuous-scroll, but on the web it's just a
+    // normal window — don't force scroll there, let the reader stay in paged
+    // mode (the user can still turn scroll on from settings).
+    if (kIsWeb) return false;
     return MediaQuery.of(context).orientation == Orientation.landscape &&
         !_useTwoPageView(context);
   }
