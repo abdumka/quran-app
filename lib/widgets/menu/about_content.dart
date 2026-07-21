@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/app_update_service.dart';
 
@@ -97,10 +99,125 @@ class AboutContent extends StatelessWidget {
                   color: bodyColor,
                 ),
               ),
+              // The installed apps don't need a link back to themselves; this
+              // is only useful to visitors on the web build.
+              if (kIsWeb) ...[
+                const SizedBox(height: 20),
+                Container(
+                  width: 90,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(99),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0x00B58A2B),
+                        Color(0xFFB58A2B),
+                        Color(0x00B58A2B),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'حمّل التطبيق على هاتفك',
+                  textAlign: TextAlign.center,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _StoreButton(
+                        icon: Icons.android_rounded,
+                        label: 'Google Play',
+                        color: const Color(0xFF34A853),
+                        cardColor: cardColor,
+                        borderColor: borderColor,
+                        titleColor: titleColor,
+                        onTap: () => _launchStoreUrl(AppUpdateService.playStoreUrl),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _StoreButton(
+                        icon: Icons.apple,
+                        label: 'App Store',
+                        color: isDarkMode ? Colors.white : Colors.black,
+                        cardColor: cardColor,
+                        borderColor: borderColor,
+                        titleColor: titleColor,
+                        onTap: () => _launchStoreUrl(AppUpdateService.appStoreUrl),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _launchStoreUrl(String url) async {
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+}
+
+class _StoreButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color cardColor;
+  final Color borderColor;
+  final Color titleColor;
+  final VoidCallback onTap;
+
+  const _StoreButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.cardColor,
+    required this.borderColor,
+    required this.titleColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Ink(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 26),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: titleColor,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
