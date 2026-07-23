@@ -18,7 +18,7 @@ class WhatsNewService {
   /// nothing else) on each release that should show a "what's new" popup;
   /// leave it empty to skip the popup entirely for a release.
   static const List<String> currentReleaseChanges = [
-    'إضافة ٤ تفاسير جديدة (ابن كثير، الطبري، القرطبي، وزاد المسير) لتصبح ٧ تفاسير بالإجمال.',
+    'إضافة  تفاسير جديدة (ابن كثير، الطبري، القرطبي، وزاد المسير) لتصبح 7 تفاسير بالإجمال.',
     'إمكانية تخصيص لون خلفية صفحات المصحف (أبيض، كريمي، أخضر هادئ، أزرق هادئ، وردي هادئ).',
     'تحسينات في إدارة التحميلات (تحميل وحذف التفاسير والتلاوات).',
     'إصلاحات في تشغيل الصوت.',
