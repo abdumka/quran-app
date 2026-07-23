@@ -18,13 +18,10 @@ class WhatsNewService {
   /// nothing else) on each release that should show a "what's new" popup;
   /// leave it empty to skip the popup entirely for a release.
   static const List<String> currentReleaseChanges = [
-    'إمكانية تحميل سورة بعينها للاستماع بدون إنترنت، أو المصحف كاملًا.',
-    'فهرس الأثمان.',
-    'إصلاح منطق تكرار الآية/الصفحة.',
-    'إمكانية استقبال إشعار عند توفر تحديث جديد.',
-    'تكرار الثمن.',
-    'تحديث رابط واتساب (مجموعة جديدة للنقاش).',
-    'إمكانية تغيير سرعة التلاوة.',
+    'إضافة ٤ تفاسير جديدة (ابن كثير، الطبري، القرطبي، وزاد المسير) لتصبح ٧ تفاسير بالإجمال.',
+    'إمكانية تخصيص لون خلفية صفحات المصحف (أبيض، كريمي، أخضر هادئ، أزرق هادئ، وردي هادئ).',
+    'تحسينات في إدارة التحميلات (تحميل وحذف التفاسير والتلاوات).',
+    'إصلاحات في تشغيل الصوت.',
   ];
 
   /// Whether the popup should be shown for the currently installed build:
