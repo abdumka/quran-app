@@ -76,6 +76,9 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
       case 'البحث':
         widget.onSearchTapped?.call();
         break;
+      case 'أدوات الحفظ':
+        // Placeholder: memorization tools / test (اختبار الحفظ) — not wired up yet.
+        break;
     }
     
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -119,40 +122,61 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _NavItem(
-                      icon: Icons.search_rounded,
-                      label: 'البحث',
-                      isSelected: _selectedItem == 'البحث',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('البحث'),
+                    // Placeholder: memorization tools / test. Sits at the far-left
+                    // slot so an RTL reader reads it right after البحث, as the last item.
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.quiz_rounded,
+                        label: 'أدوات الحفظ',
+                        isSelected: _selectedItem == 'أدوات الحفظ',
+                        compact: isLandscape,
+                        onTap: () => _handleTap('أدوات الحفظ'),
+                      ),
                     ),
-                    _NavItem(
-                      imagePath: 'assets/images/tafsir_icon.png',
-                      label: 'التفسير',
-                      isSelected: _selectedItem == 'التفسير',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('التفسير'),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.search_rounded,
+                        label: 'البحث',
+                        isSelected: _selectedItem == 'البحث',
+                        compact: isLandscape,
+                        onTap: () => _handleTap('البحث'),
+                      ),
                     ),
-                    _NavItem(
-                      icon: Icons.play_circle_rounded,
-                      label: 'التلاوة',
-                      isSelected: _selectedItem == 'التلاوة',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('التلاوة'),
+                    Expanded(
+                      child: _NavItem(
+                        imagePath: 'assets/images/tafsir_icon.png',
+                        label: 'التفسير',
+                        isSelected: _selectedItem == 'التفسير',
+                        compact: isLandscape,
+                        onTap: () => _handleTap('التفسير'),
+                      ),
                     ),
-                    _NavItem(
-                      icon: Icons.bookmark_rounded,
-                      label: 'العلامات',
-                      isSelected: _selectedItem == 'العلامات',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('العلامات'),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.play_circle_rounded,
+                        label: 'التلاوة',
+                        isSelected: _selectedItem == 'التلاوة',
+                        compact: isLandscape,
+                        onTap: () => _handleTap('التلاوة'),
+                      ),
                     ),
-                    _NavItem(
-                      icon: Icons.menu_book_rounded,
-                      label: 'الفهرس',
-                      isSelected: _selectedItem == 'الفهرس',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('الفهرس'),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.bookmark_rounded,
+                        label: 'العلامات',
+                        isSelected: _selectedItem == 'العلامات',
+                        compact: isLandscape,
+                        onTap: () => _handleTap('العلامات'),
+                      ),
+                    ),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.menu_book_rounded,
+                        label: 'الفهرس',
+                        isSelected: _selectedItem == 'الفهرس',
+                        compact: isLandscape,
+                        onTap: () => _handleTap('الفهرس'),
+                      ),
                     ),
                   ],
                 ),
@@ -215,13 +239,18 @@ class _NavItem extends StatelessWidget {
                 size: iconSize,
               ),
             SizedBox(height: gap),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: fontSize,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  color: color,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
               ),
             ),
           ],
