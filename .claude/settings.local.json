@@ -167,7 +167,14 @@
       "Bash(python -c \"import json;json.load\\(open\\('update.json'\\)\\);print\\('valid json'\\)\")",
       "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('update.json'\\)\\);console.log\\('valid json'\\)\")",
       "Bash(gh auth *)",
-      "Bash(gh --version)"
+      "Bash(gh --version)",
+      "Bash(D:/AndroidSDK/platform-tools/adb.exe install *)",
+      "Bash(flutter emulators *)",
+      "Bash(timeout 200 flutter test test/memorization_test_overlay_test.dart --reporter expanded)",
+      "Bash(timeout 240 flutter test test/memorization_test_overlay_test.dart --reporter expanded)",
+      "Bash(timeout 240 flutter test test/memorization_test_overlay_test.dart --plain-name \"masks every word\")",
+      "Bash(D:/AndroidSDK/platform-tools/adb.exe shell *)",
+      "Bash(D:/AndroidSDK/platform-tools/adb.exe exec-out *)"
     ],
     "additionalDirectories": [
       "d:\\quran app\\quran-app-main\\lib"

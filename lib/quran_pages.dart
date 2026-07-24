@@ -12,6 +12,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'widgets/quran/bookmark_picker_dialog.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
+import 'widgets/quran/memorization_test_overlay.dart';
+import 'services/memorization_test_service.dart';
 import 'continuous_quran_view.dart';
 import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
@@ -343,6 +345,10 @@ class _QuranPagesState extends State<QuranPages>
   double _hideBarRatio = 0.15;
   bool _isHifzModeEnabled = false;
   bool _isFullScreenMode = false;
+  // Memorization test (word-reveal) mode. Deliberately NOT persisted across
+  // restarts: it's a live listening session, not an ambient reading
+  // preference like Hifz mode.
+  bool _isMemorizationTestEnabled = false;
 
   int? _activeBookmarkSlot;
   bool _showBookmarkNotice = false;
@@ -594,6 +600,7 @@ class _QuranPagesState extends State<QuranPages>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    MemorizationTestService.instance.stop();
     _hideControlsTimer?.cancel();
     _hizbPopupTimer?.cancel();
     _sajdaPopupTimer?.cancel();
@@ -641,6 +648,9 @@ class _QuranPagesState extends State<QuranPages>
       if (!BackgroundPlaybackService.instance.enabled.value) {
         AudioService.instance.pause();
       }
+      // A live memorization-test session must never keep listening from
+      // the background — end it outright (unlike audio, which pauses).
+      _stopMemorizationTestIfActive();
       // Stop auto-scroll timer to save battery in background.
       _stopPortraitAutoScroll();
       // Pause any active downloads so they can resume later
@@ -888,6 +898,13 @@ class _QuranPagesState extends State<QuranPages>
     final safePage = page.clamp(0, pages.length - 1);
     _readingCoordinator.setCurrentPage(safePage);
     _syncCurrentSurahForPage(safePage);
+
+    // The word-reveal test only exists on page 1 (POC); navigating away
+    // ends the session rather than leaving the mic session running
+    // against a page with no word data.
+    if (_isMemorizationTestEnabled && safePage != 0) {
+      _stopMemorizationTestIfActive();
+    }
 
     if (persist) {
       _savePageDebounced(safePage);
@@ -2141,8 +2158,44 @@ class _QuranPagesState extends State<QuranPages>
         _isSearching = false;
       }
     });
+    if (value) _stopMemorizationTestIfActive();
     _saveHifzModePreference();
     if (value) _maybeShowHifzLensGuide();
+  }
+
+  /// Enters/exits the memorization-test (word-reveal) mode. Unlike Hifz
+  /// mode, the toggle is not flipped optimistically: it only turns on once
+  /// the session actually started (word data loaded, engine live), so the
+  /// toolbar icon never lies about a session being active.
+  Future<void> _toggleMemorizationTest(bool value) async {
+    if (!value) {
+      await MemorizationTestService.instance.stop();
+      if (mounted) setState(() => _isMemorizationTestEnabled = false);
+      return;
+    }
+    setState(() {
+      // Mutually exclusive with everything else that obscures the page.
+      _isHideBarEnabled = false;
+      _isHifzModeEnabled = false;
+      _showIndex = false;
+      _showSurahs = false;
+      _isSearching = false;
+    });
+    final started = await MemorizationTestService.instance.start(
+      pageNumber: 1,
+    );
+    if (!mounted) return;
+    setState(() => _isMemorizationTestEnabled = started);
+  }
+
+  /// Ends any active memorization test (used when another mode takes over,
+  /// the user navigates off page 1, or the app is backgrounded — a live
+  /// listening session should never keep running invisibly).
+  void _stopMemorizationTestIfActive() {
+    if (!_isMemorizationTestEnabled) return;
+    _isMemorizationTestEnabled = false;
+    MemorizationTestService.instance.stop();
+    if (mounted) setState(() {});
   }
 
   Future<void> _maybeShowHifzLensGuide() async {
@@ -2670,13 +2723,27 @@ class _QuranPagesState extends State<QuranPages>
                       enabled: _isHifzModeEnabled,
                       child: ColoredBox(
                         color: const Color(0xFFFAF6EE),
-                        child: Image(
-                          image: _imageProviderForPage(pageIndex, imagePath),
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.fill,
-                          gaplessPlayback: true,
-                          filterQuality: _pageQualityService.filterQuality,
+                        // The overlay lives INSIDE the image's own box (not
+                        // among the outer Stack's Positioned children) so
+                        // its ratio coordinates measure exactly the image
+                        // area, unaffected by the margin-safe padding above.
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image(
+                              image: _imageProviderForPage(
+                                pageIndex,
+                                imagePath,
+                              ),
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.fill,
+                              gaplessPlayback: true,
+                              filterQuality: _pageQualityService.filterQuality,
+                            ),
+                            if (_isMemorizationTestEnabled && pageIndex == 0)
+                              const MemorizationTestOverlay(),
+                          ],
                         ),
                       ),
                     ),
@@ -2763,13 +2830,22 @@ class _QuranPagesState extends State<QuranPages>
                   enabled: _isHifzModeEnabled,
                   child: ColoredBox(
                     color: const Color(0xFFFAF6EE),
-                    child: Image(
-                      image: _imageProviderForPage(pageIndex, imagePath),
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.fill,
-                      gaplessPlayback: true,
-                      filterQuality: _pageQualityService.filterQuality,
+                    // Same inside-the-image-box overlay placement as
+                    // _buildSinglePage — see comment there.
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image(
+                          image: _imageProviderForPage(pageIndex, imagePath),
+                          width: double.infinity,
+                          height: double.infinity,
+                          fit: BoxFit.fill,
+                          gaplessPlayback: true,
+                          filterQuality: _pageQualityService.filterQuality,
+                        ),
+                        if (_isMemorizationTestEnabled && pageIndex == 0)
+                          const MemorizationTestOverlay(),
+                      ],
                     ),
                   ),
                 ),
@@ -4140,6 +4216,8 @@ class _QuranPagesState extends State<QuranPages>
                       onToggleHideBar: _toggleHideBar,
                       isFullScreenMode: _isFullScreenMode,
                       onToggleFullScreenMode: _toggleFullScreenMode,
+                      isMemorizationTestEnabled: _isMemorizationTestEnabled,
+                      onToggleMemorizationTest: _toggleMemorizationTest,
                     ),
                   ),
                 ),

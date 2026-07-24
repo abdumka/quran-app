@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'services/quran_json_service.dart';
 import 'services/ayah_position_service.dart';
+import 'utils/arabic_text_normalizer.dart';
 
 class SearchPage extends StatefulWidget {
   final Function(int page) onGoToPage;
@@ -199,32 +200,10 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  String _normalizeText(String text) {
-    return text
-        // Normalize Alef Wasla
-        .replaceAll('ٱ', 'ا')
-        // Normalize Small Alef to regular Alef
-        .replaceAll('\u0670', 'ا')
-        // Remove all diacritics and quranic symbols
-        .replaceAll(RegExp(r'[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED]'), '')
-        // Remove Tatweel
-        .replaceAll('ـ', '')
-        // Normalize Alef variations
-        .replaceAll(RegExp(r'[أإآ]'), 'ا')
-        // Normalize Ya variations (including Qalon specific marks)
-        .replaceAll(RegExp(r'[ىےئ]'), 'ي')
-        // Normalize Waw variations
-        .replaceAll('ؤ', 'و')
-        // Normalize Ta Marbuta to Ha
-        .replaceAll('ة', 'ه')
-        // Remove standalone Hamza
-        .replaceAll('ء', '')
-        // Remove commas
-        .replaceAll('،', '')
-        // Remove extra spaces
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
+  // Delegates to the shared normalizer (lib/utils/arabic_text_normalizer.dart)
+  // so search and the memorization-test recitation aligner apply
+  // identical rules.
+  String _normalizeText(String text) => normalizeArabicText(text);
 
   _NormalizedTextMapping _normalizeTextWithMap(String text) {
     final buffer = StringBuffer();
@@ -260,41 +239,8 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  String? _normalizeChar(String char) {
-    if (char.trim().isEmpty) return ' ';
-
-    final code = char.codeUnitAt(0);
-    if (code == 0x0670) return 'ا'; // Small Alef
-
-    final isDiacritic =
-        (code >= 0x0610 && code <= 0x061A) ||
-        (code >= 0x064B && code <= 0x065F) ||
-        (code >= 0x06D6 && code <= 0x06ED);
-
-    if (isDiacritic) return null;
-
-    switch (char) {
-      case 'ـ':
-      case '،':
-      case 'ء':
-        return null; // Ignore these entirely
-      case 'أ':
-      case 'إ':
-      case 'آ':
-      case 'ٱ':
-        return 'ا';
-      case 'ى':
-      case 'ے':
-      case 'ئ':
-        return 'ي';
-      case 'ؤ':
-        return 'و';
-      case 'ة':
-        return 'ه';
-      default:
-        return char;
-    }
-  }
+  // Delegates to the shared normalizer (lib/utils/arabic_text_normalizer.dart).
+  String? _normalizeChar(String char) => normalizeArabicChar(char);
 
   void _scheduleSearch(String rawQuery) {
     _searchDebounce?.cancel();
