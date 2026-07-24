@@ -53,6 +53,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Give the debug build its own package id so it installs
+            // ALONGSIDE the Play Store release (same id would replace it).
+            // Namespace/applicationId are allowed to differ; only the
+            // installed package id changes to com.mahfodqr.qalon_mushaf.dev.
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            // Distinct launcher label (see src/debug/res/values/strings.xml).
+        }
         release {
             // Sign with the release keystore when android/key.properties exists;
             // otherwise fall back to the debug key so local release builds work.

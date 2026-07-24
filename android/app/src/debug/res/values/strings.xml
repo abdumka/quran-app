@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug-only launcher label. Overrides src/main's app_name for debug
+         builds so the side-by-side dev build (package id .dev) is easy to
+         tell apart from the Play Store release on the home screen. -->
+    <string name="app_name">مصحف قالون (تجريبي)</string>
+</resources>
