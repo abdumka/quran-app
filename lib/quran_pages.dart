@@ -14,6 +14,7 @@ import 'widgets/quran/bookmark_picker_dialog.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
 import 'services/memorization_test_service.dart';
+import 'services/asr_model_manager.dart';
 import 'continuous_quran_view.dart';
 import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
@@ -2181,11 +2182,109 @@ class _QuranPagesState extends State<QuranPages>
       _showSurahs = false;
       _isSearching = false;
     });
-    final started = await MemorizationTestService.instance.start(
-      pageNumber: 1,
-    );
+
+    // The real mic check needs the on-device recognition model. If it isn't
+    // installed yet, offer to download it once (from R2) before starting, so
+    // the user gets the real thing instead of silently dropping to the demo.
+    if (!await AsrModelManager.instance.refresh()) {
+      if (!mounted) return;
+      await _promptAndDownloadAsrModel();
+      if (!mounted) return;
+    }
+
+    final service = MemorizationTestService.instance;
+    final started = await service.start(pageNumber: 1);
     if (!mounted) return;
     setState(() => _isMemorizationTestEnabled = started);
+
+    // Be honest when we couldn't run the real mic check and fell back to the
+    // scripted demo, so the auto-revealing words aren't mistaken for a
+    // broken recitation check.
+    if (started && !service.usingRealEngine.value) {
+      final message = switch (service.stubReason.value) {
+        StubReason.micPermissionDenied =>
+          'إذن الميكروفون مرفوض. يعمل الآن وضع العرض التوضيحي. '
+              'فعّل الميكروفون من الإعدادات لاختبار تلاوتك.',
+        StubReason.modelNotInstalled =>
+          'لم يتم تثبيت نموذج التعرف على التلاوة بعد، لذا يعمل وضع العرض '
+              'التوضيحي (تظهر الكلمات تلقائيًا).',
+        StubReason.none =>
+          'وضع العرض التوضيحي: تظهر الكلمات تلقائيًا.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
+      );
+    }
+  }
+
+  /// Offers to download the on-device recognition model (~160 MB, once),
+  /// showing a blocking progress dialog while it fetches. Returns quietly
+  /// whether or not it succeeds — the caller proceeds to `start()` either
+  /// way (real engine if the model is now present, demo otherwise).
+  Future<void> _promptAndDownloadAsrModel() async {
+    final wantsDownload = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تنزيل نموذج التلاوة'),
+        content: const Text(
+          'لتفعيل التحقق الحقيقي من تلاوتك عبر الميكروفون، يلزم تنزيل نموذج '
+          'التعرّف مرة واحدة (حوالي ١٦٠ ميغابايت). بدونه يعمل وضع العرض '
+          'التوضيحي فقط. هل تريد التنزيل الآن؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('لاحقًا'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('تنزيل'),
+          ),
+        ],
+      ),
+    );
+    if (wantsDownload != true || !mounted) return;
+
+    final manager = AsrModelManager.instance;
+    // Blocking, non-dismissible progress dialog bound to the manager's
+    // progress notifier.
+    final downloadFuture = manager.download();
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('جارٍ تنزيل النموذج…'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: manager.progress,
+            builder: (context, progress, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(value: progress == 0 ? null : progress),
+                const SizedBox(height: 12),
+                Text('${(progress * 100).clamp(0, 100).toStringAsFixed(0)}٪'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await downloadFuture;
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // close progress dialog
+
+    if (manager.state.value != AsrModelState.ready) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تعذّر تنزيل النموذج. تحقّق من الاتصال وحاول مرة أخرى. '
+            'سيعمل وضع العرض التوضيحي الآن.',
+          ),
+          duration: Duration(seconds: 6),
+        ),
+      );
+    }
   }
 
   /// Ends any active memorization test (used when another mode takes over,

@@ -108,3 +108,9 @@ tools/.r2_secret
 # Zad al-Masir source material (Shamela HTML export + OCR review build): build
 # input for tools/build_zad_almasir.py, not app assets — keep out of the repo.
 assets/temp/
+
+# Staged ASR model files for manual R2 upload (not committed — 160MB)
+asr_model_upload/
+qalon-dev-arm64.apk
+
+*.apk

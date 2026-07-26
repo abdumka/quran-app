@@ -7,7 +7,7 @@ import 'package:islamic_dawah_mushaf/services/recitation_engine.dart';
 import 'package:islamic_dawah_mushaf/widgets/quran/memorization_test_overlay.dart';
 
 /// Hand-driven engine so the test controls exactly when segments arrive.
-class _ManualEngine implements RecitationEngine {
+class _ManualEngine extends RecitationEngine {
   final _controller = StreamController<String>.broadcast();
 
   void emit(String segment) => _controller.add(segment);
@@ -23,15 +23,18 @@ class _ManualEngine implements RecitationEngine {
 }
 
 /// Counts the mask/wash boxes the overlay currently draws. Each rendered
-/// word layer is exactly one DecoratedBox, so this is the number of words
-/// still hidden or flagged -- revealed (`correct`) words draw nothing.
-/// Scoped to the overlay's own subtree so Material's internal DecoratedBoxes
-/// (Scaffold background etc.) can't inflate the count.
+/// word layer is exactly one `Positioned.fromRect` whose direct child is a
+/// DecoratedBox, so this is the number of words still hidden or flagged --
+/// revealed (`correct`) words draw nothing. The predicate deliberately
+/// excludes the floating listening chip (its Positioned stretches with
+/// left+right and wraps a Center, not a DecoratedBox).
 int _boxCount(WidgetTester tester) => tester
     .widgetList(
       find.descendant(
         of: find.byType(MemorizationTestOverlay),
-        matching: find.byType(DecoratedBox),
+        matching: find.byWidgetPredicate(
+          (w) => w is Positioned && w.width != null && w.child is DecoratedBox,
+        ),
       ),
     )
     .length;

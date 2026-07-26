@@ -6,7 +6,7 @@ import 'package:islamic_dawah_mushaf/services/recitation_engine.dart';
 import 'package:islamic_dawah_mushaf/utils/quran_word_aligner.dart';
 
 /// Hand-driven engine: the test pushes segments explicitly.
-class _ManualEngine implements RecitationEngine {
+class _ManualEngine extends RecitationEngine {
   final _controller = StreamController<String>.broadcast();
   bool started = false;
   bool stopped = false;

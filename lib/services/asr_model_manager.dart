@@ -28,22 +28,25 @@ class AsrModelManager {
 
   /// Base URL the model files are fetched from. Must end with a slash.
   ///
-  /// TODO(user): upload the exported model files (see
-  /// tools/export docs in the memorization-test plan) to the R2 bucket
-  /// under `asr/` and confirm this URL. Until then, downloads fail but
-  /// locally-pushed files keep working.
+  /// Points at the `quran-content` R2 bucket under `asr/` (same bucket that
+  /// hosts the tafsir editions). The four files (base-encoder.int8.onnx,
+  /// base-decoder.int8.onnx, base-tokens.txt, silero_vad.onnx) live there;
+  /// the in-app download prompt (see `_promptAndDownloadAsrModel` in
+  /// quran_pages.dart) fetches them on first use. All four verified live
+  /// (HTTP 200, correct sizes) on 2026-07-24.
   static const String baseUrl =
-      'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/asr/';
+      'https://pub-5025f0d14b9046309795201770f30da1.r2.dev/asr/';
 
-  /// Expected files with their approximate sizes (bytes) -- sizes are used
-  /// only for progress reporting and a sanity floor (a 500-byte "not
-  /// found" HTML page must never be accepted as a model file), not as an
-  /// exact-match check, so re-exports don't brick the download flow.
+  /// Expected files with their sizes in bytes (the actual exported int8
+  /// artifacts). Sizes drive progress reporting and a sanity floor (a
+  /// small "not found" HTML page must never be accepted as a model file);
+  /// they are NOT an exact-match check, so a re-export whose size shifts a
+  /// little won't brick the download flow.
   static const Map<String, int> _files = {
-    'base-encoder.int8.onnx': 20 * 1024 * 1024,
-    'base-decoder.int8.onnx': 50 * 1024 * 1024,
-    'base-tokens.txt': 700 * 1024,
-    'silero_vad.onnx': 1 * 1024 * 1024,
+    'base-encoder.int8.onnx': 29104806,
+    'base-decoder.int8.onnx': 130659024,
+    'base-tokens.txt': 866987,
+    'silero_vad.onnx': 643854,
   };
 
   final ValueNotifier<AsrModelState> state =
@@ -52,40 +55,69 @@ class AsrModelManager {
   /// 0..1 while [state] is `downloading`.
   final ValueNotifier<double> progress = ValueNotifier(0);
 
-  Directory? _dir;
+  Directory? _internalDir;
   http.Client? _client;
 
+  /// Where downloads are written: app-private support storage.
   Future<Directory> modelDirectory() async {
-    if (_dir != null) return _dir!;
+    if (_internalDir != null) return _internalDir!;
     final support = await getApplicationSupportDirectory();
-    _dir = Directory('${support.path}${Platform.pathSeparator}asr_model');
-    return _dir!;
+    _internalDir =
+        Directory('${support.path}${Platform.pathSeparator}asr_model');
+    return _internalDir!;
+  }
+
+  /// App-scoped external "dev drop" (`/sdcard/Android/data/[pkg]/files/
+  /// asr_model` on Android), or null where unavailable. This location is
+  /// writable by `adb push` WITHOUT root, so model files can be placed on a
+  /// device for testing before R2 hosting exists. Read-only as far as the
+  /// app is concerned -- downloads never target it.
+  Future<Directory?> _externalDropDirectory() async {
+    if (kIsWeb) return null;
+    try {
+      final ext = await getExternalStorageDirectory();
+      if (ext == null) return null;
+      return Directory('${ext.path}${Platform.pathSeparator}asr_model');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The directory the model is actually read from: the external dev-drop
+  /// when it holds a complete set, otherwise the internal download dir.
+  Future<Directory> effectiveModelDirectory() async {
+    final drop = await _externalDropDirectory();
+    if (drop != null && await _dirHasAllFiles(drop)) return drop;
+    return modelDirectory();
   }
 
   Future<String> pathFor(String fileName) async {
-    final dir = await modelDirectory();
+    final dir = await effectiveModelDirectory();
     return '${dir.path}${Platform.pathSeparator}$fileName';
+  }
+
+  /// True when [dir] contains every expected file at a plausible size.
+  /// Sanity floor at 1% of the expected size catches truncated files and
+  /// error-page responses without rejecting legitimate re-exports whose
+  /// size shifted.
+  Future<bool> _dirHasAllFiles(Directory dir) async {
+    for (final entry in _files.entries) {
+      final file = File('${dir.path}${Platform.pathSeparator}${entry.key}');
+      if (!await file.exists() || await file.length() < entry.value ~/ 100) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Rough total download size, for the user-facing prompt.
   int get totalDownloadBytes =>
       _files.values.fold(0, (sum, size) => sum + size);
 
-  /// Re-checks local file presence and updates [state]. Never touches the
-  /// network.
+  /// Re-checks local file presence (external dev-drop or internal dir) and
+  /// updates [state]. Never touches the network.
   Future<bool> refresh() async {
-    final dir = await modelDirectory();
-    var allPresent = true;
-    for (final entry in _files.entries) {
-      final file = File('${dir.path}${Platform.pathSeparator}${entry.key}');
-      // Sanity floor at 1% of the expected size: catches truncated files
-      // and error-page responses without rejecting legitimate re-exports
-      // whose size shifted.
-      if (!await file.exists() || await file.length() < entry.value ~/ 100) {
-        allPresent = false;
-        break;
-      }
-    }
+    final allPresent = await _dirHasAllFiles(await effectiveModelDirectory());
     if (state.value != AsrModelState.downloading) {
       state.value =
           allPresent ? AsrModelState.ready : AsrModelState.notDownloaded;

@@ -64,6 +64,14 @@ class MemorizationTestOverlay extends StatelessWidget {
                     pageWidth: width,
                     pageHeight: height,
                   ),
+                // Live "the app hears you" indicator, floating near the
+                // bottom of the page area (below the text panel).
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: height * 0.035,
+                  child: Center(child: _ListeningChip(service: service)),
+                ),
               ],
             );
           },
@@ -132,5 +140,110 @@ class MemorizationTestOverlay extends StatelessWidget {
           ),
         ];
     }
+  }
+}
+
+/// Floating status pill: tells the reciter, at a glance, that the app is
+/// preparing / hearing them (mic pulses with their voice) / analyzing.
+/// Without it, the inevitable decode delay reads as the app being deaf.
+class _ListeningChip extends StatelessWidget {
+  const _ListeningChip({required this.service});
+
+  final MemorizationTestService service;
+
+  static const Color _gold = Color(0xFF8A6D2F);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        service.status,
+        service.audioLevel,
+        service.engineBusy,
+      ]),
+      builder: (context, _) {
+        final status = service.status.value;
+        if (status == MemorizationTestStatus.completed) {
+          return _pill(
+            icon: const Icon(Icons.check_circle_rounded,
+                color: Color(0xFF2E7D32), size: 18),
+            label: 'أحسنت! اكتمل التسميع',
+          );
+        }
+        if (status == MemorizationTestStatus.preparing) {
+          return _pill(
+            icon: const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: _gold,
+              ),
+            ),
+            label: 'جارٍ التحضير…',
+          );
+        }
+        if (status != MemorizationTestStatus.listening) {
+          return const SizedBox.shrink();
+        }
+
+        final busy = service.engineBusy.value;
+        final level = service.audioLevel.value;
+        return _pill(
+          // Mic glyph swells with the reciter's own voice level -- the
+          // most direct "I hear you" signal possible.
+          icon: AnimatedScale(
+            scale: 1.0 + level * 0.5,
+            duration: const Duration(milliseconds: 90),
+            child: Icon(
+              Icons.mic_rounded,
+              size: 18,
+              color: Color.lerp(
+                _gold.withValues(alpha: 0.45),
+                _gold,
+                (0.3 + level).clamp(0.0, 1.0),
+              ),
+            ),
+          ),
+          label: busy ? 'جارٍ التحليل…' : 'يستمع إليك',
+        );
+      },
+    );
+  }
+
+  Widget _pill({required Widget icon, required String label}) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xF2FFFDF3),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _gold.withValues(alpha: 0.35)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          textDirection: TextDirection.rtl,
+          children: [
+            icon,
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: const TextStyle(
+                color: _gold,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

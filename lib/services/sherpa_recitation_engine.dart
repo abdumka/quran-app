@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
-import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
@@ -29,16 +29,28 @@ class SherpaModelPaths {
 ///
 /// All sherpa_onnx work (VAD + decoding) runs inside a dedicated long-lived
 /// [Isolate] so multi-hundred-millisecond decode calls can never jank the
-/// UI thread -- per the memorization-test plan, we deliberately do NOT
-/// assume the plugin's FFI offloads work itself. Mic capture stays on the
-/// main isolate (the `record` plugin needs the root isolate's platform
-/// channels) and raw PCM chunks are forwarded to the worker.
+/// UI thread. Mic capture stays on the main isolate (the `record` plugin
+/// needs the root isolate's platform channels) and raw PCM chunks are
+/// forwarded to the worker.
 ///
-/// NOTE: isolate-safety of sherpa_onnx's FFI bindings is flagged in the
-/// plan as needing a device spike. If the spike fails, the fallback is
-/// moving `_workerMain`'s body onto the main isolate behind short
-/// VAD-bounded segments -- the class's public surface doesn't change.
-class SherpaRecitationEngine implements RecitationEngine {
+/// ## Latency design
+///
+/// Waiting for a VAD-detected pause before decoding makes every reveal lag
+/// the voice by (pause + decode) -- ~2s felt on a phone. Two measures cut
+/// that:
+///
+///  * INTERIM decodes: while the VAD reports speech in progress, the worker
+///    decodes the accumulated utterance every [_interimInterval]. Interim
+///    text drops its last word (it may be a half-spoken word cut mid-air;
+///    see [trimInterimResult]) and is fed to the aligner, whose
+///    window/history design absorbs the resulting overlaps and repeats, so
+///    words reveal WHILE the reciter keeps going.
+///  * The FINAL decode of each VAD segment (after a pause) is authoritative
+///    and re-covers the same audio in full.
+///
+/// The mic level ([audioLevel]) and decode activity ([busy]) are reported
+/// so the UI can show live "I hear you" feedback.
+class SherpaRecitationEngine extends RecitationEngine {
   SherpaRecitationEngine(this._paths);
 
   final SherpaModelPaths _paths;
@@ -50,8 +62,26 @@ class SherpaRecitationEngine implements RecitationEngine {
   StreamSubscription<Uint8List>? _micSub;
   ReceivePort? _receivePort;
 
+  /// Interim (mid-utterance) results with fewer words than this are
+  /// discarded outright -- one-word interims are most exposed to
+  /// half-spoken-word noise.
+  static const int _minInterimWords = 2;
+
   @override
   Stream<String> get segments => _controller.stream;
+
+  /// Drops the trailing word of an interim (mid-utterance) transcription:
+  /// the audio was cut while a word was possibly still being spoken, so the
+  /// last decoded word is the least trustworthy and, if wrong twice in a
+  /// row, could push the aligner's two-strike rule into a false `mistake`.
+  /// Returns '' when fewer than [_minInterimWords] words remain.
+  @visibleForTesting
+  static String trimInterimResult(String text) {
+    final words = text.trim().split(RegExp(r'\s+'))
+      ..removeWhere((w) => w.isEmpty);
+    if (words.length < _minInterimWords) return '';
+    return words.sublist(0, words.length - 1).join(' ');
+  }
 
   @override
   Future<void> start() async {
@@ -67,6 +97,10 @@ class SherpaRecitationEngine implements RecitationEngine {
         readyCompleter.complete(message);
       } else if (message is String) {
         if (!_controller.isClosed) _controller.add(message);
+      } else if (message is _LevelEvent) {
+        audioLevel.value = message.level;
+      } else if (message is _BusyEvent) {
+        busy.value = message.busy;
       } else if (message is _WorkerError) {
         debugPrint('SherpaRecitationEngine worker error: ${message.message}');
         if (!_controller.isClosed) _controller.addError(message.message);
@@ -107,6 +141,8 @@ class SherpaRecitationEngine implements RecitationEngine {
     _workerPort = null;
     _receivePort?.close();
     _receivePort = null;
+    audioLevel.value = 0;
+    busy.value = false;
     await _controller.close();
   }
 }
@@ -126,9 +162,33 @@ class _WorkerError {
   final String message;
 }
 
+class _LevelEvent {
+  const _LevelEvent(this.level);
+  final double level;
+}
+
+class _BusyEvent {
+  const _BusyEvent(this.busy);
+  final bool busy;
+}
+
+const int _sampleRate = 16000;
+
+/// How often, at most, an interim decode may start while speech continues.
+const Duration _interimInterval = Duration(milliseconds: 1300);
+
+/// Minimum accumulated speech before the first interim decode -- avoids
+/// wasting a decode (and risking hallucination) on a fraction of a word.
+const Duration _minInterimAudio = Duration(milliseconds: 1000);
+
+/// Rolling pre-roll kept while no speech is detected, prepended to the
+/// utterance buffer so the first word's onset isn't clipped (the VAD flips
+/// to "detected" only after min_speech_duration of voiced audio).
+const Duration _preRoll = Duration(milliseconds: 400);
+
 /// Entry point of the ASR worker isolate. Owns every sherpa_onnx object;
 /// nothing native ever crosses the isolate boundary -- only PCM bytes in
-/// and recognized text out.
+/// and recognized text / level / busy events out.
 Future<void> _workerMain(_WorkerInit init) async {
   final commandPort = ReceivePort();
   sherpa.initBindings();
@@ -140,12 +200,14 @@ Future<void> _workerMain(_WorkerInit init) async {
       config: sherpa.VadModelConfig(
         sileroVad: sherpa.SileroVadModelConfig(
           model: init.paths.vad,
-          // Tuned for deliberate recitation: a pause shorter than 500ms
-          // (breath, madd) must not split an utterance.
-          minSilenceDuration: 0.5,
+          // 300ms of silence closes an utterance. Short enough to feel
+          // responsive after a pause; recitation pauses within a phrase
+          // (breath, short madd) that exceed it merely split the audio into
+          // more segments, which the aligner handles.
+          minSilenceDuration: 0.3,
           minSpeechDuration: 0.25,
         ),
-        sampleRate: 16000,
+        sampleRate: _sampleRate,
         numThreads: 1,
       ),
       bufferSizeInSeconds: 30,
@@ -158,16 +220,16 @@ Future<void> _workerMain(_WorkerInit init) async {
             decoder: init.paths.decoder,
             language: 'ar',
             task: 'transcribe',
-            // Extra trailing zero-padding before the mel window ends. The
-            // ONNX-export verification (verify_sherpa.py) showed the last
-            // syllable of a short segment can get clipped with the default
-            // (-1); a positive padding gives the decoder room to finish the
-            // final word.
+            // Extra trailing zero-padding before the mel window ends; the
+            // export verification showed short segments losing their last
+            // syllable with the default.
             tailPaddings: 2000,
           ),
           tokens: init.paths.tokens,
           modelType: 'whisper',
-          numThreads: 2,
+          // Whisper-base decode dominates end-to-end latency; give it the
+          // big cores. (VAD stays on 1 thread -- it's negligible.)
+          numThreads: 4,
         ),
       ),
     );
@@ -179,36 +241,143 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   init.replyTo.send(commandPort.sendPort);
 
+  String decode(Float32List samples) {
+    init.replyTo.send(const _BusyEvent(true));
+    final stream = recognizer!.createStream();
+    try {
+      stream.acceptWaveform(samples: samples, sampleRate: _sampleRate);
+      recognizer.decode(stream);
+      return recognizer.getResult(stream).text.trim();
+    } finally {
+      stream.free();
+      init.replyTo.send(const _BusyEvent(false));
+    }
+  }
+
+  // A single trailing byte carried over when a chunk ends mid-sample, so
+  // PCM16 sample boundaries stay aligned across chunk splits (otherwise one
+  // odd-length chunk would desync every sample that follows into noise).
+  var carry = Uint8List(0);
+
+  // Rolling pre-roll (kept while idle) + current utterance accumulation.
+  final preRollMax = _preRoll.inMilliseconds * _sampleRate ~/ 1000;
+  final minInterimSamples =
+      _minInterimAudio.inMilliseconds * _sampleRate ~/ 1000;
+  var preRollBuffer = <Float32List>[];
+  var preRollLength = 0;
+  var utterance = <Float32List>[];
+  var utteranceLength = 0;
+  var speechActive = false;
+  var lastDecodeStarted = DateTime.fromMillisecondsSinceEpoch(0);
+  var lastLevelSent = DateTime.fromMillisecondsSinceEpoch(0);
+  var peakRms = 0.0;
+
+  Float32List concat(List<Float32List> chunks, int total) {
+    final out = Float32List(total);
+    var offset = 0;
+    for (final c in chunks) {
+      out.setAll(offset, c);
+      offset += c.length;
+    }
+    return out;
+  }
+
   await for (final message in commandPort) {
     if (message is _WorkerShutdown) break;
     if (message is! Uint8List) continue;
 
-    // PCM16 little-endian -> Float32 in [-1, 1].
-    final int16 = Int16List.view(
-      message.buffer,
-      message.offsetInBytes,
-      message.lengthInBytes ~/ 2,
-    );
-    final float32 = Float32List(int16.length);
-    for (var i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32768.0;
+    final bytes = carry.isEmpty
+        ? message
+        : (Uint8List(carry.length + message.length)
+          ..setAll(0, carry)
+          ..setAll(carry.length, message));
+    final sampleCount = bytes.lengthInBytes ~/ 2;
+    final usableBytes = sampleCount * 2;
+    carry = bytes.length > usableBytes
+        ? Uint8List.sublistView(bytes, usableBytes)
+        : Uint8List(0);
+    if (sampleCount == 0) continue;
+
+    // PCM16 little-endian -> Float32 in [-1, 1]. Read via ByteData.getInt16
+    // rather than Int16List.view: the Uint8List arriving over the port can
+    // start at an odd byte offset (observed offset 5 from the record
+    // plugin's buffers), which Int16List.view rejects with a
+    // "must be a multiple of BYTES_PER_ELEMENT" RangeError. getInt16 reads
+    // at any alignment.
+    final byteData = ByteData.sublistView(bytes);
+    final float32 = Float32List(sampleCount);
+    var sumSquares = 0.0;
+    for (var i = 0; i < sampleCount; i++) {
+      final v = byteData.getInt16(i * 2, Endian.little) / 32768.0;
+      float32[i] = v;
+      sumSquares += v * v;
+    }
+
+    // Mic level feedback, throttled to ~10 events/second. Normal speech
+    // RMS sits around 0.05-0.2, so scale up and clamp for a lively meter.
+    peakRms = math.max(peakRms, math.sqrt(sumSquares / sampleCount));
+    final now = DateTime.now();
+    if (now.difference(lastLevelSent).inMilliseconds >= 100) {
+      init.replyTo.send(_LevelEvent((peakRms * 6).clamp(0.0, 1.0)));
+      lastLevelSent = now;
+      peakRms = 0.0;
     }
 
     vad.acceptWaveform(float32);
+
+    // Track the in-progress utterance for interim decoding.
+    if (vad.isDetected()) {
+      if (!speechActive) {
+        speechActive = true;
+        utterance = List.of(preRollBuffer);
+        utteranceLength = preRollLength;
+      }
+      utterance.add(float32);
+      utteranceLength += float32.length;
+    } else if (!speechActive) {
+      preRollBuffer.add(float32);
+      preRollLength += float32.length;
+      while (preRollLength - preRollBuffer.first.length >= preRollMax &&
+          preRollBuffer.length > 1) {
+        preRollLength -= preRollBuffer.first.length;
+        preRollBuffer.removeAt(0);
+      }
+    }
+
+    // Final segments (utterance closed by a pause, or force-split at the
+    // VAD's max_speech_duration): decode in full, authoritative.
+    var poppedFinal = false;
     while (!vad.isEmpty()) {
+      poppedFinal = true;
       final segment = vad.front();
       vad.pop();
-      final stream = recognizer.createStream();
-      try {
-        stream.acceptWaveform(samples: segment.samples, sampleRate: 16000);
-        recognizer.decode(stream);
-        final text = recognizer.getResult(stream).text.trim();
-        if (text.isNotEmpty) {
-          init.replyTo.send(text);
-        }
-      } finally {
-        stream.free();
-      }
+      final text = decode(segment.samples);
+      if (text.isNotEmpty) init.replyTo.send(text);
+      lastDecodeStarted = DateTime.now();
+    }
+    if (poppedFinal) {
+      // The utterance the buffers were tracking is covered by the final
+      // decode; start fresh.
+      speechActive = false;
+      utterance = [];
+      utteranceLength = 0;
+      preRollBuffer = [];
+      preRollLength = 0;
+      continue;
+    }
+
+    // Interim decode: speech still in progress, enough audio accumulated,
+    // and the previous decode long enough ago. (Decodes run synchronously
+    // in this isolate, so they're naturally serial; queued mic chunks just
+    // wait in the port and VAD timing is sample-based, not wall-clock.)
+    if (speechActive &&
+        utteranceLength >= minInterimSamples &&
+        DateTime.now().difference(lastDecodeStarted) >= _interimInterval) {
+      lastDecodeStarted = DateTime.now();
+      final text = SherpaRecitationEngine.trimInterimResult(
+        decode(concat(utterance, utteranceLength)),
+      );
+      if (text.isNotEmpty) init.replyTo.send(text);
     }
   }
 
