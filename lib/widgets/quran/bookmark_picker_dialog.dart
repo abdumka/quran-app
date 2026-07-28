@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../models/reader_bookmark.dart';
+
 class BookmarkPickerResult {
   final int? selectedSlot;
   final int? deletedSlot;
 
-  const BookmarkPickerResult._({
-    this.selectedSlot,
-    this.deletedSlot,
-  });
+  const BookmarkPickerResult._({this.selectedSlot, this.deletedSlot});
 
   const BookmarkPickerResult.select(int slot) : this._(selectedSlot: slot);
   const BookmarkPickerResult.delete(int slot) : this._(deletedSlot: slot);
@@ -21,8 +19,16 @@ class BookmarkPickerDialog extends StatefulWidget {
   final String Function(ReaderBookmark) surahNameForBookmark;
   final Future<void> Function(int slot, String? label) onRename;
   final Future<void> Function(int slot) onDelete;
+  final Future<void> Function()? onExport;
+  final Future<Map<int, ReaderBookmark>?> Function()? onImport;
 
-  const BookmarkPickerDialog({super.key, 
+  /// Highest bookmark slot number offered by the picker. Shared with the
+  /// import merge logic in quran_pages.dart so imported bookmarks are never
+  /// placed in a slot the picker itself would refuse to show.
+  static const int maxSlots = 15;
+
+  const BookmarkPickerDialog({
+    super.key,
     required this.title,
     required this.onlySaved,
     required this.bookmarks,
@@ -30,6 +36,8 @@ class BookmarkPickerDialog extends StatefulWidget {
     required this.surahNameForBookmark,
     required this.onRename,
     required this.onDelete,
+    this.onExport,
+    this.onImport,
   });
 
   @override
@@ -117,11 +125,10 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
   /// saved slots beyond the lowest empty one are not shown — e.g. with 1-5
   /// and 7 and 10 saved, slot 6 is offered but 8 and 9 stay hidden.
   static const int _baseSlots = 5;
-  static const int _maxSlots = 15;
 
   List<int> _visibleSlots() {
     int? lowestEmpty;
-    for (int slot = 1; slot <= _maxSlots; slot++) {
+    for (int slot = 1; slot <= BookmarkPickerDialog.maxSlots; slot++) {
       if (!_bookmarks.containsKey(slot)) {
         lowestEmpty = slot;
         break;
@@ -129,11 +136,61 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
     }
     final visible = <int>{
       for (int slot = 1; slot <= _baseSlots; slot++) slot,
-      ..._bookmarks.keys.where((slot) => slot >= 1 && slot <= _maxSlots),
+      ..._bookmarks.keys.where(
+        (slot) => slot >= 1 && slot <= BookmarkPickerDialog.maxSlots,
+      ),
       ?lowestEmpty,
-    }.toList()
-      ..sort();
+    }.toList()..sort();
     return visible;
+  }
+
+  bool get _showBackupActions =>
+      widget.onlySaved && (widget.onExport != null || widget.onImport != null);
+
+  Future<void> _handleExport() async {
+    final onExport = widget.onExport;
+    if (onExport == null) return;
+    await onExport();
+  }
+
+  Future<void> _handleImport() async {
+    final onImport = widget.onImport;
+    if (onImport == null) return;
+    final merged = await onImport();
+    if (!mounted || merged == null) return;
+    setState(() {
+      _bookmarks = merged;
+    });
+  }
+
+  Widget _buildBackupActions() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (widget.onImport != null)
+          IconButton(
+            tooltip: 'استيراد من ملف',
+            visualDensity: VisualDensity.compact,
+            onPressed: _handleImport,
+            icon: const Icon(
+              Icons.folder_open_outlined,
+              color: Color(0xFF8B7355),
+              size: 20,
+            ),
+          ),
+        if (widget.onExport != null)
+          IconButton(
+            tooltip: 'مشاركة كملف',
+            visualDensity: VisualDensity.compact,
+            onPressed: _handleExport,
+            icon: const Icon(
+              Icons.ios_share,
+              color: Color(0xFF8B7355),
+              size: 20,
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -144,7 +201,17 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
 
     if (slots.isEmpty) {
       return AlertDialog(
-        title: Text(widget.title, textDirection: TextDirection.rtl),
+        title: _showBackupActions
+            ? Row(
+                textDirection: TextDirection.rtl,
+                children: [
+                  Expanded(
+                    child: Text(widget.title, textDirection: TextDirection.rtl),
+                  ),
+                  _buildBackupActions(),
+                ],
+              )
+            : Text(widget.title, textDirection: TextDirection.rtl),
         content: const Text(
           'لا توجد علامات محفوظة حاليًا.',
           textDirection: TextDirection.rtl,
@@ -170,9 +237,7 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
           textDirection: TextDirection.rtl,
           autofocus: true,
           maxLength: 24,
-          decoration: const InputDecoration(
-            hintText: 'اسم مختصر للعلامة',
-          ),
+          decoration: const InputDecoration(hintText: 'اسم مختصر للعلامة'),
         ),
         actions: [
           TextButton(
@@ -188,7 +253,17 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
     }
 
     return AlertDialog(
-      title: Text(widget.title, textDirection: TextDirection.rtl),
+      title: _showBackupActions
+          ? Row(
+              textDirection: TextDirection.rtl,
+              children: [
+                Expanded(
+                  child: Text(widget.title, textDirection: TextDirection.rtl),
+                ),
+                _buildBackupActions(),
+              ],
+            )
+          : Text(widget.title, textDirection: TextDirection.rtl),
       contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
       content: SizedBox(
         width: 360,
@@ -198,119 +273,138 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
             maxHeight: MediaQuery.of(context).size.height * 0.55,
           ),
           child: ListView.separated(
-          shrinkWrap: true,
-          itemCount: slots.length,
-          separatorBuilder: (context, index) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final slot = slots[index];
-            final bookmark = _bookmarks[slot];
-            final isSaved = bookmark != null;
-            final isDeleting = _deletingSlot == slot;
-            
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              decoration: BoxDecoration(
-                color: !isSaved 
-                  ? Colors.white          // فارغة = أبيض
-                  : const Color(0xFFFFF8EC),    // محفوظة = كريمي دافئ
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
+            shrinkWrap: true,
+            itemCount: slots.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final slot = slots[index];
+              final bookmark = _bookmarks[slot];
+              final isSaved = bookmark != null;
+              final isDeleting = _deletingSlot == slot;
+
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                decoration: BoxDecoration(
                   color: !isSaved
-                    ? const Color(0xFFEEEEEE)
-                    : const Color(0xFF8B7355),  // محفوظة = حد ذهبي
-                  width: !isSaved ? 0.5 : 1.0,
-                ),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
+                      ? Colors
+                            .white // فارغة = أبيض
+                      : const Color(0xFFFFF8EC), // محفوظة = كريمي دافئ
                   borderRadius: BorderRadius.circular(14),
-                  onTap: () => Navigator.pop(
-                    context,
-                    BookmarkPickerResult.select(slot),
+                  border: Border.all(
+                    color: !isSaved
+                        ? const Color(0xFFEEEEEE)
+                        : const Color(0xFF8B7355), // محفوظة = حد ذهبي
+                    width: !isSaved ? 0.5 : 1.0,
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      textDirection: TextDirection.rtl,
-                      children: [
-                        // أيقونة العلامة
-                        Container(
-                          width: 40, height: 40,
-                          decoration: BoxDecoration(
-                            color: !isSaved
-                              ? const Color(0xFFF0F0F0)
-                              : const Color(0xFF8B7355),
-                            borderRadius: BorderRadius.circular(10),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () => Navigator.pop(
+                      context,
+                      BookmarkPickerResult.select(slot),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          // أيقونة العلامة
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: !isSaved
+                                  ? const Color(0xFFF0F0F0)
+                                  : const Color(0xFF8B7355),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              !isSaved
+                                  ? Icons.bookmark_outline
+                                  : Icons.bookmark,
+                              color: !isSaved ? Colors.grey : Colors.white,
+                              size: 20,
+                            ),
                           ),
-                          child: Icon(
-                            !isSaved
-                              ? Icons.bookmark_outline
-                              : Icons.bookmark,
-                            color: !isSaved
-                              ? Colors.grey
-                              : Colors.white,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
+                          const SizedBox(width: 12),
 
-                        // المعلومات
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            textDirection: TextDirection.rtl,
-                            children: [
-                              Text(
-                                // Saved slots show their custom name (falls
-                                // back to "العلامة N" when unnamed).
-                                isSaved
-                                    ? widget.displayNameBuilder(slot, bookmark)
-                                    : 'العلامة $slot',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                  color: !isSaved
-                                    ? const Color(0xFF999999)
-                                    : const Color(0xFF2C2C2C),
+                          // المعلومات
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              textDirection: TextDirection.rtl,
+                              children: [
+                                Text(
+                                  // Saved slots show their custom name (falls
+                                  // back to "العلامة N" when unnamed).
+                                  isSaved
+                                      ? widget.displayNameBuilder(
+                                          slot,
+                                          bookmark,
+                                        )
+                                      : 'العلامة $slot',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: !isSaved
+                                        ? const Color(0xFF999999)
+                                        : const Color(0xFF2C2C2C),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                !isSaved
-                                  ? 'فارغة — اضغط للحفظ'
-                                  : 'صفحة ${bookmark.page + 1} • ${widget.surahNameForBookmark(bookmark)}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: !isSaved
-                                    ? const Color(0xFFBBBBBB)
-                                    : const Color(0xFF8B7355),
+                                const SizedBox(height: 3),
+                                Text(
+                                  !isSaved
+                                      ? 'فارغة — اضغط للحفظ'
+                                      : 'صفحة ${bookmark.page + 1} • ${widget.surahNameForBookmark(bookmark)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: !isSaved
+                                        ? const Color(0xFFBBBBBB)
+                                        : const Color(0xFF8B7355),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
 
-                        // أزرار التعديل والحذف (فقط للمحفوظة)
-                        if (isSaved) ...[
-                          IconButton(
-                            onPressed: () => _startRename(slot),
-                            icon: const Icon(Icons.edit_outlined,
-                              color: Color(0xFF8B7355), size: 24)), // Increased size
-                          IconButton(
-                            onPressed: isDeleting ? null : () => _deleteSlot(slot),
-                            icon: isDeleting
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                                : const Icon(Icons.delete_outline,
-                              color: Color(0xFFCC4444), size: 24)), // Increased size
+                          // أزرار التعديل والحذف (فقط للمحفوظة)
+                          if (isSaved) ...[
+                            IconButton(
+                              onPressed: () => _startRename(slot),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: Color(0xFF8B7355),
+                                size: 24,
+                              ),
+                            ), // Increased size
+                            IconButton(
+                              onPressed: isDeleting
+                                  ? null
+                                  : () => _deleteSlot(slot),
+                              icon: isDeleting
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.delete_outline,
+                                      color: Color(0xFFCC4444),
+                                      size: 24,
+                                    ),
+                            ), // Increased size
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
           ),
         ),
       ),

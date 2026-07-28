@@ -7,6 +7,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent, RenderProxyBox;
 import 'package:flutter/services.dart';
+import 'package:file_selector/file_selector.dart' show openFile, XTypeGroup;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -1219,6 +1222,167 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
+  // Backups are a versioned JSON envelope so a future format change can be
+  // detected instead of silently mis-parsed.
+  static const String _bookmarkBackupApp = 'quran_reader_bookmarks';
+  static const String _bookmarkBackupFileName = 'quran-bookmarks-backup.json';
+
+  String _buildBookmarksBackupJson(Iterable<ReaderBookmark> items) {
+    final envelope = {
+      'app': _bookmarkBackupApp,
+      'v': 1,
+      'bookmarks': items.map((item) => item.toJson()).toList(),
+    };
+    return const JsonEncoder.withIndent('  ').convert(envelope);
+  }
+
+  List<ReaderBookmark>? _parseBookmarksBackupJson(String raw) {
+    try {
+      final envelope = jsonDecode(raw) as Map<String, dynamic>;
+      if (envelope['app'] != _bookmarkBackupApp) return null;
+      final rawList = envelope['bookmarks'] as List<dynamic>;
+      final result = <ReaderBookmark>[];
+      for (final item in rawList) {
+        try {
+          result.add(ReaderBookmark.fromJson(Map<String, dynamic>.from(item)));
+        } catch (_) {
+          // Skip a single malformed entry rather than failing the whole import.
+        }
+      }
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? _lowestFreeBookmarkSlot(Map<int, ReaderBookmark> bookmarks) {
+    for (int slot = 1; slot <= BookmarkPickerDialog.maxSlots; slot++) {
+      if (!bookmarks.containsKey(slot)) return slot;
+    }
+    return null;
+  }
+
+  /// Imported bookmarks never overwrite an existing slot: a slot that's
+  /// already taken gets the imported bookmark re-numbered into the next free
+  /// slot instead, so importing a friend's backup can't clobber your own.
+  ({Map<int, ReaderBookmark> bookmarks, int added, int skipped})
+  _mergeImportedBookmarks(List<ReaderBookmark> incoming) {
+    final merged = Map<int, ReaderBookmark>.from(_bookmarks);
+    int added = 0;
+    int skipped = 0;
+    for (final bookmark in incoming) {
+      final fitsOwnSlot =
+          bookmark.slot >= 1 &&
+          bookmark.slot <= BookmarkPickerDialog.maxSlots &&
+          !merged.containsKey(bookmark.slot);
+      if (fitsOwnSlot) {
+        merged[bookmark.slot] = bookmark;
+        added++;
+        continue;
+      }
+      final freeSlot = _lowestFreeBookmarkSlot(merged);
+      if (freeSlot == null) {
+        skipped++;
+        continue;
+      }
+      merged[freeSlot] = bookmark.copyWith(slot: freeSlot);
+      added++;
+    }
+    return (bookmarks: merged, added: added, skipped: skipped);
+  }
+
+  /// [XFile.fromData]'s `name` is ignored outside web (the file's `.name`
+  /// getter derives from its path instead), so a real file with the desired
+  /// name has to be written to disk there; web has no filesystem, so it must
+  /// use `fromData` directly.
+  Future<XFile> _writeBookmarksBackupFile(String jsonStr) async {
+    final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+    if (kIsWeb) {
+      return XFile.fromData(
+        bytes,
+        name: _bookmarkBackupFileName,
+        mimeType: 'application/json',
+      );
+    }
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$_bookmarkBackupFileName');
+    await file.writeAsBytes(bytes);
+    return XFile(file.path, mimeType: 'application/json');
+  }
+
+  Future<void> _exportBookmarks() async {
+    if (_bookmarks.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('لا توجد علامات لمشاركتها')));
+      return;
+    }
+    final jsonStr = _buildBookmarksBackupJson(_bookmarks.values);
+    final file = await _writeBookmarksBackupFile(jsonStr);
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [file],
+          subject: 'نسخة احتياطية لعلامات القرآن',
+          downloadFallbackEnabled: true,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّرت مشاركة النسخة الاحتياطية')),
+      );
+    }
+  }
+
+  Future<Map<int, ReaderBookmark>?> _importBookmarksFlow() async {
+    XFile? picked;
+    try {
+      picked = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'Quran Bookmarks', extensions: ['json']),
+        ],
+      );
+    } catch (_) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّر فتح الملف')));
+      return null;
+    }
+    if (picked == null || !mounted) return null;
+
+    final incoming = _parseBookmarksBackupJson(await picked.readAsString());
+    if (incoming == null || incoming.isEmpty) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ملف النسخة الاحتياطية غير صالح')),
+      );
+      return null;
+    }
+
+    final result = _mergeImportedBookmarks(incoming);
+    setState(() {
+      _bookmarks = result.bookmarks;
+      _activeBookmarkSlot ??= result.bookmarks.keys.isEmpty
+          ? null
+          : (result.bookmarks.keys.toList()..sort()).first;
+    });
+    await _persistBookmarks();
+    if (!mounted) return result.bookmarks;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.skipped == 0
+              ? 'تم استيراد ${result.added} علامة'
+              : 'تم استيراد ${result.added} علامة، وتخطي ${result.skipped} (لا توجد أماكن فارغة)',
+        ),
+      ),
+    );
+    return result.bookmarks;
+  }
+
   Future<void> _deleteBookmarkSlot(int slot) async {
     setState(() {
       _bookmarks.remove(slot);
@@ -1259,6 +1423,8 @@ class _QuranPagesState extends State<QuranPages>
         surahNameForBookmark: _getSurahNameForBookmark,
         onRename: _renameBookmarkSlot,
         onDelete: _deleteBookmarkSlot,
+        onExport: _exportBookmarks,
+        onImport: _importBookmarksFlow,
       ),
     );
   }
@@ -5378,9 +5544,9 @@ class _QuranPagesState extends State<QuranPages>
             : borderColor.withValues(alpha: 0.18),
         shape: BoxShape.circle,
       ),
-      child: iconWidget ??
-          Icon(icon,
-              color: highlighted ? Colors.white : textColor, size: 18),
+      child:
+          iconWidget ??
+          Icon(icon, color: highlighted ? Colors.white : textColor, size: 18),
     );
 
     final row = Row(
@@ -6260,14 +6426,20 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                 borderRadius: BorderRadius.circular(22),
                                 child: Container(
                                   padding: const EdgeInsets.fromLTRB(
-                                      8, 6, 12, 6),
+                                    8,
+                                    6,
+                                    12,
+                                    6,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: widget.accentColor
-                                        .withValues(alpha: 0.14),
+                                    color: widget.accentColor.withValues(
+                                      alpha: 0.14,
+                                    ),
                                     borderRadius: BorderRadius.circular(22),
                                     border: Border.all(
-                                      color: widget.accentColor
-                                          .withValues(alpha: 0.55),
+                                      color: widget.accentColor.withValues(
+                                        alpha: 0.55,
+                                      ),
                                       width: 1.3,
                                     ),
                                   ),
@@ -6283,7 +6455,10 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                       Flexible(
                                         child: Text(
                                           TafsirEditionService
-                                              .instance.selected.value.name,
+                                              .instance
+                                              .selected
+                                              .value
+                                              .name,
                                           textAlign: TextAlign.center,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
@@ -6368,57 +6543,56 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                         thumbVisibility: true,
                         thickness: 5,
                         radius: const Radius.circular(4),
-                        thumbColor:
-                            widget.accentColor.withValues(alpha: 0.5),
+                        thumbColor: widget.accentColor.withValues(alpha: 0.5),
                         child: ListView.separated(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
+                          controller: scrollController,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          itemCount: _tafsirData.length,
+                          separatorBuilder: (_, _) => const Divider(height: 32),
+                          itemBuilder: (context, index) {
+                            final data = _tafsirData[index];
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  '${data['surahName']} - آية ${data['ayahNumber']}',
+                                  textAlign: TextAlign.center,
+                                  textDirection: TextDirection.rtl,
+                                  style: TextStyle(
+                                    color: widget.borderColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  data['ayahText'],
+                                  textAlign: TextAlign.center,
+                                  textDirection: TextDirection.rtl,
+                                  style: TextStyle(
+                                    color: widget.titleColor,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 22,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  data['tafsir'],
+                                  textAlign: TextAlign.justify,
+                                  textDirection: TextDirection.rtl,
+                                  style: TextStyle(
+                                    color: widget.textColor,
+                                    fontSize: 18,
+                                    height: 1.8,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                        itemCount: _tafsirData.length,
-                        separatorBuilder: (_, _) => const Divider(height: 32),
-                        itemBuilder: (context, index) {
-                          final data = _tafsirData[index];
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                '${data['surahName']} - آية ${data['ayahNumber']}',
-                                textAlign: TextAlign.center,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: widget.borderColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                data['ayahText'],
-                                textAlign: TextAlign.center,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: widget.titleColor,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 22,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                data['tafsir'],
-                                textAlign: TextAlign.justify,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: widget.textColor,
-                                  fontSize: 18,
-                                  height: 1.8,
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
                       ),
               ),
             ],
