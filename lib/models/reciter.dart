@@ -73,7 +73,7 @@ class Reciter {
     id: 'husary_qaloun',
     name: 'محمود خليل الحصري',
     riwaya: 'رواية قالون',
-    audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/alhosary/',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/alhosary/',
     cacheFolder: 'audio_cache',
   );
 
@@ -92,7 +92,7 @@ class Reciter {
     id: 'naihi_qaloun',
     name: 'وليد علي النائحي',
     riwaya: 'رواية قالون',
-    audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/Alnaihi/',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/Alnaihi/',
     cacheFolder: 'audio_cache_naihi',
     nativeQalounScheme: true,
   );
@@ -126,7 +126,7 @@ class Reciter {
     id: 'qaniwah_qaloun',
     name: 'الأمين محمد قنيوه',
     riwaya: 'رواية قالون ',
-    audioBaseUrl: 'https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/qaniwah/',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/qaniwah/',
     cacheFolder: 'audio_cache_qaniwah',
     nativeQalounScheme: true,
     breathCombining: true,

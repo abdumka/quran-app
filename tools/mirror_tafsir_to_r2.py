@@ -108,4 +108,4 @@ with ThreadPoolExecutor(max_workers=16) as ex:
 
 print(f"\nDONE up={up} skip={skip} (total {len(jobs)})")
 print(f"Verify a URL resolves, e.g. {cfg['R2_ENDPOINT'].rstrip('/')}… or the public "
-      f"r2.dev domain configured in lib/models/tafsir_edition.dart.")
+      f"custom domain configured in lib/models/tafsir_edition.dart.")

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH = os.path.join(ROOT, "assets", "data", "qaniwah_continuations.json")
-B = "https://pub-f4e99834c32943d2a947531d938b19f6.r2.dev/qaniwah/%03d%03d.mp3"
+B = "https://audio.mushaf-qaloon.com/qaniwah/%03d%03d.mp3"
 H = {"User-Agent": "Mozilla/5.0"}
 
 # Surahs where 000 != 001 yet ayah-1 still begins with the basmala (verified by ear).
