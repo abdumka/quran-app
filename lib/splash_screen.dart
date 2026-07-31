@@ -60,8 +60,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const title =
-        'مصحف الدعوة الاسلامية الجامع';
+    const title = 'المصحف الجامع';
     const subtitle =
         '\u0646\u0633\u0623\u0644 \u0627\u0644\u0644\u0647 \u0623\u0646 \u064a\u0646\u0641\u0639 \u0628\u0647.';
     const prayer =

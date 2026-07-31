@@ -1,11 +1,11 @@
 {
-    "name": "مصحف الدعوة الاسلامية الجامع",
-    "short_name": "مصحف الدعوة",
+    "name": "المصحف الجامع",
+    "short_name": "المصحف الجامع",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "مصحف الدعوة الاسلامية الجامع.",
+    "description": "المصحف الجامع.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

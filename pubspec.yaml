@@ -1,5 +1,5 @@
 name: islamic_dawah_mushaf
-description: "Mushaf Al-Dawah Al-Islamia Al-Jame."
+description: "المصحف الجامع - Al-Mushaf Al-Jame."
 publish_to: 'none'
 
 version: 1.3.0+22
@@ -36,11 +36,14 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.1    
 
-flutter_launcher_icons:              
-  ios: true
-  android: false
+flutter_launcher_icons:
+  ios: false
+  android: true
   remove_alpha_ios: true
   image_path: "assets/icon/app_icon.png"
+  image_path_android: "store_assets/1024x1024android.png"
+  adaptive_icon_background: "#a86b0c"
+  adaptive_icon_foreground: "store_assets/1024x1024android.png"
 
 flutter:
   uses-material-design: true

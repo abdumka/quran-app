@@ -95,7 +95,7 @@ BEGIN
             VALUE "InternalName", "islamic_dawah_mushaf" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
             VALUE "OriginalFilename", "islamic_dawah_mushaf.exe" "\0"
-            VALUE "ProductName", "مصحف الدعوة الاسلامية الجامع" "\0"
+            VALUE "ProductName", "المصحف الجامع" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

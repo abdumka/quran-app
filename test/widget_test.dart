@@ -15,7 +15,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(SplashScreen), findsOneWidget);
-    expect(find.text('مصحف الدعوة الاسلامية الجامع'), findsOneWidget);
+    expect(find.text('المصحف الجامع'), findsOneWidget);
 
     // Unmount before flushing the splash's minimum-display timer so the test
     // doesn't navigate into the full reader (which needs platform plugins).
