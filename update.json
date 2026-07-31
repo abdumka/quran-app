@@ -1,16 +1,17 @@
 {
   "_comment": "Publish this file to https://raw.githubusercontent.com/abdumka/quran-app/main/update.json (the repo must be public). The app reads it on startup and from Settings > التحقق من وجود تحديث, and compares 'version'/'build' against the installed app. Set them to the LATEST released version: users on an older build get the update prompt; users already on it do not. Edit 'changes' for the changelog. Set 'mandatory': true to force the update (hides the 'Later' button and shows it every launch until updated). Per-platform keys (android/ios) override the shared top-level values; omit them to use the shared ones.",
-  "version": "1.2.0",
-  "build": 21,
+  "version": "1.3.0",
+  "build": 22,
   "mandatory": false,
   "changes": [
-    'إضافة  تفاسير جديدة (ابن كثير، الطبري، القرطبي، وزاد المسير) لتصبح 7 تفاسير بالإجمال.',
-    'إمكانية تخصيص لون خلفية صفحات المصحف (أبيض، كريمي، أخضر هادئ، أزرق هادئ، وردي هادئ).',
-    'تحسينات في إدارة التحميلات (تحميل وحذف التفاسير والتلاوات).',
-    'إصلاحات في تشغيل الصوت.',
-    'إمكانية مشاركة نسخة احتياطية من العلامات المحفوظة كملف، واستيرادها لاحقًا أو على جهاز آخر.',
-  ];
-
+    "إضافة «تكرار مقطع» في خيارات التلاوة: اختر السورة ونطاق الآيات وعدد التكرار.",
+    "إضافة تفاسير جديدة (ابن كثير، الطبري، القرطبي، وزاد المسير) لتصبح 7 تفاسير.",
+    "إمكانية تخصيص لون خلفية صفحات المصحف.",
+    "تنظيم الإعدادات في مجموعات لتسهيل الوصول إليها.",
+    "تحسينات في إدارة التحميلات.",
+    "إمكانية تصدير العلامات المحفوظة واستيرادها.",
+    "إصلاحات في تشغيل الصوت."
+  ],
   "android": {
     "storeUrl": "https://play.google.com/store/apps/details?id=com.mahfodqr.qalon_mushaf"
   },

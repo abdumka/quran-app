@@ -67,6 +67,154 @@ class SettingsCard extends StatelessWidget {
   }
 }
 
+/// A settings entry that *nests* other settings, unlike the single-purpose
+/// tiles around it. Deliberately framed differently from [SettingsCard]: a warm
+/// header bar carrying a badged icon, an accent-coloured title and a count of
+/// what is inside, plus an accent rail running down the expanded contents so
+/// the "these belong to the row above" relationship reads at a glance.
+/// All of the extra weight is decorative or horizontal, so a collapsed group
+/// occupies exactly the same vertical space as a plain tile.
+class SettingsGroupCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+
+  /// The nested settings. Thin dividers are inserted between them, so callers
+  /// only pass the tiles themselves.
+  final List<Widget> children;
+  final ExpansibleController? controller;
+
+  const SettingsGroupCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.children,
+    this.controller,
+  });
+
+  static const Color _accent = Color(0xFF8B7355);
+  static const List<String> _digits = [
+    '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'
+  ];
+
+  static String _toArabic(int n) =>
+      n.toString().split('').map((c) => _digits[int.parse(c)]).join();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        // Tinted, not white: the header bar reads as the group's "lid" while
+        // the nested tiles below stay on white like every other setting.
+        color: const Color(0xFFFBF6EC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDECAA8)),
+        boxShadow: [
+          BoxShadow(
+            color: _accent.withValues(alpha: 0.07),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            controller: controller,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+            childrenPadding: EdgeInsets.zero,
+            iconColor: _accent,
+            collapsedIconColor: _accent,
+            shape: const Border(),
+            collapsedShape: const Border(),
+            title: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(icon, color: _accent, size: 17),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF6F5A3C),
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // How many settings are inside: the cheapest possible hint that
+                // this row opens onto more rows instead of doing something.
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _accent.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _toArabic(children.length),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _accent,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: BorderDirectional(
+                    top: const BorderSide(color: Color(0xFFE8DCC8), width: 0.5),
+                    // The rail sits on the RTL start edge and runs the full
+                    // height of the nested tiles.
+                    start: BorderSide(
+                      color: _accent.withValues(alpha: 0.32),
+                      width: 3,
+                    ),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < children.length; i++) ...[
+                      if (i > 0)
+                        const Divider(
+                          height: 1,
+                          thickness: 0.5,
+                          indent: 12,
+                          endIndent: 12,
+                          color: Color(0xFFE8DCC8),
+                        ),
+                      children[i],
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class ActionTile extends StatelessWidget {
   final String title;
   final String subtitle;

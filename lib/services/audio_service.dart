@@ -35,6 +35,21 @@ class AudioPlaybackNotice {
   const AudioPlaybackNotice({required this.message, required this.createdAt});
 }
 
+/// A contiguous run of ayat inside a single surah — the section the user picks
+/// for "تكرار مقطع". Both bounds are inclusive and use the mushaf's own
+/// (Qalun) ayah numbering, i.e. the numbers printed on the page.
+class AyahRange {
+  final int surah;
+  final int startAyah;
+  final int endAyah;
+
+  const AyahRange({
+    required this.surah,
+    required this.startAyah,
+    required this.endAyah,
+  });
+}
+
 class AudioService {
   static final AudioService instance = AudioService._internal();
   AudioService._internal();
@@ -138,6 +153,29 @@ class AudioService {
   /// active thumn. (999, 0) sentinel after the final thumn.
   int _thumnEndSurah = 0;
   int _thumnEndAyah = 0;
+
+  /// ── Range Repeat (تكرار مقطع) ──
+  /// Repeats an arbitrary run of ayat the user picks (surah + from/to ayah),
+  /// rather than a structural unit like a page or a thumn. The section may span
+  /// several pages; playback jumps to its first ayah, reads to its last, then
+  /// loops back — and once the repeats are spent it carries on reading forward,
+  /// exactly like thumn repeat does.
+  final ValueNotifier<AyahRepeatMode> rangeRepeatMode = ValueNotifier(
+    AyahRepeatMode.off,
+  );
+
+  /// Range repeat count (used when rangeRepeatMode == AyahRepeatMode.count).
+  final ValueNotifier<int> rangeRepeatCount = ValueNotifier(3);
+
+  /// The section being repeated; null when range repeat is off.
+  final ValueNotifier<AyahRange?> repeatRange = ValueNotifier(null);
+
+  /// How many complete passes of the section have finished. Public so the UI
+  /// can show live progress ("٢ / ٣") while the section is looping.
+  final ValueNotifier<int> rangeRepeatDone = ValueNotifier(0);
+
+  /// Lazily-built surah → highest ayah number map (see [ayahCountForSurah]).
+  Map<int, int>? _ayahCounts;
 
   /// ── Playback Speed ──
   /// Allowed speeds, shown as a vertical picker in the Tilawah options sheet.
@@ -720,6 +758,19 @@ class AudioService {
     _currentGlobalAyahIndex++;
     _currentFileIndexWithinAyah = 0;
 
+    // Range repeat: as soon as the next ayah on this page falls outside the
+    // chosen section, loop back to the section's first ayah.
+    if (rangeRepeatMode.value != AyahRepeatMode.off &&
+        _currentGlobalAyahIndex < _playlistAyahs.length) {
+      final next = _playlistAyahs[_currentGlobalAyahIndex];
+      if (!_isInsideRange(next.surah, next.ayah)) {
+        _handleRangeBoundary().then((looped) {
+          if (!looped) _playCurrentAyah();
+        });
+        return;
+      }
+    }
+
     // Thumn repeat: if the next ayah on this page crosses the thumn's end
     // boundary (a thumn can end mid-page), loop back to the thumn's start
     // ayah instead of reading into the next thumn.
@@ -889,9 +940,10 @@ class AudioService {
     _pageRepeatIteration = 0;
     final mode = pageRepeatMode.value;
     if (mode == AyahRepeatMode.off) {
-      // First tap: play the page twice (one real repeat). Page and thumn repeat
-      // are mutually exclusive, so cancel any active thumn repeat.
+      // First tap: play the page twice (one real repeat). The three section
+      // repeats are mutually exclusive, so cancel the other two.
       _clearThumnRepeat();
+      _clearRangeRepeat();
       pageRepeatCount.value = 2;
       pageRepeatMode.value = AyahRepeatMode.count;
     } else if (mode == AyahRepeatMode.count) {
@@ -1048,12 +1100,13 @@ class AudioService {
     _engageThumnRepeat();
   }
 
-  /// Common engage tail: cancel page repeat (mutually exclusive), set 2×, and
-  /// jump straight to the captured thumn's starting ayah so it plays from the
-  /// beginning — even mid-page.
+  /// Common engage tail: cancel page/range repeat (mutually exclusive), set 2×,
+  /// and jump straight to the captured thumn's starting ayah so it plays from
+  /// the beginning — even mid-page.
   void _engageThumnRepeat() {
     pageRepeatMode.value = AyahRepeatMode.off;
     _pageRepeatIteration = 0;
+    _clearRangeRepeat();
     thumnRepeatCount.value = 2;
     thumnRepeatMode.value = AyahRepeatMode.count;
     jumpToAyah(_thumnStartSurah, _thumnStartAyah);
@@ -1068,6 +1121,138 @@ class AudioService {
         return '∞';
       case AyahRepeatMode.count:
         return '${thumnRepeatCount.value}×';
+    }
+  }
+
+  /// Highest ayah number that exists for [surah] in the mushaf's own numbering.
+  ///
+  /// This is deliberately read off the page data rather than `surahList`: the
+  /// printed Qalun/Madani division differs from the Hafs counts in that table
+  /// for 46 surahs (e.g. البقرة ends at 285 here, المائدة at 122), so any ayah
+  /// picker built on `surahList` would offer numbers that don't exist — or hide
+  /// ones that do. Returns 0 before the page data has loaded.
+  int ayahCountForSurah(int surah) {
+    if (_quranPages == null) return 0;
+    final counts = _ayahCounts ??= _buildAyahCounts();
+    return counts[surah] ?? 0;
+  }
+
+  Map<int, int> _buildAyahCounts() {
+    final counts = <int, int>{};
+    for (final page in _quranPages!) {
+      for (final ayah in page.ayahs) {
+        final current = counts[ayah.surah];
+        if (current == null || ayah.ayah > current) {
+          counts[ayah.surah] = ayah.ayah;
+        }
+      }
+    }
+    return counts;
+  }
+
+  /// The 0-indexed page holding ([surah], [ayah]), or -1 if there is none.
+  int pageIndexForAyah(int surah, int ayah) {
+    if (_quranPages == null) return -1;
+    for (int i = 0; i < _quranPages!.length; i++) {
+      final hit = _quranPages![i].ayahs.any(
+        (a) => a.surah == surah && a.ayah == ayah,
+      );
+      if (hit) return i;
+    }
+    return -1;
+  }
+
+  /// Engage "تكرار مقطع" for ayat [startAyah]–[endAyah] (inclusive) of [surah],
+  /// then jump to the section's first ayah and start reciting it.
+  ///
+  /// Page and thumn repeat are cleared first: all three drive the same forward
+  /// advance, so leaving another one armed would have them fight over where
+  /// playback loops back to.
+  Future<void> startRangeRepeat({
+    required int surah,
+    required int startAyah,
+    required int endAyah,
+    AyahRepeatMode mode = AyahRepeatMode.count,
+    int count = 2,
+  }) async {
+    if (_quranPages == null) await init();
+    if (mode == AyahRepeatMode.off) {
+      _clearRangeRepeat();
+      return;
+    }
+
+    pageRepeatMode.value = AyahRepeatMode.off;
+    _pageRepeatIteration = 0;
+    _clearThumnRepeat();
+
+    // Clamp to what actually exists, so a stale picker value can't arm a
+    // section whose start ayah no page contains (which would end playback).
+    final maxAyah = ayahCountForSurah(surah);
+    int start = startAyah < 1 ? 1 : startAyah;
+    if (maxAyah > 0 && start > maxAyah) start = maxAyah;
+    int end = endAyah < start ? start : endAyah;
+    if (maxAyah > 0 && end > maxAyah) end = maxAyah;
+
+    repeatRange.value = AyahRange(surah: surah, startAyah: start, endAyah: end);
+    rangeRepeatCount.value = count;
+    rangeRepeatMode.value = mode;
+    rangeRepeatDone.value = 0;
+
+    await jumpToAyah(surah, start);
+  }
+
+  /// Turn "تكرار مقطع" off without touching playback — the recitation simply
+  /// keeps reading forward from wherever it is.
+  void cancelRangeRepeat() => _clearRangeRepeat();
+
+  void _clearRangeRepeat() {
+    rangeRepeatMode.value = AyahRepeatMode.off;
+    rangeRepeatCount.value = 3;
+    repeatRange.value = null;
+    rangeRepeatDone.value = 0;
+  }
+
+  /// Whether ([surah], [ayah]) still falls inside the active section.
+  bool _isInsideRange(int surah, int ayah) {
+    final range = repeatRange.value;
+    if (range == null) return false;
+    return surah == range.surah &&
+        ayah >= range.startAyah &&
+        ayah <= range.endAyah;
+  }
+
+  /// Called when playback is about to leave the active section. Returns true if
+  /// it looped back to the section's first ayah (caller must stop its normal
+  /// advance); false when the repeats are spent — range repeat is cleared and
+  /// the caller should carry on past the section normally.
+  Future<bool> _handleRangeBoundary() async {
+    final range = repeatRange.value;
+    if (range == null) {
+      _clearRangeRepeat();
+      return false;
+    }
+    // Counted in both modes so the on-bar progress keeps climbing under ∞.
+    rangeRepeatDone.value++;
+    final bool shouldLoop =
+        rangeRepeatMode.value == AyahRepeatMode.infinite ||
+        rangeRepeatDone.value < rangeRepeatCount.value;
+    if (shouldLoop) {
+      await jumpToAyah(range.surah, range.startAyah);
+      return true;
+    }
+    _clearRangeRepeat();
+    return false;
+  }
+
+  /// Get a human-readable label for the current range repeat mode.
+  String get rangeRepeatLabel {
+    switch (rangeRepeatMode.value) {
+      case AyahRepeatMode.off:
+        return '';
+      case AyahRepeatMode.infinite:
+        return '∞';
+      case AyahRepeatMode.count:
+        return '${rangeRepeatCount.value}×';
     }
   }
 
@@ -1125,6 +1310,23 @@ class AudioService {
     }
 
     if (nextPageIndex >= 0 && nextPageIndex < _quranPages!.length) {
+      // Range repeat: the section can end on the last ayah of a page, so the
+      // boundary is crossed by turning the page rather than by advancing
+      // within it — check the next page's first ayah before flipping.
+      if (rangeRepeatMode.value != AyahRepeatMode.off) {
+        final nextPage = _quranPages!.firstWhere(
+          (p) => p.page == nextPageIndex + 1,
+          orElse: () => QuranPageData(page: nextPageIndex + 1, ayahs: []),
+        );
+        if (nextPage.ayahs.isNotEmpty &&
+            !_isInsideRange(
+              nextPage.ayahs.first.surah,
+              nextPage.ayahs.first.ayah,
+            )) {
+          if (await _handleRangeBoundary()) return;
+        }
+      }
+
       // Thumn repeat: if the next page begins at/after the thumn's end
       // boundary, the whole thumn just finished — loop back to its start ayah
       // instead of crossing into the next thumn.
@@ -1173,6 +1375,7 @@ class AudioService {
     pageRepeatMode.value = AyahRepeatMode.off;
     _pageRepeatIteration = 0;
     _clearThumnRepeat();
+    _clearRangeRepeat();
   }
 
   /// Close the recitation bar (stops playback).

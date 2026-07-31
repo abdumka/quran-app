@@ -4526,7 +4526,7 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                   _guideRow(
                     Icons.tune_rounded,
-                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، وسرعة التلاوة',
+                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، تكرار مقطع تختاره، وسرعة التلاوة',
                     textColor,
                     borderColor,
                     highlightColor: titleColor,
@@ -4687,9 +4687,418 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
+  /// Arabic-Indic digits, matching the numerals printed on the page.
+  static String _arabicDigits(int value) {
+    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return value.toString().split('').map((c) => digits[int.parse(c)]).join();
+  }
+
+  /// Live one-line status of the active repeat section, e.g.
+  /// «البقرة ١-٥ · التكرار ٢/٣» — which ayat, and which pass is playing now.
+  String _rangeStatusLabel(AyahRange range) {
+    final audio = AudioService.instance;
+    final name = surahList[range.surah - 1]['name'] as String;
+    final pass = _arabicDigits(audio.rangeRepeatDone.value + 1);
+    final total = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
+        ? '∞'
+        : _arabicDigits(audio.rangeRepeatCount.value);
+    return '$name ${_arabicDigits(range.startAyah)}-'
+        '${_arabicDigits(range.endAyah)} · التكرار $pass/$total';
+  }
+
+  /// Highest ayah number available for [surah]. Read from the page data (the
+  /// mushaf's own numbering); falls back to the index table if it isn't loaded.
+  int _maxAyahForSurah(int surah) {
+    final fromPages = AudioService.instance.ayahCountForSurah(surah);
+    if (fromPages > 0) return fromPages;
+    return surahList[surah - 1]['ayahs'] as int;
+  }
+
+  /// The last ayah of [surah] printed on [pageIndex] at or after [fromAyah] —
+  /// used to default a section to "the rest of this surah on this page".
+  int _sectionEndOnPage(int pageIndex, int surah, int fromAyah) {
+    final onPage = AudioService.instance
+        .getAyahsForPage(pageIndex)
+        .where((a) => a.surah == surah && a.ayah >= fromAyah)
+        .toList();
+    return onPage.isEmpty ? fromAyah : onPage.last.ayah;
+  }
+
+  /// The "تكرار مقطع" picker: choose a surah and an ayah range, pick how many
+  /// times it should repeat, and the reader jumps to that page and recites only
+  /// that section.
+  ///
+  /// It opens pre-filled with what's on screen — the surah being recited (or the
+  /// visible page's first surah) and that page's portion of it — so the common
+  /// case is one tap on تشغيل المقطع. [onStarted] lets the caller close the
+  /// options sheet once a section is armed, revealing the page underneath.
+  void _showRangeRepeatPicker({VoidCallback? onStarted}) {
+    final audio = AudioService.instance;
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
+    final subTextColor = textColor.withValues(alpha: 0.6);
+    const accentColor = Color(0xFFD2B97E);
+
+    // ── Seed the picker ──
+    // An armed section wins (so re-opening shows what's running); otherwise
+    // start from the ayah being recited on the visible page, falling back to
+    // that page's first ayah when nothing is playing.
+    final active = audio.repeatRange.value;
+    int surah;
+    int fromAyah;
+    if (active != null) {
+      surah = active.surah;
+      fromAyah = active.startAyah;
+    } else {
+      final playing = audio.currentAyah.value;
+      final pageAyahs = audio.getAyahsForPage(_topBarCurrentPage);
+      if (playing != null && audio.isAudioOnPage(_topBarCurrentPage)) {
+        surah = playing.surah;
+        fromAyah = playing.ayah;
+      } else if (pageAyahs.isNotEmpty) {
+        surah = pageAyahs.first.surah;
+        fromAyah = pageAyahs.first.ayah;
+      } else {
+        surah = 1;
+        fromAyah = 1;
+      }
+    }
+    int maxAyah = _maxAyahForSurah(surah);
+    if (fromAyah > maxAyah) fromAyah = maxAyah;
+    int toAyah =
+        active?.endAyah ??
+        _sectionEndOnPage(_topBarCurrentPage, surah, fromAyah);
+    if (toAyah > maxAyah) toAyah = maxAyah;
+    if (toAyah < fromAyah) toAyah = fromAyah;
+
+    final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
+    AyahRepeatMode mode = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
+        ? AyahRepeatMode.infinite
+        : AyahRepeatMode.count;
+    int count = wasActive ? audio.rangeRepeatCount.value : 3;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setPickerState) {
+          Widget label(String text) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: subTextColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
+
+          Widget dropdownFrame({required Widget child}) => Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor),
+            ),
+            child: DropdownButtonHideUnderline(child: child),
+          );
+
+          // Ayah numbers run [min..maxAyah]; the "إلى" list starts at the
+          // chosen "من" so an inverted range can't be selected at all.
+          Widget ayahDropdown({
+            required int value,
+            required int min,
+            required ValueChanged<int> onChanged,
+          }) => dropdownFrame(
+            child: DropdownButton<int>(
+              value: value,
+              isExpanded: true,
+              menuMaxHeight: 320,
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: titleColor,
+                size: 20,
+              ),
+              dropdownColor: bgColor,
+              borderRadius: BorderRadius.circular(12),
+              items: [
+                for (int n = min; n <= maxAyah; n++)
+                  DropdownMenuItem(
+                    value: n,
+                    child: Text(
+                      _arabicDigits(n),
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          );
+
+          Widget countChip(String text, bool selected, VoidCallback onTap) =>
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(9),
+                  onTap: onTap,
+                  child: Container(
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? accentColor.withValues(alpha: 0.18)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: selected ? accentColor : borderColor,
+                        width: selected ? 1.6 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        color: selected ? accentColor : subTextColor,
+                        fontSize: 14,
+                        fontWeight: selected
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              backgroundColor: bgColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+              contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.segment_rounded, color: titleColor, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    'تكرار مقطع',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: titleColor,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      label('السورة'),
+                      dropdownFrame(
+                        child: DropdownButton<int>(
+                          value: surah,
+                          isExpanded: true,
+                          menuMaxHeight: 320,
+                          icon: Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: titleColor,
+                          ),
+                          dropdownColor: bgColor,
+                          borderRadius: BorderRadius.circular(12),
+                          items: [
+                            for (final s in surahList)
+                              DropdownMenuItem(
+                                value: s['number'] as int,
+                                child: Text(
+                                  '${_arabicDigits(s['number'] as int)}. '
+                                  '${s['name']}',
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            // A new surah resets the section to its opening
+                            // page — ayah 1 through the end of that page.
+                            final firstPage = audio.pageIndexForAyah(value, 1);
+                            setPickerState(() {
+                              surah = value;
+                              maxAyah = _maxAyahForSurah(value);
+                              fromAyah = 1;
+                              toAyah = firstPage >= 0
+                                  ? _sectionEndOnPage(firstPage, value, 1)
+                                  : 1;
+                              if (toAyah > maxAyah) toAyah = maxAyah;
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                label('من الآية'),
+                                ayahDropdown(
+                                  value: fromAyah,
+                                  min: 1,
+                                  onChanged: (v) => setPickerState(() {
+                                    fromAyah = v;
+                                    if (toAyah < fromAyah) toAyah = fromAyah;
+                                  }),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                label('إلى الآية'),
+                                ayahDropdown(
+                                  value: toAyah,
+                                  min: fromAyah,
+                                  onChanged: (v) =>
+                                      setPickerState(() => toAyah = v),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      label('عدد مرات التكرار'),
+                      Row(
+                        children: [
+                          for (final option in const [2, 3, 5, 7]) ...[
+                            countChip(
+                              '$option×',
+                              mode == AyahRepeatMode.count && count == option,
+                              () => setPickerState(() {
+                                mode = AyahRepeatMode.count;
+                                count = option;
+                              }),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          countChip(
+                            '∞',
+                            mode == AyahRepeatMode.infinite,
+                            () => setPickerState(
+                              () => mode = AyahRepeatMode.infinite,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم تتابع '
+                        'التلاوة بعد انتهاء التكرار.',
+                        style: TextStyle(color: subTextColor, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              actions: [
+                if (wasActive)
+                  TextButton(
+                    onPressed: () {
+                      audio.cancelRangeRepeat();
+                      Navigator.pop(ctx);
+                    },
+                    child: Text(
+                      'إيقاف التكرار',
+                      style: TextStyle(
+                        color: subTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(
+                    'إلغاء',
+                    style: TextStyle(
+                      color: subTextColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: accentColor.withValues(alpha: 0.18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: const BorderSide(color: accentColor, width: 1.4),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 10,
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _resetHideTimer();
+                    onStarted?.call();
+                    audio.startRangeRepeat(
+                      surah: surah,
+                      startAyah: fromAyah,
+                      endAyah: toAyah,
+                      mode: mode,
+                      count: count,
+                    );
+                  },
+                  child: Text(
+                    'تشغيل المقطع',
+                    style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   /// The Tilawah options sheet reached from the tune (⋯) button on the
   /// recitation bar. Groups the "set-and-forget" choices — reciter (القارئ),
-  /// repeat-whole-thumn (تكرار الثمن) — plus a link to the button guide, so the
+  /// repeat-whole-thumn (تكرار الثمن), repeat a chosen passage (تكرار مقطع) and
+  /// playback speed (سرعة التلاوة) — plus a link to the button guide, so the
   /// frequently-tapped transport controls on the bar itself stay uncluttered.
   void _showTilawahOptionsSheet() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -4854,70 +5263,129 @@ class _QuranPagesState extends State<QuranPages>
 
                       const SizedBox(height: 20),
 
-                      // ── تكرار الثمن + سرعة التلاوة (side by side) ──
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: ListenableBuilder(
-                              listenable: Listenable.merge([
-                                audio.thumnRepeatMode,
-                                audio.thumnRepeatCount,
-                              ]),
-                              builder: (context, _) {
-                                final isActive =
-                                    audio.thumnRepeatMode.value !=
-                                    AyahRepeatMode.off;
-                                return _optionTile(
-                                  icon: Icons.repeat_rounded,
-                                  title: 'تكرار الثمن',
-                                  valueLabel: isActive
-                                      ? audio.thumnRepeatLabel
-                                      : 'بدون',
-                                  isActive: isActive,
-                                  accentColor: accentColor,
-                                  borderColor: borderColor,
-                                  textColor: textColor,
-                                  subTextColor: subTextColor,
-                                  onTap: () {
-                                    _resetHideTimer();
-                                    _handleThumnRepeatTap();
-                                  },
-                                );
-                              },
+                      // ── تكرار الثمن + تكرار مقطع + سرعة التلاوة (side by side) ──
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: ListenableBuilder(
+                                listenable: Listenable.merge([
+                                  audio.thumnRepeatMode,
+                                  audio.thumnRepeatCount,
+                                ]),
+                                builder: (context, _) {
+                                  final isActive =
+                                      audio.thumnRepeatMode.value !=
+                                      AyahRepeatMode.off;
+                                  return _optionTile(
+                                    icon: Icons.repeat_rounded,
+                                    title: 'تكرار الثمن',
+                                    valueLabel: isActive
+                                        ? audio.thumnRepeatLabel
+                                        : 'بدون',
+                                    isActive: isActive,
+                                    accentColor: accentColor,
+                                    borderColor: borderColor,
+                                    textColor: textColor,
+                                    subTextColor: subTextColor,
+                                    onTap: () {
+                                      _resetHideTimer();
+                                      _handleThumnRepeatTap();
+                                    },
+                                  );
+                                },
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: ListenableBuilder(
-                              listenable: audio.playbackSpeed,
-                              builder: (context, _) {
-                                final isActive =
-                                    audio.playbackSpeed.value != 1.0;
-                                return _optionTile(
-                                  key: speedTileKey,
-                                  icon: Icons.speed_rounded,
-                                  title: 'سرعة التلاوة',
-                                  valueLabel: audio.playbackSpeedLabel,
-                                  isActive: isActive,
-                                  accentColor: accentColor,
-                                  borderColor: borderColor,
-                                  textColor: textColor,
-                                  subTextColor: subTextColor,
-                                  onTap: () {
-                                    _resetHideTimer();
-                                    _showSpeedPopup(speedTileKey);
-                                  },
-                                );
-                              },
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ListenableBuilder(
+                                listenable: Listenable.merge([
+                                  audio.rangeRepeatMode,
+                                  audio.rangeRepeatCount,
+                                ]),
+                                builder: (context, _) {
+                                  final isActive =
+                                      audio.rangeRepeatMode.value !=
+                                      AyahRepeatMode.off;
+                                  return _optionTile(
+                                    icon: Icons.segment_rounded,
+                                    title: 'تكرار مقطع',
+                                    valueLabel: isActive
+                                        ? audio.rangeRepeatLabel
+                                        : 'بدون',
+                                    isActive: isActive,
+                                    accentColor: accentColor,
+                                    borderColor: borderColor,
+                                    textColor: textColor,
+                                    subTextColor: subTextColor,
+                                    onTap: () {
+                                      _resetHideTimer();
+                                      _showRangeRepeatPicker(
+                                        // Starting a section closes the sheet so
+                                        // the user lands straight on the page it
+                                        // begins at.
+                                        onStarted: () {
+                                          if (ctx.mounted) Navigator.pop(ctx);
+                                        },
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ListenableBuilder(
+                                listenable: audio.playbackSpeed,
+                                builder: (context, _) {
+                                  final isActive =
+                                      audio.playbackSpeed.value != 1.0;
+                                  return _optionTile(
+                                    key: speedTileKey,
+                                    icon: Icons.speed_rounded,
+                                    title: 'سرعة التلاوة',
+                                    valueLabel: audio.playbackSpeedLabel,
+                                    isActive: isActive,
+                                    accentColor: accentColor,
+                                    borderColor: borderColor,
+                                    textColor: textColor,
+                                    subTextColor: subTextColor,
+                                    onTap: () {
+                                      _resetHideTimer();
+                                      _showSpeedPopup(speedTileKey);
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'يكرّر الثمن كاملاً وإن امتد على عدة صفحات — اضغط للتبديل',
-                        style: TextStyle(color: subTextColor, fontSize: 11.5),
+                      // Live status of the running section — the only text under
+                      // the row, and only while a section is actually armed.
+                      ListenableBuilder(
+                        listenable: Listenable.merge([
+                          audio.repeatRange,
+                          audio.rangeRepeatDone,
+                          audio.rangeRepeatCount,
+                          audio.rangeRepeatMode,
+                        ]),
+                        builder: (context, _) {
+                          final range = audio.repeatRange.value;
+                          if (range == null) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'المقطع: ${_rangeStatusLabel(range)}',
+                              style: const TextStyle(
+                                color: accentColor,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          );
+                        },
                       ),
 
                       const SizedBox(height: 20),
@@ -5116,9 +5584,9 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  /// A compact square-ish tile used for the thumn-repeat and playback-speed
-  /// controls in the Tilawah options sheet. Both are single-tap-to-cycle
-  /// buttons, sized to sit side by side in the same row.
+  /// A compact square-ish tile used for the thumn-repeat, section-repeat and
+  /// playback-speed controls in the Tilawah options sheet — three to a row, so
+  /// the title scales down rather than ellipsising on narrow phones.
   Widget _optionTile({
     Key? key,
     required IconData icon,
@@ -5137,7 +5605,7 @@ class _QuranPagesState extends State<QuranPages>
       onTap: onTap,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
         decoration: BoxDecoration(
           color: isActive
               ? accentColor.withValues(alpha: 0.18)
@@ -5154,16 +5622,20 @@ class _QuranPagesState extends State<QuranPages>
             Row(
               children: [
                 Icon(icon, color: isActive ? accentColor : textColor, size: 16),
-                const SizedBox(width: 5),
+                const SizedBox(width: 4),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -6117,7 +6589,7 @@ class _QuranPagesState extends State<QuranPages>
                         tooltip: 'إغلاق',
                       ),
 
-                      // خيارات (القارئ، سرعة التلاوة، تكرار الثمن، الإرشادات)
+                      // خيارات (القارئ، سرعة التلاوة، تكرار الثمن، تكرار مقطع، الإرشادات)
                       // Wrapped in a gold accent chip so it stands apart from
                       // the plain-white transport icons and reads as "options".
                       GestureDetector(

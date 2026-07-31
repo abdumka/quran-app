@@ -12,7 +12,10 @@
       "Bash(python tools/mirror_tafsir_to_r2.py)",
       "Bash(curl.exe -s -A 'Dart/3.9 \\(dart:io\\)' \"https://pub-5025f0d14b9046309795201770f30da1.r2.dev/tafsir/ibn_kathir/page_313.json\")",
       "Bash(flutter --version)",
-      "Read(//c/Users/keilani/flutter/packages/flutter/lib/src/widgets/**)"
+      "Read(//c/Users/keilani/flutter/packages/flutter/lib/src/widgets/**)",
+      "PowerShell(flutter test 2>&1)",
+      "Bash(git diff *)",
+      "Bash(awk '/@@/{h=$0} /Icons.tune_rounded|MainAxisAlignment.spaceBetween|barTopPadding|repeatRange|rangeRepeat/{print h\": \"$0}')"
     ]
   }
 }
