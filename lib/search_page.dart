@@ -203,9 +203,9 @@ class _SearchPageState extends State<SearchPage> {
     return text
         // Normalize Alef Wasla
         .replaceAll('ٱ', 'ا')
-        // Normalize Small Alef to regular Alef
-        .replaceAll('\u0670', 'ا')
-        // Remove all diacritics and quranic symbols
+        // Remove all diacritics and quranic symbols. The dagger alef
+        // (small alef, \u0670) is handled separately below: whether it
+        // should become a full alef or disappear depends on the word.
         .replaceAll(RegExp(r'[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED]'), '')
         // Remove Tatweel
         .replaceAll('ـ', '')
@@ -221,6 +221,26 @@ class _SearchPageState extends State<SearchPage> {
         .replaceAll('ء', '')
         // Remove commas
         .replaceAll('،', '')
+        // A small closed set of very common words elide the dagger alef
+        // entirely in standard typed Arabic -- e.g. ذَٰلِكَ (dhalika) is
+        // typed "ذلك", not "ذالك". Fix these before the general dagger-alef
+        // rules below run, so users don't have to type a letter that
+        // isn't really there.
+        .replaceAll('ذ\u0670لك', 'ذلك')
+        .replaceAll('ه\u0670ذا', 'هذا')
+        .replaceAll('ه\u0670ذه', 'هذه')
+        .replaceAll('ه\u0670ولا', 'هولا')
+        .replaceAll('اول\u0670يك', 'اوليك')
+        .replaceAll('ل\u0670كن', 'لكن')
+        .replaceAll('رحم\u0670ن', 'رحمن')
+        // A dagger alef at the end of a word is standard Arabic's alef
+        // maqsura (e.g. مُوسَيٰ -> موسى, normalized to موسي) -- also
+        // elided, never expanded.
+        .replaceAll(RegExp(r'\u0670(?=\s|$)'), '')
+        // Any dagger alef remaining sits inside a word that IS normally
+        // written with a full alef (الكتاب, الكافرين, السماوات...), so
+        // expand it.
+        .replaceAll('\u0670', 'ا')
         // Remove extra spaces
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
@@ -264,7 +284,13 @@ class _SearchPageState extends State<SearchPage> {
     if (char.trim().isEmpty) return ' ';
 
     final code = char.codeUnitAt(0);
-    if (code == 0x0670) return 'ا'; // Small Alef
+    // Dagger Alef: expanded to a full alef here (matching most words that
+    // carry it, e.g. الكتاب/الكافرين/السماوات). This diverges from the
+    // context-aware handling in _normalizeText for a small set of words
+    // (ذلك, هذا, الرحمن...) where the alef is elided instead -- for those,
+    // the highlight span simply won't be found and the match shows
+    // unhighlighted, which is a cosmetic tradeoff, not a search bug.
+    if (code == 0x0670) return 'ا';
 
     final isDiacritic =
         (code >= 0x0610 && code <= 0x061A) ||
@@ -296,6 +322,26 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
+  // Whether `query` occurs in `text` bounded by spaces (or the string edges)
+  // on both sides, rather than as a raw substring that can bleed into an
+  // unrelated word -- e.g. "ريب" is a raw substring of "قريب" even though
+  // they are different words.
+  bool _containsWholeWord(String text, String query) {
+    var start = 0;
+    while (true) {
+      final index = text.indexOf(query, start);
+      if (index == -1) return false;
+
+      final beforeIsBoundary = index == 0 || text[index - 1] == ' ';
+      final afterIndex = index + query.length;
+      final afterIsBoundary =
+          afterIndex == text.length || text[afterIndex] == ' ';
+
+      if (beforeIsBoundary && afterIsBoundary) return true;
+      start = index + 1;
+    }
+  }
+
   void _scheduleSearch(String rawQuery) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 180), () {
@@ -320,8 +366,10 @@ class _SearchPageState extends State<SearchPage> {
       // Restrict to the chosen surah when a specific one is selected.
       if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
 
+      final matchesWholeQuery = _containsWholeWord(ayah.normalizedText, query);
+
       // In exact-only mode, skip smart (fuzzy) matches before scoring.
-      if (_exactOnly && !ayah.normalizedText.contains(query)) continue;
+      if (_exactOnly && !matchesWholeQuery) continue;
 
       final score = _calculateMatchScore(
         query,
@@ -338,7 +386,7 @@ class _SearchPageState extends State<SearchPage> {
             ayah: ayah.ayah,
             text: ayah.text,
             score: score,
-            containsFullQuery: ayah.normalizedText.contains(query),
+            containsFullQuery: matchesWholeQuery,
           ),
         );
       }
@@ -391,10 +439,11 @@ class _SearchPageState extends State<SearchPage> {
       score += 20000;
     }
 
-    if (text.contains(query)) {
+    if (_containsWholeWord(text, query)) {
       score += 12000;
 
-      if (text.startsWith(query)) {
+      if (text.startsWith(query) &&
+          (query.length == text.length || text[query.length] == ' ')) {
         score += 1500;
       }
 
