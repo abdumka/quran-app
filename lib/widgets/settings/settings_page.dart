@@ -222,9 +222,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _showBrowseModeGuide =
           !(prefs.getBool(_browseModeGuideDismissedPrefKey) ?? false);
-      // The margins tile is hidden on web (no device filesystem to store the
-      // downloaded images), so never run its coach step there.
-      _showMarginGuide = !kIsWeb &&
+      _showMarginGuide =
           !(prefs.getBool(_marginGuideDismissedPrefKey) ?? false);
       _showAutoScrollGuide =
           !(prefs.getBool(_autoScrollGuideDismissedPrefKey) ?? false);
@@ -878,7 +876,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() {
       _showBrowseModeGuide = true;
-      _showMarginGuide = !kIsWeb; // tile hidden on web — no coach step there
+      _showMarginGuide = true;
       _showAutoScrollGuide = true;
       _showHifzLensGuide = true;
       _showFullScreenGuide = true;
@@ -1514,12 +1512,13 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      // Margin images (هوامش) are delivered as a downloadable zip
-                      // extracted to device storage, which the web has no
-                      // filesystem for — so the feature can't work in the
-                      // browser. Hide the whole tile on web (it stays fully
-                      // available on Android/iOS).
-                      if (!kIsWeb)
+                      // Margin images (هوامش): on Android/iOS these come from a
+                      // downloadable zip extracted to device storage. The web
+                      // has no filesystem for that, so there the pages stream
+                      // per-page from R2 and the service reports isAvailable
+                      // immediately — which makes this tile render as a plain
+                      // title + switch (the download/progress/pause controls
+                      // are all gated behind isDownloading/isPaused).
                       Container(
                         key: _marginImagesCardKey,
                         child: SettingsCard(

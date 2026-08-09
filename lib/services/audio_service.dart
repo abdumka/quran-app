@@ -35,19 +35,26 @@ class AudioPlaybackNotice {
   const AudioPlaybackNotice({required this.message, required this.createdAt});
 }
 
-/// A contiguous run of ayat inside a single surah — the section the user picks
-/// for "تكرار مقطع". Both bounds are inclusive and use the mushaf's own
-/// (Qalun) ayah numbering, i.e. the numbers printed on the page.
+/// A contiguous run of ayat — the section the user picks for "تكرار مقطع". It
+/// may start in one surah and end in another (e.g. الفاتحة 3 → البقرة 4). Both
+/// bounds are inclusive and use the mushaf's own (Qalun) ayah numbering, i.e.
+/// the numbers printed on the page.
 class AyahRange {
-  final int surah;
+  final int startSurah;
   final int startAyah;
+  final int endSurah;
   final int endAyah;
 
   const AyahRange({
-    required this.surah,
+    required this.startSurah,
     required this.startAyah,
+    required this.endSurah,
     required this.endAyah,
   });
+
+  /// Whether the whole section sits inside one surah — the common case, which
+  /// the UI labels more compactly.
+  bool get isSingleSurah => startSurah == endSurah;
 }
 
 class AudioService {
@@ -171,7 +178,7 @@ class AudioService {
   final ValueNotifier<AyahRange?> repeatRange = ValueNotifier(null);
 
   /// How many complete passes of the section have finished. Public so the UI
-  /// can show live progress ("٢ / ٣") while the section is looping.
+  /// can show live progress ("2/3") while the section is looping.
   final ValueNotifier<int> rangeRepeatDone = ValueNotifier(0);
 
   /// Lazily-built surah → highest ayah number map (see [ayahCountForSurah]).
@@ -643,8 +650,21 @@ class AudioService {
             ? Uri.file(localFile.path)
             : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
       }
+      if (kIsWeb) {
+        // just_audio_web reuses one HTMLAudioElement and skips loading when it
+        // thinks the URL is unchanged; swapping sources on a live player leaves
+        // it pointing at the previous ayah forever. Resetting to idle first
+        // forces a genuine load of the new URL.
+        await _player.stop();
+      }
+      // The MediaItem tag drives the OS media notification via
+      // just_audio_background, which is only initialised on Android/iOS (see
+      // main.dart). There is no media session on the web, so skip the tag
+      // there.
       await _player.setAudioSource(
-        AudioSource.uri(uri, tag: _mediaItemFor(uri)),
+        kIsWeb
+            ? AudioSource.uri(uri)
+            : AudioSource.uri(uri, tag: _mediaItemFor(uri)),
       );
 
       if (seekTo != null) {
@@ -1162,15 +1182,17 @@ class AudioService {
     return -1;
   }
 
-  /// Engage "تكرار مقطع" for ayat [startAyah]–[endAyah] (inclusive) of [surah],
-  /// then jump to the section's first ayah and start reciting it.
+  /// Engage "تكرار مقطع" for the inclusive run ([startSurah], [startAyah]) →
+  /// ([endSurah], [endAyah]), then jump to the section's first ayah and start
+  /// reciting it. The two ends may sit in different surahs.
   ///
   /// Page and thumn repeat are cleared first: all three drive the same forward
   /// advance, so leaving another one armed would have them fight over where
   /// playback loops back to.
   Future<void> startRangeRepeat({
-    required int surah,
+    required int startSurah,
     required int startAyah,
+    required int endSurah,
     required int endAyah,
     AyahRepeatMode mode = AyahRepeatMode.count,
     int count = 2,
@@ -1185,20 +1207,37 @@ class AudioService {
     _pageRepeatIteration = 0;
     _clearThumnRepeat();
 
-    // Clamp to what actually exists, so a stale picker value can't arm a
+    // Clamp to ayat that actually exist, so a stale picker value can't arm a
     // section whose start ayah no page contains (which would end playback).
-    final maxAyah = ayahCountForSurah(surah);
-    int start = startAyah < 1 ? 1 : startAyah;
-    if (maxAyah > 0 && start > maxAyah) start = maxAyah;
-    int end = endAyah < start ? start : endAyah;
-    if (maxAyah > 0 && end > maxAyah) end = maxAyah;
+    int s1 = startSurah.clamp(1, 114);
+    int s2 = endSurah.clamp(1, 114);
+    int a1 = _clampAyah(s1, startAyah);
+    int a2 = _clampAyah(s2, endAyah);
+    // An inverted section would never terminate — collapse it to its start.
+    if (s2 < s1 || (s2 == s1 && a2 < a1)) {
+      s2 = s1;
+      a2 = a1;
+    }
 
-    repeatRange.value = AyahRange(surah: surah, startAyah: start, endAyah: end);
+    repeatRange.value = AyahRange(
+      startSurah: s1,
+      startAyah: a1,
+      endSurah: s2,
+      endAyah: a2,
+    );
     rangeRepeatCount.value = count;
     rangeRepeatMode.value = mode;
     rangeRepeatDone.value = 0;
 
-    await jumpToAyah(surah, start);
+    await jumpToAyah(s1, a1);
+  }
+
+  /// Pins [ayah] into the 1..last range that [surah] actually has.
+  int _clampAyah(int surah, int ayah) {
+    final max = ayahCountForSurah(surah);
+    if (ayah < 1) return 1;
+    if (max > 0 && ayah > max) return max;
+    return ayah;
   }
 
   /// Turn "تكرار مقطع" off without touching playback — the recitation simply
@@ -1212,13 +1251,19 @@ class AudioService {
     rangeRepeatDone.value = 0;
   }
 
-  /// Whether ([surah], [ayah]) still falls inside the active section.
+  /// Whether ([surah], [ayah]) still falls inside the active section. Compares
+  /// the (surah, ayah) pair as a single position, so a section that crosses a
+  /// surah boundary is handled the same as one inside a single surah.
   bool _isInsideRange(int surah, int ayah) {
     final range = repeatRange.value;
     if (range == null) return false;
-    return surah == range.surah &&
-        ayah >= range.startAyah &&
-        ayah <= range.endAyah;
+    final afterStart =
+        surah > range.startSurah ||
+        (surah == range.startSurah && ayah >= range.startAyah);
+    final beforeEnd =
+        surah < range.endSurah ||
+        (surah == range.endSurah && ayah <= range.endAyah);
+    return afterStart && beforeEnd;
   }
 
   /// Called when playback is about to leave the active section. Returns true if
@@ -1237,7 +1282,7 @@ class AudioService {
         rangeRepeatMode.value == AyahRepeatMode.infinite ||
         rangeRepeatDone.value < rangeRepeatCount.value;
     if (shouldLoop) {
-      await jumpToAyah(range.surah, range.startAyah);
+      await jumpToAyah(range.startSurah, range.startAyah);
       return true;
     }
     _clearRangeRepeat();

@@ -83,12 +83,13 @@ class TafsirCacheService {
   /// Scans the cache once and publishes the total size. Cheap (a directory
   /// listing) and safe to call off the launch critical path.
   Future<void> initialize() async {
-    if (_scanned) return;
+    if (_scanned || kIsWeb) return;
     _scanned = true;
     await _recomputeSize();
   }
 
   Future<void> _recomputeSize() async {
+    if (kIsWeb) return;
     int total = 0;
     try {
       final appDir = await getApplicationSupportDirectory();
@@ -108,9 +109,12 @@ class TafsirCacheService {
   }
 
   /// Returns the cached JSON for [edition]'s [pageNumber] (1-based), or null if
-  /// it has not been fetched yet.
+  /// it has not been fetched yet. Always null on web — no persistent disk
+  /// cache there (dart:io is unavailable), so tafsir_service falls straight
+  /// through to a network fetch, which now works since the R2 bucket serves
+  /// CORS headers.
   Future<String?> readPage(TafsirEdition edition, int pageNumber) async {
-    if (!edition.isOnline) return null;
+    if (!edition.isOnline || kIsWeb) return null;
     try {
       final dir = await _editionDir(edition);
       final file =
@@ -129,7 +133,7 @@ class TafsirCacheService {
     int pageNumber,
     String jsonString,
   ) async {
-    if (!edition.isOnline) return;
+    if (!edition.isOnline || kIsWeb) return;
     try {
       final dir = await _editionDir(edition);
       final file =
@@ -147,6 +151,7 @@ class TafsirCacheService {
 
   /// Deletes every cached tafsir page for all online editions.
   Future<void> deleteCache() async {
+    if (kIsWeb) return;
     try {
       final appDir = await getApplicationSupportDirectory();
       for (final edition in TafsirEdition.onlineEditions) {
@@ -168,7 +173,7 @@ class TafsirCacheService {
   /// How many pages of [edition] are cached on disk (out of
   /// [TafsirEdition.onlinePageCount]).
   Future<int> cachedPageCount(TafsirEdition edition) async {
-    if (!edition.isOnline) return 0;
+    if (!edition.isOnline || kIsWeb) return 0;
     int count = 0;
     try {
       final dir = await _editionDir(edition);
@@ -183,7 +188,12 @@ class TafsirCacheService {
   /// on [downloadState]. Only one edition downloads at a time; call
   /// [cancelDownload] to stop. Already-cached pages are kept.
   Future<void> downloadEdition(TafsirEdition edition) async {
-    if (!edition.isOnline || downloadState.value.isDownloading) return;
+    // Whole-edition download is a persistent-disk-cache feature; nothing to
+    // do on web (matches the offline full-audio download tile, also hidden
+    // there — see project notes on web platform limitations).
+    if (!edition.isOnline || downloadState.value.isDownloading || kIsWeb) {
+      return;
+    }
     _cancelDownload = false;
 
     final total = TafsirEdition.onlinePageCount;
@@ -238,7 +248,7 @@ class TafsirCacheService {
   /// Deletes just [edition]'s cached pages (cancels its download first if it is
   /// the one running), then recomputes the total size.
   Future<void> deleteEdition(TafsirEdition edition) async {
-    if (!edition.isOnline) return;
+    if (!edition.isOnline || kIsWeb) return;
     if (downloadState.value.editionId == edition.id) _cancelDownload = true;
     try {
       final dir = await _editionDir(edition);

@@ -129,7 +129,10 @@ class HighQualityImagesService {
   bool _pauseRequested = false;
 
   Future<void> initialize() async {
-    if (_didInitialize) return;
+    // High-quality images download a zip to device storage — not possible on
+    // web (no dart:io). Skip eagerly, rather than let every dart:io call
+    // below throw and get swallowed by its own try/catch.
+    if (_didInitialize || kIsWeb) return;
     _didInitialize = true;
 
     final isAvailable = await _isPackageExtracted();

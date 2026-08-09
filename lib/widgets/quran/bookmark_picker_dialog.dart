@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/reader_bookmark.dart';
 
+enum _ExportChoice { share, saveLocally }
+
 class BookmarkPickerResult {
   final int? selectedSlot;
   final int? deletedSlot;
@@ -20,6 +22,7 @@ class BookmarkPickerDialog extends StatefulWidget {
   final Future<void> Function(int slot, String? label) onRename;
   final Future<void> Function(int slot) onDelete;
   final Future<void> Function()? onExport;
+  final Future<void> Function()? onSaveLocally;
   final Future<Map<int, ReaderBookmark>?> Function()? onImport;
 
   /// Highest bookmark slot number offered by the picker. Shared with the
@@ -37,6 +40,7 @@ class BookmarkPickerDialog extends StatefulWidget {
     required this.onRename,
     required this.onDelete,
     this.onExport,
+    this.onSaveLocally,
     this.onImport,
   });
 
@@ -145,12 +149,21 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
   }
 
   bool get _showBackupActions =>
-      widget.onlySaved && (widget.onExport != null || widget.onImport != null);
+      widget.onlySaved &&
+      (widget.onExport != null ||
+          widget.onSaveLocally != null ||
+          widget.onImport != null);
 
   Future<void> _handleExport() async {
     final onExport = widget.onExport;
     if (onExport == null) return;
     await onExport();
+  }
+
+  Future<void> _handleSaveLocally() async {
+    final onSaveLocally = widget.onSaveLocally;
+    if (onSaveLocally == null) return;
+    await onSaveLocally();
   }
 
   Future<void> _handleImport() async {
@@ -178,16 +191,39 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
               size: 20,
             ),
           ),
-        if (widget.onExport != null)
-          IconButton(
-            tooltip: 'مشاركة كملف',
-            visualDensity: VisualDensity.compact,
-            onPressed: _handleExport,
+        if (widget.onExport != null || widget.onSaveLocally != null)
+          PopupMenuButton<_ExportChoice>(
+            tooltip: 'مشاركة نسخة احتياطية',
             icon: const Icon(
               Icons.ios_share,
               color: Color(0xFF8B7355),
               size: 20,
             ),
+            onSelected: (choice) {
+              switch (choice) {
+                case _ExportChoice.share:
+                  _handleExport();
+                  break;
+                case _ExportChoice.saveLocally:
+                  _handleSaveLocally();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              if (widget.onExport != null)
+                const PopupMenuItem(
+                  value: _ExportChoice.share,
+                  child: Text('مشاركة', textDirection: TextDirection.rtl),
+                ),
+              if (widget.onSaveLocally != null)
+                const PopupMenuItem(
+                  value: _ExportChoice.saveLocally,
+                  child: Text(
+                    'حفظ على الجهاز',
+                    textDirection: TextDirection.rtl,
+                  ),
+                ),
+            ],
           ),
       ],
     );

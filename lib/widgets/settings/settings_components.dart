@@ -57,10 +57,7 @@ class SettingsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE8DCC8),
-          width: 0.5,
-        ),
+        border: Border.all(color: const Color(0xFFE8DCC8), width: 0.5),
       ),
       child: child,
     );
@@ -92,12 +89,6 @@ class SettingsGroupCard extends StatelessWidget {
   });
 
   static const Color _accent = Color(0xFF8B7355);
-  static const List<String> _digits = [
-    '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'
-  ];
-
-  static String _toArabic(int n) =>
-      n.toString().split('').map((c) => _digits[int.parse(c)]).join();
 
   @override
   Widget build(BuildContext context) {
@@ -159,14 +150,16 @@ class SettingsGroupCard extends StatelessWidget {
                 // How many settings are inside: the cheapest possible hint that
                 // this row opens onto more rows instead of doing something.
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: _accent.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    _toArabic(children.length),
+                    '${children.length}',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -235,7 +228,11 @@ class ActionTile extends StatelessWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       dense: true,
       visualDensity: VisualDensity.compact,
-      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Color(0xFF8B7355)),
+      trailing: const Icon(
+        Icons.arrow_forward_ios_rounded,
+        size: 16,
+        color: Color(0xFF8B7355),
+      ),
       title: Row(
         textDirection: TextDirection.rtl,
         children: [
@@ -662,8 +659,8 @@ class TafsirEditionTile extends StatelessWidget {
           checked
               ? Icons.check_circle_rounded
               : (e.isBundled
-                  ? Icons.offline_pin_outlined
-                  : Icons.cloud_outlined),
+                    ? Icons.offline_pin_outlined
+                    : Icons.cloud_outlined),
           size: 18,
           color: checked ? const Color(0xFF8B7355) : const Color(0xFFB7A88E),
         ),
@@ -823,8 +820,11 @@ class AudioDownloadTile extends StatelessWidget {
                 ),
                 if (state.isComplete) ...[
                   const SizedBox(width: 8),
-                  const Icon(Icons.check_circle_rounded,
-                      size: 19, color: Color(0xFF4B7F3A)),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 19,
+                    color: Color(0xFF4B7F3A),
+                  ),
                   const SizedBox(width: 6),
                   const Text(
                     'محمّل بالكامل',
@@ -874,7 +874,9 @@ class AudioDownloadTile extends StatelessWidget {
                 minHeight: 8,
                 value: state.progressFraction,
                 backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
-                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFB0956E)),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFFB0956E),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -882,19 +884,44 @@ class AudioDownloadTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               textDirection: TextDirection.rtl,
               children: [
-                Text(state.progressLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF888888))),
-                Text(state.percentLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF8B7355))),
+                Text(
+                  state.progressLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF888888),
+                  ),
+                ),
+                Text(
+                  state.percentLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF8B7355),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: onDownload,
-              icon: const Icon(Icons.play_arrow_rounded, color: Color(0xFF8B7355), size: 18),
-              label: const Text('استئناف التحميل', style: TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
+              icon: const Icon(
+                Icons.play_arrow_rounded,
+                color: Color(0xFF8B7355),
+                size: 18,
+              ),
+              label: const Text(
+                'استئناف التحميل',
+                style: TextStyle(color: Color(0xFF8B7355), fontSize: 13),
+              ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               ),
             ),
           ],
@@ -909,7 +936,10 @@ class AudioDownloadTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  icon: const Icon(Icons.pause_circle_filled_rounded, color: Color(0xFF8B7355)),
+                  icon: const Icon(
+                    Icons.pause_circle_filled_rounded,
+                    color: Color(0xFF8B7355),
+                  ),
                   onPressed: onPauseDownload,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -920,9 +950,15 @@ class AudioDownloadTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                     child: LinearProgressIndicator(
                       minHeight: 8,
-                      value: state.progressFraction > 0 ? state.progressFraction : null,
-                      backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF8B7355)),
+                      value: state.progressFraction > 0
+                          ? state.progressFraction
+                          : null,
+                      backgroundColor: const Color(
+                        0xFFE8DCC8,
+                      ).withValues(alpha: 0.3),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF8B7355),
+                      ),
                     ),
                   ),
                 ),
@@ -933,8 +969,22 @@ class AudioDownloadTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               textDirection: TextDirection.rtl,
               children: [
-                Text(state.progressLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF888888))),
-                Text(state.percentLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF8B7355))),
+                Text(
+                  state.progressLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF888888),
+                  ),
+                ),
+                Text(
+                  state.percentLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF8B7355),
+                  ),
+                ),
               ],
             ),
           ],
@@ -1008,8 +1058,9 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
     final int remainingMb = e.approxDownloadMb > 0
         ? ((e.approxDownloadMb * remaining) / total).ceil()
         : 0;
-    final String fullSize =
-        e.approxDownloadMb > 0 ? '، نحو ${e.approxDownloadMb} ميجابايت' : '';
+    final String fullSize = e.approxDownloadMb > 0
+        ? '، نحو ${e.approxDownloadMb} ميجابايت'
+        : '';
     final String remSize = remainingMb > 0 ? '، نحو $remainingMb ميجابايت' : '';
     final body = cached > 0
         ? 'سيتم تحميل ما تبقّى من «${e.name}» ($remaining صفحة$remSize) لقراءته بدون إنترنت. قد يستهلك بيانات. هل تريد المتابعة؟'
@@ -1045,12 +1096,15 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
         final bool activeOther = dl.isDownloading && dl.editionId != e.id;
         final int cached = activeHere ? dl.done : _cached;
         final bool complete = e.isOnline && cached >= total;
-        final double fraction =
-            activeHere ? dl.fraction : (total > 0 ? cached / total : 0);
+        final double fraction = activeHere
+            ? dl.fraction
+            : (total > 0 ? cached / total : 0);
 
         return Padding(
-          padding:
-              EdgeInsets.symmetric(horizontal: 12, vertical: activeHere ? 10 : 5),
+          padding: EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: activeHere ? 10 : 5,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -1067,8 +1121,11 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
                     ),
                     if (!e.isOnline) ...[
                       const SizedBox(width: 8),
-                      const Icon(Icons.offline_pin_rounded,
-                          size: 19, color: Color(0xFF4B7F3A)),
+                      const Icon(
+                        Icons.offline_pin_rounded,
+                        size: 19,
+                        color: Color(0xFF4B7F3A),
+                      ),
                       const SizedBox(width: 6),
                       const Text(
                         'محمّل مع التطبيق',
@@ -1081,8 +1138,11 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
                       ),
                     ] else if (complete) ...[
                       const SizedBox(width: 8),
-                      const Icon(Icons.check_circle_rounded,
-                          size: 19, color: Color(0xFF4B7F3A)),
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 19,
+                        color: Color(0xFF4B7F3A),
+                      ),
                       const SizedBox(width: 6),
                       const Text(
                         'محمّل بالكامل',
@@ -1099,8 +1159,11 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
                         onPressed: activeOther
                             ? null
                             : () => _confirmAndDownload(e, cached),
-                        icon: const Icon(Icons.download_rounded,
-                            color: Color(0xFF8B7355), size: 16),
+                        icon: const Icon(
+                          Icons.download_rounded,
+                          color: Color(0xFF8B7355),
+                          size: 16,
+                        ),
                         label: Text(
                           cached > 0 ? 'متابعة التحميل' : 'تحميل',
                           style: const TextStyle(
@@ -1114,7 +1177,9 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
@@ -1138,10 +1203,12 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
                         child: LinearProgressIndicator(
                           minHeight: 8,
                           value: fraction > 0 ? fraction : null,
-                          backgroundColor:
-                              const Color(0xFFE8DCC8).withValues(alpha: 0.3),
+                          backgroundColor: const Color(
+                            0xFFE8DCC8,
+                          ).withValues(alpha: 0.3),
                           valueColor: const AlwaysStoppedAnimation<Color>(
-                              Color(0xFF8B7355)),
+                            Color(0xFF8B7355),
+                          ),
                         ),
                       ),
                     ),
@@ -1155,16 +1222,18 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
                     Text(
                       '$cached / $total صفحة',
                       style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF888888)),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF888888),
+                      ),
                     ),
                     Text(
                       '${(fraction * 100).round()}%',
                       style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF8B7355)),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF8B7355),
+                      ),
                     ),
                   ],
                 ),
@@ -1213,19 +1282,19 @@ class PageQualityTile extends StatelessWidget {
           SettingsTileHeader(title: 'جودة عرض الصفحات', onInfo: onInfo),
           const SizedBox(height: 10),
           _option(
-            number: '١',
+            number: '1',
             name: 'قياسي',
             hint: 'الوضع الحالي — الأخف والأسرع.',
             value: 1,
           ),
           _option(
-            number: '٢',
+            number: '2',
             name: 'محسّن',
             hint: 'عرض أنعم للصفحة، بدون أي تنزيل أو زيادة في حجم التطبيق.',
             value: 2,
           ),
           _option(
-            number: '٣',
+            number: '3',
             name: 'فائق الجودة',
             hint: kBundleHighFidelityImages
                 ? 'صور أنقى وأقل ضغطًا (نفس الأبعاد)، مدمجة في التطبيق.'
@@ -1342,12 +1411,15 @@ class PageQualityTile extends StatelessWidget {
         children: [
           Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF4B7F3A)),
           SizedBox(width: 6),
-          Text('مدمجة في التطبيق — لا تحتاج تنزيلاً',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF4B7F3A))),
+          Text(
+            'مدمجة في التطبيق — لا تحتاج تنزيلاً',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4B7F3A),
+            ),
+          ),
         ],
       );
     }
@@ -1358,14 +1430,21 @@ class PageQualityTile extends StatelessWidget {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.cancel_rounded, color: Colors.red, size: 22),
+                icon: const Icon(
+                  Icons.cancel_rounded,
+                  color: Colors.red,
+                  size: 22,
+                ),
                 onPressed: onCancelHqDownload,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
               const SizedBox(width: 4),
               IconButton(
-                icon: const Icon(Icons.pause_circle_filled_rounded, color: _gold),
+                icon: const Icon(
+                  Icons.pause_circle_filled_rounded,
+                  color: _gold,
+                ),
                 onPressed: onPauseHqDownload,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -1389,11 +1468,18 @@ class PageQualityTile extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             textDirection: TextDirection.rtl,
             children: [
-              Text(hqState.progressLabel,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF888888))),
-              Text(hqState.percentLabel,
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w700, color: _gold)),
+              Text(
+                hqState.progressLabel,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF888888)),
+              ),
+              Text(
+                hqState.percentLabel,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _gold,
+                ),
+              ),
             ],
           ),
         ],
@@ -1404,11 +1490,15 @@ class PageQualityTile extends StatelessWidget {
       return OutlinedButton.icon(
         onPressed: onDownloadHq,
         icon: const Icon(Icons.play_arrow_rounded, color: _gold, size: 18),
-        label: Text('استئناف التنزيل (${hqState.progressLabel})',
-            style: const TextStyle(color: _gold, fontSize: 13)),
+        label: Text(
+          'استئناف التنزيل (${hqState.progressLabel})',
+          style: const TextStyle(color: _gold, fontSize: 13),
+        ),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: _gold),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         ),
       );
@@ -1421,12 +1511,15 @@ class PageQualityTile extends StatelessWidget {
         children: [
           Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF4B7F3A)),
           SizedBox(width: 6),
-          Text('الحزمة محمّلة وجاهزة',
-              textDirection: TextDirection.rtl,
-              style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF4B7F3A))),
+          Text(
+            'الحزمة محمّلة وجاهزة',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4B7F3A),
+            ),
+          ),
         ],
       );
     }
@@ -1434,8 +1527,10 @@ class PageQualityTile extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: onDownloadHq,
       icon: const Icon(Icons.download_rounded, color: _gold, size: 18),
-      label: Text('تنزيل حزمة الجودة الفائقة (${hqState.packageSizeLabel})',
-          style: const TextStyle(color: _gold, fontSize: 13)),
+      label: Text(
+        'تنزيل حزمة الجودة الفائقة (${hqState.packageSizeLabel})',
+        style: const TextStyle(color: _gold, fontSize: 13),
+      ),
       style: OutlinedButton.styleFrom(
         side: const BorderSide(color: _gold),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1564,8 +1659,9 @@ class PageColorSwatch extends StatelessWidget {
                     textAlign: TextAlign.right,
                     style: TextStyle(
                       fontSize: 12.5,
-                      fontWeight:
-                          isSelected ? FontWeight.w700 : FontWeight.w600,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w600,
                       color: const Color(0xFF3E3428),
                     ),
                   ),
@@ -1637,10 +1733,7 @@ class PageColorSamplePreview extends StatelessWidget {
 /// The tappable thumbnail shown inside [PageColorTile] with a "full-screen
 /// preview" hint pill overlaid.
 class _PageColorPreviewThumbnail extends StatelessWidget {
-  const _PageColorPreviewThumbnail({
-    required this.theme,
-    required this.onTap,
-  });
+  const _PageColorPreviewThumbnail({required this.theme, required this.onTap});
 
   final PageColorTheme theme;
   final VoidCallback onTap;
@@ -1659,8 +1752,10 @@ class _PageColorPreviewThumbnail extends StatelessWidget {
               left: 8,
               bottom: 8,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(20),
@@ -1852,10 +1947,7 @@ class RecitationBarOpacityTile extends StatelessWidget {
                     overlayColor: _gold.withValues(alpha: 0.1),
                     inactiveTrackColor: _gold.withValues(alpha: 0.1),
                   ),
-                  child: Slider(
-                    value: opacity,
-                    onChanged: onChanged,
-                  ),
+                  child: Slider(value: opacity, onChanged: onChanged),
                 ),
               ),
               SizedBox(
@@ -1915,10 +2007,7 @@ class MarginImagesTile extends StatelessWidget {
             textDirection: TextDirection.rtl,
             children: [
               Expanded(
-                child: SettingsTileHeader(
-                  title: 'عرض الهوامش',
-                  onInfo: onInfo,
-                ),
+                child: SettingsTileHeader(title: 'عرض الهوامش', onInfo: onInfo),
               ),
               if (state.isAvailable) ...[
                 const SizedBox(width: 4),
@@ -1940,10 +2029,7 @@ class MarginImagesTile extends StatelessWidget {
                   ),
                   label: const Text(
                     'تحميل',
-                    style: TextStyle(
-                      color: Color(0xFF8B7355),
-                      fontSize: 12.5,
-                    ),
+                    style: TextStyle(color: Color(0xFF8B7355), fontSize: 12.5),
                   ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFF8B7355)),
@@ -1964,7 +2050,11 @@ class MarginImagesTile extends StatelessWidget {
             Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.cancel_rounded, color: Colors.red, size: 22),
+                  icon: const Icon(
+                    Icons.cancel_rounded,
+                    color: Colors.red,
+                    size: 22,
+                  ),
                   onPressed: onCancelDownload,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -1976,9 +2066,12 @@ class MarginImagesTile extends StatelessWidget {
                     child: LinearProgressIndicator(
                       minHeight: 8,
                       value: state.totalBytes > 0 ? state.progress : null,
-                      backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Color(0xFFB0956E)),
+                      backgroundColor: const Color(
+                        0xFFE8DCC8,
+                      ).withValues(alpha: 0.3),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFFB0956E),
+                      ),
                     ),
                   ),
                 ),
@@ -1989,27 +2082,44 @@ class MarginImagesTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               textDirection: TextDirection.rtl,
               children: [
-                Text(state.progressLabel,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF888888))),
-                Text(state.percentLabel,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF8B7355))),
+                Text(
+                  state.progressLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF888888),
+                  ),
+                ),
+                Text(
+                  state.percentLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF8B7355),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: onDownload,
-              icon: const Icon(Icons.play_arrow_rounded, color: Color(0xFF8B7355), size: 18),
-              label: const Text('استئناف التحميل',
-                  style: TextStyle(color: Color(0xFF8B7355), fontSize: 13)),
+              icon: const Icon(
+                Icons.play_arrow_rounded,
+                color: Color(0xFF8B7355),
+                size: 18,
+              ),
+              label: const Text(
+                'استئناف التحميل',
+                style: TextStyle(color: Color(0xFF8B7355), fontSize: 13),
+              ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF8B7355)),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               ),
             ),
           ],
@@ -2024,7 +2134,10 @@ class MarginImagesTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  icon: const Icon(Icons.pause_circle_filled_rounded, color: Color(0xFF8B7355)),
+                  icon: const Icon(
+                    Icons.pause_circle_filled_rounded,
+                    color: Color(0xFF8B7355),
+                  ),
                   onPressed: onPauseDownload,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -2036,8 +2149,12 @@ class MarginImagesTile extends StatelessWidget {
                     child: LinearProgressIndicator(
                       minHeight: 8,
                       value: state.totalBytes > 0 ? state.progress : null,
-                      backgroundColor: const Color(0xFFE8DCC8).withValues(alpha: 0.3),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF8B7355)),
+                      backgroundColor: const Color(
+                        0xFFE8DCC8,
+                      ).withValues(alpha: 0.3),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF8B7355),
+                      ),
                     ),
                   ),
                 ),
@@ -2048,12 +2165,20 @@ class MarginImagesTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               textDirection: TextDirection.rtl,
               children: [
-                Text(state.progressLabel,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF888888))),
-                Text(state.percentLabel,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF8B7355))),
+                Text(
+                  state.progressLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF888888),
+                  ),
+                ),
+                Text(
+                  state.percentLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF8B7355),
+                  ),
+                ),
               ],
             ),
           ],
@@ -2094,10 +2219,6 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
   List<SurahDownloadStatus> _statuses = const [];
   String _query = '';
 
-  static const List<String> _arabicDigits = [
-    '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -2117,7 +2238,8 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
 
   void _onSurahStateChanged() {
     // When a download finishes (surah goes idle) recompute the cached counts.
-    if (_service.surahState.value.surah == 0 && !_service.state.value.isDownloading) {
+    if (_service.surahState.value.surah == 0 &&
+        !_service.state.value.isDownloading) {
       _refreshStatuses();
     }
   }
@@ -2127,19 +2249,29 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
     if (mounted) setState(() => _statuses = statuses);
   }
 
-  String _toArabic(int n) => n
-      .toString()
-      .split('')
-      .map((c) => _arabicDigits[int.parse(c)])
-      .join();
+  /// Folds Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digits to ASCII, so a
+  /// user typing ١٢ still matches surah 12. Display always uses ASCII digits.
+  static String _asciiDigits(String input) {
+    final out = StringBuffer();
+    for (final rune in input.runes) {
+      if (rune >= 0x0660 && rune <= 0x0669) {
+        out.write(rune - 0x0660);
+      } else if (rune >= 0x06F0 && rune <= 0x06F9) {
+        out.write(rune - 0x06F0);
+      } else {
+        out.writeCharCode(rune);
+      }
+    }
+    return out.toString();
+  }
 
   String _ayahLabel(int count) => count == 1
       ? 'آية واحدة'
       : count == 2
-          ? 'آيتان'
-          : count <= 10
-              ? '${_toArabic(count)} آيات'
-              : '${_toArabic(count)} آية';
+      ? 'آيتان'
+      : count <= 10
+      ? '$count آيات'
+      : '$count آية';
 
   List<Map<String, dynamic>> get _filtered {
     final q = _query.trim();
@@ -2147,8 +2279,7 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
     return surahList.where((s) {
       final name = (s['name'] as String);
       final number = s['number'].toString();
-      final arNumber = _toArabic(s['number'] as int);
-      return name.contains(q) || number.contains(q) || arNumber.contains(q);
+      return name.contains(q) || number.contains(_asciiDigits(q));
     }).toList();
   }
 
@@ -2184,36 +2315,36 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
   }
 
   Widget _grabber() => Container(
-        margin: const EdgeInsets.only(top: 10, bottom: 4),
-        width: 42,
-        height: 5,
-        decoration: BoxDecoration(
-          color: const Color(0xFFD9CBB2),
-          borderRadius: BorderRadius.circular(999),
-        ),
-      );
+    margin: const EdgeInsets.only(top: 10, bottom: 4),
+    width: 42,
+    height: 5,
+    decoration: BoxDecoration(
+      color: const Color(0xFFD9CBB2),
+      borderRadius: BorderRadius.circular(999),
+    ),
+  );
 
   Widget _header(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'تحميل الصوتيات',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2C2C2C),
-                ),
-              ),
+    padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+    child: Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'تحميل الصوتيات',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF2C2C2C),
             ),
-            IconButton(
-              icon: const Icon(Icons.close_rounded, color: Color(0xFF888888)),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
+          ),
         ),
-      );
+        IconButton(
+          icon: const Icon(Icons.close_rounded, color: Color(0xFF888888)),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    ),
+  );
 
   /// Prominent "download all" card, backed by the overall download state.
   Widget _downloadAllRow() {
@@ -2271,8 +2402,8 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
                             state.isComplete
                                 ? 'كل السور محمّلة'
                                 : busy
-                                    ? state.progressLabel
-                                    : 'المصحف كامل للقارئ المختار · نحو ٥٠٠ م.ب',
+                                ? state.progressLabel
+                                : 'المصحف كامل للقارئ المختار · نحو 500 م.ب',
                             style: const TextStyle(
                               fontSize: 12,
                               color: Color(0xFF7A6A55),
@@ -2294,10 +2425,12 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
                       value: state.progressFraction > 0
                           ? state.progressFraction
                           : null,
-                      backgroundColor:
-                          const Color(0xFFE8DCC8).withValues(alpha: 0.5),
+                      backgroundColor: const Color(
+                        0xFFE8DCC8,
+                      ).withValues(alpha: 0.5),
                       valueColor: const AlwaysStoppedAnimation<Color>(
-                          SurahDownloadSheet._gold),
+                        SurahDownloadSheet._gold,
+                      ),
                     ),
                   ),
                 ],
@@ -2310,10 +2443,16 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
   }
 
   Widget _downloadAllAction(
-      AudioDownloadState state, bool busy, bool anySurahDownloading) {
+    AudioDownloadState state,
+    bool busy,
+    bool anySurahDownloading,
+  ) {
     if (state.isComplete) {
-      return const Icon(Icons.check_circle_rounded,
-          color: SurahDownloadSheet._green, size: 22);
+      return const Icon(
+        Icons.check_circle_rounded,
+        color: SurahDownloadSheet._green,
+        size: 22,
+      );
     }
     if (busy) {
       return IconButton(
@@ -2326,52 +2465,54 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
       onPressed: anySurahDownloading ? null : () => _service.downloadAll(),
       style: FilledButton.styleFrom(
         backgroundColor: SurahDownloadSheet._gold,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         visualDensity: VisualDensity.compact,
       ),
-      child: Text(state.downloadedFiles > 0 ? 'متابعة' : 'تحميل',
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+      child: Text(
+        state.downloadedFiles > 0 ? 'متابعة' : 'تحميل',
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
     );
   }
 
   Widget _searchField() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        child: TextField(
-          controller: _searchController,
-          onChanged: (v) => setState(() => _query = v),
-          textDirection: TextDirection.rtl,
-          decoration: InputDecoration(
-            hintText: 'ابحث عن سورة...',
-            hintStyle: const TextStyle(color: Color(0xFFAFA48F), fontSize: 14),
-            prefixIcon:
-                const Icon(Icons.search_rounded, color: Color(0xFFB0956E)),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(vertical: 0),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE8DCC8)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE8DCC8)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: SurahDownloadSheet._gold),
-            ),
-          ),
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+    child: TextField(
+      controller: _searchController,
+      onChanged: (v) => setState(() => _query = v),
+      textDirection: TextDirection.rtl,
+      decoration: InputDecoration(
+        hintText: 'ابحث عن سورة...',
+        hintStyle: const TextStyle(color: Color(0xFFAFA48F), fontSize: 14),
+        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFFB0956E)),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE8DCC8)),
         ),
-      );
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE8DCC8)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: SurahDownloadSheet._gold),
+        ),
+      ),
+    ),
+  );
 
   Widget _surahList(ScrollController controller) {
     final items = _filtered;
     if (items.isEmpty) {
       return const Center(
-        child: Text('لا توجد نتائج',
-            style: TextStyle(color: Color(0xFF888888), fontSize: 14)),
+        child: Text(
+          'لا توجد نتائج',
+          style: TextStyle(color: Color(0xFF888888), fontSize: 14),
+        ),
       );
     }
     return ValueListenableBuilder<SurahDownloadState>(
@@ -2392,8 +2533,9 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
     final int number = surah['number'] as int;
     final String name = surah['name'] as String;
     final int ayahs = surah['ayahs'] as int;
-    final SurahDownloadStatus? status =
-        number - 1 < _statuses.length ? _statuses[number - 1] : null;
+    final SurahDownloadStatus? status = number - 1 < _statuses.length
+        ? _statuses[number - 1]
+        : null;
 
     final bool isThisDownloading =
         surahState.isDownloading && surahState.surah == number;
@@ -2406,9 +2548,7 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isComplete
-              ? const Color(0xFFCDE3C2)
-              : const Color(0xFFEDE4D3),
+          color: isComplete ? const Color(0xFFCDE3C2) : const Color(0xFFEDE4D3),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -2425,7 +2565,7 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
                   : const Color(0xFFF2EADB),
             ),
             child: Text(
-              _toArabic(number),
+              '$number',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -2464,8 +2604,13 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
             ),
           ),
           const SizedBox(width: 8),
-          _surahTrailing(number, status, isThisDownloading, anyDownloadActive,
-              surahState),
+          _surahTrailing(
+            number,
+            status,
+            isThisDownloading,
+            anyDownloadActive,
+            surahState,
+          ),
         ],
       ),
     );
@@ -2492,11 +2637,15 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
                   : null,
               backgroundColor: const Color(0xFFEDE4D3),
               valueColor: const AlwaysStoppedAnimation<Color>(
-                  SurahDownloadSheet._gold),
+                SurahDownloadSheet._gold,
+              ),
             ),
             IconButton(
-              icon: const Icon(Icons.close_rounded,
-                  size: 15, color: Color(0xFF888888)),
+              icon: const Icon(
+                Icons.close_rounded,
+                size: 15,
+                color: Color(0xFF888888),
+              ),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               onPressed: _service.cancelDownload,
@@ -2507,14 +2656,18 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
     }
 
     if (status?.isComplete ?? false) {
-      return const Icon(Icons.check_circle_rounded,
-          color: SurahDownloadSheet._green, size: 24);
+      return const Icon(
+        Icons.check_circle_rounded,
+        color: SurahDownloadSheet._green,
+        size: 24,
+      );
     }
 
     final bool partial = status?.isPartial ?? false;
     return OutlinedButton(
-      onPressed:
-          anyDownloadActive ? null : () => _service.downloadSurah(number),
+      onPressed: anyDownloadActive
+          ? null
+          : () => _service.downloadSurah(number),
       style: OutlinedButton.styleFrom(
         side: const BorderSide(color: SurahDownloadSheet._gold),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -2526,7 +2679,9 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            partial ? Icons.download_for_offline_rounded : Icons.download_rounded,
+            partial
+                ? Icons.download_for_offline_rounded
+                : Icons.download_rounded,
             size: 15,
             color: SurahDownloadSheet._gold,
           ),
@@ -2534,7 +2689,9 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
           Text(
             partial ? 'إكمال' : 'تحميل',
             style: const TextStyle(
-                fontSize: 12, color: SurahDownloadSheet._gold),
+              fontSize: 12,
+              color: SurahDownloadSheet._gold,
+            ),
           ),
         ],
       ),

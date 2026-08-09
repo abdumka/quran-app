@@ -40,11 +40,23 @@ Future<void> main() async {
     }
   }
 
-  // Increase image cache limits to prevent high-quality/margin images from 
-  // being constantly evicted when scrolling in Continuous mode.
-  // 100 images or 300 MB — enough for smooth back-and-forth navigation.
-  PaintingBinding.instance.imageCache.maximumSize = 100;
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 300 * 1024 * 1024;
+  // Raise the image cache above Flutter's 100 MB default so high-quality /
+  // margin pages aren't constantly evicted while scrolling in Continuous mode.
+  //
+  // Sized against the worst case: margin-view auto-scroll precaches 11 pages
+  // (centerPage-2 .. centerPage+8), and margin images decode at 1178x1878 =
+  // ~8.8 MB each, so the precache window alone needs ~97 MB. Precached pages
+  // have no listeners yet, so they count against this cap — going much below
+  // ~120 MB makes the cache evict its own precache and shows the blank page
+  // background mid-scroll. 150 MB covers the window plus ~6 pages of real
+  // scrollback. Standard pages are 720x1640 (~4.7 MB), so ~32 pages there.
+  //
+  // Note this bounds retention only: pages currently on screen are tracked
+  // separately as live images and are not charged against it. The cache is
+  // also dropped when the app is backgrounded (see quran_pages.dart), which
+  // is what keeps us off the LMK/jetsam radar during background recitation.
+  PaintingBinding.instance.imageCache.maximumSize = 60;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 150 * 1024 * 1024;
   
   try {
     await DebugLogService.instance.initialize();
@@ -105,6 +117,19 @@ Future<void> main() async {
   runApp(const QuranApp());
 }
 
+// Flutter's default ScrollBehavior excludes PointerDeviceKind.mouse from
+// dragDevices (to keep mouse drags free for text selection), which on web
+// means a desktop user can't click-drag to turn pages — only touch/trackpad
+// gestures work. The reader has no separate tap-to-flip zones, so page
+// turning depends entirely on this drag gesture.
+class _AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    ...super.dragDevices,
+    PointerDeviceKind.mouse,
+  };
+}
+
 class QuranApp extends StatelessWidget {
   const QuranApp({super.key});
 
@@ -115,6 +140,7 @@ class QuranApp extends StatelessWidget {
       builder: (context, themeMode, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
+          scrollBehavior: _AppScrollBehavior(),
           themeMode: themeMode,
           theme: ThemeData(
             brightness: Brightness.light,

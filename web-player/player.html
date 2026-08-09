@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مشغّل — مصحف قالون</title>
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192.png">
+<link rel="apple-touch-icon" href="assets/favicon-192.png">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="jserr"></div>
+
+<header class="top">
+  <h1 id="reciterName">…</h1>
+  <div class="sub" id="reciterNote"></div>
+  <nav>
+    <a href="index.html">المشايخ</a>
+    <span class="sep">›</span>
+    <a id="surahsLink" href="surahs.html">السور</a>
+  </nav>
+</header>
+
+<main>
+  <div id="bar">
+    <button id="playAll" class="btn secondary">▶ تشغيل من البداية</button>
+    <button id="stop" class="btn stop">■ إيقاف</button>
+    <label>سرعة:
+      <select id="speed">
+        <option value="1" selected>1x</option>
+        <option value="1.25">1.25x</option>
+        <option value="1.5">1.5x</option>
+        <option value="1.75">1.75x</option>
+        <option value="2">2x</option>
+        <option value="2.5">2.5x</option>
+        <option value="3">3x</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="follow" checked> تمرير تلقائي</label>
+    <span class="grow"></span>
+    <span id="status"></span>
+  </div>
+
+  <div class="repeat-row">
+    <div class="group">
+      <span class="group-label">تكرار الآية</span>
+      <button id="ayahCycle" class="btn secondary">إيقاف</button>
+    </div>
+    <div class="group">
+      <span class="group-label">تكرار السورة</span>
+      <button id="surahCycle" class="btn secondary">إيقاف</button>
+    </div>
+    <div class="group">
+      <span class="group-label">تكرار الثمن</span>
+      <button id="thumnCycle" class="btn secondary">إيقاف</button>
+    </div>
+    <div class="group">
+      <span class="group-label">تكرار مقطع</span>
+      من <select id="fromAyah"></select>
+      إلى <select id="toAyah"></select>
+      <button id="rangeCycle" class="btn secondary">إيقاف</button>
+    </div>
+  </div>
+
+  <div class="surah-nav">
+    <a id="prevSurah">▸ السورة السابقة</a>
+    <h2 class="stitle" id="stitle" style="flex:1"></h2>
+    <a id="nextSurah">السورة التالية ◂</a>
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<footer class="site">المصحف الجامع</footer>
+
+<script>
+window.onerror = function (msg, src, line, col, err) {
+  var b = document.getElementById('jserr');
+  if (b) {
+    b.style.display = 'block';
+    b.textContent = 'JS ERROR: ' + msg + '\nline ' + line + ':' + col + (err && err.stack ? '\n' + err.stack : '');
+  }
+  return false;
+};
+</script>
+<script type="module" src="js/ui-player.js"></script>
+</body>
+</html>

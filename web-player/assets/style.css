@@ -1,0 +1,221 @@
+:root {
+  --g: #1f6f5c;
+  --g-dark: #164f42;
+  --gold: #a86b0c;
+  --bg: #faf8f4;
+  --card: #fff;
+  --border: #e6e0d6;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, system-ui, 'Segoe UI', sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: #222;
+  direction: rtl;
+}
+
+a { color: var(--g); }
+
+header.top {
+  background: var(--g);
+  color: #fff;
+  padding: 16px;
+  text-align: center;
+}
+header.top h1 { margin: 0; font-size: 20px; }
+header.top .sub { font-size: 13px; opacity: .85; margin-top: 4px; }
+header.top nav { margin-top: 10px; font-size: 13px; }
+header.top nav a { color: #fff; opacity: .9; text-decoration: none; }
+header.top nav a:hover { text-decoration: underline; }
+header.top nav .sep { opacity: .5; margin: 0 6px; }
+
+main { max-width: 760px; margin: 0 auto; padding: 16px; padding-bottom: 60px; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+.reciter-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  text-align: right;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: box-shadow .15s, border-color .15s;
+}
+.reciter-card:hover { box-shadow: 0 4px 14px rgba(31,111,92,.15); border-color: var(--g); }
+.reciter-card .name { font-size: 18px; font-weight: 700; color: var(--g); }
+.reciter-card .riwaya { font-size: 13px; color: #777; margin-top: 4px; }
+
+/* Reciters whose ayah↔audio alignment hasn't been fully proof-listened yet. */
+.review-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #fdf1d8;
+  border: 1px solid #e6c583;
+  color: #8a6414;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.app-link-banner {
+  margin-top: 26px;
+  background: #fff8ea;
+  border: 1px solid #eddcb0;
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+.app-link-banner a.btn { margin-top: 10px; }
+
+.btn {
+  display: inline-block;
+  font-size: 14px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  background: var(--g);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.btn:hover { background: var(--g-dark); }
+.btn.secondary { background: #fff; color: var(--g); border: 1px solid var(--border); }
+.btn.gold { background: var(--gold); }
+.btn.stop { background: #ffdede; color: #b00; }
+.btn.active-mode { background: var(--gold); color: #fff; }
+
+.surah-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.surah-tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.surah-tile:hover { background: #f2fbf7; border-color: var(--g); }
+.surah-tile .num {
+  flex: 0 0 auto;
+  background: var(--g);
+  color: #fff;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.surah-tile .name { font-size: 15px; font-weight: 600; }
+.surah-tile .count { font-size: 11px; color: #888; margin-right: auto; }
+
+#bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--g);
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 0 0 14px 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  font-size: 13px;
+}
+#bar select {
+  font-size: 13px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  border: 0;
+}
+#bar label { display: flex; align-items: center; gap: 4px; }
+#bar .grow { flex: 1 1 auto; }
+#status { font-size: 12px; opacity: .9; }
+
+.repeat-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.repeat-row .group { display: flex; align-items: center; gap: 6px; }
+.repeat-row .group-label { font-size: 12px; color: #666; }
+.repeat-row select { font-size: 13px; padding: 5px; border-radius: 7px; border: 1px solid var(--border); }
+
+h2.stitle { text-align: center; color: var(--g); margin: 18px 0 6px; }
+.surah-nav { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+
+.ayah {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 10px 0;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.ayah:hover { background: #f2fbf7; }
+.ayah.playing { background: #d5f0e6; outline: 2px solid var(--g); }
+.ayah .num {
+  flex: 0 0 auto;
+  background: var(--g);
+  color: #fff;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+.ayah .txt { flex: 1; font-size: 22px; line-height: 2.1; text-align: right; }
+.ayah .covered { opacity: .55; font-size: 12px; color: var(--g); display: block; margin-top: 4px; }
+
+footer.site {
+  text-align: center;
+  font-size: 12px;
+  color: #999;
+  padding: 24px;
+}
+
+#jserr {
+  display: none;
+  background: #b00;
+  color: #fff;
+  padding: 12px;
+  font: 13px monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>السور — مصحف قالون</title>
+<link rel="prefetch" href="data/quran_text.json">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192.png">
+<link rel="apple-touch-icon" href="assets/favicon-192.png">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="jserr"></div>
+
+<header class="top">
+  <h1 id="reciterName">…</h1>
+  <div class="sub" id="reciterRiwaya"></div>
+  <nav>
+    <a href="index.html">المشايخ</a>
+    <span class="sep">›</span>
+    <span id="crumbName"></span>
+  </nav>
+</header>
+
+<main>
+  <div id="grid" class="surah-grid"></div>
+</main>
+
+<footer class="site">المصحف الجامع</footer>
+
+<script>
+window.onerror = function (msg, src, line, col, err) {
+  var b = document.getElementById('jserr');
+  if (b) {
+    b.style.display = 'block';
+    b.textContent = 'JS ERROR: ' + msg + '\nline ' + line + ':' + col + (err && err.stack ? '\n' + err.stack : '');
+  }
+  return false;
+};
+</script>
+<script type="module" src="js/ui-surahs.js"></script>
+</body>
+</html>

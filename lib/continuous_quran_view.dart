@@ -526,11 +526,12 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
         // Build roughly one page above and below the viewport so the next/prev
         // page's image has already started (and usually finished) decoding before
         // it scrolls into view — otherwise the reader briefly shows the blank
-        // cream background while a fresh image decodes. Memory stays bounded: both
-        // asset and downloaded images decode through ResizeImage(width: 720)
-        // (~4.7 MB each), so the ~3-4 pages held here fit easily within the
-        // 300 MB image cache configured in main(). The old 250px value was a
-        // workaround for un-resized "raw huge images", which no longer exist.
+        // cream background while a fresh image decodes. Memory stays bounded:
+        // pages decode at native size — 720x1640 (~4.7 MB) for the bundled/HQ
+        // sets, 1178x1878 (~8.8 MB) in margin view — so the ~3-4 pages held
+        // here fit within the 150 MB image cache configured in main(). The old
+        // 250px value was a workaround for un-resized "raw huge images", which
+        // no longer exist.
         scrollCacheExtent: ScrollCacheExtent.pixels(_pageHeight),
         itemExtent: _pageHeight,
         itemCount: widget.pages.length,

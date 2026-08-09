@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent, RenderProxyBox;
 import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart' show openFile, XTypeGroup;
+import 'package:file_saver/file_saver.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -311,6 +312,9 @@ class _QuranPagesState extends State<QuranPages>
   final TransformationController _pageZoomController =
       TransformationController();
   bool _isPageZoomed = false;
+  // Hover state for the edge page-turn arrows (desktop/web only).
+  bool _hoverLeftEdge = false;
+  bool _hoverRightEdge = false;
   Offset? _lastDoubleTapPosition;
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
@@ -321,6 +325,15 @@ class _QuranPagesState extends State<QuranPages>
       HighQualityImagesService.instance;
   final PageQualityService _pageQualityService = PageQualityService.instance;
   final PageColorService _pageColorService = PageColorService.instance;
+
+  /// The recitation bar's transport buttons (repeat/previous/next/close) are
+  /// zero-padding, shrink-wrapped icon buttons — their tap target is exactly
+  /// the icon's visual size (~24px), which is fine for a fingertip but very
+  /// easy to miss with a mouse cursor on desktop web. Widen the invisible hit
+  /// box on web only; native touch targets are unaffected.
+  BoxConstraints get _barIconConstraints => kIsWeb
+      ? const BoxConstraints(minWidth: 40, minHeight: 40)
+      : const BoxConstraints();
 
   final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
       GlobalKey<ContinuousQuranViewState>();
@@ -470,6 +483,7 @@ class _QuranPagesState extends State<QuranPages>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    HardwareKeyboard.instance.addHandler(_handleReaderKey);
     _bookmarkGuideAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -597,6 +611,7 @@ class _QuranPagesState extends State<QuranPages>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
     _hizbPopupTimer?.cancel();
     _sajdaPopupTimer?.cancel();
@@ -641,13 +656,32 @@ class _QuranPagesState extends State<QuranPages>
       // Pause audio instead of stopping — so user can resume when they return.
       // Unless the user enabled background playback, in which case the recitation
       // keeps going and is controlled from the system media notification.
-      if (!BackgroundPlaybackService.instance.enabled.value) {
+      //
+      // Never on the web: there "hidden" fires simply because the browser tab
+      // lost focus (switching tabs, or another window covering it). Browsers
+      // deliberately keep <audio> playing in a background tab and expose their
+      // own media controls for it, so pausing here would break the normal,
+      // expected behaviour of a web player. The background-playback opt-in
+      // exists for the mobile media-notification flow and has no web analogue.
+      if (!kIsWeb && !BackgroundPlaybackService.instance.enabled.value) {
         AudioService.instance.pause();
       }
       // Stop auto-scroll timer to save battery in background.
       _stopPortraitAutoScroll();
       // Pause any active downloads so they can resume later
       _marginImagesService.pauseDownload();
+      // Decoded page bitmaps are by far the largest allocation in the app
+      // (~4.7 MB each, ~8.8 MB in margin view; up to 150 MB retained). Holding
+      // them while backgrounded — which happens for long stretches whenever
+      // background recitation is on — makes the app a prime target for
+      // Android's low-memory killer and iOS jetsam, and being killed mid-
+      // recitation reads to the user as playback randomly stopping.
+      //
+      // clear() drops the retention pool only; pages currently on screen are
+      // live images and survive, so resuming doesn't flash the blank page
+      // background. Do NOT use clearLiveImages() here — that would force the
+      // visible page to re-decode on every resume.
+      PaintingBinding.instance.imageCache.clear();
     } else if (state == AppLifecycleState.resumed) {
       // Resume auto-scroll if it was enabled.
       if (_isAutoScrollEnabled && _portraitAutoScrollViewportHeight != null) {
@@ -661,7 +695,16 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   Future<void> _setReadingMode(bool enabled) async {
-    await WakelockPlus.toggle(enable: enabled);
+    // Browsers require a user gesture before granting the Screen Wake Lock
+    // API, so an automatic call here (e.g. right on page load) routinely
+    // throws NotAllowedError on web — and wakelock_plus's web implementation
+    // can additionally throw from a detached callback that a try/catch around
+    // this await never sees. Skip it there entirely; keeping the screen awake
+    // is a native-only nicety.
+    if (kIsWeb) return;
+    try {
+      await WakelockPlus.toggle(enable: enabled);
+    } catch (_) {}
   }
 
   void _handleKeepScreenAwakeChanged() {
@@ -846,13 +889,21 @@ class _QuranPagesState extends State<QuranPages>
 
     // Margin display, when enabled, overrides the source image.
     final marginState = _marginImagesService.state.value;
-    if (marginState.isEnabled && marginState.imagesDirectoryPath != null) {
-      final file = _downloadedPageFileForIndex(
-        marginState.imagesDirectoryPath!,
-        pageIndex + 1,
-      );
-      if (file != null) {
-        return wrap(FileImage(file));
+    if (marginState.isEnabled) {
+      if (kIsWeb) {
+        // No local pack on web — stream the page from the R2 mirror.
+        return wrap(
+          NetworkImage(MarginImagesService.webPageUrl(pageIndex + 1)),
+        );
+      }
+      if (marginState.imagesDirectoryPath != null) {
+        final file = _downloadedPageFileForIndex(
+          marginState.imagesDirectoryPath!,
+          pageIndex + 1,
+        );
+        if (file != null) {
+          return wrap(FileImage(file));
+        }
       }
     }
 
@@ -1233,7 +1284,21 @@ class _QuranPagesState extends State<QuranPages>
       'v': 1,
       'bookmarks': items.map((item) => item.toJson()).toList(),
     };
-    return const JsonEncoder.withIndent('  ').convert(envelope);
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(envelope);
+    // Escape non-ASCII (Arabic labels) as \uXXXX so the file is pure ASCII:
+    // some share targets / save dialogs re-save the file assuming a
+    // single-byte charset (Windows-1252) instead of UTF-8, which garbles raw
+    // Arabic bytes. ASCII bytes decode identically under every charset, so
+    // this makes the file immune to that regardless of where it happens.
+    final buffer = StringBuffer();
+    for (final unit in jsonStr.codeUnits) {
+      if (unit > 126) {
+        buffer.write('\\u${unit.toRadixString(16).padLeft(4, '0')}');
+      } else {
+        buffer.writeCharCode(unit);
+      }
+    }
+    return buffer.toString();
   }
 
   List<ReaderBookmark>? _parseBookmarksBackupJson(String raw) {
@@ -1335,6 +1400,39 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
+  /// Saves the backup straight to a location the user picks (via the OS
+  /// "Save As" dialog) instead of routing through a share target. Unlike
+  /// [_writeBookmarksBackupFile]'s temp file, this lands outside the app's
+  /// own storage, so — unlike the app's sandboxed storage — it survives an
+  /// uninstall/reinstall.
+  Future<void> _saveBookmarksLocally() async {
+    if (_bookmarks.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('لا توجد علامات لحفظها')));
+      return;
+    }
+    final jsonStr = _buildBookmarksBackupJson(_bookmarks.values);
+    final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+    try {
+      final savedPath = await FileSaver.instance.saveAs(
+        name: 'quran-bookmarks-backup',
+        bytes: bytes,
+        fileExtension: 'json',
+        mimeType: MimeType.json,
+      );
+      if (!mounted || savedPath == null) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم حفظ النسخة الاحتياطية')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّر حفظ الملف')));
+    }
+  }
+
   Future<Map<int, ReaderBookmark>?> _importBookmarksFlow() async {
     XFile? picked;
     try {
@@ -1424,6 +1522,7 @@ class _QuranPagesState extends State<QuranPages>
         onRename: _renameBookmarkSlot,
         onDelete: _deleteBookmarkSlot,
         onExport: _exportBookmarks,
+        onSaveLocally: _saveBookmarksLocally,
         onImport: _importBookmarksFlow,
       ),
     );
@@ -1739,6 +1838,140 @@ class _QuranPagesState extends State<QuranPages>
 
     _setCurrentPage(targetIndex, showHizbPopup: true);
     _updateSystemUI();
+  }
+
+  /// Keyboard page-turning (desktop/web). The mushaf reads right-to-left, so
+  /// the LEFT arrow advances to the next (higher-numbered) page and the RIGHT
+  /// arrow goes back — matching the chevron directions used elsewhere in the
+  /// UI. PageUp/PageDown and space are accepted as aliases.
+  /// Registered on [HardwareKeyboard] rather than a [Focus] node: the reader's
+  /// PageView owns focus, so a wrapping Focus widget never sees these keys.
+  /// Returns true when the key was consumed.
+  bool _handleReaderKey(KeyEvent event) {
+    if (!mounted) return false;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    // Don't steal keys while a search field, the surah list, or a dialog is up.
+    // (_showIndex only controls chrome visibility, so it must NOT block keys.)
+    if (_isSearching || _showSurahs) return false;
+    if (ModalRoute.of(context)?.isCurrent != true) return false;
+
+    final key = event.logicalKey;
+
+    // While the recitation bar is up, Up/Down step through ayat — the
+    // keyboard equivalent of the bar's skip buttons.
+    if (AudioService.instance.isRecitationBarVisible.value) {
+      if (key == LogicalKeyboardKey.arrowDown) {
+        AudioService.instance.nextAyah();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowUp) {
+        AudioService.instance.previousAyah();
+        return true;
+      }
+    }
+
+    int delta;
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.pageDown ||
+        key == LogicalKeyboardKey.space) {
+      delta = 1;
+    } else if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.pageUp) {
+      delta = -1;
+    } else {
+      return false;
+    }
+
+    _stepPage(delta);
+    return true;
+  }
+
+  /// Moves [delta] views forward (+1) or back (-1).
+  ///
+  /// Steps by one *view*, not one page: in the two-page spread a single page
+  /// step lands on the same spread, and _setCurrentPage snaps back to that
+  /// spread's first page — so paging by 1 would never move.
+  void _stepPage(int delta) {
+    final current = _readingCoordinator.currentPage;
+    final targetView = _getViewIndexForPage(current, context) + delta;
+    if (targetView < 0) return;
+    final targetPage = _getFirstPageIndexForView(targetView, context);
+    if (targetPage < 0 || targetPage > pages.length - 1) return;
+    if (targetPage != current) _goToPage(targetPage + 1);
+  }
+
+  /// Whether stepping [delta] views from here would actually move — used to
+  /// hide the hover arrow at the first/last page instead of showing a dud.
+  bool _canStepPage(int delta) {
+    final current = _readingCoordinator.currentPage;
+    final targetView = _getViewIndexForPage(current, context) + delta;
+    if (targetView < 0) return false;
+    final targetPage = _getFirstPageIndexForView(targetView, context);
+    return targetPage >= 0 &&
+        targetPage <= pages.length - 1 &&
+        targetPage != current;
+  }
+
+  /// Edge hover-zone that reveals a page-turn arrow (desktop/web only — there
+  /// is no hover on touch, so these never appear on phones). [delta] is +1 for
+  /// the next page and -1 for the previous one; in this right-to-left mushaf
+  /// that puts "next" on the LEFT edge, matching the arrow keys and the
+  /// chevrons used elsewhere in the UI.
+  Widget _buildHoverPageArrow({required bool isLeftEdge}) {
+    final int delta = isLeftEdge ? 1 : -1;
+    final bool hovered = isLeftEdge ? _hoverLeftEdge : _hoverRightEdge;
+    final bool enabled = _canStepPage(delta);
+
+    return Positioned(
+      left: isLeftEdge ? 0 : null,
+      right: isLeftEdge ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: 96,
+      child: MouseRegion(
+        opaque: false,
+        onEnter: (_) => setState(
+          () => isLeftEdge ? _hoverLeftEdge = true : _hoverRightEdge = true,
+        ),
+        onExit: (_) => setState(
+          () => isLeftEdge ? _hoverLeftEdge = false : _hoverRightEdge = false,
+        ),
+        cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+        child: IgnorePointer(
+          // Only the arrow itself is clickable; the rest of the strip must let
+          // taps through to the page (bookmarks, ayah selection, …).
+          ignoring: !enabled,
+          child: Align(
+            alignment: Alignment.center,
+            child: AnimatedOpacity(
+              opacity: hovered && enabled ? 1 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: GestureDetector(
+                onTap: enabled ? () => _stepPage(delta) : null,
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.38),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Icon(
+                    isLeftEdge
+                        ? Icons.chevron_left_rounded
+                        : Icons.chevron_right_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _goToBookmark() {
@@ -3350,8 +3583,13 @@ class _QuranPagesState extends State<QuranPages>
                       transformationController: _pageZoomController,
                       minScale: 1,
                       maxScale: 5,
-                      // Pinch to zoom; drag to pan only once zoomed in.
-                      panEnabled: true,
+                      // Pan ONLY while actually zoomed in. At scale 1 there is
+                      // nothing to pan, and leaving pan enabled makes
+                      // InteractiveViewer's recognizer claim horizontal drags
+                      // before the PageView can — which silently breaks
+                      // page-flipping with a mouse on the web. Pinch/double-tap
+                      // zoom still work (scaleEnabled stays on).
+                      panEnabled: _isPageZoomed,
                       child: child!,
                     );
                     return GestureDetector(
@@ -4436,6 +4674,20 @@ class _QuranPagesState extends State<QuranPages>
                     },
                     onSearchTapped: _openSearchPage,
                   ),
+
+                // Edge hover arrows for page turning. Last in the Stack so
+                // they sit above the page, but they are only visible while the
+                // pointer is over the edge — and never on touch devices, which
+                // have no hover. Suppressed in scroll mode (no pages to flip),
+                // while zoomed (flipping is locked), and behind overlays.
+                if (!_isPortraitScrollMode &&
+                    !_showAutoScrollBar &&
+                    !_isPageZoomed &&
+                    !_isSearching &&
+                    !_showSurahs) ...[
+                  _buildHoverPageArrow(isLeftEdge: true),
+                  _buildHoverPageArrow(isLeftEdge: false),
+                ],
               ],
             ),
           ),
@@ -4687,23 +4939,23 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  /// Arabic-Indic digits, matching the numerals printed on the page.
-  static String _arabicDigits(int value) {
-    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return value.toString().split('').map((c) => digits[int.parse(c)]).join();
-  }
+  static String _surahName(int surah) => surahList[surah - 1]['name'] as String;
 
-  /// Live one-line status of the active repeat section, e.g.
-  /// «البقرة ١-٥ · التكرار ٢/٣» — which ayat, and which pass is playing now.
+  /// Live one-line status of the active repeat section — which ayat, and which
+  /// pass is playing now. Reads «البقرة 1-5 · التكرار 2/3» inside one surah, or
+  /// «الفاتحة 3 ← البقرة 4 · التكرار 2/3» when the section crosses surahs.
   String _rangeStatusLabel(AyahRange range) {
     final audio = AudioService.instance;
-    final name = surahList[range.surah - 1]['name'] as String;
-    final pass = _arabicDigits(audio.rangeRepeatDone.value + 1);
+    final pass = audio.rangeRepeatDone.value + 1;
     final total = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
         ? '∞'
-        : _arabicDigits(audio.rangeRepeatCount.value);
-    return '$name ${_arabicDigits(range.startAyah)}-'
-        '${_arabicDigits(range.endAyah)} · التكرار $pass/$total';
+        : '${audio.rangeRepeatCount.value}';
+    final where = range.isSingleSurah
+        ? '${_surahName(range.startSurah)} '
+              '${range.startAyah}-${range.endAyah}'
+        : '${_surahName(range.startSurah)} ${range.startAyah}'
+              ' ← ${_surahName(range.endSurah)} ${range.endAyah}';
+    return '$where · التكرار $pass/$total';
   }
 
   /// Highest ayah number available for [surah]. Read from the page data (the
@@ -4724,9 +4976,16 @@ class _QuranPagesState extends State<QuranPages>
     return onPage.isEmpty ? fromAyah : onPage.last.ayah;
   }
 
-  /// The "تكرار مقطع" picker: choose a surah and an ayah range, pick how many
-  /// times it should repeat, and the reader jumps to that page and recites only
-  /// that section.
+  /// The "تكرار مقطع" picker: choose where the section starts (surah + ayah) and
+  /// where it ends (surah + ayah), pick how many times it should repeat, and the
+  /// reader jumps there and recites only that section. The two ends may sit in
+  /// different surahs (e.g. الفاتحة 3 → البقرة 4).
+  ///
+  /// The ordering is enforced by what the lists *offer*, not by validation after
+  /// the fact: the "إلى" surah list starts at the chosen "من" surah, and its ayah
+  /// list starts at the chosen "من" ayah whenever both ends are in the same
+  /// surah. So an end that precedes the start can't be selected at all, and
+  /// there is no error state to explain.
   ///
   /// It opens pre-filled with what's on screen — the surah being recited (or the
   /// visible page's first surah) and that page's portion of it — so the common
@@ -4753,32 +5012,34 @@ class _QuranPagesState extends State<QuranPages>
     // start from the ayah being recited on the visible page, falling back to
     // that page's first ayah when nothing is playing.
     final active = audio.repeatRange.value;
-    int surah;
+    int fromSurah;
     int fromAyah;
     if (active != null) {
-      surah = active.surah;
+      fromSurah = active.startSurah;
       fromAyah = active.startAyah;
     } else {
       final playing = audio.currentAyah.value;
       final pageAyahs = audio.getAyahsForPage(_topBarCurrentPage);
       if (playing != null && audio.isAudioOnPage(_topBarCurrentPage)) {
-        surah = playing.surah;
+        fromSurah = playing.surah;
         fromAyah = playing.ayah;
       } else if (pageAyahs.isNotEmpty) {
-        surah = pageAyahs.first.surah;
+        fromSurah = pageAyahs.first.surah;
         fromAyah = pageAyahs.first.ayah;
       } else {
-        surah = 1;
+        fromSurah = 1;
         fromAyah = 1;
       }
     }
-    int maxAyah = _maxAyahForSurah(surah);
-    if (fromAyah > maxAyah) fromAyah = maxAyah;
+    if (fromAyah > _maxAyahForSurah(fromSurah)) {
+      fromAyah = _maxAyahForSurah(fromSurah);
+    }
+    // Default end: the rest of this surah on the visible page — a section the
+    // size of what the reader can actually see.
+    int toSurah = active?.endSurah ?? fromSurah;
     int toAyah =
         active?.endAyah ??
-        _sectionEndOnPage(_topBarCurrentPage, surah, fromAyah);
-    if (toAyah > maxAyah) toAyah = maxAyah;
-    if (toAyah < fromAyah) toAyah = fromAyah;
+        _sectionEndOnPage(_topBarCurrentPage, fromSurah, fromAyah);
 
     final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
     AyahRepeatMode mode = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
@@ -4812,9 +5073,56 @@ class _QuranPagesState extends State<QuranPages>
             child: DropdownButtonHideUnderline(child: child),
           );
 
-          // Ayah numbers run [min..maxAyah]; the "إلى" list starts at the
-          // chosen "من" so an inverted range can't be selected at all.
+          // Keeps the four selections a valid forward-running section. Called
+          // after every change, so the invariant «end >= start» holds at all
+          // times and the dropdowns below always contain their own value.
+          void normalize() {
+            fromAyah = fromAyah.clamp(1, _maxAyahForSurah(fromSurah));
+            if (toSurah < fromSurah) toSurah = fromSurah;
+            toAyah = toAyah.clamp(1, _maxAyahForSurah(toSurah));
+            if (toSurah == fromSurah && toAyah < fromAyah) toAyah = fromAyah;
+          }
+
           Widget ayahDropdown({
+            required int value,
+            required int min,
+            required int max,
+            required ValueChanged<int> onChanged,
+          }) => dropdownFrame(
+            child: DropdownButton<int>(
+              value: value,
+              isExpanded: true,
+              menuMaxHeight: 320,
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: titleColor,
+                size: 20,
+              ),
+              dropdownColor: bgColor,
+              borderRadius: BorderRadius.circular(12),
+              items: [
+                for (int n = min; n <= max; n++)
+                  DropdownMenuItem(
+                    value: n,
+                    child: Text(
+                      '$n',
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          );
+
+          // [min] is 1 for the "من" side and the chosen start surah for the
+          // "إلى" side, so earlier surahs simply aren't in the list.
+          Widget surahDropdown({
             required int value,
             required int min,
             required ValueChanged<int> onChanged,
@@ -4831,16 +5139,17 @@ class _QuranPagesState extends State<QuranPages>
               dropdownColor: bgColor,
               borderRadius: BorderRadius.circular(12),
               items: [
-                for (int n = min; n <= maxAyah; n++)
+                for (int n = min; n <= 114; n++)
                   DropdownMenuItem(
                     value: n,
                     child: Text(
-                      _arabicDigits(n),
+                      '$n. ${_surahName(n)}',
                       style: TextStyle(
                         color: textColor,
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
               ],
@@ -4848,6 +5157,45 @@ class _QuranPagesState extends State<QuranPages>
                 if (v != null) onChanged(v);
               },
             ),
+          );
+
+          // One labelled surah+ayah pair — the "من" and "إلى" rows are identical
+          // in shape, only their allowed minimums differ.
+          Widget endpointRow({
+            required String heading,
+            required int surah,
+            required int ayah,
+            required int minSurah,
+            required int minAyah,
+            required ValueChanged<int> onSurahChanged,
+            required ValueChanged<int> onAyahChanged,
+          }) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              label(heading),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: surahDropdown(
+                      value: surah,
+                      min: minSurah,
+                      onChanged: onSurahChanged,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: ayahDropdown(
+                      value: ayah,
+                      min: minAyah,
+                      max: _maxAyahForSurah(surah),
+                      onChanged: onAyahChanged,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           );
 
           Widget countChip(String text, bool selected, VoidCallback onTap) =>
@@ -4913,87 +5261,46 @@ class _QuranPagesState extends State<QuranPages>
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      label('السورة'),
-                      dropdownFrame(
-                        child: DropdownButton<int>(
-                          value: surah,
-                          isExpanded: true,
-                          menuMaxHeight: 320,
-                          icon: Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            color: titleColor,
-                          ),
-                          dropdownColor: bgColor,
-                          borderRadius: BorderRadius.circular(12),
-                          items: [
-                            for (final s in surahList)
-                              DropdownMenuItem(
-                                value: s['number'] as int,
-                                child: Text(
-                                  '${_arabicDigits(s['number'] as int)}. '
-                                  '${s['name']}',
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            // A new surah resets the section to its opening
-                            // page — ayah 1 through the end of that page.
-                            final firstPage = audio.pageIndexForAyah(value, 1);
-                            setPickerState(() {
-                              surah = value;
-                              maxAyah = _maxAyahForSurah(value);
-                              fromAyah = 1;
-                              toAyah = firstPage >= 0
-                                  ? _sectionEndOnPage(firstPage, value, 1)
-                                  : 1;
-                              if (toAyah > maxAyah) toAyah = maxAyah;
-                            });
-                          },
-                        ),
+                      endpointRow(
+                        heading: 'من: السورة والآية',
+                        surah: fromSurah,
+                        ayah: fromAyah,
+                        minSurah: 1,
+                        minAyah: 1,
+                        onSurahChanged: (v) => setPickerState(() {
+                          // A new start surah re-seeds the section to that
+                          // surah's opening page, so both ends stay sensible.
+                          final firstPage = audio.pageIndexForAyah(v, 1);
+                          fromSurah = v;
+                          fromAyah = 1;
+                          toSurah = v;
+                          toAyah = firstPage >= 0
+                              ? _sectionEndOnPage(firstPage, v, 1)
+                              : 1;
+                          normalize();
+                        }),
+                        onAyahChanged: (v) => setPickerState(() {
+                          fromAyah = v;
+                          normalize();
+                        }),
                       ),
                       const SizedBox(height: 14),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                label('من الآية'),
-                                ayahDropdown(
-                                  value: fromAyah,
-                                  min: 1,
-                                  onChanged: (v) => setPickerState(() {
-                                    fromAyah = v;
-                                    if (toAyah < fromAyah) toAyah = fromAyah;
-                                  }),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                label('إلى الآية'),
-                                ayahDropdown(
-                                  value: toAyah,
-                                  min: fromAyah,
-                                  onChanged: (v) =>
-                                      setPickerState(() => toAyah = v),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      endpointRow(
+                        heading: 'إلى: السورة والآية',
+                        surah: toSurah,
+                        ayah: toAyah,
+                        minSurah: fromSurah,
+                        // Within the same surah the end can't precede the start;
+                        // in a later surah every ayah is fair game.
+                        minAyah: toSurah == fromSurah ? fromAyah : 1,
+                        onSurahChanged: (v) => setPickerState(() {
+                          toSurah = v;
+                          normalize();
+                        }),
+                        onAyahChanged: (v) => setPickerState(() {
+                          toAyah = v;
+                          normalize();
+                        }),
                       ),
                       const SizedBox(height: 14),
                       label('عدد مرات التكرار'),
@@ -5072,8 +5379,9 @@ class _QuranPagesState extends State<QuranPages>
                     _resetHideTimer();
                     onStarted?.call();
                     audio.startRangeRepeat(
-                      surah: surah,
+                      startSurah: fromSurah,
                       startAyah: fromAyah,
+                      endSurah: toSurah,
                       endAyah: toAyah,
                       mode: mode,
                       count: count,
@@ -6340,7 +6648,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         onPressed: () {
                           _resetHideTimer();
                           audio.cyclePageRepeatMode();
@@ -6408,7 +6716,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         icon: Icon(
                           Icons.skip_previous_rounded,
                           color: iconColor,
@@ -6495,7 +6803,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         icon: Icon(
                           Icons.skip_next_rounded,
                           color: iconColor,
@@ -6514,7 +6822,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         onPressed: () {
                           _resetHideTimer();
                           audio.cycleAyahRepeatMode();
@@ -6576,7 +6884,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         icon: Icon(
                           Icons.close_rounded,
                           color: iconColor,
