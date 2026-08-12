@@ -5529,7 +5529,7 @@ class _QuranPagesState extends State<QuranPages>
                                     DropdownMenuItem(
                                       value: reciter.id,
                                       child: Text(
-                                        '${reciter.name} — ${reciter.riwaya}',
+                                        '${reciter.shortName} — ${reciter.riwaya}',
                                         style: TextStyle(
                                           color: textColor,
                                           fontSize: 14.5,
@@ -5544,7 +5544,7 @@ class _QuranPagesState extends State<QuranPages>
                                     Align(
                                       alignment: Alignment.centerRight,
                                       child: Text(
-                                        reciter.name,
+                                        reciter.shortName,
                                         style: TextStyle(
                                           color: textColor,
                                           fontSize: 15,

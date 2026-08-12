@@ -77,17 +77,17 @@ RECITERS = [
         "scheme": "native",
         "breathCombining": True,
     },
-    # These two came from the ad-hoc single-reciter test pages and their
-    # ayah↔audio alignment has not been fully proof-listened yet, so they are
-    # surfaced with a "قيد المراجعة حالياً" badge in the UI. Drop the flag once
-    # a recitation has been reviewed end to end.
+    # These two came from the ad-hoc single-reciter test pages. Any whose
+    # ayah↔audio alignment has not been proof-listened end to end keeps an
+    # "underReview" flag, which the UI renders as a "قيد المراجعة حالياً" badge.
     {
         "id": "hudaifi",
-        "name": "علي الحذيفي",
+        "name": "علي بن عبدالرحمن الحذيفي",
+        # The full name ellipsizes in the narrow card/dropdown slots.
+        "shortName": "علي الحذيفي",
         "riwaya": "رواية قالون",
         "folder": "Hudaifi",
         "scheme": "covered",
-        "underReview": True,
         "coveredSourceUrl": "https://audio.mushaf-qaloon.com/mushaf3.html",
     },
     {
@@ -383,6 +383,7 @@ def main() -> None:
             {
                 "id": r["id"],
                 "name": r["name"],
+                "shortName": r.get("shortName", r["name"]),
                 "riwaya": r["riwaya"],
                 "folder": r["folder"],
                 "scheme": r["scheme"],

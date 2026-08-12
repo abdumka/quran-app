@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/tafsir_edition.dart';
 
@@ -70,6 +71,7 @@ class TafsirCacheService {
 
   bool _scanned = false;
   bool _cancelDownload = false;
+  Future<void>? _recutPurge;
 
   Future<Directory> _editionDir(TafsirEdition edition) async {
     final appDir = await getApplicationSupportDirectory();
@@ -115,6 +117,7 @@ class TafsirCacheService {
   /// CORS headers.
   Future<String?> readPage(TafsirEdition edition, int pageNumber) async {
     if (!edition.isOnline || kIsWeb) return null;
+    await _ensureRecutPagesPurged();
     try {
       final dir = await _editionDir(edition);
       final file =
@@ -147,6 +150,69 @@ class TafsirCacheService {
             .clamp(0, 1 << 62),
       );
     } catch (_) {}
+  }
+
+  // ── One-off migration: the 2026-08 page re-cut ───────────────────────────
+  //
+  // 50 pages of assets/data/output.json were re-cut against the printed mushaf
+  // (an ayah had been filed under the wrong page — e.g. 20:86 was listed on
+  // p318 but is printed on p317). The per-page tafsir files on R2 were rebuilt
+  // to match, but a cached page is never re-fetched — writePage/readPage have
+  // no version check and downloadEdition skips files that already exist. So a
+  // device holding the old bundle for one of these pages would keep showing
+  // 'تفسير غير متوفر' for the ayat that moved in. Deleting just those files
+  // makes them re-download lazily; everything else stays cached.
+  static const String _recutPurgeKey = 'tafsir_cache_purge_page_recut_2026_08';
+
+  /// Pages whose ayah set changed in the re-cut. Only these are stale — the
+  /// other 552 page files rebuilt byte-identical, so they are left alone.
+  static const List<int> _recutPages = [
+    42, 43, 116, 117, 118, 119, 120, 121, 122, 123,
+    200, 201, 202, 208, 209, 270, 271, 272, 273, 274,
+    317, 318, 330, 331, 381, 382, 383, 384,
+    419, 420, 421, 422, 423, 424, 440, 441,
+    497, 498, 499, 500, 553, 554, 555, 556,
+    561, 562, 564, 565, 566, 567,
+  ];
+
+  /// Runs [_purgeRecutPages] at most once per process, before the first cache
+  /// read. Off the launch path by construction — nothing touches the tafsir
+  /// cache until a tafsir is actually opened.
+  Future<void> _ensureRecutPagesPurged() =>
+      _recutPurge ??= _purgeRecutPages();
+
+  Future<void> _purgeRecutPages() async {
+    if (kIsWeb) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_recutPurgeKey) ?? false) return;
+
+      var freed = 0;
+      final appDir = await getApplicationSupportDirectory();
+      for (final edition in TafsirEdition.onlineEditions) {
+        final dir = Directory(p.join(appDir.path, edition.cacheFolder));
+        if (!await dir.exists()) continue;
+        for (final page in _recutPages) {
+          final file =
+              File(p.join(dir.path, TafsirEdition.pageFileName(page)));
+          try {
+            if (await file.exists()) {
+              freed += await file.length();
+              await file.delete();
+            }
+          } catch (_) {}
+        }
+      }
+      await prefs.setBool(_recutPurgeKey, true);
+
+      if (freed > 0) {
+        state.value = state.value.copyWith(
+          installedBytes: (state.value.installedBytes - freed).clamp(0, 1 << 62),
+        );
+      }
+    } catch (_) {
+      // Leave the flag unset so the purge is retried next launch.
+    }
   }
 
   /// Deletes every cached tafsir page for all online editions.
@@ -195,6 +261,9 @@ class TafsirCacheService {
       return;
     }
     _cancelDownload = false;
+    // Before counting what's cached: the loop below keeps every existing file,
+    // so a stale re-cut page would survive a full download untouched.
+    await _ensureRecutPagesPurged();
 
     final total = TafsirEdition.onlinePageCount;
     final dir = await _editionDir(edition);

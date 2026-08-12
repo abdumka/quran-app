@@ -147,8 +147,14 @@ class AudioDownloadService {
   /// Returns the unique MP3 filenames required to play a single [surah] with
   /// the currently selected reciter (1-based surah number).
   List<String> getSurahFilenames(int surah) {
-    if (ReciterService.instance.selected.value.nativeQalounScheme) {
-      return _naihiSurahFilenames(surah);
+    final reciter = ReciterService.instance.selected.value;
+    switch (reciter.scheme) {
+      case AudioScheme.nativeQaloun:
+        return _naihiSurahFilenames(surah);
+      case AudioScheme.covered:
+        return _coveredSurahFilenames(reciter, surah);
+      case AudioScheme.mergedTail:
+        break;
     }
     final filenames = <String>{};
     final ayahCount = _surahAyahCounts[surah - 1];
@@ -172,7 +178,22 @@ class AudioDownloadService {
     final filenames = <String>{};
     final surahStr = surah.toString().padLeft(3, '0');
     if (surah != 9) filenames.add('${surahStr}000.mp3');
-    for (int a = 1; a <= Reciter.naihiMadaniAyahCounts[surah - 1]; a++) {
+    for (int a = 1; a <= Reciter.madaniAyahCounts[surah - 1]; a++) {
+      filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
+    }
+    return filenames.toList()..sort();
+  }
+
+  /// al-Hudaifi per-surah: one file per displayed ayah, no basmala file. The
+  /// ayat he reads as part of a neighbouring ayah are left out — their file
+  /// holds silence and playback never requests it, so counting it here would
+  /// leave the surah permanently short of "complete".
+  List<String> _coveredSurahFilenames(Reciter reciter, int surah) {
+    final covered = reciter.coveredAyat[surah] ?? const <int>{};
+    final surahStr = surah.toString().padLeft(3, '0');
+    final filenames = <String>{};
+    for (int a = 1; a <= Reciter.madaniAyahCounts[surah - 1]; a++) {
+      if (covered.contains(a)) continue;
       filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
     }
     return filenames.toList()..sort();

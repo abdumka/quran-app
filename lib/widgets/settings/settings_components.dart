@@ -529,7 +529,7 @@ class ReciterTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                r.name,
+                r.shortName,
                 textDirection: TextDirection.rtl,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(

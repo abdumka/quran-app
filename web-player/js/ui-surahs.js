@@ -19,8 +19,9 @@ async function main() {
   reciterRiwayaEl.textContent = reciter.reviewNote
     ? `${reciter.riwaya} — ${reciter.reviewNote}`
     : reciter.riwaya;
-  crumbEl.textContent = reciter.name;
-  document.title = `السور — ${reciter.name}`;
+  // The breadcrumb sits on one line next to "المشايخ ›" — keep it short.
+  crumbEl.textContent = reciter.shortName || reciter.name;
+  document.title = `السور — ${reciter.shortName || reciter.name}`;
 
   grid.innerHTML = '';
   for (const s of surahs) {

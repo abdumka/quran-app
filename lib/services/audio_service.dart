@@ -348,17 +348,28 @@ class AudioService {
     final a = ayah.ayah;
     final surahStr = s.toString().padLeft(3, '0');
 
-    // ── al-Naihi mirror: native Qalun per-ayah numbering ──
+    final reciter = ReciterService.instance.selected.value;
+
+    // ── al-Hudaifi: the file name IS the displayed ayah ──
+    // No basmala file and no merged tails, so nothing to translate. The only
+    // exception is the handful of ayat he reads as part of a neighbouring ayah:
+    // their own file holds silence, so returning no file lets playback advance
+    // to the next ayah that actually has recitation.
+    if (reciter.scheme == AudioScheme.covered) {
+      if (reciter.coveredAyat[s]?.contains(a) ?? false) return const [];
+      return ['$surahStr${a.toString().padLeft(3, '0')}.mp3'];
+    }
+
+    // ── al-Naihi / قنيوه: native Qalun per-ayah numbering ──
     // The basmala is a separate file `SSS000.mp3` recited before ayah 1 (every
     // surah except At-Tawba 9). The displayed (output.json) ayah number is
     // translated to the recitation's own Qalun ayah file(s) via the audio map,
     // because the two use slightly different ayah divisions (see
     // AudioAyahMapService). Out-of-range numbers are dropped so playback advances
     // cleanly instead of 404-stalling.
-    final reciter = ReciterService.instance.selected.value;
-    if (reciter.nativeQalounScheme) {
+    if (reciter.scheme == AudioScheme.nativeQaloun) {
       String f(int n) => '$surahStr${n.toString().padLeft(3, '0')}.mp3';
-      final maxAyah = Reciter.naihiMadaniAyahCounts[s - 1];
+      final maxAyah = Reciter.madaniAyahCounts[s - 1];
       List<int> mappedInts(int ayah) =>
           (AudioAyahMapService.instance.lookup(s, ayah) ?? [ayah])
               .where((n) => n >= 1 && n <= maxAyah)
@@ -619,7 +630,7 @@ class AudioService {
     return MediaItem(
       id: uri.toString(),
       title: title,
-      album: reciter.name,
+      album: reciter.shortName,
       artist: reciter.riwaya,
     );
   }

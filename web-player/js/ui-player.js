@@ -78,7 +78,7 @@ async function main() {
   if (reciter.reviewNote) el.reciterNote.textContent = reciter.reviewNote;
   el.surahsLink.href = `surahs.html?r=${encodeURIComponent(reciter.id)}`;
   el.stitle.textContent = `سورة ${surah.number} — ${surah.name}`;
-  document.title = `${surah.name} — ${reciter.name}`;
+  document.title = `${surah.name} — ${reciter.shortName || reciter.name}`;
 
   if (surah.number > 1) {
     el.prevSurah.href = `player.html?r=${encodeURIComponent(reciter.id)}&s=${surah.number - 1}`;

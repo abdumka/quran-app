@@ -9,7 +9,7 @@ getReciters().then((reciters) => {
     a.className = 'reciter-card';
     a.href = `surahs.html?r=${encodeURIComponent(r.id)}`;
     a.innerHTML =
-      `<div class="name">${r.name}</div>` +
+      `<div class="name">${r.shortName || r.name}</div>` +
       `<div class="riwaya">${r.riwaya}</div>` +
       (r.reviewNote ? `<div class="review-badge">${r.reviewNote}</div>` : '');
     grid.appendChild(a);

@@ -1,6 +1,6 @@
 """
 Builds the زاد المسير (Zad al-Masir, Ibn al-Jawzi) online tafsir pages from the
-Shamela HTML export (assets/temp/001.htm … 004.htm, shamela.ws book 23619 —
+Shamela HTML export (assets/data/zad/001.htm … 004.htm, shamela.ws book 23619 —
 دار الكتاب العربي edition, تحقيق عبد الرزاق المهدي).
 
 Why not spa5k like the others: quran.com/spa5k do not publish Zad al-Masir.
@@ -37,7 +37,9 @@ from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = ROOT / "assets" / "temp"
+# Kept under assets/data/zad (not assets/temp) so the export survives a clean:
+# a rebuild is impossible without it, and it went missing once already.
+SRC_DIR = ROOT / "assets" / "data" / "zad"
 SRC_FILES = ["001.htm", "002.htm", "003.htm", "004.htm"]
 
 sys.path.insert(0, str(ROOT / "tools"))
@@ -83,8 +85,13 @@ def load_and_clean():
     # and page headers. Neither nests.
     raw = re.sub(r"<div class='footnote'>.*?</div>", " ", raw, flags=re.S)
     raw = re.sub(r"<div class='PageHead'>.*?</div>", "\n", raw, flags=re.S)
-    # In-body footnote reference marks: red (N) and «N».
+    # In-body footnote reference marks: red (N), punct-span (N), and «N».
+    # Shamela has exported the reference mark two ways over time — an older red
+    # <font> and a <span class="punct">. Only the bare (N) form is a reference:
+    # the same span also carries real punctuation (: - ( ) … 1-), which must
+    # survive and is handled by the generic tag strip below.
     raw = re.sub(r"<font color=#be0000>\((\d+)\)</font>", " ", raw)
+    raw = re.sub(r'<span class="punct">(?:&#8204;|‌)*\(\d+\)</span>', " ", raw)
     raw = re.sub(r"«\s*\d+\s*»", " ", raw)
     # Paragraph breaks -> newlines, all remaining tags -> nothing/space.
     raw = re.sub(r"</p>|<p>", "\n", raw)

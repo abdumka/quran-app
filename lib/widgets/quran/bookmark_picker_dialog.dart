@@ -28,7 +28,7 @@ class BookmarkPickerDialog extends StatefulWidget {
   /// Highest bookmark slot number offered by the picker. Shared with the
   /// import merge logic in quran_pages.dart so imported bookmarks are never
   /// placed in a slot the picker itself would refuse to show.
-  static const int maxSlots = 15;
+  static const int maxSlots = 30;
 
   const BookmarkPickerDialog({
     super.key,
