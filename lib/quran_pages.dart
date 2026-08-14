@@ -95,6 +95,7 @@ class _QuranPagesState extends State<QuranPages>
   static const String _portraitScrollModePrefKey = 'portraitScrollMode';
   static const String _tabletLayoutModePrefKey = 'tabletLayoutMode';
   static const String _hifzModePrefKey = 'enableHifzMode';
+  static const String _autoScrollSpeedPrefKey = 'autoScrollSpeed';
   static const String _fullScreenModePrefKey = 'fullScreenMode';
   static const String _bookmarkGuideDismissedPrefKey = 'bookmarkGuideDismissed';
   static const String _hifzLensGuideDismissedPrefKey = 'hifzLensGuideDismissed';
@@ -387,6 +388,10 @@ class _QuranPagesState extends State<QuranPages>
 
   double? _portraitAutoScrollViewportHeight;
   int? _portraitScrollCurrentPage;
+  // True while the reader is gliding back into sync with the recitation. The
+  // auto-scroll timer stays parked for the duration, otherwise its 16 ms
+  // jumpTo would cancel the animation on the very next tick.
+  bool _isCatchingUpToRecitation = false;
   bool _isRecitationTopBarMinimized = false;
   Timer? _recitationBarHideTimer;
   List<QuranPageData>? _allQuranPages;
@@ -534,7 +539,7 @@ class _QuranPagesState extends State<QuranPages>
     AudioService.instance.init();
     AudioService.instance.onPageChangeRequired = (pageIndex) {
       if (mounted) {
-        _goToPage(pageIndex + 1);
+        _followRecitationToPage(pageIndex);
       }
     };
     AudioService.instance.isRecitationBarVisible.addListener(() async {
@@ -544,15 +549,6 @@ class _QuranPagesState extends State<QuranPages>
         final dismissed = prefs.getBool('recitation_guide_dismissed') ?? false;
         if (!dismissed && mounted) {
           _showRecitationBarGuide();
-        }
-
-        if (_showAutoScrollBar || _isAutoScrollEnabled) {
-          _stopPortraitAutoScroll();
-          setState(() {
-            _isAutoScrollEnabled = false;
-            _showAutoScrollBar = false;
-            _isAutoScrollBarCollapsed = false;
-          });
         }
       }
     });
@@ -1438,7 +1434,15 @@ class _QuranPagesState extends State<QuranPages>
     try {
       picked = await openFile(
         acceptedTypeGroups: const [
-          XTypeGroup(label: 'Quran Bookmarks', extensions: ['json']),
+          XTypeGroup(
+            label: 'Quran Bookmarks',
+            extensions: ['json'],
+            // iOS/macOS filter by UTI, not extension; without this,
+            // file_selector_ios throws ArgumentError and the picker never
+            // opens (surfaced as "تعذّر فتح الملف"). 'public.text' matches
+            // file_selector's own example for opening .json files.
+            uniformTypeIdentifiers: ['public.text'],
+          ),
         ],
       );
     } catch (_) {
@@ -2129,28 +2133,29 @@ class _QuranPagesState extends State<QuranPages>
     if (!dismissed && mounted) _showFullScreenGuide();
   }
 
-  double _currentAutoScrollPixelsPerSecond() {
-    if (AudioService.instance.isPlaying.value) return 0.0;
+  /// Every selectable auto-scroll speed, slowest first, mapped to its scroll
+  /// rate in logical pixels per second.
+  ///
+  /// The steps below 0.5 exist for recitation: a murattal reciter can spend
+  /// several minutes on one page, and readers following along had to keep
+  /// stopping the scroll by hand because even the old slowest step outran
+  /// them. 0.2 crawls a phone page in roughly three and a half minutes.
+  // Not const: Dart rejects double keys in a const map.
+  static final Map<double, double> _autoScrollSpeeds = {
+    0.2: 4,
+    0.3: 5.5,
+    0.4: 7,
+    0.5: 9,
+    0.75: 11,
+    1.0: 14,
+    1.5: 20,
+    2.0: 28,
+    2.5: 36,
+    3.0: 44,
+  };
 
-    switch (_autoScrollSpeedMultiplier) {
-      case 0.5:
-        return 9;
-      case 0.75:
-        return 11;
-      case 1.0:
-        return 14;
-      case 1.5:
-        return 20;
-      case 2.0:
-        return 28;
-      case 2.5:
-        return 36;
-      case 3.0:
-        return 44;
-      default:
-        return 14;
-    }
-  }
+  double _currentAutoScrollPixelsPerSecond() =>
+      _autoScrollSpeeds[_autoScrollSpeedMultiplier] ?? 14;
 
   void _toggleAutoScrollFromMenu(bool value) {
     if (value) {
@@ -2199,17 +2204,15 @@ class _QuranPagesState extends State<QuranPages>
     setState(() {
       _autoScrollSpeedMultiplier = value;
     });
+    _saveAutoScrollSpeed();
   }
 
-  static const List<double> _allowedSpeeds = [
-    0.5,
-    0.75,
-    1.0,
-    1.5,
-    2.0,
-    2.5,
-    3.0,
-  ];
+  Future<void> _saveAutoScrollSpeed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_autoScrollSpeedPrefKey, _autoScrollSpeedMultiplier);
+  }
+
+  static final List<double> _allowedSpeeds = _autoScrollSpeeds.keys.toList();
 
   void _increaseAutoScrollSpeed() {
     int currentIndex = _allowedSpeeds.indexOf(_autoScrollSpeedMultiplier);
@@ -2563,6 +2566,7 @@ class _QuranPagesState extends State<QuranPages>
       _portraitScrollModePrefKey,
       _tabletLayoutModePrefKey,
       _hifzModePrefKey,
+      _autoScrollSpeedPrefKey,
       _fullScreenModePrefKey,
       KeepScreenAwakeService.prefKey,
       'isDarkMode',
@@ -2613,6 +2617,13 @@ class _QuranPagesState extends State<QuranPages>
     _preferredPortraitScrollMode = savedPortraitScrollMode;
     _isTabletLayoutMode = savedTabletLayoutMode;
     _isHideBarEnabled = false;
+
+    // Finding the speed that matches your reciter takes a few taps, so it is
+    // remembered instead of resetting to 1× every launch.
+    final savedSpeed = prefs.getDouble(_autoScrollSpeedPrefKey);
+    if (savedSpeed != null && _autoScrollSpeeds.containsKey(savedSpeed)) {
+      _autoScrollSpeedMultiplier = savedSpeed;
+    }
 
     final savedHifzMode = prefs.getBool(_hifzModePrefKey) ?? false;
     if (savedHifzMode != _isHifzModeEnabled) {
@@ -2688,7 +2699,7 @@ class _QuranPagesState extends State<QuranPages>
 
   void _schedulePortraitAutoScrollResume(double viewportHeight) {
     _portraitAutoScrollResumeTimer?.cancel();
-    if (!_isAutoScrollEnabled) return;
+    if (!_isAutoScrollEnabled || _isCatchingUpToRecitation) return;
     _portraitAutoScrollResumeTimer = Timer(
       const Duration(milliseconds: 80),
       () {
@@ -2704,12 +2715,18 @@ class _QuranPagesState extends State<QuranPages>
     if (controller == null) return;
 
     _stopPortraitAutoScroll();
-    if (!_isAutoScrollEnabled) return;
+    if (!_isAutoScrollEnabled || _isCatchingUpToRecitation) return;
 
     const frameInterval = Duration(milliseconds: 16);
     final deltaPerTick =
         _currentAutoScrollPixelsPerSecond() *
         (frameInterval.inMilliseconds / 1000);
+
+    // The target offset is carried across ticks rather than re-read from the
+    // controller as "offset + delta". At the slow speeds a tick advances a
+    // fraction of a pixel, and the old code read that as "the list refused to
+    // move" and stopped the scroll outright.
+    double target = controller.hasClients ? controller.offset : 0.0;
 
     _portraitAutoScrollTimer = Timer.periodic(frameInterval, (_) {
       final controller = _portraitAutoScrollController;
@@ -2721,20 +2738,99 @@ class _QuranPagesState extends State<QuranPages>
         return;
       }
 
-      final maxScroll = controller.position.maxScrollExtent;
-      final nextOffset = (controller.offset + deltaPerTick).clamp(
-        0.0,
-        maxScroll,
-      );
+      // Re-anchor when something else moved the list — a drag, or the
+      // recitation jumping to the page it just reached.
+      if ((target - controller.offset).abs() > 1.0) {
+        target = controller.offset;
+      }
 
-      if ((nextOffset - controller.offset).abs() < 0.1 ||
-          nextOffset >= maxScroll) {
+      final maxScroll = controller.position.maxScrollExtent;
+      if (controller.offset >= maxScroll) {
         _setAutoScrollEnabled(false);
         return;
       }
 
-      controller.jumpTo(nextOffset);
+      target = (target + deltaPerTick).clamp(0.0, maxScroll);
+      controller.jumpTo(target);
     });
+  }
+
+  /// Moves the reader onto the page the recitation just reached.
+  ///
+  /// Without auto-scroll this is a plain page turn. With auto-scroll running
+  /// the reader is already gliding through the mushaf and tends to hold the
+  /// ayah being recited near the middle of the screen — so snapping the new
+  /// page's top edge to the top of the viewport throws that framing away at
+  /// every single page boundary. Instead the scroll is left completely alone
+  /// while the new page's first line is anywhere on screen (half a screen of
+  /// slack either side of centre), and only a real desync — a full page or
+  /// more adrift — is corrected, by gliding that first line back to the middle
+  /// rather than by jumping.
+  void _followRecitationToPage(int pageIndex) {
+    if (!_isAutoScrollEnabled) {
+      _goToPage(pageIndex + 1);
+      return;
+    }
+
+    if (_isPhoneLandscape(context)) {
+      final handled =
+          _continuousViewKey.currentState?.followRecitationToPage(pageIndex) ??
+          false;
+      if (!handled) {
+        _goToPage(pageIndex + 1);
+        return;
+      }
+      _setCurrentPage(pageIndex, showHizbPopup: true);
+      return;
+    }
+
+    final controller = _portraitAutoScrollController;
+    final pageExtent = _portraitAutoScrollViewportHeight;
+    if (controller == null ||
+        !controller.hasClients ||
+        pageExtent == null ||
+        pageExtent <= 0) {
+      _goToPage(pageIndex + 1);
+      return;
+    }
+
+    final double pageTop =
+        _getViewIndexForPage(pageIndex, context) * pageExtent;
+    final double offset = controller.offset;
+
+    _setCurrentPage(pageIndex, showHizbPopup: true);
+    _portraitScrollCurrentPage = pageIndex;
+
+    // The page's first line is somewhere on screen — the reader can see where
+    // the recitation is, so don't touch the scroll.
+    if (offset >= pageTop - pageExtent && offset <= pageTop) return;
+
+    _catchUpToRecitation(
+      controller,
+      (pageTop - pageExtent / 2).clamp(
+        0.0,
+        controller.position.maxScrollExtent,
+      ),
+    );
+  }
+
+  void _catchUpToRecitation(ScrollController controller, double target) {
+    _portraitAutoScrollResumeTimer?.cancel();
+    _stopPortraitAutoScroll();
+    _isCatchingUpToRecitation = true;
+
+    controller
+        .animateTo(
+          target,
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeInOutCubic,
+        )
+        .whenComplete(() {
+          _isCatchingUpToRecitation = false;
+          if (!mounted || !_isAutoScrollEnabled) return;
+          final extent = _portraitAutoScrollViewportHeight;
+          if (extent != null) _syncPortraitAutoScroll(extent);
+        });
   }
 
   void _handlePortraitAutoScrollOffset(double viewportHeight) {
@@ -3628,14 +3724,20 @@ class _QuranPagesState extends State<QuranPages>
     final double menuHeight = isPhoneLandscape
         ? 122
         : (isPhonePortrait ? 130 : 260);
-    final double autoScrollBottom = (_showIndex && !_hideBottomMenuTemporarily)
-        ? menuHeight + safeBottom + 18
-        : (isPhoneLandscape ? 14 : safeBottom + 14);
+    final bool isRecitationBarVisible =
+        AudioService.instance.isRecitationBarVisible.value;
+    // Auto-scroll and the recitation run independently, so both bars can be up
+    // at once. The auto-scroll bar stacks on top of the recitation bar (which
+    // already covers the system inset) instead of hiding behind it.
+    final double autoScrollInset = isRecitationBarVisible ? 0.0 : safeBottom;
+    final double autoScrollBottom =
+        (isRecitationBarVisible ? _recitationBarHeight : 0.0) +
+        ((_showIndex && !_hideBottomMenuTemporarily)
+            ? menuHeight + autoScrollInset + 18
+            : (isPhoneLandscape ? 14 : autoScrollInset + 14));
     final double bookmarkNoticeBottom = _showIndex
         ? menuHeight + safeBottom + 20
         : safeBottom + 20;
-    final bool isRecitationBarVisible =
-        AudioService.instance.isRecitationBarVisible.value;
     final double audioNoticeBottom = isRecitationBarVisible
         ? _recitationBarHeight + safeBottom + 14
         : bookmarkNoticeBottom;
@@ -4108,6 +4210,8 @@ class _QuranPagesState extends State<QuranPages>
             right: 0,
             child: SafeArea(
               top: false,
+              // The recitation bar below already clears the system inset.
+              bottom: !isRecitationBarVisible,
               child: Center(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 260),
@@ -4597,7 +4701,8 @@ class _QuranPagesState extends State<QuranPages>
                       _updateSystemUI();
                     },
                     onPlayTapped: () {
-                      _closeAutoScrollBar();
+                      // Auto-scroll is deliberately left running: the two are
+                      // independent, and readers pair them to follow along.
                       setState(() {
                         _showIndex = false;
                         _showSurahs = false;
@@ -4612,17 +4717,6 @@ class _QuranPagesState extends State<QuranPages>
                       ThemeService.setDarkMode(value);
                     },
                     onToggleAutoScroll: (value) {
-                      if (value &&
-                          AudioService.instance.isRecitationBarVisible.value) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'لا يمكن تشغيل التمرير التلقائي أثناء التلاوة',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
                       if (value && !_supportsPortraitScrollMode(context)) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(

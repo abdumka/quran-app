@@ -41,6 +41,9 @@ class _IndexedAyah {
   final int ayah;
   final String text;
   final String normalizedText;
+  // Like normalizedText but with Ta Marbuta kept distinct from Ha, so exact
+  // matching can tell أمة apart from أمه.
+  final String exactText;
   final List<String> normalizedWords;
 
   const _IndexedAyah({
@@ -50,6 +53,7 @@ class _IndexedAyah {
     required this.ayah,
     required this.text,
     required this.normalizedText,
+    required this.exactText,
     required this.normalizedWords,
   });
 }
@@ -159,6 +163,7 @@ class _SearchPageState extends State<SearchPage> {
               ayah: ayah.ayah,
               text: ayah.text,
               normalizedText: normalizedText,
+              exactText: _normalizeText(ayah.text, exact: true),
               normalizedWords: normalizedText
                   .split(' ')
                   .where((e) => e.isNotEmpty)
@@ -199,8 +204,11 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  String _normalizeText(String text) {
-    return text
+  // `exact: true` keeps Ta Marbuta (ة) distinct from Ha (ه) so an exact
+  // search for أمة doesn't match أمه; everything else (diacritics, script
+  // artifacts the user can't type) is still normalized the same way.
+  String _normalizeText(String text, {bool exact = false}) {
+    var result = text
         // Normalize Alef Wasla
         .replaceAll('ٱ', 'ا')
         // Remove all diacritics and quranic symbols. The dagger alef
@@ -214,9 +222,12 @@ class _SearchPageState extends State<SearchPage> {
         // Normalize Ya variations (including Qalon specific marks)
         .replaceAll(RegExp(r'[ىےئ]'), 'ي')
         // Normalize Waw variations
-        .replaceAll('ؤ', 'و')
-        // Normalize Ta Marbuta to Ha
-        .replaceAll('ة', 'ه')
+        .replaceAll('ؤ', 'و');
+    if (!exact) {
+      // Normalize Ta Marbuta to Ha (smart mode only)
+      result = result.replaceAll('ة', 'ه');
+    }
+    return result
         // Remove standalone Hamza
         .replaceAll('ء', '')
         // Remove commas
@@ -246,13 +257,16 @@ class _SearchPageState extends State<SearchPage> {
         .trim();
   }
 
-  _NormalizedTextMapping _normalizeTextWithMap(String text) {
+  _NormalizedTextMapping _normalizeTextWithMap(
+    String text, {
+    bool exact = false,
+  }) {
     final buffer = StringBuffer();
     final indices = <int>[];
     bool previousWasSpace = false;
 
     for (int i = 0; i < text.length; i++) {
-      final normalizedChar = _normalizeChar(text[i]);
+      final normalizedChar = _normalizeChar(text[i], exact: exact);
       if (normalizedChar == null) continue;
 
       if (normalizedChar == ' ') {
@@ -280,7 +294,7 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  String? _normalizeChar(String char) {
+  String? _normalizeChar(String char, {bool exact = false}) {
     if (char.trim().isEmpty) return ' ';
 
     final code = char.codeUnitAt(0);
@@ -316,7 +330,8 @@ class _SearchPageState extends State<SearchPage> {
       case 'ؤ':
         return 'و';
       case 'ة':
-        return 'ه';
+        // Exact mode keeps Ta Marbuta distinct from Ha (أمة vs أمه).
+        return exact ? 'ة' : 'ه';
       default:
         return char;
     }
@@ -360,13 +375,16 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     final queryWords = query.split(' ').where((e) => e.isNotEmpty).toList();
+    // The strict variant keeps ة/ه distinct; it decides what counts as an
+    // exact match (both for the exact-only filter and the section split).
+    final exactQuery = _normalizeText(rawQuery.trim(), exact: true);
     final results = <SearchResult>[];
 
     for (final ayah in _searchIndex) {
       // Restrict to the chosen surah when a specific one is selected.
       if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
 
-      final matchesWholeQuery = _containsWholeWord(ayah.normalizedText, query);
+      final matchesWholeQuery = _containsWholeWord(ayah.exactText, exactQuery);
 
       // In exact-only mode, skip smart (fuzzy) matches before scoring.
       if (_exactOnly && !matchesWholeQuery) continue;
@@ -595,12 +613,14 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   List<InlineSpan> _buildHighlightedTextSpans(String text, String query) {
-    final normalizedQuery = _normalizeText(query.trim());
+    // In exact-only mode highlight with the strict (ة-preserving) forms so
+    // only true exact occurrences get marked.
+    final normalizedQuery = _normalizeText(query.trim(), exact: _exactOnly);
     if (normalizedQuery.isEmpty) {
       return [TextSpan(text: text)];
     }
 
-    final mapping = _normalizeTextWithMap(text);
+    final mapping = _normalizeTextWithMap(text, exact: _exactOnly);
     if (mapping.normalizedText.isEmpty) {
       return [TextSpan(text: text)];
     }

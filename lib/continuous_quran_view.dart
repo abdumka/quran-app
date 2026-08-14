@@ -87,6 +87,10 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   bool _didLogFirstClientAttach = false;
   final Set<int> _loggedRenderedPages = <int>{};
   Timer? _autoScrollTimer;
+  // True while gliding back into sync with the recitation. The auto-scroll
+  // timer stays parked for the duration, otherwise its 16 ms jumpTo would
+  // cancel the animation on the very next tick.
+  bool _isCatchingUpToRecitation = false;
   Timer? _pendingLongPressTimer;
   Offset? _pendingLongPressStart;
   int? _pendingLongPressPage;
@@ -318,7 +322,9 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   void _syncAutoScroll() {
     _autoScrollTimer?.cancel();
 
-    if (!widget.autoScrollEnabled || !_controller.hasClients) {
+    if (!widget.autoScrollEnabled ||
+        !_controller.hasClients ||
+        _isCatchingUpToRecitation) {
       return;
     }
 
@@ -333,17 +339,26 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
     final double deltaPerTick =
         widget.autoScrollPixelsPerSecond * (frameInterval.inMilliseconds / 1000);
 
+    // The target offset is carried across ticks rather than re-read from the
+    // controller as "offset + delta". At the slow speeds a tick advances a
+    // fraction of a pixel, and comparing that against the live offset read as
+    // "the list refused to move" and stopped the scroll outright.
+    double target = _controller.offset;
+
     _autoScrollTimer = Timer.periodic(frameInterval, (_) {
       if (!mounted || !_controller.hasClients || !widget.autoScrollEnabled) {
         _autoScrollTimer?.cancel();
         return;
       }
 
-      final maxScroll = _controller.position.maxScrollExtent;
-      final nextOffset = (_controller.offset + deltaPerTick).clamp(0.0, maxScroll);
+      // Re-anchor when something else moved the list — a drag, or the
+      // recitation jumping to the page it just reached.
+      if ((target - _controller.offset).abs() > 1.0) {
+        target = _controller.offset;
+      }
 
-      if ((nextOffset - _controller.offset).abs() < 0.1 ||
-          nextOffset >= maxScroll) {
+      final maxScroll = _controller.position.maxScrollExtent;
+      if (_controller.offset >= maxScroll) {
         _autoScrollTimer?.cancel();
         if (widget.autoScrollEnabled) {
           widget.onAutoScrollInterrupted();
@@ -351,7 +366,8 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
         return;
       }
 
-      _controller.jumpTo(nextOffset);
+      target = (target + deltaPerTick).clamp(0.0, maxScroll);
+      _controller.jumpTo(target);
       _reportVisiblePageFromOffset();
     });
   }
@@ -447,6 +463,45 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
       'targetOffset': targetOffset.toStringAsFixed(1),
     });
     _controller.jumpTo(targetOffset);
+  }
+
+  /// Follows the recitation onto [pageIndex] without disturbing a reader who
+  /// is already gliding along with auto-scroll. See the portrait counterpart
+  /// in `_followRecitationToPage` for the reasoning: the view is left alone
+  /// while the page's first line is on screen, and a real desync is corrected
+  /// by gliding it back to the middle instead of snapping.
+  ///
+  /// Returns false when it can't act, so the caller can fall back to a plain
+  /// page turn.
+  bool followRecitationToPage(int pageIndex) {
+    if (!_controller.hasClients || !widget.autoScrollEnabled) return false;
+
+    final safePage = pageIndex.clamp(0, widget.pages.length - 1);
+    final double viewport = _controller.position.viewportDimension;
+    if (viewport <= 0) return false;
+
+    final double pageTop = _offsetForPage(safePage);
+    final double offset = _controller.offset;
+    _lastReportedPage = safePage;
+
+    if (offset >= pageTop - viewport && offset <= pageTop) return true;
+
+    _autoScrollTimer?.cancel();
+    _isCatchingUpToRecitation = true;
+    _controller
+        .animateTo(
+          (pageTop - viewport / 2).clamp(
+            0.0,
+            _controller.position.maxScrollExtent,
+          ),
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeInOutCubic,
+        )
+        .whenComplete(() {
+          _isCatchingUpToRecitation = false;
+          if (mounted && widget.autoScrollEnabled) _syncAutoScroll();
+        });
+    return true;
   }
 
   Future<void> scrollToBookmark(

@@ -160,7 +160,10 @@
       "Bash(python tools/build_zad_almasir.py)",
       "Bash(python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/483a751e-55e3-4336-8238-4cc4f3c4c8c9/scratchpad/merge_superset.py\")",
       "Bash(npm init *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "PowerShell(flutter analyze lib/search_page.dart)",
+      "Read(//c/Users/keilani/AppData/Local/Pub/Cache/hosted/pub.dev/file_selector_ios-0.5.3\\\\+5/lib/**)",
+      "Read(//c/Users/keilani/AppData/Local/Pub/Cache/hosted/pub.dev/file_selector-1.1.0/example/lib/**)"
     ],
     "additionalDirectories": [
       "\\tmp"
