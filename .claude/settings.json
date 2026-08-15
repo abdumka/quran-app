@@ -163,7 +163,16 @@
       "Bash(npm install *)",
       "PowerShell(flutter analyze lib/search_page.dart)",
       "Read(//c/Users/keilani/AppData/Local/Pub/Cache/hosted/pub.dev/file_selector_ios-0.5.3\\\\+5/lib/**)",
-      "Read(//c/Users/keilani/AppData/Local/Pub/Cache/hosted/pub.dev/file_selector-1.1.0/example/lib/**)"
+      "Read(//c/Users/keilani/AppData/Local/Pub/Cache/hosted/pub.dev/file_selector-1.1.0/example/lib/**)",
+      "Bash(grep -o '\\\\\\\\u0627\\\\\\\\u0644' deploy_dist/app/main.dart.js)",
+      "Bash(echo \"any arabic \\\\\\\\u escapes?\")",
+      "Bash(grep -ao '\\\\\\\\u06[0-9a-f][0-9a-f]' deploy_dist/app/main.dart.js)",
+      "Bash(echo \"--- try \\\\\\\\u0625 \\(hamza\\) ---\")",
+      "Bash(grep -ac '\\\\\\\\u0625' deploy_dist/app/main.dart.js)",
+      "Bash(python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/582454ae-f039-45cf-881f-9ba28754a014/scratchpad/vfy.py\")",
+      "Bash(curl -s -o /tmp/live_main.js -w \"http=%{http_code} bytes=%{size_download}\\\\n\" https://www.mushaf-qaloon.com/app/main.dart.js)",
+      "Bash(curl -s -o /dev/null -w \"http=%{http_code}\\\\n\" https://www.mushaf-qaloon.com/app/)",
+      "Bash(git commit -m '@ *)"
     ],
     "additionalDirectories": [
       "\\tmp"
