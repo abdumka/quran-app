@@ -73,6 +73,9 @@ class AudioService {
   List<QuranAyahData> _playlistAyahs = [];
   List<String> _currentAyahFiles = [];
   bool _isChangingPage = false;
+  // Guards against acting twice on a single finished file — see the
+  // playerStateStream listener in init() for why it arrives more than once.
+  bool _didHandleCompletion = false;
   DateTime _lastAyahChangeTime = DateTime(2000);
 
   /// Whether to resume after a transient audio interruption (e.g. a phone call)
@@ -257,7 +260,19 @@ class AudioService {
     _player.playerStateStream.listen((state) {
       isPlaying.value = state.playing;
       if (state.processingState == ProcessingState.completed) {
+        // One finished file arrives here more than once: playerStateStream
+        // emits on any field change, so a completion shows up as
+        // (playing: true, completed) and again as (playing: false, completed).
+        // Acting on both advanced the playlist twice and — on web, where
+        // _playFile awaits stop() before loading the next source — left two
+        // advances racing on a single player, which ended with it idle and the
+        // recitation dead after the first ayah. Advance once per transition
+        // *into* completed; any other state re-arms it for the next file.
+        if (_didHandleCompletion) return;
+        _didHandleCompletion = true;
         _handleAyahCompleted();
+      } else {
+        _didHandleCompletion = false;
       }
     });
   }
@@ -690,6 +705,14 @@ class AudioService {
       if (e is SocketException) {
         _showPlaybackNotice(
           'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
+        );
+      } else if (kIsWeb) {
+        // Every ayah is streamed on web and SocketException never fires there,
+        // so without this branch a blocked or failed fetch (CORS, 404, a
+        // network filter) stopped the recitation with nothing shown at all —
+        // it just looked like playback died on its own.
+        _showPlaybackNotice(
+          'تعذّر تحميل ملف التلاوة. تأكد من الاتصال بالإنترنت وأن الشبكة لا تحجب الموقع، ثم أعد المحاولة.',
         );
       }
       // Don't call stop() here — it could cascade into more errors
