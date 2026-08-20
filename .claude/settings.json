@@ -172,7 +172,8 @@
       "Bash(python \"C:/Users/keilani/AppData/Local/Temp/2/claude/d--quran-app-quran-app-main/582454ae-f039-45cf-881f-9ba28754a014/scratchpad/vfy.py\")",
       "Bash(curl -s -o /tmp/live_main.js -w \"http=%{http_code} bytes=%{size_download}\\\\n\" https://www.mushaf-qaloon.com/app/main.dart.js)",
       "Bash(curl -s -o /dev/null -w \"http=%{http_code}\\\\n\" https://www.mushaf-qaloon.com/app/)",
-      "Bash(git commit -m '@ *)"
+      "Bash(git commit -m '@ *)",
+      "Bash(PYTHONIOENCODING=utf-8 python check_counts.py)"
     ],
     "additionalDirectories": [
       "\\tmp"

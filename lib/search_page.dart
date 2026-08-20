@@ -22,6 +22,11 @@ class SearchResult {
   final String text;
   final int score;
   final bool containsFullQuery;
+  // How many times the query occurs inside this single ayah. An ayah that
+  // repeats the word twice is still one card, but counts twice in the tally.
+  // Smart (non-exact) matches have no literal occurrence to count, so they
+  // count as one.
+  final int matchCount;
 
   const SearchResult({
     required this.page,
@@ -31,6 +36,7 @@ class SearchResult {
     required this.text,
     required this.score,
     required this.containsFullQuery,
+    required this.matchCount,
   });
 }
 
@@ -337,25 +343,37 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // Whether `query` occurs in `text` bounded by spaces (or the string edges)
-  // on both sides, rather than as a raw substring that can bleed into an
+  // How many times `query` occurs in `text` bounded by spaces (or the string
+  // edges) on both sides, rather than as a raw substring that can bleed into an
   // unrelated word -- e.g. "ريب" is a raw substring of "قريب" even though
   // they are different words.
-  bool _containsWholeWord(String text, String query) {
+  int _countWholeWord(String text, String query) {
+    if (query.isEmpty) return 0;
+
+    var count = 0;
     var start = 0;
     while (true) {
       final index = text.indexOf(query, start);
-      if (index == -1) return false;
+      if (index == -1) return count;
 
       final beforeIsBoundary = index == 0 || text[index - 1] == ' ';
       final afterIndex = index + query.length;
       final afterIsBoundary =
           afterIndex == text.length || text[afterIndex] == ' ';
 
-      if (beforeIsBoundary && afterIsBoundary) return true;
-      start = index + 1;
+      if (beforeIsBoundary && afterIsBoundary) {
+        count++;
+        // Resume after this match so a repeated word is counted once per
+        // occurrence and overlapping starts aren't recounted.
+        start = afterIndex;
+      } else {
+        start = index + 1;
+      }
     }
   }
+
+  bool _containsWholeWord(String text, String query) =>
+      _countWholeWord(text, query) > 0;
 
   void _scheduleSearch(String rawQuery) {
     _searchDebounce?.cancel();
@@ -384,7 +402,8 @@ class _SearchPageState extends State<SearchPage> {
       // Restrict to the chosen surah when a specific one is selected.
       if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
 
-      final matchesWholeQuery = _containsWholeWord(ayah.exactText, exactQuery);
+      final occurrences = _countWholeWord(ayah.exactText, exactQuery);
+      final matchesWholeQuery = occurrences > 0;
 
       // In exact-only mode, skip smart (fuzzy) matches before scoring.
       if (_exactOnly && !matchesWholeQuery) continue;
@@ -405,6 +424,7 @@ class _SearchPageState extends State<SearchPage> {
             text: ayah.text,
             score: score,
             containsFullQuery: matchesWholeQuery,
+            matchCount: matchesWholeQuery ? occurrences : 1,
           ),
         );
       }
@@ -924,6 +944,9 @@ class _SearchPageState extends State<SearchPage> {
   // inline "exact match" / "smart match" section headers. Results arrive already
   // sorted with exact (containsFullQuery) matches first, so we split on that.
   Widget _buildResultsList(bool compactLandscape) {
+    // Counted per occurrence, not per card: a word mentioned twice in the same
+    // ayah is two results on one card, matching how a concordance counts.
+    final totalMatches = _results.fold<int>(0, (sum, r) => sum + r.matchCount);
     final exact = _results.where((r) => r.containsFullQuery).toList();
     final smart = _results.where((r) => !r.containsFullQuery).toList();
     final bool showHeaders = exact.isNotEmpty && smart.isNotEmpty;
@@ -947,7 +970,7 @@ class _SearchPageState extends State<SearchPage> {
           padding: EdgeInsets.fromLTRB(12, 0, 12, compactLandscape ? 4 : 8),
           child: Align(
             child: Text(
-              'عدد النتائج: ${_results.length}',
+              'عدد النتائج: $totalMatches',
               textAlign: TextAlign.right,
               textDirection: TextDirection.rtl,
               style: TextStyle(
