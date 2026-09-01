@@ -150,7 +150,7 @@ class AudioDownloadService {
     final reciter = ReciterService.instance.selected.value;
     switch (reciter.scheme) {
       case AudioScheme.nativeQaloun:
-        return _naihiSurahFilenames(surah);
+        return _nativeSurahFilenames(reciter, surah);
       case AudioScheme.covered:
         return _coveredSurahFilenames(reciter, surah);
       case AudioScheme.mergedTail:
@@ -172,13 +172,20 @@ class AudioDownloadService {
     return filenames.toList()..sort();
   }
 
-  /// al-Naihi mirror per-surah: native per-ayah files `SSS001..SSSmax` plus a
-  /// basmala file `SSS000` for every surah except At-Tawba (9).
-  List<String> _naihiSurahFilenames(int surah) {
+  /// Native-scheme mirrors (al-Naihi / قنيوه / أبوسنينة) per-surah: per-ayah
+  /// files `SSS001..SSSmax` plus a basmala file `SSS000` for every surah except
+  /// At-Tawba (9).
+  ///
+  /// Ayat the mirror never published are left out — counting a file that can
+  /// only 404 would hold the surah (and the whole download) permanently short of
+  /// "complete". Breath continuations are NOT left out: those files do exist in
+  /// the bucket, they just duplicate the previous ayah's audio.
+  List<String> _nativeSurahFilenames(Reciter reciter, int surah) {
     final filenames = <String>{};
     final surahStr = surah.toString().padLeft(3, '0');
     if (surah != 9) filenames.add('${surahStr}000.mp3');
     for (int a = 1; a <= Reciter.madaniAyahCounts[surah - 1]; a++) {
+      if (reciter.isMissing(surah, a)) continue;
       filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
     }
     return filenames.toList()..sort();
@@ -193,7 +200,7 @@ class AudioDownloadService {
     final surahStr = surah.toString().padLeft(3, '0');
     final filenames = <String>{};
     for (int a = 1; a <= Reciter.madaniAyahCounts[surah - 1]; a++) {
-      if (covered.contains(a)) continue;
+      if (covered.contains(a) || reciter.isMissing(surah, a)) continue;
       filenames.add('$surahStr${a.toString().padLeft(3, '0')}.mp3');
     }
     return filenames.toList()..sort();

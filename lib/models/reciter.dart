@@ -1,3 +1,5 @@
+import 'doukali_covered_ayat.dart';
+
 /// How a reciter's mirror maps a *displayed* (output.json) ayah to file name(s).
 ///
 /// Mirrors the `scheme` field the web player uses for the same mirrors (see
@@ -8,9 +10,10 @@ enum AudioScheme {
   /// few surahs were merged into one file (see `AudioService`'s merge table).
   mergedTail,
 
-  /// al-Naihi / قنيوه: one file per ayah in native Madani/Qaloun numbering, plus
-  /// a separate basmala file `SSS000.mp3` for every surah except At-Tawba (9),
-  /// with the displayed→recited ayah differences resolved via the audio map.
+  /// al-Naihi / قنيوه / أبوسنينة: one file per ayah in native Madani/Qaloun
+  /// numbering, plus a separate basmala file `SSS000.mp3` for every surah except
+  /// At-Tawba (9), with the displayed→recited ayah differences resolved via the
+  /// audio map.
   nativeQaloun,
 
   /// al-Hudaifi: file `SSSAAA.mp3` *is* the displayed ayah — no basmala file, no
@@ -69,10 +72,26 @@ class Reciter {
 
   /// Whether this reciter uses الوقف الهبطي — he recites several ayat together in
   /// one breath, so the source serves byte-identical audio for those ayat. When
-  /// true, the app skips the "continuation" ayat (see assets/data/
-  /// qaniwah_continuations.json) so each breath plays once and then jumps to the
-  /// next distinct ayah.
+  /// true, the app skips the "continuation" ayat listed in
+  /// [continuationsAsset] so each breath plays once and then jumps to the next
+  /// distinct ayah.
   final bool breathCombining;
+
+  /// [breathCombining] only: the bundled JSON holding this sheikh's breath
+  /// groups (and the surahs whose ayah-1 file already contains the basmala).
+  /// Every reciter has his own — the groups are a property of how *he* recites,
+  /// not of the riwaya — so they must never be shared between reciters.
+  final String? continuationsAsset;
+
+  /// Ayat this mirror has no audio for at all, because the upstream source
+  /// never published them (surah → ayat). Distinct from [coveredAyat], where a
+  /// file exists but holds silence, and from a breath continuation, where the
+  /// audio played as part of an earlier ayah: here there is simply nothing.
+  ///
+  /// Playback returns no file for these (so it advances to the next ayah
+  /// instead of stalling on a 404), and the offline download leaves them out of
+  /// its file list — otherwise "التحميل مكتمل" could never be reached.
+  final Map<int, Set<int>> missingAyat;
 
   const Reciter({
     required this.id,
@@ -84,7 +103,13 @@ class Reciter {
     this.scheme = AudioScheme.mergedTail,
     this.coveredAyat = const {},
     this.breathCombining = false,
+    this.continuationsAsset,
+    this.missingAyat = const {},
   }) : shortName = shortName ?? name;
+
+  /// Whether ([surah], [ayah]) is one of this mirror's upstream gaps.
+  bool isMissing(int surah, int ayah) =>
+      missingAyat[surah]?.contains(ayah) ?? false;
 
   // ───────────────────────────────────────────────
   //  AVAILABLE RECITERS
@@ -123,6 +148,7 @@ class Reciter {
     audioBaseUrl: 'https://audio.mushaf-qaloon.com/Alnaihi/',
     cacheFolder: 'audio_cache_naihi',
     scheme: AudioScheme.nativeQaloun,
+    missingAyat: {12: {111}},
   );
 
   /// Madani/Qaloun ayah count per surah, taken from nquran.com's authoritative
@@ -159,7 +185,51 @@ class Reciter {
     cacheFolder: 'audio_cache_qaniwah',
     scheme: AudioScheme.nativeQaloun,
     breathCombining: true,
+    continuationsAsset: 'assets/data/qaniwah_continuations.json',
   );
+
+  /// Muhammad Abu Senainah (محمد أبوسنينة) — Qaloun, recited with الوقف الهبطي.
+  ///
+  /// ⚠️ THIS ENTRY IS STALE AND MUST BE REWORKED BEFORE HE SHIPS. It still
+  /// describes the abandoned nquran mirror (rewaya 3, qareeid 42), which was
+  /// dropped because its audio quality was poor and whole surahs were recited by
+  /// someone else entirely (surah 53 was Al-Husary). Those files have been
+  /// deleted from R2.
+  ///
+  /// What `abusenainah/` actually serves now is a completely different set: a
+  /// continuous مرتّل khatma segmented with CTC forced alignment. It differs from
+  /// what the fields below claim in every important way —
+  ///   * 6214 files, one per displayed ayah, and NO separate `SSS000.mp3`
+  ///     basmala files: the basmala is inside each ayah-1 clip.
+  ///   * joined ayat are silent 0.30 s placeholders with a covered_by mapping,
+  ///     i.e. [AudioScheme.covered], NOT [breathCombining] over byte-identical
+  ///     files.
+  ///   * no missing ayat — every one of the 6214 is present.
+  /// So this should become `scheme: AudioScheme.covered` with a coveredAyat set
+  /// of ~1080 entries (too large to inline — it wants an asset file), and
+  /// [abusenainahMissingAyat] should go. [breathCombining] has already been
+  /// dropped: it described byte-identical duplicate files the new cut has none of.
+  ///
+  /// Kept out of [all] meanwhile, so none of this reaches a user. The cut and
+  /// its tooling live outside the repo — see D:/AbuSenainah/INDEX.md.
+  static const Reciter abusenainahQaloun = Reciter(
+    id: 'abusenainah_qaloun',
+    name: 'محمد أبوسنينة',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/abusenainah/',
+    cacheFolder: 'audio_cache_abusenainah',
+    scheme: AudioScheme.nativeQaloun,
+    missingAyat: abusenainahMissingAyat,
+  );
+
+  /// Ayat محمد أبوسنينة's source never published — verified by HEAD-probing every
+  /// surah boundary on nquran: al-Kahf stops at file 099 and al-Mutaffifin at
+  /// 035, while every other surah runs the full [madaniAyahCounts]. 7 ayat in
+  /// total, so his complete download is 6320 files rather than 6327.
+  static const Map<int, Set<int>> abusenainahMissingAyat = {
+    18: {100, 101, 102, 103, 104, 105},
+    83: {36},
+  };
 
   /// Ali ibn Abdurrahman Al-Hudaifi — Qaloun.
   ///
@@ -207,13 +277,45 @@ class Reciter {
     103: {2},
   };
 
+  /// Al-Dokali Mohammed Al-Alem (الدوكالي محمد العالم) — Qaloun.
+  ///
+  /// A continuous khatma cut per-ayah with the same pipeline as the Hudaifi
+  /// set: file `SSSAAA.mp3` is exactly the displayed ayah for all 6214, no
+  /// basmala file (`SSS000.mp3` 404s) and no merged tail — verified by probing
+  /// the surah boundaries on the bucket. The 1194 ayat he reads inside a
+  /// neighbouring ayah's file are silent 1579-byte placeholders, listed in the
+  /// generated [doukaliCoveredAyat] (see that file's header to regenerate).
+  static const Reciter doukaliQaloun = Reciter(
+    id: 'doukali_qaloun',
+    name: 'الدوكالي محمد العالم',
+    shortName: 'الدوكالي العالم',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/doukali/',
+    cacheFolder: 'audio_cache_doukali',
+    scheme: AudioScheme.covered,
+    coveredAyat: doukaliCoveredAyat,
+  );
+
   /// All reciters offered in the picker, in display order.
+  ///
+  /// [abusenainahQaloun] is deliberately NOT listed yet: the nquran mirror it
+  /// was built from turned out to be unusable — poor audio quality, and whole
+  /// surahs recited by someone else entirely (surah 53 is Al-Husary). His entry
+  /// and plumbing stay so the audio can be re-cut from a continuous khatma and
+  /// dropped into the same bucket folder; add him back here once that lands.
   static const List<Reciter> all = [
     husaryQaloun,
     naihiQaloun,
     qaniwahQaloun,
     hudaifiQaloun,
+    doukaliQaloun,
   ];
+
+  /// Every reciter the code knows about, including any not currently offered in
+  /// the picker. Use this for anything that must work for a reciter regardless
+  /// of whether it is listed — loading [continuationsAsset]s, tests — and [all]
+  /// only for what the user can actually choose.
+  static const List<Reciter> allDefined = [...all, abusenainahQaloun];
 
   /// The reciter used before the user has chosen one.
   static const Reciter fallback = husaryQaloun;

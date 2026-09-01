@@ -45,6 +45,84 @@ void main() {
     });
   });
 
+  group('الدوكالي محمد العالم (covered scheme)', () {
+    setUp(() => select(Reciter.doukaliQaloun));
+
+    test('one file per displayed ayah, minus the silent placeholders', () {
+      final coveredCount = Reciter.doukaliQaloun.coveredAyat.values
+          .fold<int>(0, (sum, ayat) => sum + ayat.length);
+      expect(coveredCount, 1194);
+      expect(downloads.getAllFilenames().length, 6214 - coveredCount);
+    });
+
+    test('no basmala file — the bucket has no SSS000.mp3', () {
+      for (int s = 1; s <= 114; s++) {
+        final stem = '${s.toString().padLeft(3, '0')}000.mp3';
+        expect(downloads.getSurahFilenames(s), isNot(contains(stem)));
+      }
+    });
+
+    test('surah files run 1..madani count with covered ayat left out', () {
+      // Al-Fatihah: 2, 3, 6 and 7 are recited inside a neighbouring ayah.
+      final fatihah = downloads.getSurahFilenames(1);
+      expect(fatihah, ['001001.mp3', '001004.mp3', '001005.mp3']);
+
+      // No merged tail: al-Baqarah ends at its displayed last ayah, 285.
+      final baqarah = downloads.getSurahFilenames(2);
+      expect(baqarah.last, '002285.mp3');
+
+      // Ash-Shu'ara has his densest joining: 72 of its 227 ayat are covered.
+      expect(downloads.getSurahFilenames(26).length, 227 - 72);
+    });
+
+    test('unlike al-Naihi, his khatma includes Yusuf 111', () {
+      expect(downloads.getSurahFilenames(12), contains('012111.mp3'));
+    });
+  });
+
+  group('أبوسنينة (native scheme + breath combining)', () {
+    setUp(() => select(Reciter.abusenainahQaloun));
+
+    test('basmala file per surah except At-Tawba, native Madani counts', () {
+      expect(downloads.getSurahFilenames(2), contains('002000.mp3'));
+      expect(downloads.getSurahFilenames(9), isNot(contains('009000.mp3')));
+      expect(
+        downloads.getSurahFilenames(2).length,
+        Reciter.madaniAyahCounts[1] + 1,
+      );
+    });
+
+    test('the 7 unpublished ayat are left out of the download list', () {
+      // Al-Kahf: the mirror stops at 099, so 100..105 have no file at all.
+      final kahf = downloads.getSurahFilenames(18);
+      expect(kahf, contains('018099.mp3'));
+      for (int a = 100; a <= 105; a++) {
+        expect(kahf, isNot(contains('018${a.toString().padLeft(3, '0')}.mp3')));
+      }
+      expect(kahf.length, Reciter.madaniAyahCounts[17] - 6 + 1); // +1 basmala
+
+      // Al-Mutaffifin: stops at 035.
+      final mutaffifin = downloads.getSurahFilenames(83);
+      expect(mutaffifin, contains('083035.mp3'));
+      expect(mutaffifin, isNot(contains('083036.mp3')));
+    });
+
+    test('a complete download is the 6320 files that actually exist', () {
+      // 6214 ayat + 113 basmalas - 7 upstream gaps. Matches the file count the
+      // R2 mirror was verified to hold.
+      expect(downloads.getAllFilenames().length, 6214 + 113 - 7);
+    });
+
+    test('surah 37 is addressed in normal app numbering', () {
+      // The source folder is shifted by one; the mirror renumbers it on upload,
+      // so the app must ask for 037000 (basmala) .. 037181 and never 037182.
+      final saffat = downloads.getSurahFilenames(37);
+      expect(saffat.first, '037000.mp3');
+      expect(saffat.last, '037181.mp3');
+      expect(saffat.length, Reciter.madaniAyahCounts[36] + 1);
+    });
+  });
+
   group('existing reciters are untouched by the scheme refactor', () {
     test('Al-Husary keeps the merged-tail names', () {
       select(Reciter.husaryQaloun);
@@ -62,6 +140,39 @@ void main() {
         Reciter.madaniAyahCounts[1] + 1,
       );
     });
+
+    test('al-Naihi no longer counts the Yusuf ayah his source lacks', () {
+      // 012111.mp3 404s on the source and both mirrors, so including it kept
+      // "التحميل مكتمل" permanently out of reach.
+      select(Reciter.naihiQaloun);
+      final yusuf = downloads.getSurahFilenames(12);
+      expect(yusuf, isNot(contains('012111.mp3')));
+      expect(yusuf, contains('012110.mp3'));
+      expect(downloads.getAllFilenames().length, 6214 + 113 - 1);
+    });
+
+    test('قنيوه still lists every file, gaps being none of his', () {
+      select(Reciter.qaniwahQaloun);
+      // Breath continuations are real files in the bucket (byte-identical
+      // duplicates), so they stay in the download list.
+      expect(downloads.getAllFilenames().length, 6214 + 113);
+      expect(downloads.getSurahFilenames(12), contains('012111.mp3'));
+    });
+  });
+
+  test('every breath-combining reciter has his own continuations asset', () {
+    // The breath groups describe how one sheikh recites — sharing a table
+    // between two reciters would silently skip the wrong ayat.
+    final assets = <String>[];
+    for (final r in Reciter.allDefined) {
+      if (r.breathCombining) {
+        expect(r.continuationsAsset, isNotNull, reason: r.id);
+        assets.add(r.continuationsAsset!);
+      } else {
+        expect(r.continuationsAsset, isNull, reason: r.id);
+      }
+    }
+    expect(assets.toSet().length, assets.length);
   });
 
   test('every reciter has a distinct id and cache folder', () {

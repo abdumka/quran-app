@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'services/quran_json_service.dart';
 import 'services/ayah_position_service.dart';
+import 'utils/copy_helper.dart';
 
 class SearchPage extends StatefulWidget {
   final Function(int page) onGoToPage;
@@ -927,12 +928,40 @@ class _SearchPageState extends State<SearchPage> {
                 children: _buildHighlightedTextSpans(ayah.text, _query),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'سورة ${ayah.surahName} • آية ${ayah.ayah} • صفحة ${ayah.page}',
-              textAlign: TextAlign.right,
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                // Copying is a deliberate second action on the card; the card
+                // itself still taps through to the verse's page.
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    iconSize: 17,
+                    tooltip: 'نسخ الآية',
+                    color: Colors.grey[700],
+                    icon: const Icon(Icons.copy_rounded),
+                    onPressed: () => CopyHelper.copy(
+                      context,
+                      CopyHelper.formatAyah(
+                        surahName: ayah.surahName,
+                        ayahNumber: ayah.ayah,
+                        text: ayah.text,
+                      ),
+                      message: 'تم نسخ الآية',
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    'سورة ${ayah.surahName} • آية ${ayah.ayah} • صفحة ${ayah.page}',
+                    textAlign: TextAlign.right,
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

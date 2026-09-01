@@ -365,6 +365,12 @@ class AudioService {
 
     final reciter = ReciterService.instance.selected.value;
 
+    // ── Upstream gaps ──
+    // A few ayat were never published for some mirrors (see Reciter.missingAyat).
+    // Returning no file lets playback advance to the next ayah that does have
+    // audio, instead of stalling on a request that can only 404.
+    if (reciter.isMissing(s, a)) return const [];
+
     // ── al-Hudaifi: the file name IS the displayed ayah ──
     // No basmala file and no merged tails, so nothing to translate. The only
     // exception is the handful of ayat he reads as part of a neighbouring ayah:
@@ -408,14 +414,17 @@ class AudioService {
       // part of the ayah-1 file (قنيوه's الوقف الهبطي), which would double it.
       final basmalaInAyah1 =
           reciter.breathCombining &&
-          AudioAyahMapService.instance.qaniwahBasmalaInAyah1(s);
+          AudioAyahMapService.instance.basmalaInAyah1(reciter, s);
       if (a == 1 && s != 9 && !basmalaInAyah1) files.add(f(0));
       for (final n in mapped) {
-        // الوقف الهبطي (قنيوه): an ayah whose audio just repeats the previous
-        // breath is skipped — the breath already played on the group's first
-        // ayah. Returning no file lets playback advance to the next distinct ayah.
+        // The mapped file can itself be one of this mirror's upstream gaps.
+        if (reciter.isMissing(s, n)) continue;
+        // الوقف الهبطي (قنيوه / أبوسنينة): an ayah whose audio just repeats the
+        // previous breath is skipped — the breath already played on the group's
+        // first ayah. Returning no file lets playback advance to the next
+        // distinct ayah.
         if (reciter.breathCombining &&
-            AudioAyahMapService.instance.isQaniwahContinuation(s, n)) {
+            AudioAyahMapService.instance.isContinuation(reciter, s, n)) {
           continue;
         }
         files.add(f(n));

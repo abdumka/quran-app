@@ -6,9 +6,10 @@ from the app's own Quran data sources:
 - assets/data/audio_ayah_map.json    -> native-scheme (naihi/qaniwah) ayah remap
 - assets/data/qaniwah_continuations.json -> qaniwah breath-continuation skips
 - lib/thumn_data.dart                -> thumn_index.json
-- https://audio.mushaf-qaloon.com/mushaf3.html / mushaf_doukali.html
-  -> hudaifi/doukali "covered ayah" data (cached under tools/_sources/ after
-     first fetch so subsequent runs need no network access)
+- https://audio.mushaf-qaloon.com/mushaf3.html / mushaf_doukali.html /
+  mushaf_abusenainah.html -> hudaifi/doukali/abusenainah "covered ayah" data
+  (cached under tools/_sources/ after first fetch so subsequent runs need no
+  network access)
 
 Every reciter's per-ayah audio resolution is flattened into ONE shape,
 {"f": [<file stems>], "cov": <"s-a" or null>}, keyed "<surah>-<ayah>" in the
@@ -92,12 +93,21 @@ RECITERS = [
     },
     {
         "id": "doukali",
-        "name": "محمد الدوكالي",
+        "name": "الدوكالي محمد العالم",
+        "shortName": "الدوكالي العالم",
         "riwaya": "رواية قالون",
         "folder": "doukali",
         "scheme": "covered",
-        "underReview": True,
         "coveredSourceUrl": "https://audio.mushaf-qaloon.com/mushaf_doukali.html",
+    },
+    {
+        "id": "abusenainah",
+        "name": "محمد أبوسنينة",
+        "riwaya": "رواية قالون",
+        "folder": "abusenainah",
+        "scheme": "covered",
+        "underReview": True,
+        "coveredSourceUrl": "https://audio.mushaf-qaloon.com/mushaf_abusenainah.html",
     },
 ]
 
@@ -371,6 +381,20 @@ def main() -> None:
         {"reciterId": "doukali", "overrides": build_overrides_covered(doukali_covered)},
     )
     print(f"  {len(doukali_covered)} overrides")
+
+    print("Fetching/loading AbuSenainah covered-ayah data ...")
+    abusenainah_covered = fetch_covered_source(
+        "https://audio.mushaf-qaloon.com/mushaf_abusenainah.html",
+        SOURCES_CACHE / "abusenainah_covered.json",
+    )
+    assert len(abusenainah_covered) == 1080, (
+        f"abusenainah covered count changed: {len(abusenainah_covered)}"
+    )
+    write_json(
+        "overrides_abusenainah.json",
+        {"reciterId": "abusenainah", "overrides": build_overrides_covered(abusenainah_covered)},
+    )
+    print(f"  {len(abusenainah_covered)} overrides")
 
     print("Parsing thumn boundaries ...")
     thumns = parse_thumn_entries()

@@ -43,6 +43,7 @@ import 'models/reciter.dart';
 import 'thumn_data.dart';
 import 'surah_data.dart';
 import 'quran_index_page.dart';
+import 'utils/copy_helper.dart';
 import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
@@ -7073,6 +7074,9 @@ class _MeasureSizeRenderObject extends RenderProxyBox {
   }
 }
 
+/// What a per-ayah copy action in the tafsir sheet puts on the clipboard.
+enum _TafsirCopyMode { ayah, tafsir, both }
+
 /// Stateful Tafsir sheet with page navigation.
 class _TafsirSheetContent extends StatefulWidget {
   final int initialPageIndex;
@@ -7228,6 +7232,107 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
     setState(() => _currentPage = newPage);
     widget.onPageChanged(newPage);
     _loadTafsir(newPage);
+  }
+
+  /// One-tap copy for a whole block. Free-form partial selection is handled by
+  /// the `SelectionArea` around the list; this is the shortcut for grabbing the
+  /// verse, its commentary, or both without dragging handles around.
+  Widget _buildCopyMenu(Map<String, dynamic> data) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: PopupMenuButton<_TafsirCopyMode>(
+        tooltip: 'نسخ',
+        icon: const Icon(Icons.copy_rounded),
+        iconSize: 19,
+        iconColor: widget.accentColor,
+        padding: EdgeInsets.zero,
+        color: widget.backgroundColor,
+        position: PopupMenuPosition.under,
+        constraints: const BoxConstraints(minWidth: 190),
+        onSelected: (mode) => _copyEntry(data, mode),
+        itemBuilder: (_) => [
+          _buildCopyMenuItem(
+            _TafsirCopyMode.ayah,
+            Icons.menu_book_rounded,
+            'نسخ الآية',
+          ),
+          _buildCopyMenuItem(
+            _TafsirCopyMode.tafsir,
+            Icons.article_outlined,
+            'نسخ التفسير',
+          ),
+          _buildCopyMenuItem(
+            _TafsirCopyMode.both,
+            Icons.copy_all_rounded,
+            'نسخ الآية والتفسير',
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<_TafsirCopyMode> _buildCopyMenuItem(
+    _TafsirCopyMode mode,
+    IconData icon,
+    String label,
+  ) {
+    return PopupMenuItem<_TafsirCopyMode>(
+      value: mode,
+      height: 44,
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: widget.accentColor),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w600,
+                color: widget.titleColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyEntry(
+    Map<String, dynamic> data,
+    _TafsirCopyMode mode,
+  ) async {
+    final surahName = (data['surahName'] ?? '').toString();
+    final ayahNumber = (data['ayahNumber'] as num?)?.toInt() ?? 0;
+    final ayahText = (data['ayahText'] ?? '').toString();
+    final tafsirText = (data['tafsir'] ?? '').toString();
+    final editionName = TafsirEditionService.instance.selected.value.name;
+
+    final (text, message) = switch (mode) {
+      _TafsirCopyMode.ayah => (
+        CopyHelper.formatAyah(
+          surahName: surahName,
+          ayahNumber: ayahNumber,
+          text: ayahText,
+        ),
+        'تم نسخ الآية',
+      ),
+      _TafsirCopyMode.tafsir => (tafsirText.trim(), 'تم نسخ التفسير'),
+      _TafsirCopyMode.both => (
+        CopyHelper.formatAyahWithTafsir(
+          surahName: surahName,
+          ayahNumber: ayahNumber,
+          ayahText: ayahText,
+          tafsirText: tafsirText,
+          editionName: editionName,
+        ),
+        'تم نسخ الآية والتفسير',
+      ),
+    };
+
+    await CopyHelper.copy(context, text, message: message);
   }
 
   @override
@@ -7412,60 +7517,75 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                     // controller whose extent changes as the sheet resizes),
                     // which caused the thumb to snap and jump to the ends.
                     // Scrolling is done by dragging the content, which is smooth.
-                    : RawScrollbar(
-                        controller: scrollController,
-                        thumbVisibility: true,
-                        thickness: 5,
-                        radius: const Radius.circular(4),
-                        thumbColor: widget.accentColor.withValues(alpha: 0.5),
-                        child: ListView.separated(
+                    // SelectionArea gives free-form text selection on every
+                    // platform: long-press + handles on Android/iOS, mouse
+                    // drag + Ctrl/Cmd-C on the web build.
+                    : SelectionArea(
+                        child: RawScrollbar(
                           controller: scrollController,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
+                          thumbVisibility: true,
+                          thickness: 5,
+                          radius: const Radius.circular(4),
+                          thumbColor: widget.accentColor.withValues(alpha: 0.5),
+                          child: ListView.separated(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            itemCount: _tafsirData.length,
+                            separatorBuilder: (_, _) => const Divider(height: 32),
+                            itemBuilder: (context, index) {
+                              final data = _tafsirData[index];
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      _buildCopyMenu(data),
+                                      Expanded(
+                                        child: Text(
+                                          '${data['surahName']} - آية ${data['ayahNumber']}',
+                                          textAlign: TextAlign.center,
+                                          textDirection: TextDirection.rtl,
+                                          style: TextStyle(
+                                            color: widget.borderColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ),
+                                      // Balances the copy button so the heading
+                                      // stays optically centred.
+                                      const SizedBox(width: 40),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    data['ayahText'],
+                                    textAlign: TextAlign.center,
+                                    textDirection: TextDirection.rtl,
+                                    style: TextStyle(
+                                      color: widget.titleColor,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    data['tafsir'],
+                                    textAlign: TextAlign.justify,
+                                    textDirection: TextDirection.rtl,
+                                    style: TextStyle(
+                                      color: widget.textColor,
+                                      fontSize: 18,
+                                      height: 1.8,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
-                          itemCount: _tafsirData.length,
-                          separatorBuilder: (_, _) => const Divider(height: 32),
-                          itemBuilder: (context, index) {
-                            final data = _tafsirData[index];
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  '${data['surahName']} - آية ${data['ayahNumber']}',
-                                  textAlign: TextAlign.center,
-                                  textDirection: TextDirection.rtl,
-                                  style: TextStyle(
-                                    color: widget.borderColor,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  data['ayahText'],
-                                  textAlign: TextAlign.center,
-                                  textDirection: TextDirection.rtl,
-                                  style: TextStyle(
-                                    color: widget.titleColor,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 22,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  data['tafsir'],
-                                  textAlign: TextAlign.justify,
-                                  textDirection: TextDirection.rtl,
-                                  style: TextStyle(
-                                    color: widget.textColor,
-                                    fontSize: 18,
-                                    height: 1.8,
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
                         ),
                       ),
               ),

@@ -2,6 +2,23 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart' show rootBundle;
 
+import '../models/reciter.dart';
+
+/// One reciter's الوقف الهبطي data: which ayat merely repeat the breath that
+/// already played, and which surahs recite the basmala inside the ayah-1 file.
+class BreathData {
+  /// surah -> audio ayah numbers that repeat the previous breath.
+  final Map<int, Set<int>> continuations;
+
+  /// Surahs whose ayah-1 file already contains the basmala, so the separate
+  /// basmala file 000 must NOT be prepended (it would play twice).
+  final Set<int> basmalaInAyah1;
+
+  const BreathData(this.continuations, this.basmalaInAyah1);
+
+  static const BreathData empty = BreathData({}, {});
+}
+
 /// Maps the app's displayed ayah number (output.json) to the recitation audio's
 /// own Qalun ayah file number(s).
 ///
@@ -18,19 +35,21 @@ class AudioAyahMapService {
 
   // surah -> (ayah -> list of audio file ayah numbers)
   Map<int, Map<int, List<int>>> _map = const {};
-  // surah -> set of audio ayah numbers that merely repeat the previous breath
-  // (قنيوه's الوقف الهبطي) and must be skipped during playback.
-  Map<int, Set<int>> _qaniwahContinuations = const {};
-  // قنيوه surahs whose ayah-1 file already contains the basmala, so the app must
-  // NOT prepend the separate basmala file 000 (else basmala plays twice).
-  Set<int> _qaniwahBasmalaInAyah1 = const {};
+  // asset path -> that reciter's الوقف الهبطي data. Keyed per reciter because the
+  // breath groups describe how *he* recites, so they can never be shared.
+  final Map<String, BreathData> _breath = {};
   bool _loaded = false;
 
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
     _map = await _loadAyahMap();
-    await _loadQaniwahData();
+    for (final reciter in Reciter.allDefined) {
+      final asset = reciter.continuationsAsset;
+      if (asset != null && !_breath.containsKey(asset)) {
+        _breath[asset] = await _loadBreathData(asset);
+      }
+    }
   }
 
   Future<Map<int, Map<int, List<int>>>> _loadAyahMap() async {
@@ -51,21 +70,21 @@ class AudioAyahMapService {
     }
   }
 
-  Future<void> _loadQaniwahData() async {
+  Future<BreathData> _loadBreathData(String asset) async {
     try {
-      final raw = await rootBundle.loadString('assets/data/qaniwah_continuations.json');
-      final decoded = json.decode(raw) as Map<String, dynamic>;
-      final c = decoded['continuations'] as Map<String, dynamic>;
-      final out = <int, Set<int>>{};
-      c.forEach((surah, ayat) {
-        out[int.parse(surah)] = (ayat as List).map((e) => e as int).toSet();
+      final decoded = json.decode(await rootBundle.loadString(asset))
+          as Map<String, dynamic>;
+      final continuations = <int, Set<int>>{};
+      (decoded['continuations'] as Map<String, dynamic>).forEach((surah, ayat) {
+        continuations[int.parse(surah)] =
+            (ayat as List).map((e) => e as int).toSet();
       });
-      _qaniwahContinuations = out;
-      _qaniwahBasmalaInAyah1 =
-          (decoded['basmala_in_ayah1'] as List? ?? const []).map((e) => e as int).toSet();
+      final basmala = (decoded['basmala_in_ayah1'] as List? ?? const [])
+          .map((e) => e as int)
+          .toSet();
+      return BreathData(continuations, basmala);
     } catch (_) {
-      _qaniwahContinuations = const {};
-      _qaniwahBasmalaInAyah1 = const {};
+      return BreathData.empty;
     }
   }
 
@@ -73,13 +92,21 @@ class AudioAyahMapService {
   /// null when the mapping is identity (play file with the same number).
   List<int>? lookup(int surah, int ayah) => _map[surah]?[ayah];
 
-  /// قنيوه only: whether this audio ayah file just repeats the previous breath
-  /// (so it should not be played — see [Reciter.breathCombining]).
-  bool isQaniwahContinuation(int surah, int ayah) =>
-      _qaniwahContinuations[surah]?.contains(ayah) ?? false;
+  /// The الوقف الهبطي data for [reciter], or empty for a reciter that doesn't
+  /// combine breaths (or whose asset failed to load).
+  BreathData breathDataFor(Reciter reciter) {
+    final asset = reciter.continuationsAsset;
+    if (asset == null) return BreathData.empty;
+    return _breath[asset] ?? BreathData.empty;
+  }
 
-  /// قنيوه only: whether this surah's ayah-1 file already contains the basmala,
-  /// so the separate basmala file 000 must NOT be prepended.
-  bool qaniwahBasmalaInAyah1(int surah) =>
-      _qaniwahBasmalaInAyah1.contains(surah);
+  /// Whether this audio ayah file just repeats [reciter]'s previous breath (so
+  /// it should not be played — see [Reciter.breathCombining]).
+  bool isContinuation(Reciter reciter, int surah, int ayah) =>
+      breathDataFor(reciter).continuations[surah]?.contains(ayah) ?? false;
+
+  /// Whether this surah's ayah-1 file already contains the basmala for
+  /// [reciter], so the separate basmala file 000 must NOT be prepended.
+  bool basmalaInAyah1(Reciter reciter, int surah) =>
+      breathDataFor(reciter).basmalaInAyah1.contains(surah);
 }
