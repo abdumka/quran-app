@@ -21,6 +21,25 @@ enum AudioScheme {
   /// ayat whose own file holds a silent placeholder rather than a recitation,
   /// which must be skipped.
   covered,
+
+  /// عبدالحميد القريو: one MP3 per *surah* (`SSS.mp3`) plus a per-surah timing
+  /// file (`timings/SSS.json`) giving each ayah's start/end inside it. Playback
+  /// seeks to the span rather than loading a separate file, via
+  /// `ClippingAudioSource` — which reports the span's end as
+  /// `ProcessingState.completed`, so every repeat mode behaves identically to
+  /// the per-ayah schemes without knowing the difference.
+  ///
+  /// The timing file carries everything the other schemes keep in Dart tables:
+  /// the basmala is folded into ayah 1's own span (the standard for every
+  /// surah except At-Tawba, which has none), not a separate span of its own —
+  /// and an ayah with a `null` span has no audio of its own (never published,
+  /// or recited inside a neighbour's breath). So a reciter on this scheme
+  /// needs no [Reciter.coveredAyat], [Reciter.missingAyat] or
+  /// [Reciter.continuationsAsset].
+  ///
+  /// Requires the audio to be **constant bitrate** — VBR without a seek table
+  /// makes a deep seek land seconds off, which would break every boundary.
+  timedSurah,
 }
 
 /// A selectable Qur'an reciter (تلاوة).
@@ -52,9 +71,26 @@ class Reciter {
   /// Short subtitle, e.g. the riwaya / extra note (Arabic).
   final String riwaya;
 
-  /// Base URL the per-ayah MP3 files are streamed/downloaded from. Must end
-  /// with a trailing slash; `audioBaseUrl + 'SSSAAA.mp3'` is the full URL.
+  /// Base URL the MP3 files are streamed/downloaded from. Must end with a
+  /// trailing slash; `audioBaseUrl + 'SSSAAA.mp3'` is the full URL for a
+  /// per-ayah mirror, `audioBaseUrl + 'SSS.mp3'` for [AudioScheme.timedSurah].
   final String audioBaseUrl;
+
+  /// [AudioScheme.timedSurah] only: where the per-surah timing JSONs live.
+  ///
+  /// Deliberately NOT beside the audio. The MP3s are played through an
+  /// `<audio>` element, which needs no CORS, but the timings are fetched with
+  /// `http.get` — and on the Flutter web build that is a cross-origin request
+  /// the browser blocks unless the host allows it. `audio.mushaf-qaloon.com`
+  /// sends no `Access-Control-Allow-Origin`; `quran-content.mushaf-qaloon.com`
+  /// already sends `*` (it serves the tafsir JSON the same way). Hosting the
+  /// timings there makes web work with no Cloudflare change — and if this ever
+  /// moves back to the audio host, that bucket must get CORS first or the web
+  /// build will fetch nothing and play nothing.
+  final String? timingsBaseUrlOverride;
+
+  String get timingsBaseUrl =>
+      timingsBaseUrlOverride ?? '${audioBaseUrl}timings/';
 
   /// Folder name (under the app support dir) where this reciter's MP3s are
   /// cached on disk. Kept distinct per reciter because every reciter uses the
@@ -105,6 +141,7 @@ class Reciter {
     this.breathCombining = false,
     this.continuationsAsset,
     this.missingAyat = const {},
+    this.timingsBaseUrlOverride,
   }) : shortName = shortName ?? name;
 
   /// Whether ([surah], [ayah]) is one of this mirror's upstream gaps.
@@ -190,46 +227,40 @@ class Reciter {
 
   /// Muhammad Abu Senainah (محمد أبوسنينة) — Qaloun, recited with الوقف الهبطي.
   ///
-  /// ⚠️ THIS ENTRY IS STALE AND MUST BE REWORKED BEFORE HE SHIPS. It still
-  /// describes the abandoned nquran mirror (rewaya 3, qareeid 42), which was
-  /// dropped because its audio quality was poor and whole surahs were recited by
-  /// someone else entirely (surah 53 was Al-Husary). Those files have been
-  /// deleted from R2.
+  /// On [AudioScheme.timedSurah]: 114 whole-surah MP3s plus `timings/SSS.json`.
+  /// Source is the same midad مرتّل khatma as before, but delivered whole rather
+  /// than pre-cut, which is what lets the quality be what it is (below).
   ///
-  /// What `abusenainah/` actually serves now is a completely different set: a
-  /// continuous مرتّل khatma segmented with CTC forced alignment. It differs from
-  /// what the fields below claim in every important way —
-  ///   * 6214 files, one per displayed ayah, and NO separate `SSS000.mp3`
-  ///     basmala files: the basmala is inside each ayah-1 clip.
-  ///   * joined ayat are silent 0.30 s placeholders with a covered_by mapping,
-  ///     i.e. [AudioScheme.covered], NOT [breathCombining] over byte-identical
-  ///     files.
-  ///   * no missing ayat — every one of the 6214 is present.
-  /// So this should become `scheme: AudioScheme.covered` with a coveredAyat set
-  /// of ~1080 entries (too large to inline — it wants an asset file), and
-  /// [abusenainahMissingAyat] should go. [breathCombining] has already been
-  /// dropped: it described byte-identical duplicate files the new cut has none of.
+  /// **He is هبطي**, so several ayat share one breath. The timings express that
+  /// the same way the per-ayah mirrors did: the covering ayah's span runs to the
+  /// end of its whole breath and the ayat it swallows have no span at all, so
+  /// `clipsFor` returns `[]` and playback advances. 1080 ayat across 724 breaths
+  /// are grouped this way — the same set, cross-checked against قنيوه, that the
+  /// per-ayah build used. Nothing a listener does behaves differently: sequential
+  /// playback, single-ayah repeat, page/thumn/range repeat and offline download
+  /// all work exactly as they do for every other reciter.
   ///
-  /// Kept out of [all] meanwhile, so none of this reaches a user. The cut and
-  /// its tooling live outside the repo — see D:/AbuSenainah/INDEX.md.
+  /// Quality: 113 of the 114 source files were already CBR, so they are passed
+  /// through **bit-for-bit** (`-c:a copy`) — no second lossy generation at all.
+  /// Only surah 28 was VBR at source and had to be re-encoded (128 kbps CBR,
+  /// above its ~102 kbps average). CBR matters here because every ayah boundary
+  /// is a seek, and a deep seek into a VBR file without a seek table lands off.
+  ///
+  /// The older per-ayah build is still live at `abusenainah/` and is deliberately
+  /// left in place; this entry points at `abusenainah_timed/` instead.
   static const Reciter abusenainahQaloun = Reciter(
     id: 'abusenainah_qaloun',
     name: 'محمد أبوسنينة',
     riwaya: 'رواية قالون',
-    audioBaseUrl: 'https://audio.mushaf-qaloon.com/abusenainah/',
-    cacheFolder: 'audio_cache_abusenainah',
-    scheme: AudioScheme.nativeQaloun,
-    missingAyat: abusenainahMissingAyat,
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/abusenainah_timed/',
+    cacheFolder: 'audio_cache_abusenainah_timed',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/abusenainah_timed/',
   );
 
-  /// Ayat محمد أبوسنينة's source never published — verified by HEAD-probing every
-  /// surah boundary on nquran: al-Kahf stops at file 099 and al-Mutaffifin at
-  /// 035, while every other surah runs the full [madaniAyahCounts]. 7 ayat in
-  /// total, so his complete download is 6320 files rather than 6327.
-  static const Map<int, Set<int>> abusenainahMissingAyat = {
-    18: {100, 101, 102, 103, 104, 105},
-    83: {36},
-  };
 
   /// Ali ibn Abdurrahman Al-Hudaifi — Qaloun.
   ///
@@ -296,26 +327,61 @@ class Reciter {
     coveredAyat: doukaliCoveredAyat,
   );
 
+  /// Abdul Hamid Al-Qryw (عبدالحميد القريو) — Qaloun.
+  ///
+  /// The first reciter on [AudioScheme.timedSurah]: 114 whole-surah MP3s plus
+  /// `timings/SSS.json`, instead of 6214 per-ayah files. Nothing about the
+  /// listening experience differs — see that scheme's note for why every repeat
+  /// mode still works.
+  ///
+  /// Source: midad.com collection 464608 ("مصحف عبدالحميد القريو - قالون - مرتل",
+  /// narration id 4 = قالون عن نافع), mirrored to our own R2 bucket like every
+  /// other reciter. way2quran serves the identical master; islamweb blocks
+  /// direct fetches.
+  ///
+  /// Two source facts worth keeping:
+  ///   * midad's and way2quran's published `015.mp3` is **الحجر recorded
+  ///     twice**, joined at a 0.6s silence at 942.99s — 32.4 min where ~15.5 is
+  ///     right, and re-downloading from either site will not fix it. Our
+  ///     mirror's surah 15 comes from a different, complete recording (an
+  ///     islamweb.net.qa copy) instead: shape-correlates at 0.976 against a
+  ///     verified reference reciter (matching the khatma-wide median, up from
+  ///     0.66–0.68 for either half of the doubled file) and flags zero outlier
+  ///     ayat, versus 21–34 for the doubled file's two halves.
+  ///   * The published audio is VBR with no seek table, which would make a deep
+  ///     seek land seconds off. Our mirror is re-encoded to 128 kbps **CBR**
+  ///     before alignment, so the timings match what the app actually plays.
+  static const Reciter alqrywQaloun = Reciter(
+    id: 'alqryw_qaloun',
+    name: 'عبدالحميد القريو',
+    shortName: 'عبدالحميد القريو',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/alqryw/',
+    cacheFolder: 'audio_cache_alqryw',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/alqryw/',
+  );
+
   /// All reciters offered in the picker, in display order.
   ///
-  /// [abusenainahQaloun] is deliberately NOT listed yet: the nquran mirror it
-  /// was built from turned out to be unusable — poor audio quality, and whole
-  /// surahs recited by someone else entirely (surah 53 is Al-Husary). His entry
-  /// and plumbing stay so the audio can be re-cut from a continuous khatma and
-  /// dropped into the same bucket folder; add him back here once that lands.
   static const List<Reciter> all = [
     husaryQaloun,
     naihiQaloun,
     qaniwahQaloun,
     hudaifiQaloun,
     doukaliQaloun,
+    alqrywQaloun,
+    abusenainahQaloun,
   ];
 
   /// Every reciter the code knows about, including any not currently offered in
   /// the picker. Use this for anything that must work for a reciter regardless
   /// of whether it is listed — loading [continuationsAsset]s, tests — and [all]
   /// only for what the user can actually choose.
-  static const List<Reciter> allDefined = [...all, abusenainahQaloun];
+  static const List<Reciter> allDefined = all;
 
   /// The reciter used before the user has chosen one.
   static const Reciter fallback = husaryQaloun;

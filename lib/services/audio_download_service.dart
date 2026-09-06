@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/reciter.dart';
 import 'reciter_service.dart';
+import 'surah_timings_service.dart';
 
 class AudioDownloadState {
   final bool isDownloading;
@@ -16,6 +17,16 @@ class AudioDownloadState {
   final bool isComplete;
   final int installedBytes;
 
+  /// How far through the file currently downloading, 0..1.
+  ///
+  /// Only ever non-zero for [AudioScheme.timedSurah], where a "file" is a whole
+  /// surah: al-Baqarah alone is ~90 MB, so a purely file-counted bar would sit
+  /// frozen for minutes and look broken. Folding the in-flight file's progress
+  /// into [progressFraction] keeps the bar moving at the same rhythm users see
+  /// for the per-ayah reciters. Stays 0 for every other scheme, so their bar
+  /// behaves exactly as before.
+  final double partialFileFraction;
+
   const AudioDownloadState({
     this.isDownloading = false,
     this.isPaused = false,
@@ -23,10 +34,12 @@ class AudioDownloadState {
     this.totalFiles = 0,
     this.isComplete = false,
     this.installedBytes = 0,
+    this.partialFileFraction = 0,
   });
 
-  double get progressFraction =>
-      totalFiles > 0 ? downloadedFiles / totalFiles : 0;
+  double get progressFraction => totalFiles > 0
+      ? ((downloadedFiles + partialFileFraction) / totalFiles).clamp(0.0, 1.0)
+      : 0;
 
   String get progressLabel => '$downloadedFiles / $totalFiles ملف';
   String get percentLabel => '${(progressFraction * 100).round()}%';
@@ -47,6 +60,7 @@ class AudioDownloadState {
     int? totalFiles,
     bool? isComplete,
     int? installedBytes,
+    double? partialFileFraction,
   }) {
     return AudioDownloadState(
       isDownloading: isDownloading ?? this.isDownloading,
@@ -55,6 +69,7 @@ class AudioDownloadState {
       totalFiles: totalFiles ?? this.totalFiles,
       isComplete: isComplete ?? this.isComplete,
       installedBytes: installedBytes ?? this.installedBytes,
+      partialFileFraction: partialFileFraction ?? this.partialFileFraction,
     );
   }
 }
@@ -67,15 +82,22 @@ class SurahDownloadState {
   final int downloadedFiles;
   final int totalFiles;
 
+  /// Progress through the file currently downloading, 0..1. Matters most for
+  /// [AudioScheme.timedSurah], where a surah IS one file: without it the bar
+  /// would sit at 0% and then jump straight to 100%.
+  final double partialFileFraction;
+
   const SurahDownloadState({
     this.surah = 0,
     this.isDownloading = false,
     this.downloadedFiles = 0,
     this.totalFiles = 0,
+    this.partialFileFraction = 0,
   });
 
-  double get progressFraction =>
-      totalFiles > 0 ? downloadedFiles / totalFiles : 0;
+  double get progressFraction => totalFiles > 0
+      ? ((downloadedFiles + partialFileFraction) / totalFiles).clamp(0.0, 1.0)
+      : 0;
 }
 
 /// Cached/total file counts for one surah, used to render its row in the
@@ -153,6 +175,11 @@ class AudioDownloadService {
         return _nativeSurahFilenames(reciter, surah);
       case AudioScheme.covered:
         return _coveredSurahFilenames(reciter, surah);
+      case AudioScheme.timedSurah:
+        // One file for the whole surah; the ayah boundaries live in the timing
+        // JSON, which is fetched separately (see _downloadTimings) because it is
+        // not an .mp3 and must not be counted as one.
+        return ['${surah.toString().padLeft(3, '0')}.mp3'];
       case AudioScheme.mergedTail:
         break;
     }
@@ -213,6 +240,69 @@ class AudioDownloadService {
       await dir.create(recursive: true);
     }
     return dir;
+  }
+
+  /// Whether the selected reciter stores one file per surah plus timings.
+  bool get _isTimedScheme =>
+      ReciterService.instance.selected.value.scheme == AudioScheme.timedSurah;
+
+  /// Downloads [url] to [dest], returning the bytes written (0 on failure).
+  ///
+  /// When [onProgress] is given the body is streamed so the caller can report
+  /// progress inside a single large file; otherwise the simpler buffered fetch
+  /// is used, which is what every per-ayah reciter has always done. Either way
+  /// the bytes land in a `.part` file first, so an interrupted download can
+  /// never leave a truncated MP3 that later looks like a complete one.
+  Future<int> _fetchFile(
+    http.Client client,
+    String url,
+    File dest, {
+    void Function(double fraction)? onProgress,
+  }) async {
+    final part = File('${dest.path}.part');
+    try {
+      if (onProgress == null) {
+        final response = await client.get(Uri.parse(url));
+        if (response.statusCode != 200) return 0;
+        await part.writeAsBytes(response.bodyBytes, flush: true);
+        await part.rename(dest.path);
+        return response.bodyBytes.length;
+      }
+
+      final response = await client.send(http.Request('GET', Uri.parse(url)));
+      if (response.statusCode != 200) return 0;
+      final total = response.contentLength ?? 0;
+      final sink = part.openWrite();
+      int received = 0;
+      try {
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (total > 0) onProgress(received / total);
+        }
+      } finally {
+        await sink.close();
+      }
+      await part.rename(dest.path);
+      return received;
+    } catch (_) {
+      try {
+        if (await part.exists()) await part.delete();
+      } catch (_) {}
+      return 0;
+    }
+  }
+
+  /// Fetches the per-surah timing JSONs for a timed-scheme reciter. They are a
+  /// few KB each and are not `.mp3`, so they never enter the file counters —
+  /// but without them the audio cannot be cut into ayat offline.
+  Future<void> _downloadTimings(Iterable<int> surahs) async {
+    if (!_isTimedScheme) return;
+    final reciter = ReciterService.instance.selected.value;
+    for (final s in surahs) {
+      if (_cancelRequested) return;
+      await SurahTimingsService.instance.download(reciter, s);
+    }
   }
 
   Future<void> initialize() async {
@@ -286,6 +376,11 @@ class AudioDownloadService {
     );
 
     try {
+      // Timings first: they are tiny, and a surah's audio is useless without
+      // them. Doing them up front also means an interrupted download still
+      // leaves every already-fetched surah fully playable.
+      await _downloadTimings(List.generate(114, (i) => i + 1));
+
       for (final filename in allFiles) {
         if (_cancelRequested || _pauseRequested) break;
 
@@ -293,14 +388,23 @@ class AudioDownloadService {
         if (await file.exists()) continue;
 
         try {
-          final response = await client.get(Uri.parse('$_baseUrl$filename'));
-          if (response.statusCode == 200) {
-            await file.writeAsBytes(response.bodyBytes);
+          final written = await _fetchFile(
+            client,
+            '$_baseUrl$filename',
+            file,
+            onProgress: _isTimedScheme
+                ? (f) => state.value = state.value.copyWith(
+                      partialFileFraction: f,
+                    )
+                : null,
+          );
+          if (written > 0) {
             downloaded++;
-            installedBytes += response.bodyBytes.length;
+            installedBytes += written;
             state.value = state.value.copyWith(
               downloadedFiles: downloaded,
               installedBytes: installedBytes,
+              partialFileFraction: 0,
             );
           }
         } catch (_) {
@@ -312,17 +416,20 @@ class AudioDownloadService {
         state.value = state.value.copyWith(
           isDownloading: false,
           isPaused: false,
+          partialFileFraction: 0,
         );
       } else if (_pauseRequested) {
         state.value = state.value.copyWith(
           isDownloading: false,
           isPaused: true,
+          partialFileFraction: 0,
         );
       } else {
         state.value = state.value.copyWith(
           isDownloading: false,
           isPaused: false,
           isComplete: downloaded >= allFiles.length,
+          partialFileFraction: 0,
         );
       }
     } finally {
@@ -361,6 +468,8 @@ class AudioDownloadService {
     );
 
     try {
+      await _downloadTimings([surah]);
+
       for (final filename in files) {
         if (_cancelRequested) break;
 
@@ -368,12 +477,24 @@ class AudioDownloadService {
         if (await file.exists()) continue;
 
         try {
-          final response = await client.get(Uri.parse('$_baseUrl$filename'));
-          if (response.statusCode == 200) {
-            await file.writeAsBytes(response.bodyBytes);
+          final written = await _fetchFile(
+            client,
+            '$_baseUrl$filename',
+            file,
+            onProgress: _isTimedScheme
+                ? (f) => surahState.value = SurahDownloadState(
+                      surah: surah,
+                      isDownloading: true,
+                      downloadedFiles: surahDownloaded,
+                      totalFiles: files.length,
+                      partialFileFraction: f,
+                    )
+                : null,
+          );
+          if (written > 0) {
             surahDownloaded++;
             overallDownloaded++;
-            installedBytes += response.bodyBytes.length;
+            installedBytes += written;
             surahState.value = SurahDownloadState(
               surah: surah,
               isDownloading: true,
@@ -459,9 +580,15 @@ class AudioDownloadService {
       if (await dir.exists()) {
         await for (final entity in dir.list()) {
           if (entity is File) await entity.delete();
+          // The timed scheme keeps its per-surah timing JSONs in a `timings/`
+          // subfolder. Deleting only files would leave them behind, so the
+          // reciter would still claim ayah boundaries for audio that is gone.
+          if (entity is Directory) await entity.delete(recursive: true);
         }
       }
     } catch (_) {}
+    SurahTimingsService.instance
+        .forget(ReciterService.instance.selected.value);
 
     _didInitialize = false;
     await initialize();

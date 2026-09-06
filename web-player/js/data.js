@@ -33,7 +33,16 @@ export function getThumns() {
 }
 
 export function getOverrides(reciter) {
+  // A timed mirror has no per-ayah file map — its ayah resolution lives entirely
+  // in the timings table, so there is nothing to override.
+  if (!reciter.overridesFile) return Promise.resolve({});
   return fetchJson('data/' + reciter.overridesFile).then((d) => d.overrides);
+}
+
+/** Ayah spans for a timed mirror ({surah: {ayah: [startMs, endMs]}}), else null. */
+export function getTimings(reciter) {
+  if (!reciter.timingsFile) return Promise.resolve(null);
+  return fetchJson('data/' + reciter.timingsFile).then((d) => d.timings);
 }
 
 export function audioBaseUrl(reciter) {

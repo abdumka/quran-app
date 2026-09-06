@@ -21,11 +21,13 @@ function posCompare(s1, a1, s2, a2) {
  * never rendered.
  */
 export class PlayerEngine {
-  constructor({ pageSurah, surahs, overrides, baseUrl, thumns, onAyahChange, onStop, onError }) {
+  constructor({ pageSurah, surahs, overrides, timings, baseUrl, thumns, onAyahChange, onStop, onError }) {
     this.pageSurah = pageSurah;
     this.surahs = surahs;
     this.surahMap = new Map(surahs.map((s) => [s.number, s]));
     this.overrides = overrides;
+    /** Present only for timed mirrors (one MP3 per surah + ayah spans). */
+    this.timings = timings || null;
     this.baseUrl = baseUrl;
     this.thumns = thumns || [];
     this.onAyahChange = onAyahChange || (() => {});
@@ -66,11 +68,81 @@ export class PlayerEngine {
   // ── position helpers ──────────────────────────────────────────────
 
   _resolve(surah, ayah) {
-    return resolveAyah(this.overrides, surah, ayah);
+    return resolveAyah(this.overrides, surah, ayah, this.timings);
   }
 
-  _filesFor(pos) {
-    return this._resolve(pos.surah, pos.ayah).files;
+  _clipsFor(pos) {
+    return this._resolve(pos.surah, pos.ayah).clips;
+  }
+
+  /**
+   * Starts `audio` at a clip's offset and, for a clipped source, arranges for
+   * it to stop at the clip's end.
+   *
+   * A whole file just plays to its natural 'ended'. A clip has no such event,
+   * so the end is watched two ways: `timeupdate` (native, but only ~4x/sec) and
+   * a timer for the exact remaining time, whichever fires first. The timer is
+   * scaled by playbackRate, and re-armed by setSpeed, so changing speed
+   * mid-ayah does not overrun the boundary.
+   */
+  _startClip(audio, clip) {
+    this._clearClipWatch(audio);
+    audio.playbackRate = this.speed;
+
+    const begin = () => {
+      try {
+        audio.currentTime = clip.start || 0;
+      } catch (e) {
+        /* seeking before metadata — the loadedmetadata path below retries */
+      }
+      audio.play().catch(() => {});
+      if (clip.end != null) this._armClipEnd(audio, clip);
+    };
+
+    if (clip.start && audio.readyState < 1) {
+      audio.addEventListener('loadedmetadata', begin, { once: true });
+      audio._clipSeekPending = begin;
+    } else {
+      begin();
+    }
+  }
+
+  _armClipEnd(audio, clip) {
+    this._clearClipWatch(audio);
+    audio._clipEnd = clip.end;
+    const onTick = () => {
+      if (audio !== this.active || !this.playing) return;
+      if (audio.currentTime >= audio._clipEnd) {
+        this._clearClipWatch(audio);
+        this._advance(false);
+      }
+    };
+    audio._clipTick = onTick;
+    audio.addEventListener('timeupdate', onTick);
+    const remain = (clip.end - audio.currentTime) / (this.speed || 1);
+    if (remain > 0) {
+      audio._clipTimer = setTimeout(() => {
+        if (audio === this.active && this.playing) {
+          this._clearClipWatch(audio);
+          this._advance(false);
+        }
+      }, remain * 1000);
+    }
+  }
+
+  _clearClipWatch(audio) {
+    if (audio._clipTimer) {
+      clearTimeout(audio._clipTimer);
+      audio._clipTimer = null;
+    }
+    if (audio._clipTick) {
+      audio.removeEventListener('timeupdate', audio._clipTick);
+      audio._clipTick = null;
+    }
+    if (audio._clipSeekPending) {
+      audio.removeEventListener('loadedmetadata', audio._clipSeekPending);
+      audio._clipSeekPending = null;
+    }
   }
 
   _nextAyahPos(surah, ayah) {
@@ -84,8 +156,8 @@ export class PlayerEngine {
     let cur = { surah, ayah };
     while (cur) {
       if (boundEnd && posCompare(cur.surah, cur.ayah, boundEnd.surah, boundEnd.ayah) >= 0) return null;
-      const { files } = this._resolve(cur.surah, cur.ayah);
-      if (files.length > 0) return cur;
+      const { clips } = this._resolve(cur.surah, cur.ayah);
+      if (clips.length > 0) return cur;
       cur = this._nextAyahPos(cur.surah, cur.ayah);
     }
     return null;
@@ -103,8 +175,8 @@ export class PlayerEngine {
   // ── the step-planning core, used both to advance and to preload ────
 
   _planNext(pos, fileIdx, ayahRepeatsDone, structuralRepeatsDone) {
-    const files = this._filesFor(pos);
-    if (fileIdx + 1 < files.length) {
+    const clips = this._clipsFor(pos);
+    if (fileIdx + 1 < clips.length) {
       return { pos, fileIdx: fileIdx + 1, isNewAyah: false, ayahRepeatsDone, structuralRepeatsDone };
     }
 
@@ -154,16 +226,23 @@ export class PlayerEngine {
       this.standby.removeAttribute('src');
       return;
     }
-    const stem = this._filesFor(step.pos)[step.fileIdx];
-    this.standby.src = fileUrl(this.baseUrl, stem);
+    const clip = this._clipsFor(step.pos)[step.fileIdx];
+    const url = fileUrl(this.baseUrl, clip.stem);
+    // For a timed mirror the next ayah is usually in the file already loaded on
+    // this element — reassigning src would throw away the buffer and re-fetch a
+    // ~90 MB surah, so only set it when it actually changes.
+    if (this.standby.src !== url) {
+      this.standby.src = url;
+      this.standby.load();
+    }
     this.standby.playbackRate = this.speed;
-    this.standby.load();
   }
 
   _advance(wasError) {
     if (!this.playing) return;
     if (wasError) this.onError({ pos: this.pos, fileIdx: this.fileIdx });
 
+    this._clearClipWatch(this.standby);
     [this.active, this.standby] = [this.standby, this.active];
     let step = this._prepared;
 
@@ -171,8 +250,9 @@ export class PlayerEngine {
       // Preload hadn't landed yet (e.g. settings changed right at the boundary) — recompute now.
       step = this._planNext(this.pos, this.fileIdx, this._ayahRepeatsDone, this._structuralRepeatsDone);
       if (step) {
-        const stem = this._filesFor(step.pos)[step.fileIdx];
-        this.active.src = fileUrl(this.baseUrl, stem);
+        const clip = this._clipsFor(step.pos)[step.fileIdx];
+        const url = fileUrl(this.baseUrl, clip.stem);
+        if (this.active.src !== url) this.active.src = url;
       }
     }
 
@@ -186,9 +266,7 @@ export class PlayerEngine {
     this._ayahRepeatsDone = step.ayahRepeatsDone;
     this._structuralRepeatsDone = step.structuralRepeatsDone;
 
-    this.active.currentTime = 0;
-    this.active.playbackRate = this.speed;
-    this.active.play().catch(() => {});
+    this._startClip(this.active, this._clipsFor(this.pos)[this.fileIdx]);
 
     if (step.isNewAyah) {
       const { coveredBy } = this._resolve(this.pos.surah, this.pos.ayah);
@@ -211,11 +289,10 @@ export class PlayerEngine {
     this._ayahRepeatsDone = 0;
     this._structuralRepeatsDone = 0;
 
-    const stem = this._filesFor(this.pos)[0];
-    this.active.src = fileUrl(this.baseUrl, stem);
-    this.active.playbackRate = this.speed;
-    this.active.currentTime = 0;
-    this.active.play().catch(() => {});
+    const clip = this._clipsFor(this.pos)[0];
+    const url = fileUrl(this.baseUrl, clip.stem);
+    if (this.active.src !== url) this.active.src = url;
+    this._startClip(this.active, clip);
 
     const { coveredBy } = this._resolve(this.pos.surah, this.pos.ayah);
     this.onAyahChange({ surah: this.pos.surah, ayah: this.pos.ayah, coveredBy });
@@ -230,6 +307,8 @@ export class PlayerEngine {
   _stopInternal(notify) {
     const wasPlaying = this.playing;
     this.playing = false;
+    this._clearClipWatch(this.audioA);
+    this._clearClipWatch(this.audioB);
     this.audioA.pause();
     this.audioA.removeAttribute('src');
     this.audioB.pause();
@@ -250,6 +329,12 @@ export class PlayerEngine {
     this.speed = x;
     this.active.playbackRate = x;
     this.standby.playbackRate = x;
+    // A clip's stop timer was sized for the old rate; re-arm it or the ayah
+    // would run past its boundary (slower) or be cut short (faster).
+    if (this.playing && this.pos) {
+      const clip = this._clipsFor(this.pos)[this.fileIdx];
+      if (clip && clip.end != null) this._armClipEnd(this.active, clip);
+    }
   }
 
   // ── ayah repeat (restarts the current ayah immediately) ────────────
@@ -260,11 +345,10 @@ export class PlayerEngine {
     this._ayahRepeatsDone = 0;
     if (this.playing && this.pos) {
       this.fileIdx = 0;
-      const stem = this._filesFor(this.pos)[0];
-      this.active.src = fileUrl(this.baseUrl, stem);
-      this.active.playbackRate = this.speed;
-      this.active.currentTime = 0;
-      this.active.play().catch(() => {});
+      const clip = this._clipsFor(this.pos)[0];
+      const url = fileUrl(this.baseUrl, clip.stem);
+      if (this.active.src !== url) this.active.src = url;
+      this._startClip(this.active, clip);
       this._prepareNext();
     }
   }

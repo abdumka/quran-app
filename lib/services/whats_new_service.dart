@@ -18,6 +18,7 @@ class WhatsNewService {
   /// nothing else) on each release that should show a "what's new" popup;
   /// leave it empty to skip the popup entirely for a release.
   static const List<String> currentReleaseChanges = [
+    'إضافة تلاوة جديدة: الشيخ عبدالحميد القريو برواية قالون، متاحة للاستماع والتحميل.',
     'إضافة تلاوة جديدة: الشيخ الدوكالي محمد العالم برواية قالون، متاحة للاستماع والتحميل.',
     'إمكانية تشغيل التمرير التلقائي مع التلاوة في الوقت نفسه، دون أن يوقف أحدهما الآخر، مع بقاء شريط التمرير ظاهرًا فوق شريط التلاوة.',
     'إضافة سرعات أبطأ للتمرير التلقائي لتناسب القرّاء المرتّلين، مع حفظ السرعة المختارة.',

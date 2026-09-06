@@ -101,13 +101,34 @@ RECITERS = [
         "coveredSourceUrl": "https://audio.mushaf-qaloon.com/mushaf_doukali.html",
     },
     {
+        # Moved from the per-ayah "covered" mirror to one MP3 per surah plus a
+        # span table. He is هبطي, so several ayat share a breath: the covering
+        # ayah's span runs to the end of the breath and the ayat it swallows
+        # have no span, which is exactly what the covered-overrides map used to
+        # express. The old per-ayah build is still live under `abusenainah/`.
         "id": "abusenainah",
         "name": "محمد أبوسنينة",
         "riwaya": "رواية قالون",
-        "folder": "abusenainah",
-        "scheme": "covered",
+        "folder": "abusenainah_timed",
+        "scheme": "timed",
         "underReview": True,
-        "coveredSourceUrl": "https://audio.mushaf-qaloon.com/mushaf_abusenainah.html",
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_abusenainah_timed.html",
+        "timingsDir": "D:/AbuSenainahTimed/timings",
+    },
+    {
+        # The first mirror stored as one MP3 per SURAH plus a table of ayah
+        # spans, rather than 6214 per-ayah files. It therefore has no overrides
+        # map at all — the timings file answers every question the override map
+        # answered for the others, including which ayat have no audio of their
+        # own. See AudioScheme.timedSurah in lib/models/reciter.dart.
+        "id": "alqryw",
+        "name": "عبدالحميد القريو",
+        "riwaya": "رواية قالون",
+        "folder": "alqryw",
+        "scheme": "timed",
+        "underReview": True,
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_alqryw.html",
+        "timingsDir": "D:/AlQryw/timings",
     },
 ]
 
@@ -121,6 +142,36 @@ def write_json(name: str, obj) -> Path:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
     return path
+
+
+def build_timings_file(reciter: dict) -> int:
+    """Collapses a timed reciter's 114 per-surah timing JSONs into the single
+    file the web player fetches, {"<surah>": {"<ayah>": [startMs, endMs]}}.
+
+    The app fetches these per surah from R2 (114 small files, cached to disk as
+    playback reaches each surah); the web player has no disk cache and would pay
+    a request per surah, so it takes one bundled file instead. Both are generated
+    from the same source of truth, so they cannot drift.
+    """
+    src = Path(reciter["timingsDir"])
+    if not src.is_dir():
+        raise SystemExit(
+            f"timingsDir for {reciter['id']} not found: {src}\n"
+            "Run build_timings.py in the khatma's working set first."
+        )
+    out, n = {}, 0
+    for surah in range(1, 115):
+        f = src / f"{surah:03d}.json"
+        if not f.exists():
+            print(f"  ! missing timings for surah {surah}")
+            continue
+        doc = json.loads(f.read_text(encoding="utf-8"))
+        spans = {a: v for a, v in doc["ayat"].items() if v}
+        out[str(surah)] = spans
+        n += len(spans)
+    write_json(f"timings_{reciter['id']}.json",
+               {"reciterId": reciter["id"], "timings": out})
+    return n
 
 
 def load_output_json() -> dict[int, dict]:
@@ -382,19 +433,12 @@ def main() -> None:
     )
     print(f"  {len(doukali_covered)} overrides")
 
-    print("Fetching/loading AbuSenainah covered-ayah data ...")
-    abusenainah_covered = fetch_covered_source(
-        "https://audio.mushaf-qaloon.com/mushaf_abusenainah.html",
-        SOURCES_CACHE / "abusenainah_covered.json",
-    )
-    assert len(abusenainah_covered) == 1080, (
-        f"abusenainah covered count changed: {len(abusenainah_covered)}"
-    )
-    write_json(
-        "overrides_abusenainah.json",
-        {"reciterId": "abusenainah", "overrides": build_overrides_covered(abusenainah_covered)},
-    )
-    print(f"  {len(abusenainah_covered)} overrides")
+    for r in RECITERS:
+        if r["scheme"] != "timed":
+            continue
+        print(f"Building timings for {r['id']} ...")
+        n = build_timings_file(r)
+        print(f"  {n} ayat with spans")
 
     print("Parsing thumn boundaries ...")
     thumns = parse_thumn_entries()
@@ -403,6 +447,7 @@ def main() -> None:
     print("Writing reciters.json ...")
     reciters_out = []
     for r in RECITERS:
+        timed = r["scheme"] == "timed"
         reciters_out.append(
             {
                 "id": r["id"],
@@ -412,10 +457,17 @@ def main() -> None:
                 "folder": r["folder"],
                 "scheme": r["scheme"],
                 "breathCombining": r.get("breathCombining", False),
-                "overridesFile": f"overrides_{r['id']}.json",
+                # A timed mirror has no per-ayah override map; the resolver keys
+                # off the presence of timingsFile instead.
+                **({"timingsFile": f"timings_{r['id']}.json"} if timed
+                   else {"overridesFile": f"overrides_{r['id']}.json"}),
                 # Present only for reciters awaiting review, so the UI can
                 # render the badge without hardcoding which ones they are.
                 **({"reviewNote": REVIEW_LABEL} if r.get("underReview") else {}),
+                # Drives the home page's "ختمات تحت المراجعة" section. A reciter
+                # appears there purely by having this key, so adding the next one
+                # needs no change to index.html or ui-home.js.
+                **({"reviewUrl": r["reviewUrl"]} if r.get("reviewUrl") else {}),
             }
         )
     write_json("reciters.json", {"reciters": reciters_out})

@@ -80,46 +80,45 @@ void main() {
     });
   });
 
-  group('أبوسنينة (native scheme + breath combining)', () {
+  group('أبوسنينة (timed surah scheme)', () {
     setUp(() => select(Reciter.abusenainahQaloun));
 
-    test('basmala file per surah except At-Tawba, native Madani counts', () {
-      expect(downloads.getSurahFilenames(2), contains('002000.mp3'));
-      expect(downloads.getSurahFilenames(9), isNot(contains('009000.mp3')));
-      expect(
-        downloads.getSurahFilenames(2).length,
-        Reciter.madaniAyahCounts[1] + 1,
-      );
+    test('one file per surah, not per ayah', () {
+      // The whole point of the timed scheme: a surah IS one file, and the ayah
+      // boundaries live in the timing JSON rather than in file names.
+      expect(downloads.getSurahFilenames(1), ['001.mp3']);
+      expect(downloads.getSurahFilenames(2), ['002.mp3']);
+      expect(downloads.getSurahFilenames(114), ['114.mp3']);
     });
 
-    test('the 7 unpublished ayat are left out of the download list', () {
-      // Al-Kahf: the mirror stops at 099, so 100..105 have no file at all.
-      final kahf = downloads.getSurahFilenames(18);
-      expect(kahf, contains('018099.mp3'));
-      for (int a = 100; a <= 105; a++) {
-        expect(kahf, isNot(contains('018${a.toString().padLeft(3, '0')}.mp3')));
-      }
-      expect(kahf.length, Reciter.madaniAyahCounts[17] - 6 + 1); // +1 basmala
-
-      // Al-Mutaffifin: stops at 035.
-      final mutaffifin = downloads.getSurahFilenames(83);
-      expect(mutaffifin, contains('083035.mp3'));
-      expect(mutaffifin, isNot(contains('083036.mp3')));
+    test('a complete download is 114 files', () {
+      expect(downloads.getAllFilenames().length, 114);
     });
 
-    test('a complete download is the 6320 files that actually exist', () {
-      // 6214 ayat + 113 basmalas - 7 upstream gaps. Matches the file count the
-      // R2 mirror was verified to hold.
-      expect(downloads.getAllFilenames().length, 6214 + 113 - 7);
+    test('no per-ayah or basmala file names anywhere', () {
+      final all = downloads.getAllFilenames();
+      expect(all.every((f) => f.length == '001.mp3'.length), isTrue);
+      expect(all, isNot(contains('002000.mp3')));
+      expect(all, isNot(contains('001001.mp3')));
     });
 
-    test('surah 37 is addressed in normal app numbering', () {
-      // The source folder is shifted by one; the mirror renumbers it on upload,
-      // so the app must ask for 037000 (basmala) .. 037181 and never 037182.
-      final saffat = downloads.getSurahFilenames(37);
-      expect(saffat.first, '037000.mp3');
-      expect(saffat.last, '037181.mp3');
-      expect(saffat.length, Reciter.madaniAyahCounts[36] + 1);
+    test('points at the timed mirror, with timings on the CORS-enabled host', () {
+      const r = Reciter.abusenainahQaloun;
+      expect(r.scheme, AudioScheme.timedSurah);
+      // The older per-ayah build stays live at abusenainah/ — this must not
+      // silently point back at it.
+      expect(r.audioBaseUrl, endsWith('/abusenainah_timed/'));
+      // audio.mushaf-qaloon.com sends no Access-Control-Allow-Origin, so the
+      // web build could not fetch timings from beside the MP3s.
+      expect(r.timingsBaseUrl, startsWith('https://quran-content.'));
+    });
+
+    test('needs none of the per-ayah scheme tables', () {
+      const r = Reciter.abusenainahQaloun;
+      expect(r.coveredAyat, isEmpty);
+      expect(r.missingAyat, isEmpty);
+      expect(r.continuationsAsset, isNull);
+      expect(r.breathCombining, isFalse);
     });
   });
 

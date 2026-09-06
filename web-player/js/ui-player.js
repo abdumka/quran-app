@@ -1,4 +1,4 @@
-import { getReciter, getOverrides, getQuranText, getThumns, audioBaseUrl } from './data.js';
+import { getReciter, getOverrides, getTimings, getQuranText, getThumns, audioBaseUrl } from './data.js';
 import { resolveAyah } from './audio-resolver.js';
 import { PlayerEngine } from './player-engine.js';
 
@@ -63,6 +63,7 @@ async function main() {
     return;
   }
   const overrides = await getOverrides(reciter);
+  const timings = await getTimings(reciter);
   const surah = surahs.find((s) => s.number === surahNumber);
   if (!surah) {
     el.reciterName.textContent = reciter.name;
@@ -106,7 +107,7 @@ async function main() {
   const rows = new Map();
   surah.ayahs.forEach((text, i) => {
     const ayahNum = i + 1;
-    const { coveredBy } = resolveAyah(overrides, surah.number, ayahNum);
+    const { coveredBy } = resolveAyah(overrides, surah.number, ayahNum, timings);
     const row = document.createElement('div');
     row.className = 'ayah';
     row.dataset.ayah = String(ayahNum);
@@ -126,6 +127,7 @@ async function main() {
     pageSurah: surah.number,
     surahs,
     overrides,
+    timings,
     baseUrl: audioBaseUrl(reciter),
     thumns,
     onAyahChange: ({ surah: s, ayah: a }) => {
@@ -151,7 +153,7 @@ async function main() {
   engine.setSpeed(parseFloat(el.speed.value));
 
   function onAyahClick(ayahNum) {
-    const { coveredBy } = resolveAyah(overrides, surah.number, ayahNum);
+    const { coveredBy } = resolveAyah(overrides, surah.number, ayahNum, timings);
     if (coveredBy) {
       const [cs, ca] = coveredBy.split('-').map(Number);
       engine.playFrom(cs, ca);

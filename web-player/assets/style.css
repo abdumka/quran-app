@@ -305,3 +305,25 @@ footer.site {
   color: #7a7166;
 }
 
+
+/* Links to the per-reciter review pages (see mushaf_<slug>.html on R2). Kept
+   visually quieter than the app banner above it: reviewing is a side path for
+   the few people helping check a new khatma, not the site's main call to
+   action. */
+.review-banner {
+  margin-top: 18px;
+  background: #f4f9f7;
+  border: 1px solid #d8e8e1;
+  border-radius: 14px;
+  padding: 14px 16px;
+  text-align: center;
+}
+.review-banner .rb-title { font-weight: 700; color: var(--g); }
+.review-banner .rb-sub { font-size: 13px; color: #5c6e67; margin-top: 4px; }
+.review-banner .rb-links {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
