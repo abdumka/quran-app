@@ -383,8 +383,13 @@ class Reciter {
   /// only for what the user can actually choose.
   static const List<Reciter> allDefined = all;
 
-  /// The reciter used before the user has chosen one.
-  static const Reciter fallback = husaryQaloun;
+  /// The reciter used before the user has chosen one, and whenever a stored id
+  /// no longer matches anything in [all].
+  ///
+  /// Only affects users who have not picked: a saved choice is resolved by
+  /// [byId] and is never overridden. [all] keeps its own order regardless —
+  /// this is the default, not the first entry.
+  static const Reciter fallback = naihiQaloun;
 
   static Reciter byId(String? id) {
     return all.firstWhere(
