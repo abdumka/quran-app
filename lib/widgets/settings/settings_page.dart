@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'settings_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:screen_brightness/screen_brightness.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/reciter.dart';
@@ -734,6 +735,43 @@ class _SettingsPageState extends State<SettingsPage> {
         context,
       ).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط')));
     }
+  }
+
+  /// Both store links go out regardless of the sender's platform: the
+  /// recipients (often a whole group chat) may be on either, plus the web
+  /// version for anyone reading on a computer.
+  static const String _shareAppMessage =
+      'المصحف الجامع\n'
+      'تطبيق لقراءة القرآن الكريم، مع التلاوة والتفسير.\n\n'
+      '📱 لأجهزة أندرويد:\n'
+      '${AppUpdateService.playStoreUrl}\n\n'
+      '🍏 لأجهزة آيفون:\n'
+      '${AppUpdateService.appStoreUrl}\n\n'
+      '🌐 من المتصفح:\n'
+      'https://www.mushaf-qaloon.com/app/';
+
+  Future<void> _shareApp(BuildContext tileContext) async {
+    final box = tileContext.findRenderObject() as RenderBox?;
+    final origin = box == null
+        ? null
+        : box.localToGlobal(Offset.zero) & box.size;
+    try {
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          text: _shareAppMessage,
+          subject: 'المصحف الجامع',
+          sharePositionOrigin: origin,
+        ),
+      );
+      if (result.status != ShareResultStatus.unavailable) return;
+    } catch (_) {
+      // Fall through to the clipboard (e.g. a browser without Web Share).
+    }
+    await Clipboard.setData(const ClipboardData(text: _shareAppMessage));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم نسخ روابط التطبيق، الصقها لمشاركتها')),
+    );
   }
 
   Future<void> _handleReciterSelect(Reciter reciter) async {
@@ -1611,38 +1649,49 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 6),
                       _buildAdvancedSettingsSection(),
                       const SizedBox(height: 6),
-                      // Navigation entries paired two-per-row to keep the
+                      // Navigation entries, three to a row to keep the
                       // section compact.
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
+                        child: Row(
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: CompactActionTile(
-                                    title: 'حول التطبيق',
-                                    icon: Icons.info_outline_rounded,
-                                    onTap: () => _openFullscreenMenuPage(
-                                      title: 'حول التطبيق',
-                                      child: const AboutContent(),
-                                    ),
+                            Expanded(
+                              child: CompactActionTile(
+                                title: 'حول التطبيق',
+                                icon: Icons.info_outline_rounded,
+                                stacked: true,
+                                onTap: () => _openFullscreenMenuPage(
+                                  title: 'حول التطبيق',
+                                  child: const AboutContent(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: CompactActionTile(
+                                title: 'تواصل معنا',
+                                icon: Icons.alternate_email_rounded,
+                                stacked: true,
+                                onTap: () => _openFullscreenMenuPage(
+                                  title: 'تواصل معنا',
+                                  child: ContactContent(
+                                    onOpenLink: _openUsefulLink,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: CompactActionTile(
-                                    title: 'تواصل معنا',
-                                    icon: Icons.alternate_email_rounded,
-                                    onTap: () => _openFullscreenMenuPage(
-                                      title: 'تواصل معنا',
-                                      child: ContactContent(
-                                        onOpenLink: _openUsefulLink,
-                                      ),
-                                    ),
-                                  ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              // Builder so the share sheet can anchor to this
+                              // tile (iPad presents it as a popover).
+                              child: Builder(
+                                builder: (tileContext) => CompactActionTile(
+                                  title: 'شارك التطبيق',
+                                  icon: Icons.share_rounded,
+                                  stacked: true,
+                                  onTap: () => _shareApp(tileContext),
                                 ),
-                              ],
+                              ),
                             ),
                           ],
                         ),

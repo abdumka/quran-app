@@ -335,12 +335,17 @@ class CompactActionTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onInfo;
 
+  /// Icon above a centred title instead of side by side — for rows of three,
+  /// where a phone-width cell is too narrow for icon + title on one line.
+  final bool stacked;
+
   const CompactActionTile({
     super.key,
     required this.title,
     required this.icon,
     required this.onTap,
     this.onInfo,
+    this.stacked = false,
   });
 
   @override
@@ -356,8 +361,10 @@ class CompactActionTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFE8DCC8), width: 0.5),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-          child: Row(
+          padding: stacked
+              ? const EdgeInsets.symmetric(vertical: 12, horizontal: 6)
+              : const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          child: stacked ? _buildStacked() : Row(
             textDirection: TextDirection.rtl,
             children: [
               PremiumIconWrapper(icon: icon),
@@ -379,6 +386,28 @@ class CompactActionTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildStacked() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        PremiumIconWrapper(icon: icon),
+        const SizedBox(height: 6),
+        Text(
+          title,
+          textDirection: TextDirection.rtl,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2C2C2C),
+          ),
+        ),
+      ],
     );
   }
 }
