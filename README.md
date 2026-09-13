@@ -1,6 +1,6 @@
-# islamic_dawah_mushaf
+# المصحف الجامع
 
-Mushaf Al-Dawah Al-Islamia Al-Jame.
+Al-Mushaf Al-Jame.
 
 ## Getting Started
 

@@ -222,9 +222,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _showBrowseModeGuide =
           !(prefs.getBool(_browseModeGuideDismissedPrefKey) ?? false);
-      // The margins tile is hidden on web (no device filesystem to store the
-      // downloaded images), so never run its coach step there.
-      _showMarginGuide = !kIsWeb &&
+      _showMarginGuide =
           !(prefs.getBool(_marginGuideDismissedPrefKey) ?? false);
       _showAutoScrollGuide =
           !(prefs.getBool(_autoScrollGuideDismissedPrefKey) ?? false);
@@ -484,7 +482,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case SettingsCoachStep.browseMode:
         return 'من هنا تختار بين وضع الصفحات للتقليب صفحة صفحة، أو وضع التمرير للقراءة المستمرة. الرسم يوضح الفرق بين الطريقتين بشكل بصري.';
       case SettingsCoachStep.autoScroll:
-        return 'شغّل التمرير التلقائي من هنا، وسيحوّل التطبيق القراءة إلى وضع التمرير تلقائيًا ثم يمكنك التحكم في السرعة من الشريط المخصص.';
+        return 'شغّل التمرير التلقائي من هنا، وسيحوّل التطبيق القراءة إلى وضع التمرير تلقائيًا ثم يمكنك التحكم في السرعة من الشريط المخصص. ويمكن تشغيله مع التلاوة في الوقت نفسه، فخفّض السرعة حتى تناسب سرعة القارئ.';
       case SettingsCoachStep.marginImages:
         return 'من هذا القسم يمكنك تنزيل عرض الهوامش ثم تفعيله لاحقًا. عند التفعيل ستظهر الصفحة كاملة بإطارها ويختفي الشريط العلوي في هذا العرض.';
       case SettingsCoachStep.hideBar:
@@ -878,7 +876,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() {
       _showBrowseModeGuide = true;
-      _showMarginGuide = !kIsWeb; // tile hidden on web — no coach step there
+      _showMarginGuide = true;
       _showAutoScrollGuide = true;
       _showHifzLensGuide = true;
       _showFullScreenGuide = true;
@@ -921,7 +919,8 @@ class _SettingsPageState extends State<SettingsPage> {
   /// Collapsed "إعدادات التلاوة والتفسير" section: only the title is shown until
   /// the user taps it, then the recitation/tafsir settings (reciter picker,
   /// audio download, background playback and the tafsir edition picker) expand
-  /// inline. Built exactly like [_buildAdvancedSettingsSection]; the
+  /// inline. Rendered by [SettingsGroupCard] like [_buildAdvancedSettingsSection],
+  /// so both nesting sections stay visually distinct from the single tiles; the
   /// [_recitationTafsirController] lets the background-playback coach step open
   /// the section before it measures that tile.
   Widget _buildRecitationTafsirSection() {
@@ -999,58 +998,21 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     ];
 
-    return SettingsCard(
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            controller: _recitationTafsirController,
-            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-            childrenPadding: EdgeInsets.zero,
-            iconColor: const Color(0xFF8B7355),
-            collapsedIconColor: const Color(0xFF8B7355),
-            shape: const Border(),
-            collapsedShape: const Border(),
-            title: const Row(
-              children: [
-                Icon(Icons.headphones_rounded,
-                    color: Color(0xFF8B7355), size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'إعدادات التلاوة والتفسير',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2C2C2C),
-                  ),
-                ),
-              ],
-            ),
-            children: [
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0)
-                  const Divider(
-                    height: 1,
-                    thickness: 0.5,
-                    indent: 12,
-                    endIndent: 12,
-                    color: Color(0xFFE8DCC8),
-                  ),
-                children[i],
-              ],
-            ],
-          ),
-        ),
-      ),
+    return SettingsGroupCard(
+      controller: _recitationTafsirController,
+      icon: Icons.headphones_rounded,
+      title: 'إعدادات التلاوة والتفسير',
+      children: children,
     );
   }
 
-  /// Collapsed "advanced settings" section, shown just below the audio
-  /// download tile. To add a new advanced setting later, append its widget to
-  /// [advancedChildren] — a thin divider is inserted automatically between
-  /// entries, so no further layout wiring is needed.
+  /// Collapsed "advanced settings" section, shown just below the recitation and
+  /// tafsir section. To add a new advanced setting later, append its widget to
+  /// [advancedChildren] — [SettingsGroupCard] inserts a thin divider between
+  /// entries and keeps the count badge in sync, so no further wiring is needed.
   Widget _buildAdvancedSettingsSection() {
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
     final advancedChildren = <Widget>[
       // The "جودة عرض الصفحات" quality picker was removed: page images now
       // always render at the highest fidelity ("فائق الجودة"), which is bundled
@@ -1177,50 +1139,39 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         },
       ),
-    ];
-
-    return SettingsCard(
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-            childrenPadding: EdgeInsets.zero,
-            iconColor: const Color(0xFF8B7355),
-            collapsedIconColor: const Color(0xFF8B7355),
-            shape: const Border(),
-            collapsedShape: const Border(),
-            title: const Row(
-              children: [
-                Icon(Icons.tune_rounded, color: Color(0xFF8B7355), size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'إعدادات متقدمة',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2C2C2C),
-                  ),
-                ),
-              ],
+      // The guides reset stays portrait-only: the coach tour it replays is
+      // itself portrait-only.
+      if (!isLandscape)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Container(
+            key: _resetGuidesKey,
+            child: CompactActionTile(
+              title: 'إعادة الإرشادات',
+              icon: Icons.tips_and_updates_rounded,
+              onInfo: () => _presentCoachManually(
+                SettingsCoachStep.resetGuides,
+              ),
+              onTap: _resetGuides,
             ),
-            children: [
-              for (var i = 0; i < advancedChildren.length; i++) ...[
-                if (i > 0)
-                  const Divider(
-                    height: 1,
-                    thickness: 0.5,
-                    indent: 12,
-                    endIndent: 12,
-                    color: Color(0xFFE8DCC8),
-                  ),
-                advancedChildren[i],
-              ],
-            ],
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Container(
+          key: _downloadsManagementKey,
+          child: DownloadsManagementTile(
+            onOpen: _openDownloadsManagementPage,
+            onInfo: () => _showInfoNotice(_downloadsManagementInfoText),
           ),
         ),
       ),
+    ];
+
+    return SettingsGroupCard(
+      icon: Icons.tune_rounded,
+      title: 'إعدادات متقدمة',
+      children: advancedChildren,
     );
   }
 
@@ -1561,12 +1512,13 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      // Margin images (هوامش) are delivered as a downloadable zip
-                      // extracted to device storage, which the web has no
-                      // filesystem for — so the feature can't work in the
-                      // browser. Hide the whole tile on web (it stays fully
-                      // available on Android/iOS).
-                      if (!kIsWeb)
+                      // Margin images (هوامش): on Android/iOS these come from a
+                      // downloadable zip extracted to device storage. The web
+                      // has no filesystem for that, so there the pages stream
+                      // per-page from R2 and the service reports isAvailable
+                      // immediately — which makes this tile render as a plain
+                      // title + switch (the download/progress/pause controls
+                      // are all gated behind isDownloading/isPaused).
                       Container(
                         key: _marginImagesCardKey,
                         child: SettingsCard(
@@ -1594,35 +1546,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       _buildRecitationTafsirSection(),
                       const SizedBox(height: 6),
                       _buildAdvancedSettingsSection(),
-                      if (!isLandscape) ...[
-                        const SizedBox(height: 6),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Container(
-                            key: _resetGuidesKey,
-                            child: CompactActionTile(
-                              title: 'إعادة الإرشادات',
-                              icon: Icons.tips_and_updates_rounded,
-                              onInfo: () => _presentCoachManually(
-                                SettingsCoachStep.resetGuides,
-                              ),
-                              onTap: _resetGuides,
-                            ),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 6),
-                      Container(
-                        key: _downloadsManagementKey,
-                        child: SettingsCard(
-                          child: DownloadsManagementTile(
-                            onOpen: _openDownloadsManagementPage,
-                            onInfo: () => _showInfoNotice(
-                              _downloadsManagementInfoText,
-                            ),
-                          ),
-                        ),
-                      ),
                       const SizedBox(height: 6),
                       // Navigation entries paired two-per-row to keep the
                       // section compact.

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'services/quran_json_service.dart';
 import 'services/ayah_position_service.dart';
-import 'utils/arabic_text_normalizer.dart';
+import 'utils/copy_helper.dart';
 
 class SearchPage extends StatefulWidget {
   final Function(int page) onGoToPage;
@@ -23,6 +23,11 @@ class SearchResult {
   final String text;
   final int score;
   final bool containsFullQuery;
+  // How many times the query occurs inside this single ayah. An ayah that
+  // repeats the word twice is still one card, but counts twice in the tally.
+  // Smart (non-exact) matches have no literal occurrence to count, so they
+  // count as one.
+  final int matchCount;
 
   const SearchResult({
     required this.page,
@@ -32,6 +37,7 @@ class SearchResult {
     required this.text,
     required this.score,
     required this.containsFullQuery,
+    required this.matchCount,
   });
 }
 
@@ -42,6 +48,9 @@ class _IndexedAyah {
   final int ayah;
   final String text;
   final String normalizedText;
+  // Like normalizedText but with Ta Marbuta kept distinct from Ha, so exact
+  // matching can tell أمة apart from أمه.
+  final String exactText;
   final List<String> normalizedWords;
 
   const _IndexedAyah({
@@ -51,6 +60,7 @@ class _IndexedAyah {
     required this.ayah,
     required this.text,
     required this.normalizedText,
+    required this.exactText,
     required this.normalizedWords,
   });
 }
@@ -160,6 +170,7 @@ class _SearchPageState extends State<SearchPage> {
               ayah: ayah.ayah,
               text: ayah.text,
               normalizedText: normalizedText,
+              exactText: _normalizeText(ayah.text, exact: true),
               normalizedWords: normalizedText
                   .split(' ')
                   .where((e) => e.isNotEmpty)
@@ -200,18 +211,69 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // Delegates to the shared normalizer (lib/utils/arabic_text_normalizer.dart)
-  // so search and the memorization-test recitation aligner apply
-  // identical rules.
-  String _normalizeText(String text) => normalizeArabicText(text);
+  // `exact: true` keeps Ta Marbuta (ة) distinct from Ha (ه) so an exact
+  // search for أمة doesn't match أمه; everything else (diacritics, script
+  // artifacts the user can't type) is still normalized the same way.
+  String _normalizeText(String text, {bool exact = false}) {
+    var result = text
+        // Normalize Alef Wasla
+        .replaceAll('ٱ', 'ا')
+        // Remove all diacritics and quranic symbols. The dagger alef
+        // (small alef, \u0670) is handled separately below: whether it
+        // should become a full alef or disappear depends on the word.
+        .replaceAll(RegExp(r'[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED]'), '')
+        // Remove Tatweel
+        .replaceAll('ـ', '')
+        // Normalize Alef variations
+        .replaceAll(RegExp(r'[أإآ]'), 'ا')
+        // Normalize Ya variations (including Qalon specific marks)
+        .replaceAll(RegExp(r'[ىےئ]'), 'ي')
+        // Normalize Waw variations
+        .replaceAll('ؤ', 'و');
+    if (!exact) {
+      // Normalize Ta Marbuta to Ha (smart mode only)
+      result = result.replaceAll('ة', 'ه');
+    }
+    return result
+        // Remove standalone Hamza
+        .replaceAll('ء', '')
+        // Remove commas
+        .replaceAll('،', '')
+        // A small closed set of very common words elide the dagger alef
+        // entirely in standard typed Arabic -- e.g. ذَٰلِكَ (dhalika) is
+        // typed "ذلك", not "ذالك". Fix these before the general dagger-alef
+        // rules below run, so users don't have to type a letter that
+        // isn't really there.
+        .replaceAll('ذ\u0670لك', 'ذلك')
+        .replaceAll('ه\u0670ذا', 'هذا')
+        .replaceAll('ه\u0670ذه', 'هذه')
+        .replaceAll('ه\u0670ولا', 'هولا')
+        .replaceAll('اول\u0670يك', 'اوليك')
+        .replaceAll('ل\u0670كن', 'لكن')
+        .replaceAll('رحم\u0670ن', 'رحمن')
+        // A dagger alef at the end of a word is standard Arabic's alef
+        // maqsura (e.g. مُوسَيٰ -> موسى, normalized to موسي) -- also
+        // elided, never expanded.
+        .replaceAll(RegExp(r'\u0670(?=\s|$)'), '')
+        // Any dagger alef remaining sits inside a word that IS normally
+        // written with a full alef (الكتاب, الكافرين, السماوات...), so
+        // expand it.
+        .replaceAll('\u0670', 'ا')
+        // Remove extra spaces
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
 
-  _NormalizedTextMapping _normalizeTextWithMap(String text) {
+  _NormalizedTextMapping _normalizeTextWithMap(
+    String text, {
+    bool exact = false,
+  }) {
     final buffer = StringBuffer();
     final indices = <int>[];
     bool previousWasSpace = false;
 
     for (int i = 0; i < text.length; i++) {
-      final normalizedChar = _normalizeChar(text[i]);
+      final normalizedChar = _normalizeChar(text[i], exact: exact);
       if (normalizedChar == null) continue;
 
       if (normalizedChar == ' ') {
@@ -239,8 +301,80 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  // Delegates to the shared normalizer (lib/utils/arabic_text_normalizer.dart).
-  String? _normalizeChar(String char) => normalizeArabicChar(char);
+  String? _normalizeChar(String char, {bool exact = false}) {
+    if (char.trim().isEmpty) return ' ';
+
+    final code = char.codeUnitAt(0);
+    // Dagger Alef: expanded to a full alef here (matching most words that
+    // carry it, e.g. الكتاب/الكافرين/السماوات). This diverges from the
+    // context-aware handling in _normalizeText for a small set of words
+    // (ذلك, هذا, الرحمن...) where the alef is elided instead -- for those,
+    // the highlight span simply won't be found and the match shows
+    // unhighlighted, which is a cosmetic tradeoff, not a search bug.
+    if (code == 0x0670) return 'ا';
+
+    final isDiacritic =
+        (code >= 0x0610 && code <= 0x061A) ||
+        (code >= 0x064B && code <= 0x065F) ||
+        (code >= 0x06D6 && code <= 0x06ED);
+
+    if (isDiacritic) return null;
+
+    switch (char) {
+      case 'ـ':
+      case '،':
+      case 'ء':
+        return null; // Ignore these entirely
+      case 'أ':
+      case 'إ':
+      case 'آ':
+      case 'ٱ':
+        return 'ا';
+      case 'ى':
+      case 'ے':
+      case 'ئ':
+        return 'ي';
+      case 'ؤ':
+        return 'و';
+      case 'ة':
+        // Exact mode keeps Ta Marbuta distinct from Ha (أمة vs أمه).
+        return exact ? 'ة' : 'ه';
+      default:
+        return char;
+    }
+  }
+
+  // How many times `query` occurs in `text` bounded by spaces (or the string
+  // edges) on both sides, rather than as a raw substring that can bleed into an
+  // unrelated word -- e.g. "ريب" is a raw substring of "قريب" even though
+  // they are different words.
+  int _countWholeWord(String text, String query) {
+    if (query.isEmpty) return 0;
+
+    var count = 0;
+    var start = 0;
+    while (true) {
+      final index = text.indexOf(query, start);
+      if (index == -1) return count;
+
+      final beforeIsBoundary = index == 0 || text[index - 1] == ' ';
+      final afterIndex = index + query.length;
+      final afterIsBoundary =
+          afterIndex == text.length || text[afterIndex] == ' ';
+
+      if (beforeIsBoundary && afterIsBoundary) {
+        count++;
+        // Resume after this match so a repeated word is counted once per
+        // occurrence and overlapping starts aren't recounted.
+        start = afterIndex;
+      } else {
+        start = index + 1;
+      }
+    }
+  }
+
+  bool _containsWholeWord(String text, String query) =>
+      _countWholeWord(text, query) > 0;
 
   void _scheduleSearch(String rawQuery) {
     _searchDebounce?.cancel();
@@ -260,14 +394,20 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     final queryWords = query.split(' ').where((e) => e.isNotEmpty).toList();
+    // The strict variant keeps ة/ه distinct; it decides what counts as an
+    // exact match (both for the exact-only filter and the section split).
+    final exactQuery = _normalizeText(rawQuery.trim(), exact: true);
     final results = <SearchResult>[];
 
     for (final ayah in _searchIndex) {
       // Restrict to the chosen surah when a specific one is selected.
       if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
 
+      final occurrences = _countWholeWord(ayah.exactText, exactQuery);
+      final matchesWholeQuery = occurrences > 0;
+
       // In exact-only mode, skip smart (fuzzy) matches before scoring.
-      if (_exactOnly && !ayah.normalizedText.contains(query)) continue;
+      if (_exactOnly && !matchesWholeQuery) continue;
 
       final score = _calculateMatchScore(
         query,
@@ -284,7 +424,8 @@ class _SearchPageState extends State<SearchPage> {
             ayah: ayah.ayah,
             text: ayah.text,
             score: score,
-            containsFullQuery: ayah.normalizedText.contains(query),
+            containsFullQuery: matchesWholeQuery,
+            matchCount: matchesWholeQuery ? occurrences : 1,
           ),
         );
       }
@@ -337,10 +478,11 @@ class _SearchPageState extends State<SearchPage> {
       score += 20000;
     }
 
-    if (text.contains(query)) {
+    if (_containsWholeWord(text, query)) {
       score += 12000;
 
-      if (text.startsWith(query)) {
+      if (text.startsWith(query) &&
+          (query.length == text.length || text[query.length] == ' ')) {
         score += 1500;
       }
 
@@ -492,12 +634,14 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   List<InlineSpan> _buildHighlightedTextSpans(String text, String query) {
-    final normalizedQuery = _normalizeText(query.trim());
+    // In exact-only mode highlight with the strict (ة-preserving) forms so
+    // only true exact occurrences get marked.
+    final normalizedQuery = _normalizeText(query.trim(), exact: _exactOnly);
     if (normalizedQuery.isEmpty) {
       return [TextSpan(text: text)];
     }
 
-    final mapping = _normalizeTextWithMap(text);
+    final mapping = _normalizeTextWithMap(text, exact: _exactOnly);
     if (mapping.normalizedText.isEmpty) {
       return [TextSpan(text: text)];
     }
@@ -784,12 +928,40 @@ class _SearchPageState extends State<SearchPage> {
                 children: _buildHighlightedTextSpans(ayah.text, _query),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'سورة ${ayah.surahName} • آية ${ayah.ayah} • صفحة ${ayah.page}',
-              textAlign: TextAlign.right,
-              textDirection: TextDirection.rtl,
-              style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                // Copying is a deliberate second action on the card; the card
+                // itself still taps through to the verse's page.
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    iconSize: 17,
+                    tooltip: 'نسخ الآية',
+                    color: Colors.grey[700],
+                    icon: const Icon(Icons.copy_rounded),
+                    onPressed: () => CopyHelper.copy(
+                      context,
+                      CopyHelper.formatAyah(
+                        surahName: ayah.surahName,
+                        ayahNumber: ayah.ayah,
+                        text: ayah.text,
+                      ),
+                      message: 'تم نسخ الآية',
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    'سورة ${ayah.surahName} • آية ${ayah.ayah} • صفحة ${ayah.page}',
+                    textAlign: TextAlign.right,
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -801,6 +973,9 @@ class _SearchPageState extends State<SearchPage> {
   // inline "exact match" / "smart match" section headers. Results arrive already
   // sorted with exact (containsFullQuery) matches first, so we split on that.
   Widget _buildResultsList(bool compactLandscape) {
+    // Counted per occurrence, not per card: a word mentioned twice in the same
+    // ayah is two results on one card, matching how a concordance counts.
+    final totalMatches = _results.fold<int>(0, (sum, r) => sum + r.matchCount);
     final exact = _results.where((r) => r.containsFullQuery).toList();
     final smart = _results.where((r) => !r.containsFullQuery).toList();
     final bool showHeaders = exact.isNotEmpty && smart.isNotEmpty;
@@ -824,7 +999,7 @@ class _SearchPageState extends State<SearchPage> {
           padding: EdgeInsets.fromLTRB(12, 0, 12, compactLandscape ? 4 : 8),
           child: Align(
             child: Text(
-              'عدد النتائج: ${_results.length}',
+              'عدد النتائج: $totalMatches',
               textAlign: TextAlign.right,
               textDirection: TextDirection.rtl,
               style: TextStyle(

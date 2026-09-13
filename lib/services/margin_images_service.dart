@@ -114,6 +114,16 @@ class MarginImagesService {
 
   static const String downloadUrl =
       'https://github.com/abdumka/quran-app-files/releases/download/v1.1.0/hawamesh.zip';
+
+  /// Web source for the same pages. The browser has no filesystem to unpack
+  /// [downloadUrl] into, so on web the margin pages are streamed one at a time
+  /// from our R2 mirror (same bucket as the online tafsir, which already sends
+  /// the CORS headers CanvasKit requires for image byte-fetches).
+  static const String webBaseUrl =
+      'https://quran-content.mushaf-qaloon.com/hawamesh/';
+
+  /// Full URL of a 1-based margin [page] for the web build.
+  static String webPageUrl(int page) => '${webBaseUrl}page_$page.webp';
   static const String expectedSha256 =
       '7564c80848837a1a5e25c73bdeef71dd2a5f1dc99323f497d450a43871a0f862';
   static const String _folderName = 'margin_images';
@@ -135,6 +145,19 @@ class MarginImagesService {
   Future<void> initialize() async {
     if (_didInitialize) return;
     _didInitialize = true;
+
+    // On web there is nothing to download or extract — the pages stream from
+    // [webBaseUrl] — so the feature is always "available" and only the
+    // enabled flag matters. Return before any dart:io call below, which would
+    // throw in a browser.
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      state.value = state.value.copyWith(
+        isAvailable: true,
+        isEnabled: prefs.getBool(_enabledPrefKey) ?? false,
+      );
+      return;
+    }
 
     final isAvailable = await _isPackageExtracted();
     final prefs = await SharedPreferences.getInstance();

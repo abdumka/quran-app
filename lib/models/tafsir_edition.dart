@@ -83,7 +83,7 @@ class TafsirEdition {
   /// The files are produced and uploaded by tools/build_tafsir_pages.py +
   /// tools/mirror_tafsir_to_r2.py.
   static const String _r2Root =
-      'https://pub-5025f0d14b9046309795201770f30da1.r2.dev/tafsir/';
+      'https://quran-content.mushaf-qaloon.com/tafsir/';
 
   // ───────────────────────────────────────────────
   //  AVAILABLE EDITIONS  (display order; Sa'di first)

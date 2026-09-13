@@ -49,7 +49,7 @@ class AboutContent extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'مصحف الدعوة الاسلامية الجامع',
+                'المصحف الجامع',
                 textAlign: TextAlign.center,
                 textDirection: TextDirection.rtl,
                 style: TextStyle(
@@ -89,7 +89,7 @@ class AboutContent extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'تطبيق لقراءة القرآن الكريم من مصحف الدعوة الاسلامية الجامع، مع تصميم مريح وواضح يدعم العرض العمودي والأفقي، والبحث، والعلامات المرجعية، وبعض الأدوات المساعدة للقارئ.\n\nونعمل على تحسينه وتطويره تدريجيًا بإذن الله.',
+                'تطبيق لقراءة القرآن الكريم من المصحف الجامع، مع تصميم مريح وواضح يدعم العرض العمودي والأفقي، والبحث، والعلامات المرجعية، وبعض الأدوات المساعدة للقارئ.\n\nونعمل على تحسينه وتطويره تدريجيًا بإذن الله.',
                 textAlign: TextAlign.center,
                 textDirection: TextDirection.rtl,
                 style: TextStyle(

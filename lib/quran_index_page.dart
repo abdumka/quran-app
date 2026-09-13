@@ -4,13 +4,7 @@ import 'quran_constants.dart';
 import 'thumn_data.dart';
 import 'utils/responsive_helper.dart';
 
-enum QuranIndexTab {
-  surahs,
-  juzs,
-  hizbs,
-  pages,
-  sajdas,
-}
+enum QuranIndexTab { surahs, juzs, hizbs, pages, sajdas }
 
 class QuranIndexPage extends StatefulWidget {
   final List<Map<String, dynamic>> surahs;
@@ -110,8 +104,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
     return widget.surahs.where((surah) {
       final arabicName = _normalizeArabic((surah['name'] ?? '').toString());
-      final englishName =
-          (surah['english'] ?? '').toString().toLowerCase().trim();
+      final englishName = (surah['english'] ?? '')
+          .toString()
+          .toLowerCase()
+          .trim();
       final compactArabic = arabicName.replaceAll(' ', '');
       final compactQuery = query.replaceAll(' ', '');
 
@@ -165,7 +161,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     final rowStride = tileHeight + spacing;
     final targetRow = targetIndex ~/ crossAxisCount;
     final offset =
-        topPadding + (targetRow * rowStride) + (tileHeight / 2) - (maxHeight / 2);
+        topPadding +
+        (targetRow * rowStride) +
+        (tileHeight / 2) -
+        (maxHeight / 2);
     return offset < 0 ? 0.0 : offset;
   }
 
@@ -202,20 +201,23 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
         final availableWidth = constraints.maxWidth - (horizontalPadding * 2);
         final availableHeight = constraints.maxHeight - (verticalPadding * 2);
-        final maxRows = ((availableHeight + spacing) / (minTileHeight + spacing))
-            .floor()
-            .clamp(1, itemCount);
+        final maxRows =
+            ((availableHeight + spacing) / (minTileHeight + spacing))
+                .floor()
+                .clamp(1, itemCount);
         final neededColumns = (itemCount / maxRows).ceil();
         final maxColumnsByWidth =
             ((availableWidth + spacing) / (minTileWidth + spacing))
                 .floor()
                 .clamp(minColumns, itemCount);
-        final crossAxisCount =
-            neededColumns.clamp(minColumns, maxColumnsByWidth);
+        final crossAxisCount = neededColumns.clamp(
+          minColumns,
+          maxColumnsByWidth,
+        );
         final rowCount = (itemCount / crossAxisCount).ceil();
         final tileWidth =
             (availableWidth - ((crossAxisCount - 1) * spacing)) /
-                crossAxisCount;
+            crossAxisCount;
         final tileHeight =
             (availableHeight - ((rowCount - 1) * spacing)) / rowCount;
         final childAspectRatio = tileWidth / tileHeight;
@@ -267,20 +269,23 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         final itemCount = entries.length;
         final availableWidth = constraints.maxWidth - (horizontalPadding * 2);
         final availableHeight = constraints.maxHeight - (verticalPadding * 2);
-        final maxRows = ((availableHeight + spacing) / (minTileHeight + spacing))
-            .floor()
-            .clamp(1, itemCount);
+        final maxRows =
+            ((availableHeight + spacing) / (minTileHeight + spacing))
+                .floor()
+                .clamp(1, itemCount);
         final neededColumns = (itemCount / maxRows).ceil();
         final maxColumnsByWidth =
             ((availableWidth + spacing) / (minTileWidth + spacing))
                 .floor()
                 .clamp(minColumns, itemCount);
-        final crossAxisCount =
-            neededColumns.clamp(minColumns, maxColumnsByWidth);
+        final crossAxisCount = neededColumns.clamp(
+          minColumns,
+          maxColumnsByWidth,
+        );
         final rowCount = (itemCount / crossAxisCount).ceil();
         final tileWidth =
             (availableWidth - ((crossAxisCount - 1) * spacing)) /
-                crossAxisCount;
+            crossAxisCount;
         final tileHeight =
             (availableHeight - ((rowCount - 1) * spacing)) / rowCount;
         final childAspectRatio = tileWidth / tileHeight;
@@ -459,10 +464,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0xFF8D6E3F),
-              width: 1.2,
-            ),
+            borderSide: const BorderSide(color: Color(0xFF8D6E3F), width: 1.2),
           ),
         ),
       ),
@@ -481,7 +483,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         borderRadius: BorderRadius.circular(999),
         onTap: () {
           widget.onSelectSurah(number);
-          _goToPageAndClose(page, yOffsetRatio: (surah['yOffsetRatio'] as num?)?.toDouble() ?? 0.0);
+          _goToPageAndClose(
+            page,
+            yOffsetRatio: (surah['yOffsetRatio'] as num?)?.toDouble() ?? 0.0,
+          );
         },
         child: Container(
           decoration: BoxDecoration(
@@ -790,43 +795,43 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
               final isCurrent = page == currentRealPage;
 
               return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => _goToPageAndClose(page),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
+                color: Colors.transparent,
+                child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isCurrent
-                        ? const Color(0xFF8D6E3F)
-                        : const Color(0xFF8D6E3F).withValues(alpha: 0.10),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+                  onTap: () => _goToPageAndClose(page),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: isCurrent
+                            ? const Color(0xFF8D6E3F)
+                            : const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Center(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '$page',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF2F2418),
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '$page',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF2F2418),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          );
+              );
             },
           ),
         );
@@ -885,10 +890,12 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       final athman = thumnEntries.where((e) => e.hizb == hizb);
 
       final numberMatch = queryNumber != null && queryNumber == hizb;
-      final titleMatch = normalizedQuery.isNotEmpty &&
+      final titleMatch =
+          normalizedQuery.isNotEmpty &&
           (title.contains(normalizedQuery) ||
               title.replaceAll(' ', '').contains(compactQuery));
-      final thumnMatch = normalizedQuery.isNotEmpty &&
+      final thumnMatch =
+          normalizedQuery.isNotEmpty &&
           athman.any((e) {
             final t = _normalizeArabic(e.text);
             return t.contains(normalizedQuery) ||
@@ -919,10 +926,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     final visibleHizbs = _filteredHizbNumbers(query);
     // Text portion only (digits and the "حزب" keyword removed) so highlighting
     // matches the same rule the filter uses.
-    final textQuery = _normalizeArabic(query)
-        .replaceAll(RegExp(r'[0-9٠-٩۰-۹]'), '')
-        .replaceAll('حزب', '')
-        .trim();
+    final textQuery = _normalizeArabic(
+      query,
+    ).replaceAll(RegExp(r'[0-9٠-٩۰-۹]'), '').replaceAll('حزب', '').trim();
     final compactQuery = textQuery.replaceAll(' ', '');
     final allExpanded = _expandedHizbs.length >= 60;
 
@@ -941,11 +947,13 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       if (!hasQuery) {
         final targetListIndex = visibleHizbs.indexOf(currentHizb);
         const collapsedStride = 70.0; // approx. height of a collapsed hizb card
-        initialOffset =
-            targetListIndex <= 1 ? 0.0 : (targetListIndex - 1) * collapsedStride;
+        initialOffset = targetListIndex <= 1
+            ? 0.0
+            : (targetListIndex - 1) * collapsedStride;
       }
-      _hizbScrollController =
-          ScrollController(initialScrollOffset: initialOffset);
+      _hizbScrollController = ScrollController(
+        initialScrollOffset: initialOffset,
+      );
     }
     if (!hasQuery && !_hizbEnsuredVisible) {
       _hizbEnsuredVisible = true;
@@ -986,8 +994,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                     itemBuilder: (context, index) {
                       final hizbNumber = visibleHizbs[index];
                       // When searching, force the matching hizbs open.
-                      final isExpanded = hasQuery ||
-                          _expandedHizbs.contains(hizbNumber);
+                      final isExpanded =
+                          hasQuery || _expandedHizbs.contains(hizbNumber);
                       return _buildHizbCard(
                         hizbNumber: hizbNumber,
                         isExpanded: isExpanded,
@@ -999,8 +1007,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                         // matching thumns within each hizb.
                         onlyMatching: hasQuery && textQuery.isNotEmpty,
                         // Key the current hizb so ensureVisible can scroll to it.
-                        cardKey:
-                            hizbNumber == currentHizb ? _currentHizbKey : null,
+                        cardKey: hizbNumber == currentHizb
+                            ? _currentHizbKey
+                            : null,
                       );
                     },
                   ),
@@ -1025,7 +1034,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
               textDirection: TextDirection.rtl,
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'ابحث: حزب ١٤ أو اسم الحزب أو الثمن',
+                hintText: 'ابحث: حزب 14 أو اسم الحزب أو الثمن',
                 hintTextDirection: TextDirection.rtl,
                 prefixIcon: const Icon(Icons.search_rounded, size: 20),
                 suffixIcon: _hizbSearchController.text.isNotEmpty
@@ -1135,8 +1144,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     final hizbTitle = hizbNumber - 1 < hizbTitles.length
         ? hizbTitles[hizbNumber - 1]
         : '';
-    final allAthman =
-        thumnEntries.where((e) => e.hizb == hizbNumber).toList();
+    final allAthman = thumnEntries.where((e) => e.hizb == hizbNumber).toList();
     final hasMatch = allAthman.any(highlight);
     // Each thumn keeps its real position within the hizb (1-8) even when we
     // only render the matching ones. If this hizb matched by title/number
@@ -1203,10 +1211,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                           gradient: const LinearGradient(
                             begin: Alignment.topRight,
                             end: Alignment.bottomLeft,
-                            colors: [
-                              Color(0xFFA8844A),
-                              Color(0xFF8D6E3F),
-                            ],
+                            colors: [Color(0xFFA8844A), Color(0xFF8D6E3F)],
                           ),
                           border: Border.all(
                             color: const Color(0xFFE7D7B5),
@@ -1304,8 +1309,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     final Color background = isCurrent
         ? const Color(0xFFE7D7AF)
         : matched
-            ? const Color(0xFFFBF3DC)
-            : const Color(0xFFF6F1E5);
+        ? const Color(0xFFFBF3DC)
+        : const Color(0xFFF6F1E5);
     final Color borderColor = isCurrent || matched
         ? const Color(0xFF8D6E3F)
         : const Color(0xFF8D6E3F).withValues(alpha: 0.08);

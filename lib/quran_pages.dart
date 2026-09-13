@@ -7,6 +7,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent, RenderProxyBox;
 import 'package:flutter/services.dart';
+import 'package:file_selector/file_selector.dart' show openFile, XTypeGroup;
+import 'package:file_saver/file_saver.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -42,6 +46,7 @@ import 'models/reciter.dart';
 import 'thumn_data.dart';
 import 'surah_data.dart';
 import 'quran_index_page.dart';
+import 'utils/copy_helper.dart';
 import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
@@ -94,6 +99,7 @@ class _QuranPagesState extends State<QuranPages>
   static const String _portraitScrollModePrefKey = 'portraitScrollMode';
   static const String _tabletLayoutModePrefKey = 'tabletLayoutMode';
   static const String _hifzModePrefKey = 'enableHifzMode';
+  static const String _autoScrollSpeedPrefKey = 'autoScrollSpeed';
   static const String _fullScreenModePrefKey = 'fullScreenMode';
   static const String _bookmarkGuideDismissedPrefKey = 'bookmarkGuideDismissed';
   static const String _hifzLensGuideDismissedPrefKey = 'hifzLensGuideDismissed';
@@ -311,6 +317,9 @@ class _QuranPagesState extends State<QuranPages>
   final TransformationController _pageZoomController =
       TransformationController();
   bool _isPageZoomed = false;
+  // Hover state for the edge page-turn arrows (desktop/web only).
+  bool _hoverLeftEdge = false;
+  bool _hoverRightEdge = false;
   Offset? _lastDoubleTapPosition;
   ScrollController? _portraitAutoScrollController;
   late final QuranReadingCoordinator _readingCoordinator;
@@ -321,6 +330,15 @@ class _QuranPagesState extends State<QuranPages>
       HighQualityImagesService.instance;
   final PageQualityService _pageQualityService = PageQualityService.instance;
   final PageColorService _pageColorService = PageColorService.instance;
+
+  /// The recitation bar's transport buttons (repeat/previous/next/close) are
+  /// zero-padding, shrink-wrapped icon buttons — their tap target is exactly
+  /// the icon's visual size (~24px), which is fine for a fingertip but very
+  /// easy to miss with a mouse cursor on desktop web. Widen the invisible hit
+  /// box on web only; native touch targets are unaffected.
+  BoxConstraints get _barIconConstraints => kIsWeb
+      ? const BoxConstraints(minWidth: 40, minHeight: 40)
+      : const BoxConstraints();
 
   final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
       GlobalKey<ContinuousQuranViewState>();
@@ -378,6 +396,10 @@ class _QuranPagesState extends State<QuranPages>
 
   double? _portraitAutoScrollViewportHeight;
   int? _portraitScrollCurrentPage;
+  // True while the reader is gliding back into sync with the recitation. The
+  // auto-scroll timer stays parked for the duration, otherwise its 16 ms
+  // jumpTo would cancel the animation on the very next tick.
+  bool _isCatchingUpToRecitation = false;
   bool _isRecitationTopBarMinimized = false;
   Timer? _recitationBarHideTimer;
   List<QuranPageData>? _allQuranPages;
@@ -474,6 +496,7 @@ class _QuranPagesState extends State<QuranPages>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    HardwareKeyboard.instance.addHandler(_handleReaderKey);
     _bookmarkGuideAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -524,7 +547,7 @@ class _QuranPagesState extends State<QuranPages>
     AudioService.instance.init();
     AudioService.instance.onPageChangeRequired = (pageIndex) {
       if (mounted) {
-        _goToPage(pageIndex + 1);
+        _followRecitationToPage(pageIndex);
       }
     };
     AudioService.instance.isRecitationBarVisible.addListener(() async {
@@ -534,15 +557,6 @@ class _QuranPagesState extends State<QuranPages>
         final dismissed = prefs.getBool('recitation_guide_dismissed') ?? false;
         if (!dismissed && mounted) {
           _showRecitationBarGuide();
-        }
-
-        if (_showAutoScrollBar || _isAutoScrollEnabled) {
-          _stopPortraitAutoScroll();
-          setState(() {
-            _isAutoScrollEnabled = false;
-            _showAutoScrollBar = false;
-            _isAutoScrollBarCollapsed = false;
-          });
         }
       }
     });
@@ -602,6 +616,7 @@ class _QuranPagesState extends State<QuranPages>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     MemorizationTestService.instance.stop();
+    HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
     _hizbPopupTimer?.cancel();
     _sajdaPopupTimer?.cancel();
@@ -646,7 +661,14 @@ class _QuranPagesState extends State<QuranPages>
       // Pause audio instead of stopping — so user can resume when they return.
       // Unless the user enabled background playback, in which case the recitation
       // keeps going and is controlled from the system media notification.
-      if (!BackgroundPlaybackService.instance.enabled.value) {
+      //
+      // Never on the web: there "hidden" fires simply because the browser tab
+      // lost focus (switching tabs, or another window covering it). Browsers
+      // deliberately keep <audio> playing in a background tab and expose their
+      // own media controls for it, so pausing here would break the normal,
+      // expected behaviour of a web player. The background-playback opt-in
+      // exists for the mobile media-notification flow and has no web analogue.
+      if (!kIsWeb && !BackgroundPlaybackService.instance.enabled.value) {
         AudioService.instance.pause();
       }
       // A live memorization-test session must never keep listening from
@@ -656,6 +678,18 @@ class _QuranPagesState extends State<QuranPages>
       _stopPortraitAutoScroll();
       // Pause any active downloads so they can resume later
       _marginImagesService.pauseDownload();
+      // Decoded page bitmaps are by far the largest allocation in the app
+      // (~4.7 MB each, ~8.8 MB in margin view; up to 150 MB retained). Holding
+      // them while backgrounded — which happens for long stretches whenever
+      // background recitation is on — makes the app a prime target for
+      // Android's low-memory killer and iOS jetsam, and being killed mid-
+      // recitation reads to the user as playback randomly stopping.
+      //
+      // clear() drops the retention pool only; pages currently on screen are
+      // live images and survive, so resuming doesn't flash the blank page
+      // background. Do NOT use clearLiveImages() here — that would force the
+      // visible page to re-decode on every resume.
+      PaintingBinding.instance.imageCache.clear();
     } else if (state == AppLifecycleState.resumed) {
       // Resume auto-scroll if it was enabled.
       if (_isAutoScrollEnabled && _portraitAutoScrollViewportHeight != null) {
@@ -669,7 +703,16 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   Future<void> _setReadingMode(bool enabled) async {
-    await WakelockPlus.toggle(enable: enabled);
+    // Browsers require a user gesture before granting the Screen Wake Lock
+    // API, so an automatic call here (e.g. right on page load) routinely
+    // throws NotAllowedError on web — and wakelock_plus's web implementation
+    // can additionally throw from a detached callback that a try/catch around
+    // this await never sees. Skip it there entirely; keeping the screen awake
+    // is a native-only nicety.
+    if (kIsWeb) return;
+    try {
+      await WakelockPlus.toggle(enable: enabled);
+    } catch (_) {}
   }
 
   void _handleKeepScreenAwakeChanged() {
@@ -854,13 +897,21 @@ class _QuranPagesState extends State<QuranPages>
 
     // Margin display, when enabled, overrides the source image.
     final marginState = _marginImagesService.state.value;
-    if (marginState.isEnabled && marginState.imagesDirectoryPath != null) {
-      final file = _downloadedPageFileForIndex(
-        marginState.imagesDirectoryPath!,
-        pageIndex + 1,
-      );
-      if (file != null) {
-        return wrap(FileImage(file));
+    if (marginState.isEnabled) {
+      if (kIsWeb) {
+        // No local pack on web — stream the page from the R2 mirror.
+        return wrap(
+          NetworkImage(MarginImagesService.webPageUrl(pageIndex + 1)),
+        );
+      }
+      if (marginState.imagesDirectoryPath != null) {
+        final file = _downloadedPageFileForIndex(
+          marginState.imagesDirectoryPath!,
+          pageIndex + 1,
+        );
+        if (file != null) {
+          return wrap(FileImage(file));
+        }
       }
     }
 
@@ -1237,6 +1288,222 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
+  // Backups are a versioned JSON envelope so a future format change can be
+  // detected instead of silently mis-parsed.
+  static const String _bookmarkBackupApp = 'quran_reader_bookmarks';
+  static const String _bookmarkBackupFileName = 'quran-bookmarks-backup.json';
+
+  String _buildBookmarksBackupJson(Iterable<ReaderBookmark> items) {
+    final envelope = {
+      'app': _bookmarkBackupApp,
+      'v': 1,
+      'bookmarks': items.map((item) => item.toJson()).toList(),
+    };
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(envelope);
+    // Escape non-ASCII (Arabic labels) as \uXXXX so the file is pure ASCII:
+    // some share targets / save dialogs re-save the file assuming a
+    // single-byte charset (Windows-1252) instead of UTF-8, which garbles raw
+    // Arabic bytes. ASCII bytes decode identically under every charset, so
+    // this makes the file immune to that regardless of where it happens.
+    final buffer = StringBuffer();
+    for (final unit in jsonStr.codeUnits) {
+      if (unit > 126) {
+        buffer.write('\\u${unit.toRadixString(16).padLeft(4, '0')}');
+      } else {
+        buffer.writeCharCode(unit);
+      }
+    }
+    return buffer.toString();
+  }
+
+  List<ReaderBookmark>? _parseBookmarksBackupJson(String raw) {
+    try {
+      final envelope = jsonDecode(raw) as Map<String, dynamic>;
+      if (envelope['app'] != _bookmarkBackupApp) return null;
+      final rawList = envelope['bookmarks'] as List<dynamic>;
+      final result = <ReaderBookmark>[];
+      for (final item in rawList) {
+        try {
+          result.add(ReaderBookmark.fromJson(Map<String, dynamic>.from(item)));
+        } catch (_) {
+          // Skip a single malformed entry rather than failing the whole import.
+        }
+      }
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? _lowestFreeBookmarkSlot(Map<int, ReaderBookmark> bookmarks) {
+    for (int slot = 1; slot <= BookmarkPickerDialog.maxSlots; slot++) {
+      if (!bookmarks.containsKey(slot)) return slot;
+    }
+    return null;
+  }
+
+  /// Imported bookmarks never overwrite an existing slot: a slot that's
+  /// already taken gets the imported bookmark re-numbered into the next free
+  /// slot instead, so importing a friend's backup can't clobber your own.
+  ({Map<int, ReaderBookmark> bookmarks, int added, int skipped})
+  _mergeImportedBookmarks(List<ReaderBookmark> incoming) {
+    final merged = Map<int, ReaderBookmark>.from(_bookmarks);
+    int added = 0;
+    int skipped = 0;
+    for (final bookmark in incoming) {
+      final fitsOwnSlot =
+          bookmark.slot >= 1 &&
+          bookmark.slot <= BookmarkPickerDialog.maxSlots &&
+          !merged.containsKey(bookmark.slot);
+      if (fitsOwnSlot) {
+        merged[bookmark.slot] = bookmark;
+        added++;
+        continue;
+      }
+      final freeSlot = _lowestFreeBookmarkSlot(merged);
+      if (freeSlot == null) {
+        skipped++;
+        continue;
+      }
+      merged[freeSlot] = bookmark.copyWith(slot: freeSlot);
+      added++;
+    }
+    return (bookmarks: merged, added: added, skipped: skipped);
+  }
+
+  /// [XFile.fromData]'s `name` is ignored outside web (the file's `.name`
+  /// getter derives from its path instead), so a real file with the desired
+  /// name has to be written to disk there; web has no filesystem, so it must
+  /// use `fromData` directly.
+  Future<XFile> _writeBookmarksBackupFile(String jsonStr) async {
+    final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+    if (kIsWeb) {
+      return XFile.fromData(
+        bytes,
+        name: _bookmarkBackupFileName,
+        mimeType: 'application/json',
+      );
+    }
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$_bookmarkBackupFileName');
+    await file.writeAsBytes(bytes);
+    return XFile(file.path, mimeType: 'application/json');
+  }
+
+  Future<void> _exportBookmarks() async {
+    if (_bookmarks.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('لا توجد علامات لمشاركتها')));
+      return;
+    }
+    final jsonStr = _buildBookmarksBackupJson(_bookmarks.values);
+    final file = await _writeBookmarksBackupFile(jsonStr);
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [file],
+          subject: 'نسخة احتياطية لعلامات القرآن',
+          downloadFallbackEnabled: true,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّرت مشاركة النسخة الاحتياطية')),
+      );
+    }
+  }
+
+  /// Saves the backup straight to a location the user picks (via the OS
+  /// "Save As" dialog) instead of routing through a share target. Unlike
+  /// [_writeBookmarksBackupFile]'s temp file, this lands outside the app's
+  /// own storage, so — unlike the app's sandboxed storage — it survives an
+  /// uninstall/reinstall.
+  Future<void> _saveBookmarksLocally() async {
+    if (_bookmarks.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('لا توجد علامات لحفظها')));
+      return;
+    }
+    final jsonStr = _buildBookmarksBackupJson(_bookmarks.values);
+    final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+    try {
+      final savedPath = await FileSaver.instance.saveAs(
+        name: 'quran-bookmarks-backup',
+        bytes: bytes,
+        fileExtension: 'json',
+        mimeType: MimeType.json,
+      );
+      if (!mounted || savedPath == null) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم حفظ النسخة الاحتياطية')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّر حفظ الملف')));
+    }
+  }
+
+  Future<Map<int, ReaderBookmark>?> _importBookmarksFlow() async {
+    XFile? picked;
+    try {
+      picked = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'Quran Bookmarks',
+            extensions: ['json'],
+            // iOS/macOS filter by UTI, not extension; without this,
+            // file_selector_ios throws ArgumentError and the picker never
+            // opens (surfaced as "تعذّر فتح الملف"). 'public.text' matches
+            // file_selector's own example for opening .json files.
+            uniformTypeIdentifiers: ['public.text'],
+          ),
+        ],
+      );
+    } catch (_) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّر فتح الملف')));
+      return null;
+    }
+    if (picked == null || !mounted) return null;
+
+    final incoming = _parseBookmarksBackupJson(await picked.readAsString());
+    if (incoming == null || incoming.isEmpty) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ملف النسخة الاحتياطية غير صالح')),
+      );
+      return null;
+    }
+
+    final result = _mergeImportedBookmarks(incoming);
+    setState(() {
+      _bookmarks = result.bookmarks;
+      _activeBookmarkSlot ??= result.bookmarks.keys.isEmpty
+          ? null
+          : (result.bookmarks.keys.toList()..sort()).first;
+    });
+    await _persistBookmarks();
+    if (!mounted) return result.bookmarks;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.skipped == 0
+              ? 'تم استيراد ${result.added} علامة'
+              : 'تم استيراد ${result.added} علامة، وتخطي ${result.skipped} (لا توجد أماكن فارغة)',
+        ),
+      ),
+    );
+    return result.bookmarks;
+  }
+
   Future<void> _deleteBookmarkSlot(int slot) async {
     setState(() {
       _bookmarks.remove(slot);
@@ -1277,6 +1544,9 @@ class _QuranPagesState extends State<QuranPages>
         surahNameForBookmark: _getSurahNameForBookmark,
         onRename: _renameBookmarkSlot,
         onDelete: _deleteBookmarkSlot,
+        onExport: _exportBookmarks,
+        onSaveLocally: _saveBookmarksLocally,
+        onImport: _importBookmarksFlow,
       ),
     );
   }
@@ -1593,6 +1863,140 @@ class _QuranPagesState extends State<QuranPages>
     _updateSystemUI();
   }
 
+  /// Keyboard page-turning (desktop/web). The mushaf reads right-to-left, so
+  /// the LEFT arrow advances to the next (higher-numbered) page and the RIGHT
+  /// arrow goes back — matching the chevron directions used elsewhere in the
+  /// UI. PageUp/PageDown and space are accepted as aliases.
+  /// Registered on [HardwareKeyboard] rather than a [Focus] node: the reader's
+  /// PageView owns focus, so a wrapping Focus widget never sees these keys.
+  /// Returns true when the key was consumed.
+  bool _handleReaderKey(KeyEvent event) {
+    if (!mounted) return false;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    // Don't steal keys while a search field, the surah list, or a dialog is up.
+    // (_showIndex only controls chrome visibility, so it must NOT block keys.)
+    if (_isSearching || _showSurahs) return false;
+    if (ModalRoute.of(context)?.isCurrent != true) return false;
+
+    final key = event.logicalKey;
+
+    // While the recitation bar is up, Up/Down step through ayat — the
+    // keyboard equivalent of the bar's skip buttons.
+    if (AudioService.instance.isRecitationBarVisible.value) {
+      if (key == LogicalKeyboardKey.arrowDown) {
+        AudioService.instance.nextAyah();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowUp) {
+        AudioService.instance.previousAyah();
+        return true;
+      }
+    }
+
+    int delta;
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.pageDown ||
+        key == LogicalKeyboardKey.space) {
+      delta = 1;
+    } else if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.pageUp) {
+      delta = -1;
+    } else {
+      return false;
+    }
+
+    _stepPage(delta);
+    return true;
+  }
+
+  /// Moves [delta] views forward (+1) or back (-1).
+  ///
+  /// Steps by one *view*, not one page: in the two-page spread a single page
+  /// step lands on the same spread, and _setCurrentPage snaps back to that
+  /// spread's first page — so paging by 1 would never move.
+  void _stepPage(int delta) {
+    final current = _readingCoordinator.currentPage;
+    final targetView = _getViewIndexForPage(current, context) + delta;
+    if (targetView < 0) return;
+    final targetPage = _getFirstPageIndexForView(targetView, context);
+    if (targetPage < 0 || targetPage > pages.length - 1) return;
+    if (targetPage != current) _goToPage(targetPage + 1);
+  }
+
+  /// Whether stepping [delta] views from here would actually move — used to
+  /// hide the hover arrow at the first/last page instead of showing a dud.
+  bool _canStepPage(int delta) {
+    final current = _readingCoordinator.currentPage;
+    final targetView = _getViewIndexForPage(current, context) + delta;
+    if (targetView < 0) return false;
+    final targetPage = _getFirstPageIndexForView(targetView, context);
+    return targetPage >= 0 &&
+        targetPage <= pages.length - 1 &&
+        targetPage != current;
+  }
+
+  /// Edge hover-zone that reveals a page-turn arrow (desktop/web only — there
+  /// is no hover on touch, so these never appear on phones). [delta] is +1 for
+  /// the next page and -1 for the previous one; in this right-to-left mushaf
+  /// that puts "next" on the LEFT edge, matching the arrow keys and the
+  /// chevrons used elsewhere in the UI.
+  Widget _buildHoverPageArrow({required bool isLeftEdge}) {
+    final int delta = isLeftEdge ? 1 : -1;
+    final bool hovered = isLeftEdge ? _hoverLeftEdge : _hoverRightEdge;
+    final bool enabled = _canStepPage(delta);
+
+    return Positioned(
+      left: isLeftEdge ? 0 : null,
+      right: isLeftEdge ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: 96,
+      child: MouseRegion(
+        opaque: false,
+        onEnter: (_) => setState(
+          () => isLeftEdge ? _hoverLeftEdge = true : _hoverRightEdge = true,
+        ),
+        onExit: (_) => setState(
+          () => isLeftEdge ? _hoverLeftEdge = false : _hoverRightEdge = false,
+        ),
+        cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+        child: IgnorePointer(
+          // Only the arrow itself is clickable; the rest of the strip must let
+          // taps through to the page (bookmarks, ayah selection, …).
+          ignoring: !enabled,
+          child: Align(
+            alignment: Alignment.center,
+            child: AnimatedOpacity(
+              opacity: hovered && enabled ? 1 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: GestureDetector(
+                onTap: enabled ? () => _stepPage(delta) : null,
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.38),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Icon(
+                    isLeftEdge
+                        ? Icons.chevron_left_rounded
+                        : Icons.chevron_right_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _goToBookmark() {
     _goToBookmarkWithPicker();
   }
@@ -1748,28 +2152,29 @@ class _QuranPagesState extends State<QuranPages>
     if (!dismissed && mounted) _showFullScreenGuide();
   }
 
-  double _currentAutoScrollPixelsPerSecond() {
-    if (AudioService.instance.isPlaying.value) return 0.0;
+  /// Every selectable auto-scroll speed, slowest first, mapped to its scroll
+  /// rate in logical pixels per second.
+  ///
+  /// The steps below 0.5 exist for recitation: a murattal reciter can spend
+  /// several minutes on one page, and readers following along had to keep
+  /// stopping the scroll by hand because even the old slowest step outran
+  /// them. 0.2 crawls a phone page in roughly three and a half minutes.
+  // Not const: Dart rejects double keys in a const map.
+  static final Map<double, double> _autoScrollSpeeds = {
+    0.2: 4,
+    0.3: 5.5,
+    0.4: 7,
+    0.5: 9,
+    0.75: 11,
+    1.0: 14,
+    1.5: 20,
+    2.0: 28,
+    2.5: 36,
+    3.0: 44,
+  };
 
-    switch (_autoScrollSpeedMultiplier) {
-      case 0.5:
-        return 9;
-      case 0.75:
-        return 11;
-      case 1.0:
-        return 14;
-      case 1.5:
-        return 20;
-      case 2.0:
-        return 28;
-      case 2.5:
-        return 36;
-      case 3.0:
-        return 44;
-      default:
-        return 14;
-    }
-  }
+  double _currentAutoScrollPixelsPerSecond() =>
+      _autoScrollSpeeds[_autoScrollSpeedMultiplier] ?? 14;
 
   void _toggleAutoScrollFromMenu(bool value) {
     if (value) {
@@ -1818,17 +2223,15 @@ class _QuranPagesState extends State<QuranPages>
     setState(() {
       _autoScrollSpeedMultiplier = value;
     });
+    _saveAutoScrollSpeed();
   }
 
-  static const List<double> _allowedSpeeds = [
-    0.5,
-    0.75,
-    1.0,
-    1.5,
-    2.0,
-    2.5,
-    3.0,
-  ];
+  Future<void> _saveAutoScrollSpeed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_autoScrollSpeedPrefKey, _autoScrollSpeedMultiplier);
+  }
+
+  static final List<double> _allowedSpeeds = _autoScrollSpeeds.keys.toList();
 
   void _increaseAutoScrollSpeed() {
     int currentIndex = _allowedSpeeds.indexOf(_autoScrollSpeedMultiplier);
@@ -2316,6 +2719,7 @@ class _QuranPagesState extends State<QuranPages>
       _portraitScrollModePrefKey,
       _tabletLayoutModePrefKey,
       _hifzModePrefKey,
+      _autoScrollSpeedPrefKey,
       _fullScreenModePrefKey,
       KeepScreenAwakeService.prefKey,
       'isDarkMode',
@@ -2366,6 +2770,13 @@ class _QuranPagesState extends State<QuranPages>
     _preferredPortraitScrollMode = savedPortraitScrollMode;
     _isTabletLayoutMode = savedTabletLayoutMode;
     _isHideBarEnabled = false;
+
+    // Finding the speed that matches your reciter takes a few taps, so it is
+    // remembered instead of resetting to 1× every launch.
+    final savedSpeed = prefs.getDouble(_autoScrollSpeedPrefKey);
+    if (savedSpeed != null && _autoScrollSpeeds.containsKey(savedSpeed)) {
+      _autoScrollSpeedMultiplier = savedSpeed;
+    }
 
     final savedHifzMode = prefs.getBool(_hifzModePrefKey) ?? false;
     if (savedHifzMode != _isHifzModeEnabled) {
@@ -2441,7 +2852,7 @@ class _QuranPagesState extends State<QuranPages>
 
   void _schedulePortraitAutoScrollResume(double viewportHeight) {
     _portraitAutoScrollResumeTimer?.cancel();
-    if (!_isAutoScrollEnabled) return;
+    if (!_isAutoScrollEnabled || _isCatchingUpToRecitation) return;
     _portraitAutoScrollResumeTimer = Timer(
       const Duration(milliseconds: 80),
       () {
@@ -2457,12 +2868,18 @@ class _QuranPagesState extends State<QuranPages>
     if (controller == null) return;
 
     _stopPortraitAutoScroll();
-    if (!_isAutoScrollEnabled) return;
+    if (!_isAutoScrollEnabled || _isCatchingUpToRecitation) return;
 
     const frameInterval = Duration(milliseconds: 16);
     final deltaPerTick =
         _currentAutoScrollPixelsPerSecond() *
         (frameInterval.inMilliseconds / 1000);
+
+    // The target offset is carried across ticks rather than re-read from the
+    // controller as "offset + delta". At the slow speeds a tick advances a
+    // fraction of a pixel, and the old code read that as "the list refused to
+    // move" and stopped the scroll outright.
+    double target = controller.hasClients ? controller.offset : 0.0;
 
     _portraitAutoScrollTimer = Timer.periodic(frameInterval, (_) {
       final controller = _portraitAutoScrollController;
@@ -2474,20 +2891,99 @@ class _QuranPagesState extends State<QuranPages>
         return;
       }
 
-      final maxScroll = controller.position.maxScrollExtent;
-      final nextOffset = (controller.offset + deltaPerTick).clamp(
-        0.0,
-        maxScroll,
-      );
+      // Re-anchor when something else moved the list — a drag, or the
+      // recitation jumping to the page it just reached.
+      if ((target - controller.offset).abs() > 1.0) {
+        target = controller.offset;
+      }
 
-      if ((nextOffset - controller.offset).abs() < 0.1 ||
-          nextOffset >= maxScroll) {
+      final maxScroll = controller.position.maxScrollExtent;
+      if (controller.offset >= maxScroll) {
         _setAutoScrollEnabled(false);
         return;
       }
 
-      controller.jumpTo(nextOffset);
+      target = (target + deltaPerTick).clamp(0.0, maxScroll);
+      controller.jumpTo(target);
     });
+  }
+
+  /// Moves the reader onto the page the recitation just reached.
+  ///
+  /// Without auto-scroll this is a plain page turn. With auto-scroll running
+  /// the reader is already gliding through the mushaf and tends to hold the
+  /// ayah being recited near the middle of the screen — so snapping the new
+  /// page's top edge to the top of the viewport throws that framing away at
+  /// every single page boundary. Instead the scroll is left completely alone
+  /// while the new page's first line is anywhere on screen (half a screen of
+  /// slack either side of centre), and only a real desync — a full page or
+  /// more adrift — is corrected, by gliding that first line back to the middle
+  /// rather than by jumping.
+  void _followRecitationToPage(int pageIndex) {
+    if (!_isAutoScrollEnabled) {
+      _goToPage(pageIndex + 1);
+      return;
+    }
+
+    if (_isPhoneLandscape(context)) {
+      final handled =
+          _continuousViewKey.currentState?.followRecitationToPage(pageIndex) ??
+          false;
+      if (!handled) {
+        _goToPage(pageIndex + 1);
+        return;
+      }
+      _setCurrentPage(pageIndex, showHizbPopup: true);
+      return;
+    }
+
+    final controller = _portraitAutoScrollController;
+    final pageExtent = _portraitAutoScrollViewportHeight;
+    if (controller == null ||
+        !controller.hasClients ||
+        pageExtent == null ||
+        pageExtent <= 0) {
+      _goToPage(pageIndex + 1);
+      return;
+    }
+
+    final double pageTop =
+        _getViewIndexForPage(pageIndex, context) * pageExtent;
+    final double offset = controller.offset;
+
+    _setCurrentPage(pageIndex, showHizbPopup: true);
+    _portraitScrollCurrentPage = pageIndex;
+
+    // The page's first line is somewhere on screen — the reader can see where
+    // the recitation is, so don't touch the scroll.
+    if (offset >= pageTop - pageExtent && offset <= pageTop) return;
+
+    _catchUpToRecitation(
+      controller,
+      (pageTop - pageExtent / 2).clamp(
+        0.0,
+        controller.position.maxScrollExtent,
+      ),
+    );
+  }
+
+  void _catchUpToRecitation(ScrollController controller, double target) {
+    _portraitAutoScrollResumeTimer?.cancel();
+    _stopPortraitAutoScroll();
+    _isCatchingUpToRecitation = true;
+
+    controller
+        .animateTo(
+          target,
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeInOutCubic,
+        )
+        .whenComplete(() {
+          _isCatchingUpToRecitation = false;
+          if (!mounted || !_isAutoScrollEnabled) return;
+          final extent = _portraitAutoScrollViewportHeight;
+          if (extent != null) _syncPortraitAutoScroll(extent);
+        });
   }
 
   void _handlePortraitAutoScrollOffset(double viewportHeight) {
@@ -3359,8 +3855,13 @@ class _QuranPagesState extends State<QuranPages>
                       transformationController: _pageZoomController,
                       minScale: 1,
                       maxScale: 5,
-                      // Pinch to zoom; drag to pan only once zoomed in.
-                      panEnabled: true,
+                      // Pan ONLY while actually zoomed in. At scale 1 there is
+                      // nothing to pan, and leaving pan enabled makes
+                      // InteractiveViewer's recognizer claim horizontal drags
+                      // before the PageView can — which silently breaks
+                      // page-flipping with a mouse on the web. Pinch/double-tap
+                      // zoom still work (scaleEnabled stays on).
+                      panEnabled: _isPageZoomed,
                       child: child!,
                     );
                     return GestureDetector(
@@ -3399,14 +3900,20 @@ class _QuranPagesState extends State<QuranPages>
     final double menuHeight = isPhoneLandscape
         ? 122
         : (isPhonePortrait ? 130 : 260);
-    final double autoScrollBottom = (_showIndex && !_hideBottomMenuTemporarily)
-        ? menuHeight + safeBottom + 18
-        : (isPhoneLandscape ? 14 : safeBottom + 14);
+    final bool isRecitationBarVisible =
+        AudioService.instance.isRecitationBarVisible.value;
+    // Auto-scroll and the recitation run independently, so both bars can be up
+    // at once. The auto-scroll bar stacks on top of the recitation bar (which
+    // already covers the system inset) instead of hiding behind it.
+    final double autoScrollInset = isRecitationBarVisible ? 0.0 : safeBottom;
+    final double autoScrollBottom =
+        (isRecitationBarVisible ? _recitationBarHeight : 0.0) +
+        ((_showIndex && !_hideBottomMenuTemporarily)
+            ? menuHeight + autoScrollInset + 18
+            : (isPhoneLandscape ? 14 : autoScrollInset + 14));
     final double bookmarkNoticeBottom = _showIndex
         ? menuHeight + safeBottom + 20
         : safeBottom + 20;
-    final bool isRecitationBarVisible =
-        AudioService.instance.isRecitationBarVisible.value;
     final double audioNoticeBottom = isRecitationBarVisible
         ? _recitationBarHeight + safeBottom + 14
         : bookmarkNoticeBottom;
@@ -3879,6 +4386,8 @@ class _QuranPagesState extends State<QuranPages>
             right: 0,
             child: SafeArea(
               top: false,
+              // The recitation bar below already clears the system inset.
+              bottom: !isRecitationBarVisible,
               child: Center(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 260),
@@ -4370,7 +4879,8 @@ class _QuranPagesState extends State<QuranPages>
                       _updateSystemUI();
                     },
                     onPlayTapped: () {
-                      _closeAutoScrollBar();
+                      // Auto-scroll is deliberately left running: the two are
+                      // independent, and readers pair them to follow along.
                       setState(() {
                         _showIndex = false;
                         _showSurahs = false;
@@ -4385,17 +4895,6 @@ class _QuranPagesState extends State<QuranPages>
                       ThemeService.setDarkMode(value);
                     },
                     onToggleAutoScroll: (value) {
-                      if (value &&
-                          AudioService.instance.isRecitationBarVisible.value) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'لا يمكن تشغيل التمرير التلقائي أثناء التلاوة',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
                       if (value && !_supportsPortraitScrollMode(context)) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -4447,6 +4946,20 @@ class _QuranPagesState extends State<QuranPages>
                     },
                     onSearchTapped: _openSearchPage,
                   ),
+
+                // Edge hover arrows for page turning. Last in the Stack so
+                // they sit above the page, but they are only visible while the
+                // pointer is over the edge — and never on touch devices, which
+                // have no hover. Suppressed in scroll mode (no pages to flip),
+                // while zoomed (flipping is locked), and behind overlays.
+                if (!_isPortraitScrollMode &&
+                    !_showAutoScrollBar &&
+                    !_isPageZoomed &&
+                    !_isSearching &&
+                    !_showSurahs) ...[
+                  _buildHoverPageArrow(isLeftEdge: true),
+                  _buildHoverPageArrow(isLeftEdge: false),
+                ],
               ],
             ),
           ),
@@ -4537,7 +5050,7 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                   _guideRow(
                     Icons.tune_rounded,
-                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، وسرعة التلاوة',
+                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، تكرار مقطع تختاره، وسرعة التلاوة',
                     textColor,
                     borderColor,
                     highlightColor: titleColor,
@@ -4698,9 +5211,474 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
+  static String _surahName(int surah) => surahList[surah - 1]['name'] as String;
+
+  /// Live one-line status of the active repeat section — which ayat, and which
+  /// pass is playing now. Reads «البقرة 1-5 · التكرار 2/3» inside one surah, or
+  /// «الفاتحة 3 ← البقرة 4 · التكرار 2/3» when the section crosses surahs.
+  String _rangeStatusLabel(AyahRange range) {
+    final audio = AudioService.instance;
+    final pass = audio.rangeRepeatDone.value + 1;
+    final total = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
+        ? '∞'
+        : '${audio.rangeRepeatCount.value}';
+    final where = range.isSingleSurah
+        ? '${_surahName(range.startSurah)} '
+              '${range.startAyah}-${range.endAyah}'
+        : '${_surahName(range.startSurah)} ${range.startAyah}'
+              ' ← ${_surahName(range.endSurah)} ${range.endAyah}';
+    return '$where · التكرار $pass/$total';
+  }
+
+  /// Highest ayah number available for [surah]. Read from the page data (the
+  /// mushaf's own numbering); falls back to the index table if it isn't loaded.
+  int _maxAyahForSurah(int surah) {
+    final fromPages = AudioService.instance.ayahCountForSurah(surah);
+    if (fromPages > 0) return fromPages;
+    return surahList[surah - 1]['ayahs'] as int;
+  }
+
+  /// The last ayah of [surah] printed on [pageIndex] at or after [fromAyah] —
+  /// used to default a section to "the rest of this surah on this page".
+  int _sectionEndOnPage(int pageIndex, int surah, int fromAyah) {
+    final onPage = AudioService.instance
+        .getAyahsForPage(pageIndex)
+        .where((a) => a.surah == surah && a.ayah >= fromAyah)
+        .toList();
+    return onPage.isEmpty ? fromAyah : onPage.last.ayah;
+  }
+
+  /// The "تكرار مقطع" picker: choose where the section starts (surah + ayah) and
+  /// where it ends (surah + ayah), pick how many times it should repeat, and the
+  /// reader jumps there and recites only that section. The two ends may sit in
+  /// different surahs (e.g. الفاتحة 3 → البقرة 4).
+  ///
+  /// The ordering is enforced by what the lists *offer*, not by validation after
+  /// the fact: the "إلى" surah list starts at the chosen "من" surah, and its ayah
+  /// list starts at the chosen "من" ayah whenever both ends are in the same
+  /// surah. So an end that precedes the start can't be selected at all, and
+  /// there is no error state to explain.
+  ///
+  /// It opens pre-filled with what's on screen — the surah being recited (or the
+  /// visible page's first surah) and that page's portion of it — so the common
+  /// case is one tap on تشغيل المقطع. [onStarted] lets the caller close the
+  /// options sheet once a section is armed, revealing the page underneath.
+  void _showRangeRepeatPicker({VoidCallback? onStarted}) {
+    final audio = AudioService.instance;
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDarkMode
+        ? const Color(0xFF1E1A12)
+        : const Color(0xFFF8F1DE);
+    final titleColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    final borderColor = isDarkMode
+        ? const Color(0xFF53401F)
+        : const Color(0xFFE2D2A5);
+    final subTextColor = textColor.withValues(alpha: 0.6);
+    const accentColor = Color(0xFFD2B97E);
+
+    // ── Seed the picker ──
+    // An armed section wins (so re-opening shows what's running); otherwise
+    // start from the ayah being recited on the visible page, falling back to
+    // that page's first ayah when nothing is playing.
+    final active = audio.repeatRange.value;
+    int fromSurah;
+    int fromAyah;
+    if (active != null) {
+      fromSurah = active.startSurah;
+      fromAyah = active.startAyah;
+    } else {
+      final playing = audio.currentAyah.value;
+      final pageAyahs = audio.getAyahsForPage(_topBarCurrentPage);
+      if (playing != null && audio.isAudioOnPage(_topBarCurrentPage)) {
+        fromSurah = playing.surah;
+        fromAyah = playing.ayah;
+      } else if (pageAyahs.isNotEmpty) {
+        fromSurah = pageAyahs.first.surah;
+        fromAyah = pageAyahs.first.ayah;
+      } else {
+        fromSurah = 1;
+        fromAyah = 1;
+      }
+    }
+    if (fromAyah > _maxAyahForSurah(fromSurah)) {
+      fromAyah = _maxAyahForSurah(fromSurah);
+    }
+    // Default end: the rest of this surah on the visible page — a section the
+    // size of what the reader can actually see.
+    int toSurah = active?.endSurah ?? fromSurah;
+    int toAyah =
+        active?.endAyah ??
+        _sectionEndOnPage(_topBarCurrentPage, fromSurah, fromAyah);
+
+    final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
+    AyahRepeatMode mode = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
+        ? AyahRepeatMode.infinite
+        : AyahRepeatMode.count;
+    int count = wasActive ? audio.rangeRepeatCount.value : 3;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setPickerState) {
+          Widget label(String text) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: subTextColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
+
+          Widget dropdownFrame({required Widget child}) => Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor),
+            ),
+            child: DropdownButtonHideUnderline(child: child),
+          );
+
+          // Keeps the four selections a valid forward-running section. Called
+          // after every change, so the invariant «end >= start» holds at all
+          // times and the dropdowns below always contain their own value.
+          void normalize() {
+            fromAyah = fromAyah.clamp(1, _maxAyahForSurah(fromSurah));
+            if (toSurah < fromSurah) toSurah = fromSurah;
+            toAyah = toAyah.clamp(1, _maxAyahForSurah(toSurah));
+            if (toSurah == fromSurah && toAyah < fromAyah) toAyah = fromAyah;
+          }
+
+          Widget ayahDropdown({
+            required int value,
+            required int min,
+            required int max,
+            required ValueChanged<int> onChanged,
+          }) => dropdownFrame(
+            child: DropdownButton<int>(
+              value: value,
+              isExpanded: true,
+              menuMaxHeight: 320,
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: titleColor,
+                size: 20,
+              ),
+              dropdownColor: bgColor,
+              borderRadius: BorderRadius.circular(12),
+              items: [
+                for (int n = min; n <= max; n++)
+                  DropdownMenuItem(
+                    value: n,
+                    child: Text(
+                      '$n',
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          );
+
+          // [min] is 1 for the "من" side and the chosen start surah for the
+          // "إلى" side, so earlier surahs simply aren't in the list.
+          Widget surahDropdown({
+            required int value,
+            required int min,
+            required ValueChanged<int> onChanged,
+          }) => dropdownFrame(
+            child: DropdownButton<int>(
+              value: value,
+              isExpanded: true,
+              menuMaxHeight: 320,
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: titleColor,
+                size: 20,
+              ),
+              dropdownColor: bgColor,
+              borderRadius: BorderRadius.circular(12),
+              items: [
+                for (int n = min; n <= 114; n++)
+                  DropdownMenuItem(
+                    value: n,
+                    child: Text(
+                      '$n. ${_surahName(n)}',
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          );
+
+          // One labelled surah+ayah pair — the "من" and "إلى" rows are identical
+          // in shape, only their allowed minimums differ.
+          Widget endpointRow({
+            required String heading,
+            required int surah,
+            required int ayah,
+            required int minSurah,
+            required int minAyah,
+            required ValueChanged<int> onSurahChanged,
+            required ValueChanged<int> onAyahChanged,
+          }) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              label(heading),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: surahDropdown(
+                      value: surah,
+                      min: minSurah,
+                      onChanged: onSurahChanged,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: ayahDropdown(
+                      value: ayah,
+                      min: minAyah,
+                      max: _maxAyahForSurah(surah),
+                      onChanged: onAyahChanged,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+
+          Widget countChip(String text, bool selected, VoidCallback onTap) =>
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(9),
+                  onTap: onTap,
+                  child: Container(
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? accentColor.withValues(alpha: 0.18)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: selected ? accentColor : borderColor,
+                        width: selected ? 1.6 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        color: selected ? accentColor : subTextColor,
+                        fontSize: 14,
+                        fontWeight: selected
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              backgroundColor: bgColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+              contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.segment_rounded, color: titleColor, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    'تكرار مقطع',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: titleColor,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      endpointRow(
+                        heading: 'من: السورة والآية',
+                        surah: fromSurah,
+                        ayah: fromAyah,
+                        minSurah: 1,
+                        minAyah: 1,
+                        onSurahChanged: (v) => setPickerState(() {
+                          // A new start surah re-seeds the section to that
+                          // surah's opening page, so both ends stay sensible.
+                          final firstPage = audio.pageIndexForAyah(v, 1);
+                          fromSurah = v;
+                          fromAyah = 1;
+                          toSurah = v;
+                          toAyah = firstPage >= 0
+                              ? _sectionEndOnPage(firstPage, v, 1)
+                              : 1;
+                          normalize();
+                        }),
+                        onAyahChanged: (v) => setPickerState(() {
+                          fromAyah = v;
+                          normalize();
+                        }),
+                      ),
+                      const SizedBox(height: 14),
+                      endpointRow(
+                        heading: 'إلى: السورة والآية',
+                        surah: toSurah,
+                        ayah: toAyah,
+                        minSurah: fromSurah,
+                        // Within the same surah the end can't precede the start;
+                        // in a later surah every ayah is fair game.
+                        minAyah: toSurah == fromSurah ? fromAyah : 1,
+                        onSurahChanged: (v) => setPickerState(() {
+                          toSurah = v;
+                          normalize();
+                        }),
+                        onAyahChanged: (v) => setPickerState(() {
+                          toAyah = v;
+                          normalize();
+                        }),
+                      ),
+                      const SizedBox(height: 14),
+                      label('عدد مرات التكرار'),
+                      Row(
+                        children: [
+                          for (final option in const [2, 3, 5, 7]) ...[
+                            countChip(
+                              '$option×',
+                              mode == AyahRepeatMode.count && count == option,
+                              () => setPickerState(() {
+                                mode = AyahRepeatMode.count;
+                                count = option;
+                              }),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          countChip(
+                            '∞',
+                            mode == AyahRepeatMode.infinite,
+                            () => setPickerState(
+                              () => mode = AyahRepeatMode.infinite,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم تتابع '
+                        'التلاوة بعد انتهاء التكرار.',
+                        style: TextStyle(color: subTextColor, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              actions: [
+                if (wasActive)
+                  TextButton(
+                    onPressed: () {
+                      audio.cancelRangeRepeat();
+                      Navigator.pop(ctx);
+                    },
+                    child: Text(
+                      'إيقاف التكرار',
+                      style: TextStyle(
+                        color: subTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(
+                    'إلغاء',
+                    style: TextStyle(
+                      color: subTextColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: accentColor.withValues(alpha: 0.18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: const BorderSide(color: accentColor, width: 1.4),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 10,
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _resetHideTimer();
+                    onStarted?.call();
+                    audio.startRangeRepeat(
+                      startSurah: fromSurah,
+                      startAyah: fromAyah,
+                      endSurah: toSurah,
+                      endAyah: toAyah,
+                      mode: mode,
+                      count: count,
+                    );
+                  },
+                  child: Text(
+                    'تشغيل المقطع',
+                    style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   /// The Tilawah options sheet reached from the tune (⋯) button on the
   /// recitation bar. Groups the "set-and-forget" choices — reciter (القارئ),
-  /// repeat-whole-thumn (تكرار الثمن) — plus a link to the button guide, so the
+  /// repeat-whole-thumn (تكرار الثمن), repeat a chosen passage (تكرار مقطع) and
+  /// playback speed (سرعة التلاوة) — plus a link to the button guide, so the
   /// frequently-tapped transport controls on the bar itself stay uncluttered.
   void _showTilawahOptionsSheet() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -4823,7 +5801,7 @@ class _QuranPagesState extends State<QuranPages>
                                     DropdownMenuItem(
                                       value: reciter.id,
                                       child: Text(
-                                        '${reciter.name} — ${reciter.riwaya}',
+                                        '${reciter.shortName} — ${reciter.riwaya}',
                                         style: TextStyle(
                                           color: textColor,
                                           fontSize: 14.5,
@@ -4838,7 +5816,7 @@ class _QuranPagesState extends State<QuranPages>
                                     Align(
                                       alignment: Alignment.centerRight,
                                       child: Text(
-                                        reciter.name,
+                                        reciter.shortName,
                                         style: TextStyle(
                                           color: textColor,
                                           fontSize: 15,
@@ -4865,70 +5843,129 @@ class _QuranPagesState extends State<QuranPages>
 
                       const SizedBox(height: 20),
 
-                      // ── تكرار الثمن + سرعة التلاوة (side by side) ──
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: ListenableBuilder(
-                              listenable: Listenable.merge([
-                                audio.thumnRepeatMode,
-                                audio.thumnRepeatCount,
-                              ]),
-                              builder: (context, _) {
-                                final isActive =
-                                    audio.thumnRepeatMode.value !=
-                                    AyahRepeatMode.off;
-                                return _optionTile(
-                                  icon: Icons.repeat_rounded,
-                                  title: 'تكرار الثمن',
-                                  valueLabel: isActive
-                                      ? audio.thumnRepeatLabel
-                                      : 'بدون',
-                                  isActive: isActive,
-                                  accentColor: accentColor,
-                                  borderColor: borderColor,
-                                  textColor: textColor,
-                                  subTextColor: subTextColor,
-                                  onTap: () {
-                                    _resetHideTimer();
-                                    _handleThumnRepeatTap();
-                                  },
-                                );
-                              },
+                      // ── تكرار الثمن + تكرار مقطع + سرعة التلاوة (side by side) ──
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: ListenableBuilder(
+                                listenable: Listenable.merge([
+                                  audio.thumnRepeatMode,
+                                  audio.thumnRepeatCount,
+                                ]),
+                                builder: (context, _) {
+                                  final isActive =
+                                      audio.thumnRepeatMode.value !=
+                                      AyahRepeatMode.off;
+                                  return _optionTile(
+                                    icon: Icons.repeat_rounded,
+                                    title: 'تكرار الثمن',
+                                    valueLabel: isActive
+                                        ? audio.thumnRepeatLabel
+                                        : 'بدون',
+                                    isActive: isActive,
+                                    accentColor: accentColor,
+                                    borderColor: borderColor,
+                                    textColor: textColor,
+                                    subTextColor: subTextColor,
+                                    onTap: () {
+                                      _resetHideTimer();
+                                      _handleThumnRepeatTap();
+                                    },
+                                  );
+                                },
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: ListenableBuilder(
-                              listenable: audio.playbackSpeed,
-                              builder: (context, _) {
-                                final isActive =
-                                    audio.playbackSpeed.value != 1.0;
-                                return _optionTile(
-                                  key: speedTileKey,
-                                  icon: Icons.speed_rounded,
-                                  title: 'سرعة التلاوة',
-                                  valueLabel: audio.playbackSpeedLabel,
-                                  isActive: isActive,
-                                  accentColor: accentColor,
-                                  borderColor: borderColor,
-                                  textColor: textColor,
-                                  subTextColor: subTextColor,
-                                  onTap: () {
-                                    _resetHideTimer();
-                                    _showSpeedPopup(speedTileKey);
-                                  },
-                                );
-                              },
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ListenableBuilder(
+                                listenable: Listenable.merge([
+                                  audio.rangeRepeatMode,
+                                  audio.rangeRepeatCount,
+                                ]),
+                                builder: (context, _) {
+                                  final isActive =
+                                      audio.rangeRepeatMode.value !=
+                                      AyahRepeatMode.off;
+                                  return _optionTile(
+                                    icon: Icons.segment_rounded,
+                                    title: 'تكرار مقطع',
+                                    valueLabel: isActive
+                                        ? audio.rangeRepeatLabel
+                                        : 'بدون',
+                                    isActive: isActive,
+                                    accentColor: accentColor,
+                                    borderColor: borderColor,
+                                    textColor: textColor,
+                                    subTextColor: subTextColor,
+                                    onTap: () {
+                                      _resetHideTimer();
+                                      _showRangeRepeatPicker(
+                                        // Starting a section closes the sheet so
+                                        // the user lands straight on the page it
+                                        // begins at.
+                                        onStarted: () {
+                                          if (ctx.mounted) Navigator.pop(ctx);
+                                        },
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ListenableBuilder(
+                                listenable: audio.playbackSpeed,
+                                builder: (context, _) {
+                                  final isActive =
+                                      audio.playbackSpeed.value != 1.0;
+                                  return _optionTile(
+                                    key: speedTileKey,
+                                    icon: Icons.speed_rounded,
+                                    title: 'سرعة التلاوة',
+                                    valueLabel: audio.playbackSpeedLabel,
+                                    isActive: isActive,
+                                    accentColor: accentColor,
+                                    borderColor: borderColor,
+                                    textColor: textColor,
+                                    subTextColor: subTextColor,
+                                    onTap: () {
+                                      _resetHideTimer();
+                                      _showSpeedPopup(speedTileKey);
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'يكرّر الثمن كاملاً وإن امتد على عدة صفحات — اضغط للتبديل',
-                        style: TextStyle(color: subTextColor, fontSize: 11.5),
+                      // Live status of the running section — the only text under
+                      // the row, and only while a section is actually armed.
+                      ListenableBuilder(
+                        listenable: Listenable.merge([
+                          audio.repeatRange,
+                          audio.rangeRepeatDone,
+                          audio.rangeRepeatCount,
+                          audio.rangeRepeatMode,
+                        ]),
+                        builder: (context, _) {
+                          final range = audio.repeatRange.value;
+                          if (range == null) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'المقطع: ${_rangeStatusLabel(range)}',
+                              style: const TextStyle(
+                                color: accentColor,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          );
+                        },
                       ),
 
                       const SizedBox(height: 20),
@@ -5127,9 +6164,9 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  /// A compact square-ish tile used for the thumn-repeat and playback-speed
-  /// controls in the Tilawah options sheet. Both are single-tap-to-cycle
-  /// buttons, sized to sit side by side in the same row.
+  /// A compact square-ish tile used for the thumn-repeat, section-repeat and
+  /// playback-speed controls in the Tilawah options sheet — three to a row, so
+  /// the title scales down rather than ellipsising on narrow phones.
   Widget _optionTile({
     Key? key,
     required IconData icon,
@@ -5148,7 +6185,7 @@ class _QuranPagesState extends State<QuranPages>
       onTap: onTap,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
         decoration: BoxDecoration(
           color: isActive
               ? accentColor.withValues(alpha: 0.18)
@@ -5165,16 +6202,20 @@ class _QuranPagesState extends State<QuranPages>
             Row(
               children: [
                 Icon(icon, color: isActive ? accentColor : textColor, size: 16),
-                const SizedBox(width: 5),
+                const SizedBox(width: 4),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -5555,9 +6596,9 @@ class _QuranPagesState extends State<QuranPages>
             : borderColor.withValues(alpha: 0.18),
         shape: BoxShape.circle,
       ),
-      child: iconWidget ??
-          Icon(icon,
-              color: highlighted ? Colors.white : textColor, size: 18),
+      child:
+          iconWidget ??
+          Icon(icon, color: highlighted ? Colors.white : textColor, size: 18),
     );
 
     final row = Row(
@@ -5879,7 +6920,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         onPressed: () {
                           _resetHideTimer();
                           audio.cyclePageRepeatMode();
@@ -5947,7 +6988,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         icon: Icon(
                           Icons.skip_previous_rounded,
                           color: iconColor,
@@ -6034,7 +7075,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         icon: Icon(
                           Icons.skip_next_rounded,
                           color: iconColor,
@@ -6053,7 +7094,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         onPressed: () {
                           _resetHideTimer();
                           audio.cycleAyahRepeatMode();
@@ -6115,7 +7156,7 @@ class _QuranPagesState extends State<QuranPages>
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                        constraints: _barIconConstraints,
                         icon: Icon(
                           Icons.close_rounded,
                           color: iconColor,
@@ -6128,7 +7169,7 @@ class _QuranPagesState extends State<QuranPages>
                         tooltip: 'إغلاق',
                       ),
 
-                      // خيارات (القارئ، سرعة التلاوة، تكرار الثمن، الإرشادات)
+                      // خيارات (القارئ، سرعة التلاوة، تكرار الثمن، تكرار مقطع، الإرشادات)
                       // Wrapped in a gold accent chip so it stands apart from
                       // the plain-white transport icons and reads as "options".
                       GestureDetector(
@@ -6209,6 +7250,9 @@ class _MeasureSizeRenderObject extends RenderProxyBox {
     WidgetsBinding.instance.addPostFrameCallback((_) => onChange(newSize));
   }
 }
+
+/// What a per-ayah copy action in the tafsir sheet puts on the clipboard.
+enum _TafsirCopyMode { ayah, tafsir, both }
 
 /// Stateful Tafsir sheet with page navigation.
 class _TafsirSheetContent extends StatefulWidget {
@@ -6367,6 +7411,107 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
     _loadTafsir(newPage);
   }
 
+  /// One-tap copy for a whole block. Free-form partial selection is handled by
+  /// the `SelectionArea` around the list; this is the shortcut for grabbing the
+  /// verse, its commentary, or both without dragging handles around.
+  Widget _buildCopyMenu(Map<String, dynamic> data) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: PopupMenuButton<_TafsirCopyMode>(
+        tooltip: 'نسخ',
+        icon: const Icon(Icons.copy_rounded),
+        iconSize: 19,
+        iconColor: widget.accentColor,
+        padding: EdgeInsets.zero,
+        color: widget.backgroundColor,
+        position: PopupMenuPosition.under,
+        constraints: const BoxConstraints(minWidth: 190),
+        onSelected: (mode) => _copyEntry(data, mode),
+        itemBuilder: (_) => [
+          _buildCopyMenuItem(
+            _TafsirCopyMode.ayah,
+            Icons.menu_book_rounded,
+            'نسخ الآية',
+          ),
+          _buildCopyMenuItem(
+            _TafsirCopyMode.tafsir,
+            Icons.article_outlined,
+            'نسخ التفسير',
+          ),
+          _buildCopyMenuItem(
+            _TafsirCopyMode.both,
+            Icons.copy_all_rounded,
+            'نسخ الآية والتفسير',
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<_TafsirCopyMode> _buildCopyMenuItem(
+    _TafsirCopyMode mode,
+    IconData icon,
+    String label,
+  ) {
+    return PopupMenuItem<_TafsirCopyMode>(
+      value: mode,
+      height: 44,
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: widget.accentColor),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w600,
+                color: widget.titleColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyEntry(
+    Map<String, dynamic> data,
+    _TafsirCopyMode mode,
+  ) async {
+    final surahName = (data['surahName'] ?? '').toString();
+    final ayahNumber = (data['ayahNumber'] as num?)?.toInt() ?? 0;
+    final ayahText = (data['ayahText'] ?? '').toString();
+    final tafsirText = (data['tafsir'] ?? '').toString();
+    final editionName = TafsirEditionService.instance.selected.value.name;
+
+    final (text, message) = switch (mode) {
+      _TafsirCopyMode.ayah => (
+        CopyHelper.formatAyah(
+          surahName: surahName,
+          ayahNumber: ayahNumber,
+          text: ayahText,
+        ),
+        'تم نسخ الآية',
+      ),
+      _TafsirCopyMode.tafsir => (tafsirText.trim(), 'تم نسخ التفسير'),
+      _TafsirCopyMode.both => (
+        CopyHelper.formatAyahWithTafsir(
+          surahName: surahName,
+          ayahNumber: ayahNumber,
+          ayahText: ayahText,
+          tafsirText: tafsirText,
+          editionName: editionName,
+        ),
+        'تم نسخ الآية والتفسير',
+      ),
+    };
+
+    await CopyHelper.copy(context, text, message: message);
+  }
+
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
@@ -6437,14 +7582,20 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                 borderRadius: BorderRadius.circular(22),
                                 child: Container(
                                   padding: const EdgeInsets.fromLTRB(
-                                      8, 6, 12, 6),
+                                    8,
+                                    6,
+                                    12,
+                                    6,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: widget.accentColor
-                                        .withValues(alpha: 0.14),
+                                    color: widget.accentColor.withValues(
+                                      alpha: 0.14,
+                                    ),
                                     borderRadius: BorderRadius.circular(22),
                                     border: Border.all(
-                                      color: widget.accentColor
-                                          .withValues(alpha: 0.55),
+                                      color: widget.accentColor.withValues(
+                                        alpha: 0.55,
+                                      ),
                                       width: 1.3,
                                     ),
                                   ),
@@ -6460,7 +7611,10 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                       Flexible(
                                         child: Text(
                                           TafsirEditionService
-                                              .instance.selected.value.name,
+                                              .instance
+                                              .selected
+                                              .value
+                                              .name,
                                           textAlign: TextAlign.center,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
@@ -6540,62 +7694,76 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                     // controller whose extent changes as the sheet resizes),
                     // which caused the thumb to snap and jump to the ends.
                     // Scrolling is done by dragging the content, which is smooth.
-                    : RawScrollbar(
-                        controller: scrollController,
-                        thumbVisibility: true,
-                        thickness: 5,
-                        radius: const Radius.circular(4),
-                        thumbColor:
-                            widget.accentColor.withValues(alpha: 0.5),
-                        child: ListView.separated(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
+                    // SelectionArea gives free-form text selection on every
+                    // platform: long-press + handles on Android/iOS, mouse
+                    // drag + Ctrl/Cmd-C on the web build.
+                    : SelectionArea(
+                        child: RawScrollbar(
+                          controller: scrollController,
+                          thumbVisibility: true,
+                          thickness: 5,
+                          radius: const Radius.circular(4),
+                          thumbColor: widget.accentColor.withValues(alpha: 0.5),
+                          child: ListView.separated(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            itemCount: _tafsirData.length,
+                            separatorBuilder: (_, _) => const Divider(height: 32),
+                            itemBuilder: (context, index) {
+                              final data = _tafsirData[index];
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      _buildCopyMenu(data),
+                                      Expanded(
+                                        child: Text(
+                                          '${data['surahName']} - آية ${data['ayahNumber']}',
+                                          textAlign: TextAlign.center,
+                                          textDirection: TextDirection.rtl,
+                                          style: TextStyle(
+                                            color: widget.borderColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ),
+                                      // Balances the copy button so the heading
+                                      // stays optically centred.
+                                      const SizedBox(width: 40),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    data['ayahText'],
+                                    textAlign: TextAlign.center,
+                                    textDirection: TextDirection.rtl,
+                                    style: TextStyle(
+                                      color: widget.titleColor,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    data['tafsir'],
+                                    textAlign: TextAlign.justify,
+                                    textDirection: TextDirection.rtl,
+                                    style: TextStyle(
+                                      color: widget.textColor,
+                                      fontSize: 18,
+                                      height: 1.8,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
                         ),
-                        itemCount: _tafsirData.length,
-                        separatorBuilder: (_, _) => const Divider(height: 32),
-                        itemBuilder: (context, index) {
-                          final data = _tafsirData[index];
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                '${data['surahName']} - آية ${data['ayahNumber']}',
-                                textAlign: TextAlign.center,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: widget.borderColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                data['ayahText'],
-                                textAlign: TextAlign.center,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: widget.titleColor,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 22,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                data['tafsir'],
-                                textAlign: TextAlign.justify,
-                                textDirection: TextDirection.rtl,
-                                style: TextStyle(
-                                  color: widget.textColor,
-                                  fontSize: 18,
-                                  height: 1.8,
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
                       ),
               ),
             ],

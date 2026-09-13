@@ -9,12 +9,14 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/audio_clip.dart';
 import '../models/quran_page_data.dart';
 import '../models/reciter.dart';
 import '../thumn_data.dart';
 import 'audio_ayah_map_service.dart';
 import 'quran_json_service.dart';
 import 'reciter_service.dart';
+import 'surah_timings_service.dart';
 
 /// Repeat mode for ayah playback.
 enum AyahRepeatMode {
@@ -35,6 +37,28 @@ class AudioPlaybackNotice {
   const AudioPlaybackNotice({required this.message, required this.createdAt});
 }
 
+/// A contiguous run of ayat — the section the user picks for "تكرار مقطع". It
+/// may start in one surah and end in another (e.g. الفاتحة 3 → البقرة 4). Both
+/// bounds are inclusive and use the mushaf's own (Qalun) ayah numbering, i.e.
+/// the numbers printed on the page.
+class AyahRange {
+  final int startSurah;
+  final int startAyah;
+  final int endSurah;
+  final int endAyah;
+
+  const AyahRange({
+    required this.startSurah,
+    required this.startAyah,
+    required this.endSurah,
+    required this.endAyah,
+  });
+
+  /// Whether the whole section sits inside one surah — the common case, which
+  /// the UI labels more compactly.
+  bool get isSingleSurah => startSurah == endSurah;
+}
+
 class AudioService {
   static final AudioService instance = AudioService._internal();
   AudioService._internal();
@@ -49,8 +73,11 @@ class AudioService {
   int _currentFileIndexWithinAyah = 0;
   int _currentPageIndex = -1;
   List<QuranAyahData> _playlistAyahs = [];
-  List<String> _currentAyahFiles = [];
+  List<AudioClip> _currentAyahClips = [];
   bool _isChangingPage = false;
+  // Guards against acting twice on a single finished file — see the
+  // playerStateStream listener in init() for why it arrives more than once.
+  bool _didHandleCompletion = false;
   DateTime _lastAyahChangeTime = DateTime(2000);
 
   /// Whether to resume after a transient audio interruption (e.g. a phone call)
@@ -139,6 +166,29 @@ class AudioService {
   int _thumnEndSurah = 0;
   int _thumnEndAyah = 0;
 
+  /// ── Range Repeat (تكرار مقطع) ──
+  /// Repeats an arbitrary run of ayat the user picks (surah + from/to ayah),
+  /// rather than a structural unit like a page or a thumn. The section may span
+  /// several pages; playback jumps to its first ayah, reads to its last, then
+  /// loops back — and once the repeats are spent it carries on reading forward,
+  /// exactly like thumn repeat does.
+  final ValueNotifier<AyahRepeatMode> rangeRepeatMode = ValueNotifier(
+    AyahRepeatMode.off,
+  );
+
+  /// Range repeat count (used when rangeRepeatMode == AyahRepeatMode.count).
+  final ValueNotifier<int> rangeRepeatCount = ValueNotifier(3);
+
+  /// The section being repeated; null when range repeat is off.
+  final ValueNotifier<AyahRange?> repeatRange = ValueNotifier(null);
+
+  /// How many complete passes of the section have finished. Public so the UI
+  /// can show live progress ("2/3") while the section is looping.
+  final ValueNotifier<int> rangeRepeatDone = ValueNotifier(0);
+
+  /// Lazily-built surah → highest ayah number map (see [ayahCountForSurah]).
+  Map<int, int>? _ayahCounts;
+
   /// ── Playback Speed ──
   /// Allowed speeds, shown as a vertical picker in the Tilawah options sheet.
   /// Capped at 0.5×–2× so recitation stays intelligible: slower than 0.5×
@@ -212,7 +262,19 @@ class AudioService {
     _player.playerStateStream.listen((state) {
       isPlaying.value = state.playing;
       if (state.processingState == ProcessingState.completed) {
+        // One finished file arrives here more than once: playerStateStream
+        // emits on any field change, so a completion shows up as
+        // (playing: true, completed) and again as (playing: false, completed).
+        // Acting on both advanced the playlist twice and — on web, where
+        // _playFile awaits stop() before loading the next source — left two
+        // advances racing on a single player, which ended with it idle and the
+        // recitation dead after the first ayah. Advance once per transition
+        // *into* completed; any other state re-arms it for the next file.
+        if (_didHandleCompletion) return;
+        _didHandleCompletion = true;
         _handleAyahCompleted();
+      } else {
+        _didHandleCompletion = false;
       }
     });
   }
@@ -303,17 +365,34 @@ class AudioService {
     final a = ayah.ayah;
     final surahStr = s.toString().padLeft(3, '0');
 
-    // ── al-Naihi mirror: native Qalun per-ayah numbering ──
+    final reciter = ReciterService.instance.selected.value;
+
+    // ── Upstream gaps ──
+    // A few ayat were never published for some mirrors (see Reciter.missingAyat).
+    // Returning no file lets playback advance to the next ayah that does have
+    // audio, instead of stalling on a request that can only 404.
+    if (reciter.isMissing(s, a)) return const [];
+
+    // ── al-Hudaifi: the file name IS the displayed ayah ──
+    // No basmala file and no merged tails, so nothing to translate. The only
+    // exception is the handful of ayat he reads as part of a neighbouring ayah:
+    // their own file holds silence, so returning no file lets playback advance
+    // to the next ayah that actually has recitation.
+    if (reciter.scheme == AudioScheme.covered) {
+      if (reciter.coveredAyat[s]?.contains(a) ?? false) return const [];
+      return ['$surahStr${a.toString().padLeft(3, '0')}.mp3'];
+    }
+
+    // ── al-Naihi / قنيوه: native Qalun per-ayah numbering ──
     // The basmala is a separate file `SSS000.mp3` recited before ayah 1 (every
     // surah except At-Tawba 9). The displayed (output.json) ayah number is
     // translated to the recitation's own Qalun ayah file(s) via the audio map,
     // because the two use slightly different ayah divisions (see
     // AudioAyahMapService). Out-of-range numbers are dropped so playback advances
     // cleanly instead of 404-stalling.
-    final reciter = ReciterService.instance.selected.value;
-    if (reciter.nativeQalounScheme) {
+    if (reciter.scheme == AudioScheme.nativeQaloun) {
       String f(int n) => '$surahStr${n.toString().padLeft(3, '0')}.mp3';
-      final maxAyah = Reciter.naihiMadaniAyahCounts[s - 1];
+      final maxAyah = Reciter.madaniAyahCounts[s - 1];
       List<int> mappedInts(int ayah) =>
           (AudioAyahMapService.instance.lookup(s, ayah) ?? [ayah])
               .where((n) => n >= 1 && n <= maxAyah)
@@ -337,14 +416,17 @@ class AudioService {
       // part of the ayah-1 file (قنيوه's الوقف الهبطي), which would double it.
       final basmalaInAyah1 =
           reciter.breathCombining &&
-          AudioAyahMapService.instance.qaniwahBasmalaInAyah1(s);
+          AudioAyahMapService.instance.basmalaInAyah1(reciter, s);
       if (a == 1 && s != 9 && !basmalaInAyah1) files.add(f(0));
       for (final n in mapped) {
-        // الوقف الهبطي (قنيوه): an ayah whose audio just repeats the previous
-        // breath is skipped — the breath already played on the group's first
-        // ayah. Returning no file lets playback advance to the next distinct ayah.
+        // The mapped file can itself be one of this mirror's upstream gaps.
+        if (reciter.isMissing(s, n)) continue;
+        // الوقف الهبطي (قنيوه / أبوسنينة): an ayah whose audio just repeats the
+        // previous breath is skipped — the breath already played on the group's
+        // first ayah. Returning no file lets playback advance to the next
+        // distinct ayah.
         if (reciter.breathCombining &&
-            AudioAyahMapService.instance.isQaniwahContinuation(s, n)) {
+            AudioAyahMapService.instance.isContinuation(reciter, s, n)) {
           continue;
         }
         files.add(f(n));
@@ -377,6 +459,43 @@ class AudioService {
     return ['$surahStr$ayahStr.mp3'];
   }
 
+  /// The clips to play for a displayed ayah, for **any** scheme.
+  ///
+  /// This is the single seam between the two ways a khatma can be stored. The
+  /// per-ayah mirrors keep going through [_getAudioFilesForAyah] untouched and
+  /// their files simply become whole-file clips, so nothing about their
+  /// behaviour changes. [AudioScheme.timedSurah] instead resolves a span inside
+  /// the surah's single MP3.
+  ///
+  /// Synchronous on purpose: it is called from the playback path, the
+  /// prefetcher and [_isPlayableAyah]. The timed scheme therefore reads only
+  /// already-loaded timings, and callers that might move to a new surah warm
+  /// them first via [_ensureTimingsFor].
+  List<AudioClip> _getClipsForAyah(QuranAyahData ayah, {int? pageNumber}) {
+    final reciter = ReciterService.instance.selected.value;
+    if (reciter.scheme == AudioScheme.timedSurah) {
+      return SurahTimingsService.instance
+          .clipsFor(reciter, ayah.surah, ayah.ayah);
+    }
+    return _getAudioFilesForAyah(ayah, pageNumber: pageNumber)
+        .map(AudioClip.whole)
+        .toList();
+  }
+
+  /// Loads the timing files for every surah represented in [ayahs], so the
+  /// synchronous [_getClipsForAyah] can resolve them. A no-op for every scheme
+  /// but [AudioScheme.timedSurah], and for surahs already loaded — a page's ayat
+  /// almost always share one surah, so this is usually a single fetch (and
+  /// nothing at all once cached to disk).
+  Future<void> _ensureTimingsFor(List<QuranAyahData> ayahs) async {
+    final reciter = ReciterService.instance.selected.value;
+    if (reciter.scheme != AudioScheme.timedSurah) return;
+    final surahs = <int>{for (final a in ayahs) a.surah};
+    await Future.wait([
+      for (final s in surahs) SurahTimingsService.instance.load(reciter, s),
+    ]);
+  }
+
   // ─────────────────────────────────────
   //  PLAYBACK
   // ─────────────────────────────────────
@@ -403,6 +522,12 @@ class AudioService {
       if (pageData.ayahs.isEmpty) return;
 
       _playlistAyahs = pageData.ayahs;
+      // Must come before any _isPlayableAyah call below: under the timed scheme
+      // "is this ayah playable" is answered from the surah's timing file, so
+      // without this the startFromLastAyah scan would find nothing playable and
+      // walk all the way back to the first ayah. A no-op for every other scheme,
+      // and for a surah already loaded.
+      await _ensureTimingsFor(pageData.ayahs);
       if (startFromAyahIndex != null) {
         _currentGlobalAyahIndex = startFromAyahIndex;
       } else if (startFromLastAyah) {
@@ -487,9 +612,31 @@ class AudioService {
   }
 
   Future<void> _downloadPageAyahs(List<QuranAyahData> ayahs) async {
+    final reciter = ReciterService.instance.selected.value;
+    if (reciter.scheme == AudioScheme.timedSurah) {
+      // Timings are a few KB and nothing can resolve a clip without them, so
+      // they are warmed on every platform — including web, which returns below
+      // before any audio prefetching.
+      await _ensureTimingsFor(ayahs);
+      if (!kIsWeb) {
+        for (final surah in <int>{for (final a in ayahs) a.surah}) {
+          await SurahTimingsService.instance.download(reciter, surah);
+        }
+      }
+      // The audio itself is deliberately NOT prefetched. One file per surah
+      // means "prefetch what this page needs" would pull the whole surah — up
+      // to ~90 MB for al-Baqarah — before the first ayah could play. Streaming
+      // instead lets the player issue an HTTP range request straight to the
+      // ayah's offset, which starts about as fast as a small per-ayah file. The
+      // whole-surah file is still downloaded in full by the explicit offline
+      // flow in AudioDownloadService.
+      return;
+    }
+
     // No local file cache on web — playback streams each file directly, so
     // there's nothing to pre-download here.
     if (kIsWeb) return;
+
     final dir = _cacheDir ?? await _getAudioCacheDir();
     bool? internetAvailable;
 
@@ -527,19 +674,39 @@ class AudioService {
 
     final ayah = _playlistAyahs[_currentGlobalAyahIndex];
     currentAyah.value = ayah;
-    _currentAyahFiles = _getAudioFilesForAyah(
+    _currentAyahClips = _getClipsForAyah(
       ayah,
       pageNumber: _currentPageIndex + 1,
     );
 
+    // Under the timed scheme an empty result can also mean "this surah's timing
+    // file hasn't arrived yet" (first play of a surah, or a cold cache), which
+    // is not the same as "this ayah has no audio". Fetch once and retry before
+    // treating it as silent, otherwise the very first ayah of a surah would be
+    // skipped straight past.
+    if (_currentAyahClips.isEmpty &&
+        ReciterService.instance.selected.value.scheme ==
+            AudioScheme.timedSurah &&
+        SurahTimingsService.instance.cached(
+              ReciterService.instance.selected.value,
+              ayah.surah,
+            ) ==
+            null) {
+      await _ensureTimingsFor([ayah]);
+      _currentAyahClips = _getClipsForAyah(
+        ayah,
+        pageNumber: _currentPageIndex + 1,
+      );
+    }
+
     // Check if it's a "silent" ayah in Qalon but needs audio from previous file
-    if (_currentAyahFiles.isEmpty) {
+    if (_currentAyahClips.isEmpty) {
       if (isManualSelection) {
         if (ayah.surah == 23 && ayah.ayah == 46) {
           // Manual selection of 46: Play file 45 and seek to the split point.
-          _currentAyahFiles = ['023045.mp3'];
-          final didStart = await _playFile(
-            _currentAyahFiles[0],
+          _currentAyahClips = [const AudioClip.whole('023045.mp3')];
+          final didStart = await _playClip(
+            _currentAyahClips[0],
             seekTo: const Duration(milliseconds: 8000),
             autoPlay: autoPlay,
           );
@@ -551,13 +718,13 @@ class AudioService {
       return;
     }
 
-    if (_currentFileIndexWithinAyah >= _currentAyahFiles.length) {
+    if (_currentFileIndexWithinAyah >= _currentAyahClips.length) {
       _handleAyahCompleted();
       return;
     }
 
-    final fileName = _currentAyahFiles[_currentFileIndexWithinAyah];
-    final didStart = await _playFile(fileName, autoPlay: autoPlay);
+    final clip = _currentAyahClips[_currentFileIndexWithinAyah];
+    final didStart = await _playClip(clip, autoPlay: autoPlay);
     if (!didStart) return;
 
     // Set up split monitoring for UI updates
@@ -565,25 +732,36 @@ class AudioService {
   }
 
   /// Builds the media-session metadata shown in the notification / lock screen.
-  MediaItem _mediaItemFor(Uri uri) {
+  ///
+  /// [id] must differ per ayah. It used to be the file URL, which was unique
+  /// while every ayah had its own file — but under [AudioScheme.timedSurah] all
+  /// of a surah's ayat share one URL, and a MediaItem whose id never changes
+  /// leaves the notification stuck on the first ayah's title. The clip's span is
+  /// therefore folded into the id.
+  MediaItem _mediaItemFor(Uri uri, AudioClip clip) {
     final ayah = currentAyah.value;
     final reciter = ReciterService.instance.selected.value;
     final title = ayah == null
         ? 'القرآن الكريم'
         : 'سورة ${ayah.surahName} - الآية ${ayah.ayah}';
+    final id = clip.isClipped
+        ? '$uri#${clip.start?.inMilliseconds ?? 0}-${clip.end?.inMilliseconds ?? 0}'
+        : uri.toString();
     return MediaItem(
-      id: uri.toString(),
+      id: id,
       title: title,
-      album: reciter.name,
+      album: reciter.shortName,
       artist: reciter.riwaya,
+      duration: clip.duration,
     );
   }
 
-  Future<bool> _playFile(
-    String fileName, {
+  Future<bool> _playClip(
+    AudioClip clip, {
     Duration? seekTo,
     bool autoPlay = true,
   }) async {
+    final fileName = clip.file;
     try {
       final Uri uri;
       if (kIsWeb) {
@@ -605,8 +783,31 @@ class AudioService {
             ? Uri.file(localFile.path)
             : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
       }
+      if (kIsWeb) {
+        // just_audio_web reuses one HTMLAudioElement and skips loading when it
+        // thinks the URL is unchanged; swapping sources on a live player leaves
+        // it pointing at the previous ayah forever. Resetting to idle first
+        // forces a genuine load of the new URL.
+        await _player.stop();
+      }
+      // The MediaItem tag drives the OS media notification via
+      // just_audio_background, which is only initialised on Android/iOS (see
+      // main.dart). There is no media session on the web, so skip the tag
+      // there.
+      final tag = kIsWeb ? null : _mediaItemFor(uri, clip);
+      // A clipped source plays [start]..[end] and then reports
+      // ProcessingState.completed exactly as a whole file does — which is what
+      // lets ayah/page/ثمن/مقطع repeat work unchanged for the timed scheme. The
+      // tag belongs on the outermost source, so just_audio_background sees it.
       await _player.setAudioSource(
-        AudioSource.uri(uri, tag: _mediaItemFor(uri)),
+        clip.isClipped
+            ? ClippingAudioSource(
+                child: AudioSource.uri(uri),
+                start: clip.start,
+                end: clip.end,
+                tag: tag,
+              )
+            : AudioSource.uri(uri, tag: tag),
       );
 
       if (seekTo != null) {
@@ -621,6 +822,14 @@ class AudioService {
       if (e is SocketException) {
         _showPlaybackNotice(
           'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
+        );
+      } else if (kIsWeb) {
+        // Every ayah is streamed on web and SocketException never fires there,
+        // so without this branch a blocked or failed fetch (CORS, 404, a
+        // network filter) stopped the recitation with nothing shown at all —
+        // it just looked like playback died on its own.
+        _showPlaybackNotice(
+          'تعذّر تحميل ملف التلاوة. تأكد من الاتصال بالإنترنت وأن الشبكة لا تحجب الموقع، ثم أعد المحاولة.',
         );
       }
       // Don't call stop() here — it could cascade into more errors
@@ -688,8 +897,8 @@ class AudioService {
   /// Called when a single audio file finishes.
   void _handleAyahCompleted() {
     _currentFileIndexWithinAyah++;
-    if (_currentAyahFiles.isNotEmpty &&
-        _currentFileIndexWithinAyah < _currentAyahFiles.length) {
+    if (_currentAyahClips.isNotEmpty &&
+        _currentFileIndexWithinAyah < _currentAyahClips.length) {
       // Play next file of the SAME ayah
       _playCurrentAyah();
       return;
@@ -719,6 +928,19 @@ class AudioService {
     // Move to next ayah
     _currentGlobalAyahIndex++;
     _currentFileIndexWithinAyah = 0;
+
+    // Range repeat: as soon as the next ayah on this page falls outside the
+    // chosen section, loop back to the section's first ayah.
+    if (rangeRepeatMode.value != AyahRepeatMode.off &&
+        _currentGlobalAyahIndex < _playlistAyahs.length) {
+      final next = _playlistAyahs[_currentGlobalAyahIndex];
+      if (!_isInsideRange(next.surah, next.ayah)) {
+        _handleRangeBoundary().then((looped) {
+          if (!looped) _playCurrentAyah();
+        });
+        return;
+      }
+    }
 
     // Thumn repeat: if the next ayah on this page crosses the thumn's end
     // boundary (a thumn can end mid-page), loop back to the thumn's start
@@ -826,9 +1048,11 @@ class AudioService {
   }
 
   /// Whether this ayah has its own audio to play (false for قنيوه's silent
-  /// continuation ayat and phantom verses, which produce no files).
+  /// continuation ayat and phantom verses, which produce no clips — and, under
+  /// [AudioScheme.timedSurah], for ayat whose timing entry is null because the
+  /// sheikh recites them inside a neighbour's breath).
   bool _isPlayableAyah(QuranAyahData ayah) =>
-      _getAudioFilesForAyah(ayah).isNotEmpty;
+      _getClipsForAyah(ayah).isNotEmpty;
 
   /// Cycle through repeat modes: off → 2× → 3× → infinite (∞) → off
   ///
@@ -889,9 +1113,10 @@ class AudioService {
     _pageRepeatIteration = 0;
     final mode = pageRepeatMode.value;
     if (mode == AyahRepeatMode.off) {
-      // First tap: play the page twice (one real repeat). Page and thumn repeat
-      // are mutually exclusive, so cancel any active thumn repeat.
+      // First tap: play the page twice (one real repeat). The three section
+      // repeats are mutually exclusive, so cancel the other two.
       _clearThumnRepeat();
+      _clearRangeRepeat();
       pageRepeatCount.value = 2;
       pageRepeatMode.value = AyahRepeatMode.count;
     } else if (mode == AyahRepeatMode.count) {
@@ -1048,12 +1273,13 @@ class AudioService {
     _engageThumnRepeat();
   }
 
-  /// Common engage tail: cancel page repeat (mutually exclusive), set 2×, and
-  /// jump straight to the captured thumn's starting ayah so it plays from the
-  /// beginning — even mid-page.
+  /// Common engage tail: cancel page/range repeat (mutually exclusive), set 2×,
+  /// and jump straight to the captured thumn's starting ayah so it plays from
+  /// the beginning — even mid-page.
   void _engageThumnRepeat() {
     pageRepeatMode.value = AyahRepeatMode.off;
     _pageRepeatIteration = 0;
+    _clearRangeRepeat();
     thumnRepeatCount.value = 2;
     thumnRepeatMode.value = AyahRepeatMode.count;
     jumpToAyah(_thumnStartSurah, _thumnStartAyah);
@@ -1068,6 +1294,163 @@ class AudioService {
         return '∞';
       case AyahRepeatMode.count:
         return '${thumnRepeatCount.value}×';
+    }
+  }
+
+  /// Highest ayah number that exists for [surah] in the mushaf's own numbering.
+  ///
+  /// This is deliberately read off the page data rather than `surahList`: the
+  /// printed Qalun/Madani division differs from the Hafs counts in that table
+  /// for 46 surahs (e.g. البقرة ends at 285 here, المائدة at 122), so any ayah
+  /// picker built on `surahList` would offer numbers that don't exist — or hide
+  /// ones that do. Returns 0 before the page data has loaded.
+  int ayahCountForSurah(int surah) {
+    if (_quranPages == null) return 0;
+    final counts = _ayahCounts ??= _buildAyahCounts();
+    return counts[surah] ?? 0;
+  }
+
+  Map<int, int> _buildAyahCounts() {
+    final counts = <int, int>{};
+    for (final page in _quranPages!) {
+      for (final ayah in page.ayahs) {
+        final current = counts[ayah.surah];
+        if (current == null || ayah.ayah > current) {
+          counts[ayah.surah] = ayah.ayah;
+        }
+      }
+    }
+    return counts;
+  }
+
+  /// The 0-indexed page holding ([surah], [ayah]), or -1 if there is none.
+  int pageIndexForAyah(int surah, int ayah) {
+    if (_quranPages == null) return -1;
+    for (int i = 0; i < _quranPages!.length; i++) {
+      final hit = _quranPages![i].ayahs.any(
+        (a) => a.surah == surah && a.ayah == ayah,
+      );
+      if (hit) return i;
+    }
+    return -1;
+  }
+
+  /// Engage "تكرار مقطع" for the inclusive run ([startSurah], [startAyah]) →
+  /// ([endSurah], [endAyah]), then jump to the section's first ayah and start
+  /// reciting it. The two ends may sit in different surahs.
+  ///
+  /// Page and thumn repeat are cleared first: all three drive the same forward
+  /// advance, so leaving another one armed would have them fight over where
+  /// playback loops back to.
+  Future<void> startRangeRepeat({
+    required int startSurah,
+    required int startAyah,
+    required int endSurah,
+    required int endAyah,
+    AyahRepeatMode mode = AyahRepeatMode.count,
+    int count = 2,
+  }) async {
+    if (_quranPages == null) await init();
+    if (mode == AyahRepeatMode.off) {
+      _clearRangeRepeat();
+      return;
+    }
+
+    pageRepeatMode.value = AyahRepeatMode.off;
+    _pageRepeatIteration = 0;
+    _clearThumnRepeat();
+
+    // Clamp to ayat that actually exist, so a stale picker value can't arm a
+    // section whose start ayah no page contains (which would end playback).
+    int s1 = startSurah.clamp(1, 114);
+    int s2 = endSurah.clamp(1, 114);
+    int a1 = _clampAyah(s1, startAyah);
+    int a2 = _clampAyah(s2, endAyah);
+    // An inverted section would never terminate — collapse it to its start.
+    if (s2 < s1 || (s2 == s1 && a2 < a1)) {
+      s2 = s1;
+      a2 = a1;
+    }
+
+    repeatRange.value = AyahRange(
+      startSurah: s1,
+      startAyah: a1,
+      endSurah: s2,
+      endAyah: a2,
+    );
+    rangeRepeatCount.value = count;
+    rangeRepeatMode.value = mode;
+    rangeRepeatDone.value = 0;
+
+    await jumpToAyah(s1, a1);
+  }
+
+  /// Pins [ayah] into the 1..last range that [surah] actually has.
+  int _clampAyah(int surah, int ayah) {
+    final max = ayahCountForSurah(surah);
+    if (ayah < 1) return 1;
+    if (max > 0 && ayah > max) return max;
+    return ayah;
+  }
+
+  /// Turn "تكرار مقطع" off without touching playback — the recitation simply
+  /// keeps reading forward from wherever it is.
+  void cancelRangeRepeat() => _clearRangeRepeat();
+
+  void _clearRangeRepeat() {
+    rangeRepeatMode.value = AyahRepeatMode.off;
+    rangeRepeatCount.value = 3;
+    repeatRange.value = null;
+    rangeRepeatDone.value = 0;
+  }
+
+  /// Whether ([surah], [ayah]) still falls inside the active section. Compares
+  /// the (surah, ayah) pair as a single position, so a section that crosses a
+  /// surah boundary is handled the same as one inside a single surah.
+  bool _isInsideRange(int surah, int ayah) {
+    final range = repeatRange.value;
+    if (range == null) return false;
+    final afterStart =
+        surah > range.startSurah ||
+        (surah == range.startSurah && ayah >= range.startAyah);
+    final beforeEnd =
+        surah < range.endSurah ||
+        (surah == range.endSurah && ayah <= range.endAyah);
+    return afterStart && beforeEnd;
+  }
+
+  /// Called when playback is about to leave the active section. Returns true if
+  /// it looped back to the section's first ayah (caller must stop its normal
+  /// advance); false when the repeats are spent — range repeat is cleared and
+  /// the caller should carry on past the section normally.
+  Future<bool> _handleRangeBoundary() async {
+    final range = repeatRange.value;
+    if (range == null) {
+      _clearRangeRepeat();
+      return false;
+    }
+    // Counted in both modes so the on-bar progress keeps climbing under ∞.
+    rangeRepeatDone.value++;
+    final bool shouldLoop =
+        rangeRepeatMode.value == AyahRepeatMode.infinite ||
+        rangeRepeatDone.value < rangeRepeatCount.value;
+    if (shouldLoop) {
+      await jumpToAyah(range.startSurah, range.startAyah);
+      return true;
+    }
+    _clearRangeRepeat();
+    return false;
+  }
+
+  /// Get a human-readable label for the current range repeat mode.
+  String get rangeRepeatLabel {
+    switch (rangeRepeatMode.value) {
+      case AyahRepeatMode.off:
+        return '';
+      case AyahRepeatMode.infinite:
+        return '∞';
+      case AyahRepeatMode.count:
+        return '${rangeRepeatCount.value}×';
     }
   }
 
@@ -1125,6 +1508,23 @@ class AudioService {
     }
 
     if (nextPageIndex >= 0 && nextPageIndex < _quranPages!.length) {
+      // Range repeat: the section can end on the last ayah of a page, so the
+      // boundary is crossed by turning the page rather than by advancing
+      // within it — check the next page's first ayah before flipping.
+      if (rangeRepeatMode.value != AyahRepeatMode.off) {
+        final nextPage = _quranPages!.firstWhere(
+          (p) => p.page == nextPageIndex + 1,
+          orElse: () => QuranPageData(page: nextPageIndex + 1, ayahs: []),
+        );
+        if (nextPage.ayahs.isNotEmpty &&
+            !_isInsideRange(
+              nextPage.ayahs.first.surah,
+              nextPage.ayahs.first.ayah,
+            )) {
+          if (await _handleRangeBoundary()) return;
+        }
+      }
+
       // Thumn repeat: if the next page begins at/after the thumn's end
       // boundary, the whole thumn just finished — loop back to its start ayah
       // instead of crossing into the next thumn.
@@ -1173,6 +1573,7 @@ class AudioService {
     pageRepeatMode.value = AyahRepeatMode.off;
     _pageRepeatIteration = 0;
     _clearThumnRepeat();
+    _clearRangeRepeat();
   }
 
   /// Close the recitation bar (stops playback).
