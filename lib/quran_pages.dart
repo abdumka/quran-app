@@ -364,10 +364,12 @@ class _QuranPagesState extends State<QuranPages>
   double _hideBarRatio = 0.15;
   bool _isHifzModeEnabled = false;
   bool _isFullScreenMode = false;
-  // Memorization test (word-reveal) mode. Deliberately NOT persisted across
+  // Memorization test (ayah-reveal) mode. Deliberately NOT persisted across
   // restarts: it's a live listening session, not an ambient reading
   // preference like Hifz mode.
   bool _isMemorizationTestEnabled = false;
+  // 0-based index of the page the live session is bound to (-1 when none).
+  int _memorizationTestPageIndex = -1;
 
   int? _activeBookmarkSlot;
   bool _showBookmarkNotice = false;
@@ -951,11 +953,11 @@ class _QuranPagesState extends State<QuranPages>
     _readingCoordinator.setCurrentPage(safePage);
     _syncCurrentSurahForPage(safePage);
 
-    // The word-reveal test only exists on page 1 (POC); navigating away
-    // ends the session rather than leaving the mic session running
-    // against a page with no word data.
-    if (_isMemorizationTestEnabled && safePage != 0) {
-      _stopMemorizationTestIfActive();
+    // The listening session follows the reader: turning the page restarts
+    // it against the new page's text instead of leaving it running against
+    // the previous page.
+    if (_isMemorizationTestEnabled && safePage != _memorizationTestPageIndex) {
+      _followMemorizationTestToPage(safePage);
     }
 
     if (persist) {
@@ -2574,7 +2576,12 @@ class _QuranPagesState extends State<QuranPages>
   Future<void> _toggleMemorizationTest(bool value) async {
     if (!value) {
       await MemorizationTestService.instance.stop();
-      if (mounted) setState(() => _isMemorizationTestEnabled = false);
+      if (mounted) {
+        setState(() {
+          _isMemorizationTestEnabled = false;
+          _memorizationTestPageIndex = -1;
+        });
+      }
       return;
     }
     setState(() {
@@ -2596,9 +2603,13 @@ class _QuranPagesState extends State<QuranPages>
     }
 
     final service = MemorizationTestService.instance;
-    final started = await service.start(pageNumber: 1);
+    final pageIndex = _currentPage;
+    final started = await service.start(pageNumber: pageIndex + 1);
     if (!mounted) return;
-    setState(() => _isMemorizationTestEnabled = started);
+    setState(() {
+      _isMemorizationTestEnabled = started;
+      _memorizationTestPageIndex = started ? pageIndex : -1;
+    });
 
     // Be honest when we couldn't run the real mic check and fell back to the
     // scripted demo, so the auto-revealing words aren't mistaken for a
@@ -2690,12 +2701,29 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
-  /// Ends any active memorization test (used when another mode takes over,
-  /// the user navigates off page 1, or the app is backgrounded — a live
-  /// listening session should never keep running invisibly).
+  /// Moves the live session to [pageIndex] after the reader turned the page.
+  /// If the new page can't be started the mode switches off rather than
+  /// leaving the mic icon claiming a session that isn't there.
+  Future<void> _followMemorizationTestToPage(int pageIndex) async {
+    _memorizationTestPageIndex = pageIndex;
+    final started = await MemorizationTestService.instance.start(
+      pageNumber: pageIndex + 1,
+    );
+    if (!mounted || _memorizationTestPageIndex != pageIndex) return;
+    if (!started && MemorizationTestService.instance.activePage == null) {
+      _isMemorizationTestEnabled = false;
+      _memorizationTestPageIndex = -1;
+    }
+    setState(() {});
+  }
+
+  /// Ends any active memorization test (used when another mode takes over
+  /// or the app is backgrounded — a live listening session should never
+  /// keep running invisibly).
   void _stopMemorizationTestIfActive() {
     if (!_isMemorizationTestEnabled) return;
     _isMemorizationTestEnabled = false;
+    _memorizationTestPageIndex = -1;
     MemorizationTestService.instance.stop();
     if (mounted) setState(() {});
   }
@@ -3336,7 +3364,8 @@ class _QuranPagesState extends State<QuranPages>
                               gaplessPlayback: true,
                               filterQuality: _pageQualityService.filterQuality,
                             ),
-                            if (_isMemorizationTestEnabled && pageIndex == 0)
+                            if (_isMemorizationTestEnabled &&
+                                pageIndex == _memorizationTestPageIndex)
                               const MemorizationTestOverlay(),
                           ],
                         ),
@@ -3438,7 +3467,8 @@ class _QuranPagesState extends State<QuranPages>
                           gaplessPlayback: true,
                           filterQuality: _pageQualityService.filterQuality,
                         ),
-                        if (_isMemorizationTestEnabled && pageIndex == 0)
+                        if (_isMemorizationTestEnabled &&
+                            pageIndex == _memorizationTestPageIndex)
                           const MemorizationTestOverlay(),
                       ],
                     ),
@@ -3580,6 +3610,9 @@ class _QuranPagesState extends State<QuranPages>
                 child: ContinuousQuranView(
                   key: _continuousViewKey,
                   hifzModeEnabled: _isHifzModeEnabled,
+                  memorizationTestPageIndex: _isMemorizationTestEnabled
+                      ? _memorizationTestPageIndex
+                      : -1,
                   pages: pages,
                   filterQuality: _pageQualityService.filterQuality,
                   pageImageProviderBuilder: (pageIndex) =>

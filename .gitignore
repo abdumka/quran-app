@@ -128,3 +128,6 @@ tools/*_surahs/
 tools/_*_hashes.json
 tools/mushaf_*.html
 scratch/listen_*/
+
+# local staging area for ASR model uploads to R2 (154 MB, never commit)
+asr_model_upload/

@@ -1,36 +1,37 @@
 import 'package:flutter/material.dart';
 
-import '../../models/word_position_data.dart';
+import '../../models/ayah_region_data.dart';
 import '../../services/memorization_test_service.dart';
-import '../../utils/quran_word_aligner.dart';
 
-/// The word-reveal layer of the memorization test: draws one cover box per
-/// not-yet-recited word directly on top of the page image, in the page's
-/// paper color, so unrevealed words are indistinguishable from blank paper.
+/// The reveal layer of the memorization test: covers every not-yet-recited
+/// ayah with paper-colored boxes drawn directly on top of the page image, so
+/// hidden ayahs are indistinguishable from blank paper. The ayah-end markers
+/// sit between the region rects and stay visible, so the reciter keeps their
+/// place on the concealed page.
 ///
 /// Must be placed inside the same box that renders the page `Image` (the
 /// image uses `BoxFit.fill`, so this widget's own layout size IS the page
 /// image's size and ratio coordinates map straight onto it — the same
-/// convention as `AyahHighlightRect`).
+/// convention as `AyahHighlightRect`). It also has to sit under the reader's
+/// `ColorFiltered`, so the masks are re-tinted exactly like the paper in
+/// dark mode and the paper-color themes.
 ///
-/// Rendering rules per [WordStatus]:
-///  * `pending` / `unclear` — opaque paper-colored mask (word hidden). The
-///    word the reciter should say next gets a faint gold border as a
-///    "you are here" hint (position only; reveals nothing of the word).
-///  * `correct` — nothing drawn; the word on the page shows through.
-///  * `mistake` — translucent red wash over the now-visible word.
-///  * `skipped` — translucent amber wash over the now-visible word.
+/// Rendering rules per [AyahRevealState]:
+///  * `hidden` — opaque paper-colored mask.
+///  * `current` — masked too, with a faint gold border as a "you are here"
+///    hint (position only; reveals nothing of the text).
+///  * `revealed` — nothing drawn; the ayah on the page shows through.
+///  * `flagged` — translucent amber wash over the now-visible ayah.
 class MemorizationTestOverlay extends StatelessWidget {
   const MemorizationTestOverlay({super.key});
 
-  /// Sampled from blank paper inside page_1.webp's text panel (the scan's
-  /// paper tone, NOT the 0xFFFAF6EE used behind the image widget — the
-  /// image fully covers that, so masks must match the scan itself).
+  /// Sampled from blank paper inside the page scans (the scan's paper tone,
+  /// NOT the 0xFFFAF6EE used behind the image widget — the image fully
+  /// covers that, so masks must match the scan itself).
   static const Color _paperColor = Color(0xFFFCFCD8);
 
-  static const Color _mistakeWash = Color(0x59CC2222);
-  static const Color _skippedWash = Color(0x59E09000);
-  static const Color _currentWordBorder = Color(0x80B99B5B);
+  static const Color _flaggedWash = Color(0x59E09000);
+  static const Color _currentBorder = Color(0x80B99B5B);
 
   @override
   Widget build(BuildContext context) {
@@ -41,31 +42,28 @@ class MemorizationTestOverlay extends StatelessWidget {
           listenable: Listenable.merge([service.status, service.revision]),
           builder: (context, _) {
             if (!service.isActive) return const SizedBox.shrink();
-            final pageData = service.pageData;
-            if (pageData == null) return const SizedBox.shrink();
+            final regions = service.regions;
+            if (regions == null) return const SizedBox.shrink();
 
-            final words = pageData.wordsInRecitationOrder;
-            final statuses = service.statuses;
-            if (statuses.length != words.length) {
+            final states = service.ayahStates;
+            if (states.length != regions.ayahs.length) {
               return const SizedBox.shrink();
             }
 
             final width = constraints.maxWidth;
             final height = constraints.maxHeight;
-            final currentIndex = service.currentWordIndex;
 
             return Stack(
               children: [
-                for (var i = 0; i < words.length; i++)
-                  ..._buildWordLayer(
-                    words[i],
-                    statuses[i],
-                    isCurrent: i == currentIndex,
+                for (var i = 0; i < regions.ayahs.length; i++)
+                  ..._buildAyahLayer(
+                    regions.ayahs[i],
+                    states[i],
                     pageWidth: width,
                     pageHeight: height,
                   ),
                 // Live "the app hears you" indicator, floating near the
-                // bottom of the page area (below the text panel).
+                // bottom of the page area.
                 Positioned(
                   left: 0,
                   right: 0,
@@ -80,66 +78,40 @@ class MemorizationTestOverlay extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildWordLayer(
-    WordPositionRect word,
-    WordStatus status, {
-    required bool isCurrent,
+  List<Widget> _buildAyahLayer(
+    AyahRegion ayah,
+    AyahRevealState state, {
     required double pageWidth,
     required double pageHeight,
   }) {
-    // Expand beyond the (deliberately tight) stored box so glyph parts that
-    // exceed the main body — ascenders, the superscript-alef marks, and the
-    // small end-of-word closing flourishes (e.g. the ص atop نستعينۖ) — don't
-    // peek out around an opaque mask. Vertical padding is larger than
-    // horizontal because those overhangs are mostly vertical; both stay
-    // within the inter-line / inter-word gaps so a mask never bites deeply
-    // into a neighboring revealed word. (Overlap between two *masked* words
-    // is invisible — both are paper-colored — so erring generous is safe;
-    // the only cost is a mask clipping a few px of an already-revealed
-    // neighbor, which the reading order top-to-bottom keeps minimal.)
-    final base = word.toPixelRect(pageWidth, pageHeight);
-    final rect = Rect.fromLTRB(
-      base.left - pageWidth * 0.012,
-      base.top - base.height * 0.32,
-      base.right + pageWidth * 0.012,
-      base.bottom + base.height * 0.24,
-    );
+    if (state == AyahRevealState.revealed) return const [];
 
-    switch (status) {
-      case WordStatus.correct:
-        return const [];
-      case WordStatus.pending:
-      case WordStatus.unclear:
-        return [
-          Positioned.fromRect(
-            rect: rect,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: _paperColor,
-                borderRadius: BorderRadius.circular(3),
-                border: isCurrent
-                    ? Border.all(color: _currentWordBorder, width: 1.5)
-                    : null,
-              ),
-            ),
+    return [
+      for (final r in ayah.rects)
+        Positioned.fromRect(
+          // The rects span the full line height already; a little
+          // horizontal slack hides glyph tails that lean into the marker
+          // gap without ever reaching the marker itself.
+          rect: Rect.fromLTRB(
+            (r.x * pageWidth) - pageWidth * 0.006,
+            r.y * pageHeight,
+            (r.x + r.width) * pageWidth + pageWidth * 0.006,
+            (r.y + r.height) * pageHeight,
           ),
-        ];
-      case WordStatus.mistake:
-      case WordStatus.skipped:
-        return [
-          Positioned.fromRect(
-            rect: rect,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: status == WordStatus.mistake
-                    ? _mistakeWash
-                    : _skippedWash,
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
+          child: DecoratedBox(
+            decoration: switch (state) {
+              AyahRevealState.flagged => const BoxDecoration(
+                  color: _flaggedWash,
+                ),
+              AyahRevealState.current => BoxDecoration(
+                  color: _paperColor,
+                  border: Border.all(color: _currentBorder, width: 1.5),
+                ),
+              _ => const BoxDecoration(color: _paperColor),
+            },
           ),
-        ];
-    }
+        ),
+    ];
   }
 }
 

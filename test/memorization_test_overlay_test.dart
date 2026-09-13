@@ -23,9 +23,8 @@ class _ManualEngine extends RecitationEngine {
 }
 
 /// Counts the mask/wash boxes the overlay currently draws. Each rendered
-/// word layer is exactly one `Positioned.fromRect` whose direct child is a
-/// DecoratedBox, so this is the number of words still hidden or flagged --
-/// revealed (`correct`) words draw nothing. The predicate deliberately
+/// region rect is exactly one `Positioned.fromRect` whose direct child is a
+/// DecoratedBox -- revealed ayahs draw nothing. The predicate deliberately
 /// excludes the floating listening chip (its Positioned stretches with
 /// left+right and wraps a Center, not a DecoratedBox).
 int _boxCount(WidgetTester tester) => tester
@@ -42,9 +41,9 @@ int _boxCount(WidgetTester tester) => tester
 void main() {
   final service = MemorizationTestService.instance;
 
-  /// `start()` does real async work (rootBundle + a `compute()` isolate to
-  /// parse output.json), which never completes inside testWidgets' fake-async
-  /// zone -- so it has to run through `runAsync`.
+  /// `start()` does real async work (rootBundle + `compute()` isolates),
+  /// which never completes inside testWidgets' fake-async zone -- so it has
+  /// to run through `runAsync`.
   Future<void> startSession(WidgetTester tester, RecitationEngine engine) async {
     await tester.runAsync(
       () => service.start(
@@ -82,26 +81,30 @@ void main() {
     );
   }
 
+  int rectsOf(int ayahIndex) => service.regions!.ayahs[ayahIndex].rects.length;
+  int totalRects() =>
+      service.regions!.ayahs.fold(0, (sum, a) => sum + a.rects.length);
+
   tearDown(() async => service.stop());
 
-  testWidgets('masks every word up-front, then unmasks each as it is recited',
+  testWidgets('masks every ayah up-front, then unmasks each as it is recited',
       (tester) async {
     final engine = _ManualEngine();
     await startSession(tester, engine);
 
     await pumpOverlay(tester);
-    // Nothing recited yet: all 25 Al-Fatihah words are hidden.
-    expect(_boxCount(tester), 25);
+    // Nothing recited yet: all 7 Al-Fatihah ayahs are hidden.
+    expect(_boxCount(tester), totalRects());
 
     await reciteAndSettle(tester, engine, 'الحمد لله رب العالمين');
-    // Ayah 1's four words are now revealed, so four fewer boxes.
-    expect(_boxCount(tester), 21);
+    // Ayah 1 is now revealed, so its rects are gone.
+    expect(_boxCount(tester), totalRects() - rectsOf(0));
 
     await reciteAndSettle(tester, engine, 'الرحمن الرحيم');
-    expect(_boxCount(tester), 19);
+    expect(_boxCount(tester), totalRects() - rectsOf(0) - rectsOf(1));
   });
 
-  testWidgets('draws nothing at all once every word is revealed',
+  testWidgets('draws nothing at all once every ayah is revealed',
       (tester) async {
     final engine = _ManualEngine();
     await startSession(tester, engine);
