@@ -152,9 +152,11 @@ class MarginImagesService {
     // throw in a browser.
     if (kIsWeb) {
       final prefs = await SharedPreferences.getInstance();
+      // Web defaults to the margin view on; mobile defaults to off since it
+      // requires a download first.
       state.value = state.value.copyWith(
         isAvailable: true,
-        isEnabled: prefs.getBool(_enabledPrefKey) ?? false,
+        isEnabled: prefs.getBool(_enabledPrefKey) ?? true,
       );
       return;
     }

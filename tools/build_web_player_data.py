@@ -111,8 +111,6 @@ RECITERS = [
         "riwaya": "رواية قالون",
         "folder": "abusenainah_timed",
         "scheme": "timed",
-        "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_abusenainah_timed.html",
         "timingsDir": "D:/AbuSenainahTimed/timings",
     },
     {
@@ -126,8 +124,6 @@ RECITERS = [
         "riwaya": "رواية قالون",
         "folder": "alqryw",
         "scheme": "timed",
-        "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_alqryw.html",
         "timingsDir": "D:/AlQryw/timings",
     },
 ]
