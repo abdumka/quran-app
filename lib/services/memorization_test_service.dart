@@ -360,11 +360,31 @@ class MemorizationTestService {
       engine.audioLevel.addListener(_levelListener!);
       engine.busy.addListener(_busyListener!);
       engine.lastDecodeMs.addListener(_decodeListener!);
-      _segmentSub = engine.segments.listen(_handleSegment);
+      _segmentSub = engine.segments.listen(
+        _handleSegment,
+        onError: (Object error) {
+          _recorder?.log('engineError', {'error': '$error'});
+          _setFeedback(
+            RecitationFeedback(FeedbackKind.wrong, 'خطأ في محرك التعرف: $error'),
+            sticky: true,
+          );
+        },
+      );
 
-      // Keep a shareable copy of real sessions (audio + decisions).
-      if (engineOverride == null && usingRealEngine.value) {
-        _recorder = await TasmeeSessionRecorder.begin(page: pageNumber);
+      // Keep a shareable copy of every session (decisions, plus audio when
+      // the real mic engine is running).
+      if (engineOverride == null) {
+        _recorder = await TasmeeSessionRecorder.begin(
+          page: pageNumber,
+          info: {
+            'engine': usingRealEngine.value ? 'sherpa' : 'stub',
+            'stubReason': stubReason.value.name,
+            'ayahs': [
+              for (final a in page.ayahs) '${a.surah}:${a.ayah}',
+            ],
+            'words': expectedWords.length,
+          },
+        );
         final audio = engine.audioChunks;
         if (audio != null && _recorder != null) {
           _audioSub = audio.listen(_recorder!.addAudio);
@@ -374,6 +394,7 @@ class MemorizationTestService {
       await engine.start();
       if (token != _startToken) return false;
       status.value = MemorizationTestStatus.listening;
+      _recorder?.log('listening');
       _lastVoiceOrSegment = DateTime.now();
       _silenceWarned = false;
       _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -656,6 +677,11 @@ class MemorizationTestService {
     if (aligner == null || !aligner.isComplete) return;
     status.value = MemorizationTestStatus.completed;
     final (clean, flagged) = summary;
+    _recorder?.log('completed', {
+      'clean': clean,
+      'flagged': flagged,
+      'statuses': [for (final st in statuses) st.name],
+    });
     _setFeedback(
       RecitationFeedback(
         flagged == 0 ? FeedbackKind.good : FeedbackKind.info,
@@ -680,6 +706,14 @@ class MemorizationTestService {
     _feedbackTimer?.cancel();
     _feedbackTimer = null;
     feedback.value = value;
+    if (value != null) {
+      _recorder?.log('feedback', {
+        'kind': value.kind.name,
+        'message': value.message,
+        'ayah': currentAyahIndex,
+        'word': currentWordIndex,
+      });
+    }
     if (value != null && !sticky) {
       _feedbackTimer = Timer(const Duration(seconds: 5), () {
         if (feedback.value == value) feedback.value = null;
@@ -721,6 +755,13 @@ class MemorizationTestService {
 
   /// Ends the session and clears all state. Safe to call when idle.
   Future<void> stop() async {
+    if (_recorder != null && status.value == MemorizationTestStatus.listening) {
+      _recorder?.log('stopped', {
+        'word': currentWordIndex,
+        'ayah': currentAyahIndex,
+        'statuses': [for (final st in statuses) st.name],
+      });
+    }
     await _stopEngineOnly();
     _feedbackTimer?.cancel();
     _feedbackTimer = null;

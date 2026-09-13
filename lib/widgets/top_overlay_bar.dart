@@ -12,8 +12,6 @@ class TopOverlayBar extends StatelessWidget {
   final ValueChanged<bool> onToggleHideBar;
   final bool isFullScreenMode;
   final ValueChanged<bool> onToggleFullScreenMode;
-  final bool isMemorizationTestEnabled;
-  final ValueChanged<bool> onToggleMemorizationTest;
 
   const TopOverlayBar({
     super.key,
@@ -28,8 +26,6 @@ class TopOverlayBar extends StatelessWidget {
     required this.onToggleHideBar,
     required this.isFullScreenMode,
     required this.onToggleFullScreenMode,
-    required this.isMemorizationTestEnabled,
-    required this.onToggleMemorizationTest,
   });
 
   @override
@@ -102,34 +98,10 @@ class TopOverlayBar extends StatelessWidget {
                   ),
                 ),
               ),
-              // Memorization Test + Full Screen + Hide Bar Toggles + Settings Icon on Right
+              // Full Screen + Hide Bar Toggles + Settings Icon on Right
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // The recitation test covers one page at a time, so it
-                  // is offered in single-page view only.
-                  if (!isTwoPageView)
-                    IconButton(
-                      icon: Icon(
-                        isMemorizationTestEnabled
-                            ? Icons.mic_rounded
-                            : Icons.mic_none_rounded,
-                        color: isMemorizationTestEnabled
-                            ? const Color(0xFFD2B97E)
-                            : const Color(0xFFD2B97E).withValues(alpha: 0.5),
-                        size: isLandscape ? 20 : 24,
-                      ),
-                      onPressed: () =>
-                          onToggleMemorizationTest(!isMemorizationTestEnabled),
-                      padding: EdgeInsets.all(isLandscape ? 2 : 6),
-                      constraints: BoxConstraints(
-                        minWidth: isLandscape ? 32 : 40,
-                        minHeight: isLandscape ? 32 : 40,
-                      ),
-                      tooltip: isMemorizationTestEnabled
-                          ? 'إنهاء اختبار الحفظ'
-                          : 'اختبار الحفظ',
-                    ),
                   IconButton(
                     icon: Icon(
                       isFullScreenMode

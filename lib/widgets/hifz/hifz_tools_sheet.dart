@@ -9,6 +9,7 @@ Future<void> showHifzToolsSheet(
   required bool hifzModeActive,
   required VoidCallback onTasmee,
   required VoidCallback onHifzMode,
+  required VoidCallback onLogs,
 }) {
   const gold = Color(0xFFD2B97E);
   return showModalBottomSheet<void>(
@@ -89,6 +90,14 @@ Future<void> showHifzToolsSheet(
                     'إصبعك للمراجعة الذاتية.',
                 active: hifzModeActive,
                 onTap: onHifzMode,
+              ),
+              tile(
+                icon: Icons.receipt_long_rounded,
+                title: 'سجلات التسميع',
+                subtitle: 'كل جلسة تُسجَّل تلقائيًا (الصوت وسجل القرارات). '
+                    'شارك السجلات للتحليل، أو احذفها، أو حدّد عدد الجلسات المحفوظة.',
+                active: false,
+                onTap: onLogs,
               ),
               const SizedBox(height: 8),
             ],

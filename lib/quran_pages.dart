@@ -51,6 +51,7 @@ import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
+import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
@@ -2601,6 +2602,9 @@ class _QuranPagesState extends State<QuranPages>
       hifzModeActive: _isHifzModeEnabled,
       onTasmee: () => _toggleMemorizationTest(!_isMemorizationTestEnabled),
       onHifzMode: () => _toggleHifzMode(!_isHifzModeEnabled),
+      onLogs: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const TasmeeLogsPage()),
+      ),
     );
   }
 
@@ -4892,8 +4896,6 @@ class _QuranPagesState extends State<QuranPages>
                       onToggleHideBar: _toggleHideBar,
                       isFullScreenMode: _isFullScreenMode,
                       onToggleFullScreenMode: _toggleFullScreenMode,
-                      isMemorizationTestEnabled: _isMemorizationTestEnabled,
-                      onToggleMemorizationTest: _toggleMemorizationTest,
                     ),
                   ),
                 ),
