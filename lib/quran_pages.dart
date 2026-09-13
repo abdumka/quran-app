@@ -21,6 +21,7 @@ import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
 import 'services/background_playback_service.dart';
+import 'services/daily_page_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/keep_screen_awake_service.dart';
@@ -525,6 +526,26 @@ class _QuranPagesState extends State<QuranPages>
     _loadBookmark();
     _loadBookmarkGuidePreference();
     _checkForUpdate();
+    // Tapping a "صفحة اليوم" reminder while the app is already running lands
+    // here rather than in SplashScreen, so the reader jumps to the page itself.
+    DailyPageService.instance.pendingOpenPage.addListener(
+      _handleDailyPageRequested,
+    );
+    // A cold-start tap is normally consumed by SplashScreen, but it gives up
+    // after a couple of seconds; if the payload arrived in the gap between that
+    // and the listener above, nothing else would pick it up.
+    if (DailyPageService.instance.pendingOpenPage.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _handleDailyPageRequested(),
+      );
+    }
+    // Topping the reminder queue up initialises the notification plugin and the
+    // timezone database, so keep it off the first frame. verifyQueue is for the
+    // cold start only — it catches a queue Android threw away (force-stop, an
+    // OEM battery manager) that the once-a-day guard would otherwise skip past.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      DailyPageService.instance.refreshSchedule(verifyQueue: true);
+    });
     _keepScreenAwakeService.enabled.addListener(_handleKeepScreenAwakeChanged);
     _setReadingMode(true);
     _keepScreenAwakeService.load().then((_) {
@@ -631,6 +652,9 @@ class _QuranPagesState extends State<QuranPages>
     _keepScreenAwakeService.enabled.removeListener(
       _handleKeepScreenAwakeChanged,
     );
+    DailyPageService.instance.pendingOpenPage.removeListener(
+      _handleDailyPageRequested,
+    );
     _setReadingMode(false);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
     _highQualityImagesService.state.removeListener(
@@ -688,6 +712,9 @@ class _QuranPagesState extends State<QuranPages>
       if (_marginImagesService.state.value.isPaused) {
         _marginImagesService.downloadAndEnable();
       }
+      // Keeps the "صفحة اليوم" queue a full horizon deep. Returns immediately
+      // once it has run for the day, so this is cheap on every other resume.
+      DailyPageService.instance.refreshSchedule();
     }
   }
 
@@ -706,6 +733,20 @@ class _QuranPagesState extends State<QuranPages>
 
   void _handleKeepScreenAwakeChanged() {
     _setReadingMode(_keepScreenAwakeService.enabled.value);
+  }
+
+  /// Opens the page a tapped "صفحة اليوم" reminder pointed at.
+  void _handleDailyPageRequested() {
+    final page = DailyPageService.instance.takePendingOpenPage();
+    if (page == null || !mounted) return;
+    // The reminder can arrive while something is pushed over the reader
+    // (Settings, the index, a tafsir page), and the tap resumes the app onto
+    // whatever was on top. Pop back to the reader first — the user asked for a
+    // page, so that is what they should be looking at. QuranPages is the first
+    // route (SplashScreen replaces itself with it), so this is a no-op when the
+    // reader is already showing.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _goToPage(page);
   }
 
   bool _isPhoneLandscape(BuildContext context) {

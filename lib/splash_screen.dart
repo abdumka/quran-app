@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'quran_pages.dart';
+import 'services/daily_page_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -24,7 +25,32 @@ class _SplashScreenState extends State<SplashScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
 
-    final lastPage = prefs.getInt('lastPage') ?? 0;
+    // Start the minimum display time now so the "صفحة اليوم" launch check below
+    // overlaps with it instead of adding to startup. It's a no-op (and returns
+    // immediately) unless the daily reminder is switched on.
+    final minimumDisplay = Future<void>.delayed(
+      const Duration(milliseconds: 800),
+    );
+    await DailyPageService.instance.resolveLaunchTap();
+    if (!mounted) return;
+
+    // A tapped "صفحة اليوم" reminder wins over the last-read page: the user
+    // asked for that specific page. takePendingOpenPage clears it, so a later
+    // launch goes back to where they actually stopped reading.
+    final dailyPage = DailyPageService.instance.takePendingOpenPage();
+    final int lastPage;
+    if (dailyPage != null) {
+      lastPage = dailyPage - 1;
+      // Store it as the reading position too. QuranPages reconciles its
+      // initialPage against this key on startup (_loadLastPage) and would
+      // otherwise pull the reader straight back to the stored page — and the
+      // reminder's page becomes the reading position the moment it opens
+      // anyway, which is exactly what the reader saves a beat later.
+      await prefs.setInt('lastPage', lastPage);
+      if (!mounted) return;
+    } else {
+      lastPage = prefs.getInt('lastPage') ?? 0;
+    }
     final portraitScrollMode = prefs.getBool('portraitScrollMode') ?? false;
 
     // Pre-decode the page image DURING the wait (no extra time, no spinner freeze).
@@ -32,7 +58,7 @@ class _SplashScreenState extends State<SplashScreen> {
     // the app leaves as soon as the first page image is ready.
     final pageNum = lastPage + 1; // pages are 1-indexed in assets
     await Future.wait([
-      Future.delayed(const Duration(milliseconds: 800)),
+      minimumDisplay,
       if (pageNum >= 1 && pageNum <= 602)
         precacheImage(ResizeImage(AssetImage('assets/images/page_$pageNum.webp'), width: 720), context),
     ]);

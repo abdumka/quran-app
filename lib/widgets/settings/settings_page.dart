@@ -18,6 +18,7 @@ import '../whats_new_dialog.dart';
 import '../../services/whats_new_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
+import '../../services/daily_page_service.dart';
 import '../../services/page_zoom_service.dart';
 import '../../services/page_color_service.dart';
 import '../../services/keep_screen_awake_service.dart';
@@ -32,6 +33,7 @@ import '../../utils/responsive_helper.dart';
 
 import 'settings_components.dart';
 import 'settings_coach_overlay.dart';
+import 'daily_page_tile.dart';
 import '../hifz_lens_icon.dart';
 import 'downloads_management_page.dart';
 import '../menu/about_content.dart';
@@ -128,6 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final RecitationBarOpacityService _recitationBarOpacityService =
       RecitationBarOpacityService.instance;
   final AppUpdateService _appUpdateService = AppUpdateService.instance;
+  final DailyPageService _dailyPageService = DailyPageService.instance;
   bool _isCheckingForUpdate = false;
 
   // Controls the collapsible "إعدادات التلاوة والتفسير" section so it can be
@@ -181,6 +184,12 @@ class _SettingsPageState extends State<SettingsPage> {
     _pageQualityService.load();
     _pageColorService.load();
     _recitationBarOpacityService.load();
+    // Catches a notification permission revoked from system settings since the
+    // last visit, so the "صفحة اليوم" switch can't claim reminders are running
+    // when the OS is dropping them.
+    _dailyPageService.load().then((_) {
+      _dailyPageService.verifyPermissionStillGranted();
+    });
     _loadGuidePreferences();
     _loadCurrentBrightness();
   }
@@ -845,6 +854,27 @@ class _SettingsPageState extends State<SettingsPage> {
     await _appUpdateService.setNotifyMode(mode);
   }
 
+  /// Turning "صفحة اليوم" on needs the OS notification permission — without it
+  /// the reminder would be scheduled and then silently dropped — so the switch
+  /// only moves once permission is actually granted.
+  Future<void> _handleToggleDailyPage(bool value) async {
+    final result = await _dailyPageService.setEnabled(value);
+    if (!mounted) return;
+    switch (result) {
+      case DailyPageEnableResult.ok:
+        break;
+      case DailyPageEnableResult.permissionDenied:
+        _showSettingsNotice(
+          'لم يتم منح إذن الإشعارات. فعّل الإشعارات لهذا التطبيق من إعدادات النظام ثم أعد المحاولة.',
+        );
+      case DailyPageEnableResult.unsupported:
+        _showSettingsNotice('التذكير اليومي متاح على الجوال فقط.');
+    }
+  }
+
+  String get _dailyPageInfoText =>
+      'يذكّرك يوميًا بقراءة صفحة واحدة على الأقل من المصحف. اختر «وقت محدد» ليصلك التذكير في نفس الوقت كل يوم، أو «وقت عشوائي» ليصلك في وقت مختلف داخل الفترة التي تحددها. يحمل كل تذكير صفحة عشوائية، وبالضغط عليه يفتح التطبيق على تلك الصفحة مباشرة.';
+
   String get _recitationBarButtonsOpacityInfoText =>
       'تتحكم في وضوح أيقونات شريط التلاوة مثل التشغيل والتالي والتكرار. كلما اتجهت لليمين زاد الوضوح.';
 
@@ -914,6 +944,38 @@ class _SettingsPageState extends State<SettingsPage> {
       });
       widget.onTogglePortraitScrollMode(true);
     });
+  }
+
+  /// The "صفحة اليوم" card. Hidden on the web, which has no local-notification
+  /// scheduling to hang a daily reminder off.
+  Widget _buildDailyPageSection() {
+    if (kIsWeb) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _dailyPageService.enabled,
+        _dailyPageService.mode,
+        _dailyPageService.fixedMinutes,
+        _dailyPageService.windowStartMinutes,
+        _dailyPageService.windowEndMinutes,
+        _dailyPageService.nextReminderAt,
+      ]),
+      builder: (context, _) {
+        return DailyPageTile(
+          enabled: _dailyPageService.enabled.value,
+          mode: _dailyPageService.mode.value,
+          fixedMinutes: _dailyPageService.fixedMinutes.value,
+          windowStartMinutes: _dailyPageService.windowStartMinutes.value,
+          windowEndMinutes: _dailyPageService.windowEndMinutes.value,
+          nextReminderAt: _dailyPageService.nextReminderAt.value,
+          onToggle: _handleToggleDailyPage,
+          onModeChanged: _dailyPageService.setMode,
+          onFixedMinutesChanged: _dailyPageService.setFixedMinutes,
+          onWindowChanged: (start, end) =>
+              _dailyPageService.setRandomWindow(start: start, end: end),
+          onInfo: () => _showInfoNotice(_dailyPageInfoText),
+        );
+      },
+    );
   }
 
   /// Collapsed "إعدادات التلاوة والتفسير" section: only the title is shown until
@@ -1542,6 +1604,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      _buildDailyPageSection(),
                       const SizedBox(height: 6),
                       _buildRecitationTafsirSection(),
                       const SizedBox(height: 6),

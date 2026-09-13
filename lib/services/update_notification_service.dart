@@ -1,6 +1,7 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import 'notification_center.dart';
 
 /// Presents an update as a system notification. Tapping it opens the store page.
 ///
@@ -12,65 +13,33 @@ class UpdateNotificationService {
   static final UpdateNotificationService instance =
       UpdateNotificationService._();
 
+  /// Payload prefix used to route notification taps back here. See
+  /// [NotificationCenter] for why every feature needs its own.
+  static const String payloadPrefix = 'update';
+
   static const int _updateNotificationId = 4801;
   static const String _channelId = 'app_updates';
   static const String _channelName = 'تحديثات التطبيق';
 
-  final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
+  bool _handlerRegistered = false;
 
-  bool _initialized = false;
-
-  /// The store URL to open when the notification is tapped, set each time a
-  /// notification is shown.
-  String? _pendingStoreUrl;
-
-  Future<void> _ensureInitialized() async {
-    if (_initialized) return;
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings(
-      // Don't request permission at init; we ask explicitly right before
-      // showing a notification so the prompt has clear context.
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
-    await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
-      onDidReceiveNotificationResponse: (response) {
-        final url = response.payload;
-        if (url != null && url.isNotEmpty) {
-          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-        } else if (_pendingStoreUrl != null) {
-          launchUrl(
-            Uri.parse(_pendingStoreUrl!),
-            mode: LaunchMode.externalApplication,
-          );
-        }
-      },
-    );
-    _initialized = true;
+  /// Claims the `update:` payload prefix so a tap opens the store page. Just a
+  /// map insert — it does not initialise the notification plugin — so it is
+  /// safe to call on the startup path, which is where it belongs: a tap that
+  /// cold-started the app is only delivered once a handler exists for it.
+  void registerTapHandler() {
+    if (_handlerRegistered) return;
+    _handlerRegistered = true;
+    NotificationCenter.instance.registerTapHandler(payloadPrefix, (url) {
+      if (url.isEmpty) return;
+      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    });
   }
 
   /// Requests notification permission where the OS requires it (Android 13+,
   /// iOS). Returns whether notifications are allowed. Safe to call repeatedly.
-  Future<bool> requestPermission() async {
-    await _ensureInitialized();
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      final granted = await _plugin
-          .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(alert: true, badge: true, sound: true);
-      return granted ?? false;
-    }
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      final granted = await android?.requestNotificationsPermission();
-      return granted ?? true;
-    }
-    return false;
-  }
+  Future<bool> requestPermission() =>
+      NotificationCenter.instance.requestPermission();
 
   /// Shows the "update available" notification. Does nothing if permission is
   /// denied. [storeUrl] is opened when the notification is tapped.
@@ -79,10 +48,9 @@ class UpdateNotificationService {
     required String body,
     required String storeUrl,
   }) async {
-    final allowed = await requestPermission();
+    final allowed = await NotificationCenter.instance.requestPermission();
     if (!allowed) return;
-
-    _pendingStoreUrl = storeUrl;
+    registerTapHandler();
 
     const androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -93,12 +61,12 @@ class UpdateNotificationService {
     );
     const iosDetails = DarwinNotificationDetails();
 
-    await _plugin.show(
+    await NotificationCenter.instance.plugin.show(
       _updateNotificationId,
       title,
       body,
       const NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: storeUrl,
+      payload: '$payloadPrefix:$storeUrl',
     );
   }
 }

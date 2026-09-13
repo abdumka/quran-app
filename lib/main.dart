@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/app_update_service.dart';
 import 'services/background_playback_service.dart';
+import 'services/daily_page_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/debug_log_service.dart';
@@ -14,6 +15,7 @@ import 'services/reciter_service.dart';
 import 'services/tafsir_edition_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
+import 'services/update_notification_service.dart';
 import 'splash_screen.dart';
 
 Future<void> main() async {
@@ -88,6 +90,10 @@ Future<void> main() async {
     TafsirEditionService.instance.load(),
     AppUpdateService.instance.load(),
     BackgroundPlaybackService.instance.load(),
+    // Prefs-only, like the rest of this batch: the notification plugin and the
+    // timezone database stay untouched until the reader tops the reminder
+    // queue up after its first frame (see QuranPages).
+    DailyPageService.instance.load(),
     PageColorService.instance.load(),
     PageZoomService.instance.load(),
     RecitationBarOpacityService.instance.load(),
@@ -114,6 +120,10 @@ Future<void> main() async {
   SystemChrome.setEnabledSystemUIMode(
     isFullScreenMode ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
   );
+  // Claiming the notification payload prefixes is a map insert, not plugin
+  // initialization — but it has to happen before a tap that cold-started the
+  // app can be delivered, so it belongs here rather than at first use.
+  UpdateNotificationService.instance.registerTapHandler();
   runApp(const QuranApp());
 }
 
