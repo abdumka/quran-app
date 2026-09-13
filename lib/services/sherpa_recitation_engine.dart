@@ -55,7 +55,11 @@ class SherpaRecitationEngine extends RecitationEngine {
 
   final SherpaModelPaths _paths;
   final _controller = StreamController<String>.broadcast();
+  final _audioController = StreamController<Uint8List>.broadcast();
   final _recorder = AudioRecorder();
+
+  @override
+  Stream<Uint8List> get audioChunks => _audioController.stream;
 
   Isolate? _isolate;
   SendPort? _workerPort;
@@ -101,6 +105,12 @@ class SherpaRecitationEngine extends RecitationEngine {
         audioLevel.value = message.level;
       } else if (message is _BusyEvent) {
         busy.value = message.busy;
+      } else if (message is _DecodeStats) {
+        lastDecodeMs.value = message.milliseconds;
+        debugPrint(
+          'SherpaRecitationEngine: ${message.kind} decode of '
+          '${message.audioMs} ms audio took ${message.milliseconds} ms',
+        );
       } else if (message is _WorkerError) {
         debugPrint('SherpaRecitationEngine worker error: ${message.message}');
         if (!_controller.isClosed) _controller.addError(message.message);
@@ -122,7 +132,10 @@ class SherpaRecitationEngine extends RecitationEngine {
         numChannels: 1,
       ),
     );
-    _micSub = micStream.listen((chunk) => _workerPort?.send(chunk));
+    _micSub = micStream.listen((chunk) {
+      _workerPort?.send(chunk);
+      if (_audioController.hasListener) _audioController.add(chunk);
+    });
   }
 
   @override
@@ -144,7 +157,40 @@ class SherpaRecitationEngine extends RecitationEngine {
     audioLevel.value = 0;
     busy.value = false;
     await _controller.close();
+    await _audioController.close();
   }
+
+  /// Keeps only the trailing [maxSamples] of an utterance for an interim
+  /// decode. Whisper's cost is flat per call (it always pads to 30 s), so
+  /// re-decoding a 20 s utterance every interval buys nothing over decoding
+  /// its tail -- and the tail's text arrives just as fast. Returns the
+  /// slice and whether anything was cut from the front (the first decoded
+  /// word is then unreliable and should be dropped, like the last).
+  @visibleForTesting
+  static (Float32List, bool) interimTail(Float32List samples, int maxSamples) {
+    if (samples.length <= maxSamples) return (samples, false);
+    return (
+      Float32List.sublistView(samples, samples.length - maxSamples),
+      true,
+    );
+  }
+
+  /// Drops the first word of a tail-cut interim transcription, on top of
+  /// [trimInterimResult]'s trailing-word drop.
+  @visibleForTesting
+  static String trimTailCutResult(String text) {
+    final words = text.trim().split(RegExp(r'\s+'))
+      ..removeWhere((w) => w.isEmpty);
+    if (words.length < _minInterimWords + 1) return '';
+    return words.sublist(1).join(' ');
+  }
+}
+
+class _DecodeStats {
+  const _DecodeStats(this.kind, this.audioMs, this.milliseconds);
+  final String kind;
+  final int audioMs;
+  final int milliseconds;
 }
 
 class _WorkerInit {
@@ -186,6 +232,22 @@ const Duration _minInterimAudio = Duration(milliseconds: 1000);
 /// to "detected" only after min_speech_duration of voiced audio).
 const Duration _preRoll = Duration(milliseconds: 400);
 
+/// Longest utterance the VAD may accumulate before force-closing it as a
+/// final segment. Recitation rarely pauses 300 ms inside an ayah, so
+/// without this a long ayah becomes one 20 s utterance whose final
+/// (authoritative) decode arrives only at the end.
+const double _maxSpeechSeconds = 5.0;
+
+/// Interim decodes look only at this much trailing audio (see
+/// [SherpaRecitationEngine.interimTail]).
+const Duration _interimWindow = Duration(milliseconds: 5000);
+
+/// When one decode takes longer than this, the phone can't afford interim
+/// decodes on top of the final ones without falling ever further behind
+/// real time; interims are then skipped and only the (<= 5 s) final
+/// segments are decoded.
+const int _interimDisableDecodeMs = 2200;
+
 /// Entry point of the ASR worker isolate. Owns every sherpa_onnx object;
 /// nothing native ever crosses the isolate boundary -- only PCM bytes in
 /// and recognized text / level / busy events out.
@@ -206,6 +268,7 @@ Future<void> _workerMain(_WorkerInit init) async {
           // more segments, which the aligner handles.
           minSilenceDuration: 0.3,
           minSpeechDuration: 0.25,
+          maxSpeechDuration: _maxSpeechSeconds,
         ),
         sampleRate: _sampleRate,
         numThreads: 1,
@@ -241,15 +304,24 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   init.replyTo.send(commandPort.sendPort);
 
-  String decode(Float32List samples) {
+  var lastDecodeMs = 0;
+  String decode(Float32List samples, String kind) {
     init.replyTo.send(const _BusyEvent(true));
     final stream = recognizer!.createStream();
+    final started = DateTime.now();
     try {
       stream.acceptWaveform(samples: samples, sampleRate: _sampleRate);
       recognizer.decode(stream);
       return recognizer.getResult(stream).text.trim();
     } finally {
       stream.free();
+      final elapsed = DateTime.now().difference(started).inMilliseconds;
+      lastDecodeMs = elapsed;
+      init.replyTo.send(_DecodeStats(
+        kind,
+        samples.length * 1000 ~/ _sampleRate,
+        elapsed,
+      ));
       init.replyTo.send(const _BusyEvent(false));
     }
   }
@@ -263,6 +335,8 @@ Future<void> _workerMain(_WorkerInit init) async {
   final preRollMax = _preRoll.inMilliseconds * _sampleRate ~/ 1000;
   final minInterimSamples =
       _minInterimAudio.inMilliseconds * _sampleRate ~/ 1000;
+  final interimWindowSamples =
+      _interimWindow.inMilliseconds * _sampleRate ~/ 1000;
   var preRollBuffer = <Float32List>[];
   var preRollLength = 0;
   var utterance = <Float32List>[];
@@ -351,7 +425,7 @@ Future<void> _workerMain(_WorkerInit init) async {
       poppedFinal = true;
       final segment = vad.front();
       vad.pop();
-      final text = decode(segment.samples);
+      final text = decode(segment.samples, 'final');
       if (text.isNotEmpty) init.replyTo.send(text);
       lastDecodeStarted = DateTime.now();
     }
@@ -370,13 +444,25 @@ Future<void> _workerMain(_WorkerInit init) async {
     // and the previous decode long enough ago. (Decodes run synchronously
     // in this isolate, so they're naturally serial; queued mic chunks just
     // wait in the port and VAD timing is sample-based, not wall-clock.)
+    // The cadence adapts to the phone: never start an interim sooner than
+    // twice the last decode's duration, and skip interims altogether when
+    // decoding is too slow to keep up (see _interimDisableDecodeMs).
+    final interimInterval = lastDecodeMs * 2 > _interimInterval.inMilliseconds
+        ? Duration(milliseconds: lastDecodeMs * 2)
+        : _interimInterval;
     if (speechActive &&
+        lastDecodeMs < _interimDisableDecodeMs &&
         utteranceLength >= minInterimSamples &&
-        DateTime.now().difference(lastDecodeStarted) >= _interimInterval) {
+        DateTime.now().difference(lastDecodeStarted) >= interimInterval) {
       lastDecodeStarted = DateTime.now();
-      final text = SherpaRecitationEngine.trimInterimResult(
-        decode(concat(utterance, utteranceLength)),
+      final (tail, cut) = SherpaRecitationEngine.interimTail(
+        concat(utterance, utteranceLength),
+        interimWindowSamples,
       );
+      var text = SherpaRecitationEngine.trimInterimResult(
+        decode(tail, 'interim'),
+      );
+      if (cut) text = SherpaRecitationEngine.trimTailCutResult(text);
       if (text.isNotEmpty) init.replyTo.send(text);
     }
   }

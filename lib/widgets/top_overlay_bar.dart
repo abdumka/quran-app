@@ -106,9 +106,9 @@ class TopOverlayBar extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Only offered where the word-reveal test can actually
-                  // run: single-page view on page 1 (the Al-Fatihah POC).
-                  if (currentPage == 0 && !isTwoPageView)
+                  // The recitation test covers one page at a time, so it
+                  // is offered in single-page view only.
+                  if (!isTwoPageView)
                     IconButton(
                       icon: Icon(
                         isMemorizationTestEnabled

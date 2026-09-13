@@ -22,6 +22,7 @@ class BottomOverlayMenu extends StatefulWidget {
   final VoidCallback? onOpenTafsir;
   final VoidCallback? onPlayTapped;
   final VoidCallback? onSearchTapped;
+  final VoidCallback? onOpenHifzTools;
   final VoidCallback onDismiss;
 
   const BottomOverlayMenu({
@@ -47,6 +48,7 @@ class BottomOverlayMenu extends StatefulWidget {
     this.onOpenTafsir,
     this.onPlayTapped,
     this.onSearchTapped,
+    this.onOpenHifzTools,
     required this.onDismiss,
   });
 
@@ -77,7 +79,7 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
         widget.onSearchTapped?.call();
         break;
       case 'أدوات الحفظ':
-        // Placeholder: memorization tools / test (اختبار الحفظ) — not wired up yet.
+        widget.onOpenHifzTools?.call();
         break;
     }
     
@@ -122,7 +124,7 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    // Placeholder: memorization tools / test. Sits at the far-left
+                    // Memorization tools (التسميع / وضع الحفظ). Sits at the far-left
                     // slot so an RTL reader reads it right after البحث, as the last item.
                     Expanded(
                       child: _NavItem(

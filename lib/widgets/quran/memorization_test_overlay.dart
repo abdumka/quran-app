@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../models/ayah_region_data.dart';
 import '../../services/memorization_test_service.dart';
@@ -62,13 +63,13 @@ class MemorizationTestOverlay extends StatelessWidget {
                     pageWidth: width,
                     pageHeight: height,
                   ),
-                // Live "the app hears you" indicator, floating near the
-                // bottom of the page area.
+                // Live feedback + help buttons, floating near the bottom of
+                // the page area (over the page's lower margin).
                 Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: height * 0.035,
-                  child: Center(child: _ListeningChip(service: service)),
+                  left: 8,
+                  right: 8,
+                  bottom: height * 0.012,
+                  child: Center(child: _SessionPanel(service: service)),
                 ),
               ],
             );
@@ -115,15 +116,20 @@ class MemorizationTestOverlay extends StatelessWidget {
   }
 }
 
-/// Floating status pill: tells the reciter, at a glance, that the app is
-/// preparing / hearing them (mic pulses with their voice) / analyzing.
-/// Without it, the inevitable decode delay reads as the app being deaf.
-class _ListeningChip extends StatelessWidget {
-  const _ListeningChip({required this.service});
+/// The floating panel under the page: status line (hearing you /
+/// analyzing / done), the current feedback message, what the recognizer
+/// heard last, and the help buttons (hint, reveal, skip, restart, end,
+/// share log). Without it the inevitable decode delay reads as deafness
+/// and a wrong verdict has no explanation.
+class _SessionPanel extends StatelessWidget {
+  const _SessionPanel({required this.service});
 
   final MemorizationTestService service;
 
   static const Color _gold = Color(0xFF8A6D2F);
+  static const Color _good = Color(0xFF2E7D32);
+  static const Color _wrong = Color(0xFFB3261E);
+  static const Color _unclear = Color(0xFFB26A00);
 
   @override
   Widget build(BuildContext context) {
@@ -132,90 +138,207 @@ class _ListeningChip extends StatelessWidget {
         service.status,
         service.audioLevel,
         service.engineBusy,
+        service.feedback,
+        service.lastHeard,
+        service.lastDecodeMs,
+        service.lastSessionFiles,
       ]),
       builder: (context, _) {
         final status = service.status.value;
-        if (status == MemorizationTestStatus.completed) {
-          return _pill(
-            icon: const Icon(Icons.check_circle_rounded,
-                color: Color(0xFF2E7D32), size: 18),
-            label: 'أحسنت! اكتمل التسميع',
-          );
-        }
-        if (status == MemorizationTestStatus.preparing) {
-          return _pill(
-            icon: const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: _gold,
-              ),
-            ),
-            label: 'جارٍ التحضير…',
-          );
-        }
-        if (status != MemorizationTestStatus.listening) {
+        if (status != MemorizationTestStatus.listening &&
+            status != MemorizationTestStatus.completed &&
+            status != MemorizationTestStatus.preparing) {
           return const SizedBox.shrink();
         }
+        final fb = service.feedback.value;
+        final heard = service.lastHeard.value;
+        final listening = status == MemorizationTestStatus.listening;
+        final completed = status == MemorizationTestStatus.completed;
 
-        final busy = service.engineBusy.value;
-        final level = service.audioLevel.value;
-        return _pill(
-          // Mic glyph swells with the reciter's own voice level -- the
-          // most direct "I hear you" signal possible.
-          icon: AnimatedScale(
-            scale: 1.0 + level * 0.5,
-            duration: const Duration(milliseconds: 90),
-            child: Icon(
-              Icons.mic_rounded,
-              size: 18,
-              color: Color.lerp(
-                _gold.withValues(alpha: 0.45),
-                _gold,
-                (0.3 + level).clamp(0.0, 1.0),
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xF2FFFDF3),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _gold.withValues(alpha: 0.35)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 6,
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _statusRow(status),
+                  if (fb != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      fb.message,
+                      textAlign: TextAlign.center,
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        color: switch (fb.kind) {
+                          FeedbackKind.good => _good,
+                          FeedbackKind.wrong => _wrong,
+                          FeedbackKind.unclear => _unclear,
+                          FeedbackKind.silent => _unclear,
+                          FeedbackKind.info => _gold,
+                        },
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                  if (heard.isNotEmpty && !completed) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'سمعت: $heard',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        color: _gold.withValues(alpha: 0.75),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 2,
+                    runSpacing: 0,
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      if (listening) ...[
+                        _button(Icons.lightbulb_outline_rounded, 'تلميح',
+                            service.showHint),
+                        _button(Icons.visibility_rounded, 'كشف الآية',
+                            service.revealCurrentAyah),
+                        _button(Icons.skip_next_rounded, 'تخطي الآية',
+                            service.skipCurrentAyah),
+                      ],
+                      if (listening || completed)
+                        _button(Icons.replay_rounded, 'إعادة',
+                            () => service.restart()),
+                      if (service.lastSessionFiles.value.isNotEmpty &&
+                          completed)
+                        _button(Icons.ios_share_rounded, 'مشاركة السجل',
+                            () => _shareSession(context)),
+                      _button(Icons.close_rounded, 'إنهاء',
+                          () => service.stop()),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
-          label: busy ? 'جارٍ التحليل…' : 'يستمع إليك',
         );
       },
     );
   }
 
-  Widget _pill({required Widget icon, required String label}) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xF2FFFDF3),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _gold.withValues(alpha: 0.35)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x22000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
+  Widget _statusRow(MemorizationTestStatus status) {
+    final Widget icon;
+    final String label;
+    if (status == MemorizationTestStatus.completed) {
+      icon = const Icon(Icons.check_circle_rounded, color: _good, size: 18);
+      label = 'اكتمل التسميع';
+    } else if (status == MemorizationTestStatus.preparing) {
+      icon = const SizedBox(
+        width: 14,
+        height: 14,
+        child: CircularProgressIndicator(strokeWidth: 2, color: _gold),
+      );
+      label = 'جارٍ التحضير…';
+    } else {
+      final busy = service.engineBusy.value;
+      final level = service.audioLevel.value;
+      // Mic glyph swells with the reciter's own voice level -- the most
+      // direct "I hear you" signal possible.
+      icon = AnimatedScale(
+        scale: 1.0 + level * 0.5,
+        duration: const Duration(milliseconds: 90),
+        child: Icon(
+          Icons.mic_rounded,
+          size: 18,
+          color: Color.lerp(
+            _gold.withValues(alpha: 0.45),
+            _gold,
+            (0.3 + level).clamp(0.0, 1.0),
+          ),
+        ),
+      );
+      label = busy ? 'جارٍ التحليل…' : 'يستمع إليك';
+    }
+    final ms = service.lastDecodeMs.value;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      textDirection: TextDirection.rtl,
+      children: [
+        icon,
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: const TextStyle(
+            color: _gold,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (ms > 0 && status == MemorizationTestStatus.listening) ...[
+          const SizedBox(width: 8),
+          Text(
+            '⏱ ${(ms / 1000).toStringAsFixed(1)} ث',
+            style: TextStyle(
+              color: _gold.withValues(alpha: 0.6),
+              fontSize: 11,
+            ),
           ),
         ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          textDirection: TextDirection.rtl,
-          children: [
-            icon,
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: const TextStyle(
-                color: _gold,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+      ],
+    );
+  }
+
+  Widget _button(IconData icon, String label, VoidCallback onTap) {
+    return TextButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 16),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: _gold,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        minimumSize: const Size(0, 30),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
+  }
+
+  Future<void> _shareSession(BuildContext context) async {
+    final files = service.lastSessionFiles.value;
+    if (files.isEmpty) return;
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [for (final f in files) XFile(f)],
+          subject: 'سجل جلسة التسميع',
+          text: 'تسجيل جلسة التسميع وسجل القرارات (للتحليل).',
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّرت مشاركة سجل الجلسة')),
+      );
+    }
   }
 }

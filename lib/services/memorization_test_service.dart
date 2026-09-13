@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -13,6 +14,7 @@ import 'ayah_region_service.dart';
 import 'quran_json_service.dart';
 import 'recitation_engine.dart';
 import 'sherpa_recitation_engine.dart';
+import 'tasmee_session_recorder.dart';
 
 /// Lifecycle of a memorization-test session.
 enum MemorizationTestStatus {
@@ -58,9 +60,34 @@ enum AyahRevealState {
   /// Every word resolved correctly: the page shows through.
   revealed,
 
-  /// Resolved, but at least one word was a mistake or was skipped: shown
-  /// with a warning tint so the learner sees where it went wrong.
+  /// Resolved, but at least one word was a mistake or was skipped (or the
+  /// user asked for it to be revealed/skipped): shown with a warning tint.
   flagged,
+}
+
+/// The kind of live feedback message, so the UI can colour it.
+enum FeedbackKind {
+  /// Neutral information (hint, restart, ...).
+  info,
+
+  /// The ayah just recited was completed correctly.
+  good,
+
+  /// Something to fix: wrong word, skipped words, wrong ayah.
+  wrong,
+
+  /// The app couldn't make out the last segment; repeat it.
+  unclear,
+
+  /// No sound has reached the mic for a while.
+  silent,
+}
+
+/// One human-readable feedback line for the overlay panel.
+class RecitationFeedback {
+  const RecitationFeedback(this.kind, this.message);
+  final FeedbackKind kind;
+  final String message;
 }
 
 /// Coordinates a memorization-test session: owns the [QuranWordAligner],
@@ -101,14 +128,40 @@ class MemorizationTestService {
   /// an "analyzing" hint so a decode pause doesn't read as deafness.
   final ValueNotifier<bool> engineBusy = ValueNotifier(false);
 
+  /// Milliseconds the engine's last decode took (0 when unknown). Shown in
+  /// the panel so a slow phone is visible rather than mysterious.
+  final ValueNotifier<int> lastDecodeMs = ValueNotifier(0);
+
+  /// The most recent text the recognizer produced (raw), so the reciter
+  /// can see what the app heard. Empty when nothing yet.
+  final ValueNotifier<String> lastHeard = ValueNotifier('');
+
+  /// The current feedback line (null when there's nothing to say).
+  /// Transient messages clear themselves after a few seconds.
+  final ValueNotifier<RecitationFeedback?> feedback = ValueNotifier(null);
+
+  /// Files of the most recent finished session that can be shared for
+  /// offline analysis (empty when none / recording unavailable).
+  final ValueNotifier<List<String>> lastSessionFiles = ValueNotifier(const []);
+
   QuranWordAligner? _aligner;
   AyahRegionPageData? _regions;
+  QuranPageData? _page;
+  List<String> _expectedWords = const [];
   List<int> _ayahWordStarts = const [];
   int? _activePage;
   RecitationEngine? _engine;
   StreamSubscription<String>? _segmentSub;
+  StreamSubscription<Uint8List>? _audioSub;
   VoidCallback? _levelListener;
   VoidCallback? _busyListener;
+  VoidCallback? _decodeListener;
+  Timer? _feedbackTimer;
+  Timer? _silenceTimer;
+  DateTime _lastVoiceOrSegment = DateTime.now();
+  bool _silenceWarned = false;
+  int _lastAyahIndex = -1;
+  TasmeeSessionRecorder? _recorder;
   int _startToken = 0;
 
   /// Ayah regions of the active session's page (null when idle/failed).
@@ -131,11 +184,12 @@ class MemorizationTestService {
 
   /// Index (into [AyahRegionPageData.ayahs]) of the ayah containing the
   /// current word, or -1 when no session is active or it is complete.
-  int get currentAyahIndex {
-    final cursor = currentWordIndex;
-    if (cursor < 0) return -1;
+  int get currentAyahIndex => _ayahIndexOfWord(currentWordIndex);
+
+  int _ayahIndexOfWord(int word) {
+    if (word < 0) return -1;
     for (var i = 0; i + 1 < _ayahWordStarts.length; i++) {
-      if (cursor < _ayahWordStarts[i + 1]) return i;
+      if (word < _ayahWordStarts[i + 1]) return i;
     }
     return -1;
   }
@@ -149,18 +203,9 @@ class MemorizationTestService {
     final current = currentAyahIndex;
     final out = <AyahRevealState>[];
     for (var i = 0; i + 1 < _ayahWordStarts.length; i++) {
-      final start = _ayahWordStarts[i];
       final end = _ayahWordStarts[i + 1];
       if (cursor >= end) {
-        var flagged = false;
-        for (var w = start; w < end; w++) {
-          final s = aligner.statuses[w];
-          if (s == WordStatus.mistake || s == WordStatus.skipped) {
-            flagged = true;
-            break;
-          }
-        }
-        out.add(flagged ? AyahRevealState.flagged : AyahRevealState.revealed);
+        out.add(_ayahFlagged(i) ? AyahRevealState.flagged : AyahRevealState.revealed);
       } else if (i == current) {
         out.add(AyahRevealState.current);
       } else {
@@ -168,6 +213,27 @@ class MemorizationTestService {
       }
     }
     return out;
+  }
+
+  bool _ayahFlagged(int i) {
+    final aligner = _aligner;
+    if (aligner == null) return false;
+    for (var w = _ayahWordStarts[i]; w < _ayahWordStarts[i + 1]; w++) {
+      final s = aligner.statuses[w];
+      if (s == WordStatus.mistake || s == WordStatus.skipped) return true;
+    }
+    return false;
+  }
+
+  /// Ayah counts for the completion summary: (revealed cleanly, flagged).
+  (int, int) get summary {
+    var clean = 0;
+    var flagged = 0;
+    for (final s in ayahStates) {
+      if (s == AyahRevealState.revealed) clean++;
+      if (s == AyahRevealState.flagged) flagged++;
+    }
+    return (clean, flagged);
   }
 
   bool get isActive =>
@@ -271,16 +337,48 @@ class MemorizationTestService {
 
       _aligner = aligner;
       _regions = regions;
+      _page = page;
+      _expectedWords = expectedWords;
       _ayahWordStarts = starts;
       _activePage = pageNumber;
       _engine = engine;
-      _levelListener = () => audioLevel.value = engine.audioLevel.value;
+      _lastAyahIndex = 0;
+      lastHeard.value = '';
+      _setFeedback(null);
+      _levelListener = () {
+        audioLevel.value = engine.audioLevel.value;
+        if (engine.audioLevel.value > 0.12) {
+          _lastVoiceOrSegment = DateTime.now();
+          _silenceWarned = false;
+        }
+      };
       _busyListener = () => engineBusy.value = engine.busy.value;
+      _decodeListener = () {
+        lastDecodeMs.value = engine.lastDecodeMs.value;
+        _recorder?.log('decode', {'ms': engine.lastDecodeMs.value});
+      };
       engine.audioLevel.addListener(_levelListener!);
       engine.busy.addListener(_busyListener!);
+      engine.lastDecodeMs.addListener(_decodeListener!);
       _segmentSub = engine.segments.listen(_handleSegment);
+
+      // Keep a shareable copy of real sessions (audio + decisions).
+      if (engineOverride == null && usingRealEngine.value) {
+        _recorder = await TasmeeSessionRecorder.begin(page: pageNumber);
+        final audio = engine.audioChunks;
+        if (audio != null && _recorder != null) {
+          _audioSub = audio.listen(_recorder!.addAudio);
+        }
+      }
+
       await engine.start();
+      if (token != _startToken) return false;
       status.value = MemorizationTestStatus.listening;
+      _lastVoiceOrSegment = DateTime.now();
+      _silenceWarned = false;
+      _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _checkSilence();
+      });
       revision.value++;
       return true;
     } catch (error, stack) {
@@ -291,6 +389,14 @@ class MemorizationTestService {
       }
       return false;
     }
+  }
+
+  /// Starts the same page over from the first word.
+  Future<bool> restart() async {
+    final page = _activePage;
+    if (page == null) return false;
+    _recorder?.log('control', {'action': 'restart'});
+    return start(pageNumber: page);
   }
 
   /// The regions were generated from the page images while the words come
@@ -352,46 +458,281 @@ class MemorizationTestService {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // Help buttons
+  // ---------------------------------------------------------------------
+
+  /// Shows the next expected word (with its harakat) in the feedback line
+  /// without unmasking anything on the page.
+  void showHint() {
+    final word = currentWordIndex;
+    if (word < 0) return;
+    _recorder?.log('control', {'action': 'hint', 'word': word});
+    _setFeedback(
+      RecitationFeedback(FeedbackKind.info, 'الكلمة التالية: «${_expectedWords[word]}»'),
+      sticky: true,
+    );
+  }
+
+  /// Reveals the current ayah (marks its unresolved words as mistakes so it
+  /// shows with the warning tint) and moves on to the next one.
+  void revealCurrentAyah() => _resolveCurrentAyah('reveal', WordStatus.mistake);
+
+  /// Skips the current ayah (marks its unresolved words as skipped) and
+  /// moves on to the next one.
+  void skipCurrentAyah() => _resolveCurrentAyah('skip', WordStatus.skipped);
+
+  void _resolveCurrentAyah(String action, WordStatus mark) {
+    final aligner = _aligner;
+    final ayah = currentAyahIndex;
+    if (aligner == null || ayah < 0 ||
+        status.value != MemorizationTestStatus.listening) {
+      return;
+    }
+    _recorder?.log('control', {'action': action, 'ayah': ayah});
+    aligner.forceResolveRange(
+      _ayahWordStarts[ayah],
+      _ayahWordStarts[ayah + 1],
+      mark,
+    );
+    final number = _page?.ayahs[ayah].ayah ?? ayah + 1;
+    _setFeedback(RecitationFeedback(
+      FeedbackKind.info,
+      action == 'skip' ? 'تم تخطي الآية $number' : 'تم كشف الآية $number',
+    ));
+    _lastAyahIndex = currentAyahIndex;
+    revision.value++;
+    _finishIfComplete();
+  }
+
+  // ---------------------------------------------------------------------
+  // Recognition handling
+  // ---------------------------------------------------------------------
+
   void _handleSegment(String text) {
     final aligner = _aligner;
     if (aligner == null || status.value != MemorizationTestStatus.listening) {
       return;
     }
-    aligner.submitRecognizedSegment(text);
+    _lastVoiceOrSegment = DateTime.now();
+    _silenceWarned = false;
+    lastHeard.value = text;
+
+    final ayahBefore = currentAyahIndex;
+    final cursorBefore = aligner.cursor;
+    final outcome = aligner.submitRecognizedSegment(text);
+    _recorder?.log('segment', {
+      'text': text,
+      'cursorBefore': cursorBefore,
+      'cursorAfter': aligner.cursor,
+      'correct': outcome.correct,
+      'skipped': outcome.skipped,
+      'mistakes': outcome.mistakes,
+      'unclear': outcome.unclearIndex,
+      'repeat': outcome.repeatOfHistory,
+    });
     revision.value++;
-    if (aligner.isComplete) {
-      status.value = MemorizationTestStatus.completed;
-      // Stop the engine but keep aligner/regions so the overlay can keep
-      // showing the final result until the user exits the mode.
-      _stopEngineOnly();
+
+    _explain(outcome, text, ayahBefore);
+    _finishIfComplete();
+  }
+
+  /// Turns an alignment outcome into the one line the panel shows.
+  void _explain(SegmentOutcome outcome, String text, int ayahBefore) {
+    if (outcome.tokens.isEmpty) return;
+    final aligner = _aligner!;
+
+    if (outcome.mistakes.isNotEmpty) {
+      final w = _expectedWords[outcome.mistakes.first];
+      _setFeedback(RecitationFeedback(
+        FeedbackKind.wrong,
+        'خطأ في «$w» — سمعت: ${_shorten(text)}',
+      ));
+      _maybeWrongAyah(outcome);
+      return;
+    }
+    if (outcome.unclearIndex >= 0) {
+      if (_maybeWrongAyah(outcome)) return;
+      final w = _expectedWords[outcome.unclearIndex];
+      _setFeedback(RecitationFeedback(
+        FeedbackKind.unclear,
+        'لم أتبيّن الكلمة، أعد: «$w»',
+      ));
+      return;
+    }
+    if (outcome.skipped.isNotEmpty) {
+      final words = outcome.skipped
+          .take(3)
+          .map((i) => _expectedWords[i])
+          .join(' ');
+      _setFeedback(RecitationFeedback(
+        FeedbackKind.wrong,
+        outcome.skipped.length > 3
+            ? 'تجاوزت ${outcome.skipped.length} كلمات: $words …'
+            : 'تجاوزت: $words',
+      ));
+      return;
+    }
+    if (outcome.repeatOfHistory) return;
+
+    // Correct words only. Announce each ayah completed by this segment.
+    final ayahNow = aligner.isComplete
+        ? _ayahWordStarts.length - 2
+        : currentAyahIndex;
+    if (ayahNow > ayahBefore || aligner.isComplete) {
+      final last = aligner.isComplete ? ayahNow : ayahNow - 1;
+      final done = <String>[];
+      for (var i = math.max(ayahBefore, _lastAyahIndex); i <= last; i++) {
+        if (i < 0 || i + 1 >= _ayahWordStarts.length) continue;
+        final number = _page?.ayahs[i].ayah ?? i + 1;
+        done.add(_ayahFlagged(i) ? 'الآية $number (بملاحظات)' : 'الآية $number ✓');
+      }
+      _lastAyahIndex = last + 1;
+      if (done.isNotEmpty) {
+        _setFeedback(RecitationFeedback(FeedbackKind.good, done.join('، ')));
+      }
+    }
+  }
+
+  /// When a segment matched nothing near the cursor, checks whether it
+  /// matches some other ayah on the page well enough to say "you seem to be
+  /// reading ayah N". Returns true when such feedback was shown.
+  bool _maybeWrongAyah(SegmentOutcome outcome) {
+    final aligner = _aligner;
+    final page = _page;
+    if (aligner == null || page == null) return false;
+    final tokens = outcome.tokens;
+    if (tokens.length < 3) return false;
+    final needed = math.max(3, (tokens.length * 0.6).ceil());
+    final windowStart = aligner.cursor;
+    final windowEnd = math.min(aligner.length, windowStart + aligner.windowSize);
+
+    var bestAt = -1;
+    var bestMatches = 0;
+    for (var at = 0; at + needed <= aligner.length; at++) {
+      if (at >= windowStart && at < windowEnd) continue;
+      final m = aligner.matchesAt(tokens, at);
+      if (m > bestMatches) {
+        bestMatches = m;
+        bestAt = at;
+      }
+    }
+    if (bestAt < 0 || bestMatches < needed) return false;
+
+    final heardAyah = _ayahIndexOfWord(bestAt);
+    final wantedAyah = currentAyahIndex;
+    if (heardAyah < 0 || heardAyah == wantedAyah) return false;
+    final heard = page.ayahs[heardAyah];
+    final wanted = page.ayahs[wantedAyah];
+    final sameSurah = heard.surah == wanted.surah;
+    _recorder?.log('wrongAyah', {'heard': heardAyah, 'wanted': wantedAyah});
+    _setFeedback(RecitationFeedback(
+      FeedbackKind.wrong,
+      sameSurah
+          ? 'يبدو أنك تقرأ الآية ${heard.ayah}، والمطلوب الآية ${wanted.ayah}'
+          : 'يبدو أنك تقرأ ${heard.surahName} ${heard.ayah}، والمطلوب '
+              '${wanted.surahName} ${wanted.ayah}',
+    ));
+    return true;
+  }
+
+  void _checkSilence() {
+    if (status.value != MemorizationTestStatus.listening) return;
+    if (!usingRealEngine.value || _silenceWarned) return;
+    if (DateTime.now().difference(_lastVoiceOrSegment).inSeconds >= 8) {
+      _silenceWarned = true;
+      _setFeedback(
+        const RecitationFeedback(
+          FeedbackKind.silent,
+          'لا أسمع صوتًا — اقترب من الميكروفون وارفع صوتك قليلًا',
+        ),
+        sticky: true,
+      );
+    }
+  }
+
+  void _finishIfComplete() {
+    final aligner = _aligner;
+    if (aligner == null || !aligner.isComplete) return;
+    status.value = MemorizationTestStatus.completed;
+    final (clean, flagged) = summary;
+    _setFeedback(
+      RecitationFeedback(
+        flagged == 0 ? FeedbackKind.good : FeedbackKind.info,
+        flagged == 0
+            ? 'أحسنت! اكتملت الصفحة بلا أخطاء'
+            : 'اكتملت الصفحة: $clean بلا ملاحظات، $flagged بملاحظات',
+      ),
+      sticky: true,
+    );
+    // Stop the engine but keep aligner/regions so the overlay can keep
+    // showing the final result until the user exits the mode.
+    _stopEngineOnly();
+  }
+
+  static String _shorten(String text) {
+    final words = text.trim().split(RegExp(r'\s+'));
+    if (words.length <= 5) return text.trim();
+    return '… ${words.sublist(words.length - 5).join(' ')}';
+  }
+
+  void _setFeedback(RecitationFeedback? value, {bool sticky = false}) {
+    _feedbackTimer?.cancel();
+    _feedbackTimer = null;
+    feedback.value = value;
+    if (value != null && !sticky) {
+      _feedbackTimer = Timer(const Duration(seconds: 5), () {
+        if (feedback.value == value) feedback.value = null;
+      });
     }
   }
 
   Future<void> _stopEngineOnly() async {
+    _silenceTimer?.cancel();
+    _silenceTimer = null;
     await _segmentSub?.cancel();
     _segmentSub = null;
+    await _audioSub?.cancel();
+    _audioSub = null;
     final engine = _engine;
     if (engine != null) {
       if (_levelListener != null) {
         engine.audioLevel.removeListener(_levelListener!);
       }
       if (_busyListener != null) engine.busy.removeListener(_busyListener!);
+      if (_decodeListener != null) {
+        engine.lastDecodeMs.removeListener(_decodeListener!);
+      }
       await engine.stop();
     }
     _levelListener = null;
     _busyListener = null;
+    _decodeListener = null;
     _engine = null;
     audioLevel.value = 0;
     engineBusy.value = false;
+    final recorder = _recorder;
+    _recorder = null;
+    if (recorder != null) {
+      await recorder.finish();
+      lastSessionFiles.value = [recorder.audioPath, recorder.logPath];
+    }
   }
 
   /// Ends the session and clears all state. Safe to call when idle.
   Future<void> stop() async {
     await _stopEngineOnly();
+    _feedbackTimer?.cancel();
+    _feedbackTimer = null;
+    feedback.value = null;
+    lastHeard.value = '';
     _aligner = null;
     _regions = null;
+    _page = null;
+    _expectedWords = const [];
     _ayahWordStarts = const [];
     _activePage = null;
+    _lastAyahIndex = -1;
     usingRealEngine.value = false;
     stubReason.value = StubReason.none;
     if (status.value != MemorizationTestStatus.idle) {

@@ -50,6 +50,7 @@ import 'utils/copy_helper.dart';
 import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
+import 'widgets/hifz/hifz_tools_sheet.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
@@ -506,6 +507,8 @@ class _QuranPagesState extends State<QuranPages>
     // Animation is started only when the bookmark guide is shown (see below)
     _readingCoordinator = QuranReadingCoordinator(pageCount: pages.length);
     _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
+    MemorizationTestService.instance.status
+        .addListener(_handleMemorizationTestStatus);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
     _highQualityImagesService.state.addListener(
       _handleHighQualityImagesChanged,
@@ -617,6 +620,8 @@ class _QuranPagesState extends State<QuranPages>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    MemorizationTestService.instance.status
+        .removeListener(_handleMemorizationTestStatus);
     MemorizationTestService.instance.stop();
     HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
@@ -2567,6 +2572,36 @@ class _QuranPagesState extends State<QuranPages>
     if (value) _stopMemorizationTestIfActive();
     _saveHifzModePreference();
     if (value) _maybeShowHifzLensGuide();
+  }
+
+  /// Keeps the toolbar/overlay flags in step with the service when a
+  /// session ends from inside the overlay (its "إنهاء" button) or restarts.
+  void _handleMemorizationTestStatus() {
+    final service = MemorizationTestService.instance;
+    if (!mounted) return;
+    if (service.status.value == MemorizationTestStatus.idle &&
+        _isMemorizationTestEnabled) {
+      setState(() {
+        _isMemorizationTestEnabled = false;
+        _memorizationTestPageIndex = -1;
+      });
+    }
+  }
+
+  /// The "أدوات الحفظ" sheet: start/stop التسميع on the current page, or
+  /// toggle the page-concealment Hifz mode.
+  Future<void> _openHifzTools() async {
+    setState(() {
+      _showIndex = false;
+      _showSurahs = false;
+    });
+    await showHifzToolsSheet(
+      context,
+      tasmeeActive: _isMemorizationTestEnabled,
+      hifzModeActive: _isHifzModeEnabled,
+      onTasmee: () => _toggleMemorizationTest(!_isMemorizationTestEnabled),
+      onHifzMode: () => _toggleHifzMode(!_isHifzModeEnabled),
+    );
   }
 
   /// Enters/exits the memorization-test (word-reveal) mode. Unlike Hifz
@@ -4978,6 +5013,7 @@ class _QuranPagesState extends State<QuranPages>
                       });
                     },
                     onSearchTapped: _openSearchPage,
+                    onOpenHifzTools: _openHifzTools,
                   ),
 
                 // Edge hover arrows for page turning. Last in the Stack so

@@ -134,24 +134,58 @@ class QuranWordAligner {
     }
   }
 
+  /// Normalized expected words, in order (read-only). Exposed so callers
+  /// can search the whole passage (e.g. "is the reciter in another ayah?")
+  /// with the same normalization the aligner uses.
+  List<String> get expectedNormalized => _expectedNormalized;
+
+  /// Resolves every still-pending word in `[start, end)` with [status]
+  /// without any recognition -- the "reveal this ayah" / "skip this ayah"
+  /// help buttons. The cursor jumps past [end] if it was inside the range.
+  void forceResolveRange(int start, int end, WordStatus status) {
+    final from = start.clamp(0, length);
+    final to = end.clamp(from, length);
+    for (var i = from; i < to; i++) {
+      if (_statuses[i] == WordStatus.correct ||
+          _statuses[i] == WordStatus.mistake ||
+          _statuses[i] == WordStatus.skipped) {
+        continue;
+      }
+      _setStatus(i, status);
+    }
+    if (_cursor < to) _cursor = to;
+  }
+
+  /// Whether [tokens] (already normalized) match a contiguous run of the
+  /// expected words starting at [at] -- at least [minMatches] of them
+  /// close, in order. Used for "wrong ayah" detection outside the window.
+  int matchesAt(List<String> tokens, int at) {
+    var matches = 0;
+    for (var k = 0; k < tokens.length && at + k < length; k++) {
+      if (_wordsClose(_expectedNormalized[at + k], tokens[k])) matches++;
+    }
+    return matches;
+  }
+
   /// Feeds one recognized speech segment (raw ASR output text, in whatever
   /// spelling convention the recognizer produces -- it is normalized
-  /// internally the same way the expected words are) into the aligner.
+  /// internally the same way the expected words are) into the aligner and
+  /// reports what changed.
   ///
   /// Only call this for segments the recognizer actually produced from
   /// detected speech (e.g. one call per VAD-bounded utterance). Silence
   /// detection/"the user hasn't said anything yet" is the caller's
   /// responsibility, not the aligner's -- an empty or whitespace-only
   /// segment is a no-op here.
-  void submitRecognizedSegment(String rawRecognizedText) {
-    if (isComplete) return;
+  SegmentOutcome submitRecognizedSegment(String rawRecognizedText) {
+    if (isComplete) return const SegmentOutcome.empty();
 
     final tokens = normalizedArabicWords(rawRecognizedText);
-    if (tokens.isEmpty) return;
+    if (tokens.isEmpty) return const SegmentOutcome.empty();
 
     final windowEnd = (_cursor + windowSize).clamp(_cursor, length);
     final window = _expectedNormalized.sublist(_cursor, windowEnd);
-    if (window.isEmpty) return;
+    if (window.isEmpty) return SegmentOutcome(tokens: tokens);
 
     final alignment = _alignWindow(window, tokens);
 
@@ -175,7 +209,7 @@ class QuranWordAligner {
       final historyStart = (_cursor - windowSize).clamp(0, _cursor);
       final history = _expectedNormalized.sublist(historyStart, _cursor);
       if (history.isNotEmpty && _looksLikeRepeatOfHistory(tokens, history)) {
-        return;
+        return SegmentOutcome(tokens: tokens, repeatOfHistory: true);
       }
 
       // Genuine miss: bump the front word's miss streak; only promote to
@@ -189,20 +223,47 @@ class QuranWordAligner {
       );
       if (promoted) {
         _cursor = frontIndex + 1;
+        return SegmentOutcome(tokens: tokens, mistakes: [frontIndex]);
       }
-      return;
+      return SegmentOutcome(tokens: tokens, unclearIndex: frontIndex);
     }
 
-    for (var rel = 0; rel <= alignment.matchedUpTo; rel++) {
-      final absoluteIndex = _cursor + rel;
-      if (alignment.matchedRelIndices.contains(rel)) {
-        _missStreak[absoluteIndex] = 0;
-        _setStatus(absoluteIndex, WordStatus.correct);
-      } else {
-        _setStatus(absoluteIndex, WordStatus.skipped);
+    final correct = <int>[];
+    final skipped = <int>[];
+    var current = alignment;
+    var remaining = tokens;
+    // A segment can carry more words than one window (a 5 s final segment
+    // is 8-12 words against a 6-word window). Consume it window by window:
+    // apply this alignment, drop the tokens it used, and align what's left
+    // against the next window until nothing more matches.
+    while (true) {
+      for (var rel = 0; rel <= current.matchedUpTo; rel++) {
+        final absoluteIndex = _cursor + rel;
+        if (current.matchedRelIndices.contains(rel)) {
+          _missStreak[absoluteIndex] = 0;
+          if (_statuses[absoluteIndex] != WordStatus.correct) {
+            correct.add(absoluteIndex);
+          }
+          _setStatus(absoluteIndex, WordStatus.correct);
+        } else {
+          skipped.add(absoluteIndex);
+          _setStatus(absoluteIndex, WordStatus.skipped);
+        }
       }
+      _cursor += current.matchedUpTo + 1;
+      if (isComplete || current.matchedTokenUpTo + 1 >= remaining.length) {
+        break;
+      }
+      remaining = remaining.sublist(current.matchedTokenUpTo + 1);
+      final nextEnd = (_cursor + windowSize).clamp(_cursor, length);
+      final next = _alignWindow(
+        _expectedNormalized.sublist(_cursor, nextEnd),
+        remaining,
+      );
+      if (next.matchedUpTo < 0) break;
+      current = next;
     }
-    _cursor += alignment.matchedUpTo + 1;
+    return SegmentOutcome(tokens: tokens, correct: correct, skipped: skipped);
   }
 
   void _setStatus(int index, WordStatus status) {
@@ -260,6 +321,7 @@ class QuranWordAligner {
     var i = n, j = m;
     final matchedRelIndices = <int>{};
     var matchedUpTo = -1;
+    var matchedTokenUpTo = -1;
     while (i > 0 || j > 0) {
       if (i > 0 && dp[i][j] == dp[i - 1][j] + 1) {
         i--;
@@ -271,6 +333,8 @@ class QuranWordAligner {
           if (matchCost == 0) {
             matchedRelIndices.add(i - 1);
             matchedUpTo = matchedUpTo == -1 ? i - 1 : matchedUpTo;
+            matchedTokenUpTo =
+                matchedTokenUpTo == -1 ? j - 1 : matchedTokenUpTo;
           }
           i--;
           j--;
@@ -282,6 +346,7 @@ class QuranWordAligner {
 
     return _WindowAlignment(
       matchedUpTo: matchedUpTo,
+      matchedTokenUpTo: matchedTokenUpTo,
       matchedRelIndices: matchedRelIndices,
     );
   }
@@ -345,11 +410,53 @@ class QuranWordAligner {
   }
 }
 
+/// What one [QuranWordAligner.submitRecognizedSegment] call did, so the UI
+/// can explain itself ("didn't catch that", "wrong word", "skipped ...").
+class SegmentOutcome {
+  const SegmentOutcome({
+    this.tokens = const [],
+    this.correct = const [],
+    this.skipped = const [],
+    this.mistakes = const [],
+    this.unclearIndex = -1,
+    this.repeatOfHistory = false,
+  });
+
+  const SegmentOutcome.empty() : this();
+
+  /// The segment's normalized words (empty when the segment was blank).
+  final List<String> tokens;
+
+  /// Expected-word indices newly resolved `correct` by this segment.
+  final List<int> correct;
+
+  /// Expected-word indices swept as `skipped` by this segment.
+  final List<int> skipped;
+
+  /// Expected-word indices promoted to `mistake` by this segment.
+  final List<int> mistakes;
+
+  /// The front word left `unclear` (first strike), or -1.
+  final int unclearIndex;
+
+  /// The segment only repeated already-recited words and was ignored.
+  final bool repeatOfHistory;
+
+  /// Nothing in the segment aligned with the pending window.
+  bool get alignedNothing =>
+      tokens.isNotEmpty && correct.isEmpty && skipped.isEmpty;
+}
+
 class _WindowAlignment {
   const _WindowAlignment({
     required this.matchedUpTo,
+    required this.matchedTokenUpTo,
     required this.matchedRelIndices,
   });
+
+  /// Index of the last recognized token that took part in a true match,
+  /// or -1. Tokens after it were not explained by this window.
+  final int matchedTokenUpTo;
 
   /// Highest relative (0-based, within the window) expected-word index that
   /// matched a recognized token this segment, or -1 if none did.

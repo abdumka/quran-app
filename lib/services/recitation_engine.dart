@@ -26,6 +26,14 @@ abstract class RecitationEngine {
   /// True while the engine is actively decoding audio into text.
   final ValueNotifier<bool> busy = ValueNotifier(false);
 
+  /// Wall-clock milliseconds the most recent decode took (0 when unknown).
+  /// Surfaced so the user can tell us how slow their phone is.
+  final ValueNotifier<int> lastDecodeMs = ValueNotifier(0);
+
+  /// Raw 16 kHz mono PCM16 mic chunks, when the engine has a mic. Lets the
+  /// session recorder keep a copy of what was heard for offline analysis.
+  Stream<Uint8List>? get audioChunks => null;
+
   /// Recognized text segments. Text is raw engine output -- normalization
   /// happens downstream in the aligner. Segments may overlap/repeat text
   /// that was already recognized (interim decodes); the aligner is designed
