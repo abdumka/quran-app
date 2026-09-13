@@ -12,6 +12,15 @@ function posCompare(s1, a1, s2, a2) {
  * other is preloaded with whatever file comes next, so 'ended' just swaps
  * roles and calls play() on an element that's (ideally) already buffered.
  *
+ * Invariant: only `this.active` may ever be playing. For a timed mirror
+ * (one MP3 per surah, sliced by ayah spans — see audio-resolver.js) both
+ * <audio> elements typically share the SAME src, so if the outgoing element
+ * isn't paused on every swap it keeps running forward through that shared
+ * file and audibly overlaps the ayah the new `active` just started. Any
+ * future swap path (in `_advance` or elsewhere) must pause the outgoing
+ * element before returning. This bit the launch of the abusenainah/alqryw
+ * timed reciters — keep it in mind for the next one.
+ *
  * Forward progression is always capped at the end of `pageSurah` (the surah
  * this player page is showing) EXCEPT while a thumn repeat's own span
  * genuinely crosses into another surah — that crossing is the point of thumn
@@ -244,6 +253,11 @@ export class PlayerEngine {
 
     this._clearClipWatch(this.standby);
     [this.active, this.standby] = [this.standby, this.active];
+    // The outgoing element (now `standby`) may still be mid-playback: for a
+    // timed mirror both elements share the same per-surah file, so without an
+    // explicit pause it keeps running forward and audibly overlaps the ayah
+    // `active` is about to start.
+    this.standby.pause();
     let step = this._prepared;
 
     if (!step) {
