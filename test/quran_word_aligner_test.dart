@@ -190,4 +190,12 @@ void main() {
       expect(aligner.statuses[3], WordStatus.correct);
     });
   });
+
+  group('dagger alef', () {
+    test('ذٰلك / هٰذا / الرحمٰن match their everyday spellings exactly', () {
+      final aligner = QuranWordAligner(['وَرَآءَ', 'ذَٰلِكَ', 'هَٰذَا', 'اَ۬لرَّحْمَٰنِ']);
+      aligner.submitRecognizedSegment('وراء ذلك هذا الرحمن');
+      expect(aligner.statuses, everyElement(WordStatus.correct));
+    });
+  });
 }

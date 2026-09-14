@@ -1,5 +1,13 @@
 import 'arabic_text_normalizer.dart';
 
+/// [normalizeArabicText] with the dagger alef (U+0670) removed rather than
+/// expanded to a full alef. The search normalizer expands it so "الرحمٰن"
+/// is findable by typing "الرحمان", but speech recognizers spell such words
+/// the everyday way -- "الرحمن", "ذلك", "هذا" -- and a 3-letter word like
+/// ذلك must match exactly, so "ذالك" would never be recognised as recited.
+String normalizeRecitationText(String text) =>
+    normalizeArabicText(text.replaceAll('ٰ', ''));
+
 /// The recognition state of a single expected word in a memorization-test
 /// session, driving what the reveal UI shows for that word's position.
 enum WordStatus {
@@ -77,6 +85,9 @@ class QuranWordAligner {
       _expectedNormalized = List.unmodifiable(
         expectedWords.map(normalizeArabicText),
       ),
+      _expectedNoDagger = List.unmodifiable(
+        expectedWords.map(normalizeRecitationText),
+      ),
       _statuses = List.filled(
         expectedWords.length,
         WordStatus.pending,
@@ -95,6 +106,11 @@ class QuranWordAligner {
   final int windowSize;
 
   final List<String> _expectedNormalized;
+
+  /// The same words with the dagger alef DROPPED instead of expanded (see
+  /// [normalizeRecitationText]); a token matches if it is close to either
+  /// spelling.
+  final List<String> _expectedNoDagger;
   final List<WordStatus> _statuses;
   final List<int> _missStreak;
 
@@ -162,7 +178,10 @@ class QuranWordAligner {
   int matchesAt(List<String> tokens, int at) {
     var matches = 0;
     for (var k = 0; k < tokens.length && at + k < length; k++) {
-      if (_wordsClose(_expectedNormalized[at + k], tokens[k])) matches++;
+      if (_wordsClose(_expectedNormalized[at + k], tokens[k]) ||
+          _wordsClose(_expectedNoDagger[at + k], tokens[k])) {
+        matches++;
+      }
     }
     return matches;
   }
@@ -187,7 +206,11 @@ class QuranWordAligner {
     final window = _expectedNormalized.sublist(_cursor, windowEnd);
     if (window.isEmpty) return SegmentOutcome(tokens: tokens);
 
-    final alignment = _alignWindow(window, tokens);
+    final alignment = _alignWindow(
+      window,
+      _expectedNoDagger.sublist(_cursor, windowEnd),
+      tokens,
+    );
 
     if (alignment.matchedUpTo < 0) {
       // Nothing in this segment aligned with anything still pending. Before
@@ -207,7 +230,10 @@ class QuranWordAligner {
       // misread as a repeat of the first and swallowed, stranding the
       // cursor on a word the user just recited correctly.
       final historyStart = (_cursor - windowSize).clamp(0, _cursor);
-      final history = _expectedNormalized.sublist(historyStart, _cursor);
+      final history = [
+        ..._expectedNormalized.sublist(historyStart, _cursor),
+        ..._expectedNoDagger.sublist(historyStart, _cursor),
+      ];
       if (history.isNotEmpty && _looksLikeRepeatOfHistory(tokens, history)) {
         return SegmentOutcome(tokens: tokens, repeatOfHistory: true);
       }
@@ -258,6 +284,7 @@ class QuranWordAligner {
       final nextEnd = (_cursor + windowSize).clamp(_cursor, length);
       final next = _alignWindow(
         _expectedNormalized.sublist(_cursor, nextEnd),
+        _expectedNoDagger.sublist(_cursor, nextEnd),
         remaining,
       );
       if (next.matchedUpTo < 0) break;
@@ -280,6 +307,7 @@ class QuranWordAligner {
   /// mismatch.
   static _WindowAlignment _alignWindow(
     List<String> window,
+    List<String> windowAlt,
     List<String> tokens,
   ) {
     final n = window.length;
@@ -294,10 +322,11 @@ class QuranWordAligner {
     }
     for (var i = 1; i <= n; i++) {
       for (var j = 1; j <= m; j++) {
-        final matchCost =
-            _wordsClose(window[i - 1], tokens[j - 1], lastToken: j == m)
-                ? 0
-                : 1;
+        final matchCost = _wordsClose(window[i - 1], tokens[j - 1],
+                    lastToken: j == m) ||
+                _wordsClose(windowAlt[i - 1], tokens[j - 1], lastToken: j == m)
+            ? 0
+            : 1;
         final substitute = dp[i - 1][j - 1] + matchCost;
         final deleteExpected = dp[i - 1][j] + 1; // expected word not heard
         final insertToken = dp[i][j - 1] + 1; // extra/noise token
@@ -331,10 +360,11 @@ class QuranWordAligner {
         continue;
       }
       if (i > 0 && j > 0) {
-        final matchCost =
-            _wordsClose(window[i - 1], tokens[j - 1], lastToken: j == m)
-                ? 0
-                : 1;
+        final matchCost = _wordsClose(window[i - 1], tokens[j - 1],
+                    lastToken: j == m) ||
+                _wordsClose(windowAlt[i - 1], tokens[j - 1], lastToken: j == m)
+            ? 0
+            : 1;
         if (dp[i][j] == dp[i - 1][j - 1] + matchCost) {
           if (matchCost == 0) {
             matchedRelIndices.add(i - 1);
