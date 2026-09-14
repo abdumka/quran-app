@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/services/memorization_test_service.dart';
 import 'package:islamic_dawah_mushaf/services/recitation_engine.dart';
+import 'package:islamic_dawah_mushaf/utils/arabic_text_normalizer.dart';
 import 'package:islamic_dawah_mushaf/utils/quran_word_aligner.dart';
 
 /// Hand-driven engine: the test pushes segments explicitly.
@@ -138,5 +139,24 @@ void main() {
     expect(service.activePage, 1);
     expect(service.currentAyahIndex, 0);
     expect(service.feedback.value, isNull);
+  });
+
+  test('current ayah words appear one by one as they are recognised',
+      () async {
+    await startPage1();
+    expect(service.currentAyahWords.length, 4);
+    expect(
+      service.currentAyahWords.every((w) => w.$2 == WordStatus.pending),
+      isTrue,
+    );
+    await emit('الحمد لله');
+    final words = service.currentAyahWords;
+    expect(words[0].$2, WordStatus.correct);
+    expect(words[1].$2, WordStatus.correct);
+    expect(words[2].$2, WordStatus.pending);
+    await emit('رب العالمين');
+    // Ayah 1 done: the panel now tracks ayah 2.
+    expect(service.currentAyahWords.length, 2);
+    expect(normalizeArabicText(service.currentAyahWords.first.$1), 'الرحمن');
   });
 }

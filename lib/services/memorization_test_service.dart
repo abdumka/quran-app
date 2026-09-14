@@ -225,6 +225,19 @@ class MemorizationTestService {
     return false;
   }
 
+  /// The words of the ayah being recited right now, paired with their
+  /// statuses, so the panel can show them appearing one by one. Empty when
+  /// no session or the page is complete.
+  List<(String, WordStatus)> get currentAyahWords {
+    final aligner = _aligner;
+    final ayah = currentAyahIndex;
+    if (aligner == null || ayah < 0) return const [];
+    return [
+      for (var w = _ayahWordStarts[ayah]; w < _ayahWordStarts[ayah + 1]; w++)
+        (_expectedWords[w], aligner.statuses[w]),
+    ];
+  }
+
   /// Ayah counts for the completion summary: (revealed cleanly, flagged).
   (int, int) get summary {
     var clean = 0;

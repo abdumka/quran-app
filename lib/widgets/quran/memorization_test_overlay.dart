@@ -3,6 +3,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../models/ayah_region_data.dart';
 import '../../services/memorization_test_service.dart';
+import '../../utils/quran_word_aligner.dart';
 
 /// The reveal layer of the memorization test: covers every not-yet-recited
 /// ayah with paper-colored boxes drawn directly on top of the page image, so
@@ -177,6 +178,7 @@ class _SessionPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _statusRow(status),
+                  if (listening) _ayahProgress(),
                   if (fb != null) ...[
                     const SizedBox(height: 4),
                     Text(
@@ -243,6 +245,51 @@ class _SessionPanel extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  /// The current ayah, word by word: recited words appear in the mushaf
+  /// spelling, words still to come stay as dots -- so the reciter sees each
+  /// word land the moment it is recognized, without unmasking the page.
+  Widget _ayahProgress() {
+    final words = service.currentAyahWords;
+    if (words.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: RichText(
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.rtl,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        text: TextSpan(
+          style: const TextStyle(fontSize: 17, height: 1.6, fontFamily: 'Tajawal'),
+          children: [
+            for (var i = 0; i < words.length; i++) ...[
+              TextSpan(
+                text: switch (words[i].$2) {
+                  WordStatus.correct => words[i].$1,
+                  WordStatus.mistake => words[i].$1,
+                  WordStatus.skipped => words[i].$1,
+                  _ => '\u2022\u2022\u2022',
+                },
+                style: TextStyle(
+                  color: switch (words[i].$2) {
+                    WordStatus.correct => _good,
+                    WordStatus.mistake => _wrong,
+                    WordStatus.skipped => _unclear,
+                    WordStatus.unclear => _unclear.withValues(alpha: 0.6),
+                    WordStatus.pending => _gold.withValues(alpha: 0.35),
+                  },
+                  fontWeight: words[i].$2 == WordStatus.pending
+                      ? FontWeight.w400
+                      : FontWeight.w700,
+                ),
+              ),
+              if (i + 1 < words.length) const TextSpan(text: ' '),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

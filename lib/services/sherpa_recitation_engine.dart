@@ -269,6 +269,12 @@ const Duration _endGap = Duration(milliseconds: 1000);
 const Duration _maxUtterance = Duration(milliseconds: 12000);
 const Duration _softCutSearch = Duration(milliseconds: 1500);
 
+/// Digital silence appended to every segment before decoding. Whisper
+/// drops the final word of a segment that ends right after speech
+/// ("مُقْتَد" for مُقْتَدِرٍ); on the user's recordings 1 s of zeros restored
+/// the word every time, while sherpa's tailPaddings did nothing for it.
+const Duration _decodeSilencePad = Duration(milliseconds: 1200);
+
 /// Interim decodes look only at this much trailing audio (see
 /// [SherpaRecitationEngine.interimTail]).
 const Duration _interimWindow = Duration(milliseconds: 5000);
@@ -339,12 +345,16 @@ Future<void> _workerMain(_WorkerInit init) async {
   init.replyTo.send(commandPort.sendPort);
 
   var lastDecodeMs = 0;
+  final silencePadSamples =
+      _decodeSilencePad.inMilliseconds * _sampleRate ~/ 1000;
   String decode(Float32List samples, String kind) {
     init.replyTo.send(const _BusyEvent(true));
     final stream = recognizer!.createStream();
     final started = DateTime.now();
     try {
-      stream.acceptWaveform(samples: samples, sampleRate: _sampleRate);
+      final padded = Float32List(samples.length + silencePadSamples)
+        ..setAll(0, samples);
+      stream.acceptWaveform(samples: padded, sampleRate: _sampleRate);
       recognizer.decode(stream);
       return recognizer.getResult(stream).text.trim();
     } finally {
