@@ -19,21 +19,18 @@ enum WordStatus {
   /// noise) in the expected order. Reveal UI shows the real word.
   correct,
 
-  /// The same expected word failed to align across repeated segments while
-  /// something else recognizable kept landing in its place -- treated as a
-  /// genuine pronunciation/word mistake, not a one-off ASR misfire. Reveal UI
-  /// shows the word with a "wrong" tint so the learner sees what was missed.
+  /// The same expected word failed to align across repeated final segments
+  /// while something else recognizable kept landing in its place -- treated
+  /// as a genuine pronunciation/word mistake, not a one-off ASR misfire.
   mistake,
 
   /// A later word matched before this one ever did, implying this word was
-  /// recited too quietly/quickly to catch or genuinely dropped. Reveal UI
-  /// shows the word with a "skipped" tint.
+  /// recited too quietly/quickly to catch or genuinely dropped.
   skipped,
 
   /// A recognized segment didn't align with anything in the current window
   /// at all. Transient -- deliberately does *not* flag a mistake from a
-  /// single failed segment (see class doc). Reveal UI should not change
-  /// anything visible for `unclear`; it's an internal waiting state.
+  /// single failed segment (see class doc). It's an internal waiting state.
   unclear,
 }
 
@@ -50,60 +47,63 @@ enum WordStatus {
 ///
 /// ## Design
 ///
-/// The aligner never assumes the recognizer sends one segment per word --
-/// each call to [submitRecognizedSegment] may contain zero, one, or several
-/// words (a VAD-detected utterance chunk can span a whole phrase). Each
-/// segment is aligned, via a small bounded edit-distance alignment, against
-/// only a forward-looking *window* of the still-unresolved expected words
-/// (starting at the current cursor) -- never the whole remaining passage.
-/// Bounding the window serves two purposes: it keeps the alignment cheap,
-/// and it prevents one coincidental fuzzy match far ahead from silently
-/// "skipping" everything in between. Because already-confirmed words are
-/// excluded from the window entirely, a user repeating a word/phrase they
-/// already said correctly simply produces tokens that match nothing in the
-/// window and are ignored -- repeats never cause a false double-advance.
+/// The recognizer sends overlapping segments: interim decodes of an
+/// utterance in progress, then the authoritative final decode that
+/// re-covers the same audio, and utterances themselves overlap at forced
+/// splits. So a segment routinely contains words that were ALREADY
+/// resolved followed by new ones. Each segment is therefore aligned, with a
+/// small word-level edit-distance DP, against a *context* made of the
+/// trailing already-resolved words (the history, [historySize]) followed
+/// by a forward-looking *window* of still-pending words ([windowSize]).
+/// Tokens that land in the history are absorbed silently; only matches in
+/// the window resolve anything. Bounding the window keeps the alignment
+/// cheap and stops one lucky far-ahead fuzzy match from silently skipping
+/// everything in between.
+///
+/// Cost model: a true match is free, an unheard expected word or an extra
+/// token costs 1, and a *mismatched substitution costs 2* -- the same as
+/// delete + insert -- so the DP can never prefer pairing wrong words over
+/// finding the real match a few words later (with cost 1 it did exactly
+/// that on real recordings, marking a correctly recited word a mistake).
 ///
 /// A word is only promoted to [WordStatus.mistake] after a *two-strike*
-/// rule: it must fail to align across two consecutive segments while a
-/// different, recognizable word keeps landing in its place. A single
-/// failed segment -- which could just be noise, a cough, or the ASR
-/// mishearing -- only ever produces a transient [WordStatus.unclear], never
-/// an immediate "wrong" verdict. This mirrors advice (from evaluating this
-/// feature's design against real product feedback) that false "you got it
-/// wrong" verdicts erode trust in a recitation checker faster than being
-/// briefly unresponsive does.
-///
-/// The fuzzy-match threshold and window size are tunable heuristics; the
-/// values here are reasonable defaults but are expected to be calibrated
-/// against real microphone recordings (not just clean reference audio)
-/// once the on-device recognizer is wired up -- see the memorization-test
-/// plan's device-matrix acceptance step.
+/// rule on FINAL segments: it must fail to align across two consecutive
+/// finals while something else recognizable lands in its place. Interim
+/// segments (cut mid-utterance, last word dropped) never promote; they can
+/// only advance the cursor on real matches or leave a transient `unclear`.
 class QuranWordAligner {
-  QuranWordAligner(List<String> expectedWords, {this.windowSize = 6})
-    : assert(expectedWords.isNotEmpty, 'expectedWords must not be empty'),
-      assert(windowSize > 0, 'windowSize must be positive'),
-      _expectedNormalized = List.unmodifiable(
-        expectedWords.map(normalizeArabicText),
-      ),
-      _expectedNoDagger = List.unmodifiable(
-        expectedWords.map(normalizeRecitationText),
-      ),
-      _statuses = List.filled(
-        expectedWords.length,
-        WordStatus.pending,
-        growable: false,
-      ),
-      _missStreak = List.filled(
-        expectedWords.length,
-        0,
-        growable: false,
-      );
+  QuranWordAligner(
+    List<String> expectedWords, {
+    this.windowSize = 6,
+    this.historySize = 40,
+  })  : assert(expectedWords.isNotEmpty, 'expectedWords must not be empty'),
+        assert(windowSize > 0, 'windowSize must be positive'),
+        _expectedNormalized = List.unmodifiable(
+          expectedWords.map(normalizeArabicText),
+        ),
+        _expectedNoDagger = List.unmodifiable(
+          expectedWords.map(normalizeRecitationText),
+        ),
+        _statuses = List.filled(
+          expectedWords.length,
+          WordStatus.pending,
+          growable: false,
+        ),
+        _missStreak = List.filled(
+          expectedWords.length,
+          0,
+          growable: false,
+        );
 
   /// How many still-unresolved expected words (from the cursor forward) a
-  /// single recognized segment is allowed to align against. Keeps the
-  /// per-segment alignment cheap and stops one lucky far-ahead fuzzy match
-  /// from skipping a whole run of words at once.
+  /// single recognized segment is allowed to align against.
   final int windowSize;
+
+  /// How many already-resolved words before the cursor take part in the
+  /// alignment so that repeated / overlapping speech is absorbed instead of
+  /// being forced onto pending words. Reciters who lose their place often
+  /// restart two or three ayahs back, so this spans a few ayahs.
+  final int historySize;
 
   final List<String> _expectedNormalized;
 
@@ -118,15 +118,10 @@ class QuranWordAligner {
 
   /// Called (synchronously, from within [submitRecognizedSegment]) whenever
   /// a word's status is resolved away from [WordStatus.pending], with its
-  /// index into the original `expectedWords` list. The UI layer uses this
-  /// to drive per-word reveal animations without re-diffing the whole
-  /// [statuses] list on every update.
+  /// index into the original `expectedWords` list.
   void Function(int index)? onWordResolved;
 
-  /// Current status of every expected word, in order. Do not mutate --
-  /// treat as read-only (a fresh unmodifiable view is not allocated per
-  /// access for performance; callers must not rely on identity across
-  /// calls to [submitRecognizedSegment]/[reset]).
+  /// Current status of every expected word, in order. Treat as read-only.
   List<WordStatus> get statuses => _statuses;
 
   /// Number of expected words, i.e. `expectedWords.length`.
@@ -140,8 +135,10 @@ class QuranWordAligner {
   /// -- `unclear` never counts, since it's transient by definition).
   bool get isComplete => _cursor >= length;
 
-  /// Resets the aligner to its initial state (all words `pending`, cursor at
-  /// the start) so a session can be retried without recreating the aligner.
+  /// Normalized expected words, in order (read-only).
+  List<String> get expectedNormalized => _expectedNormalized;
+
+  /// Resets the aligner to its initial state.
   void reset() {
     _cursor = 0;
     for (var i = 0; i < _statuses.length; i++) {
@@ -149,11 +146,6 @@ class QuranWordAligner {
       _missStreak[i] = 0;
     }
   }
-
-  /// Normalized expected words, in order (read-only). Exposed so callers
-  /// can search the whole passage (e.g. "is the reciter in another ayah?")
-  /// with the same normalization the aligner uses.
-  List<String> get expectedNormalized => _expectedNormalized;
 
   /// Resolves every still-pending word in `[start, end)` with [status]
   /// without any recognition -- the "reveal this ayah" / "skip this ayah"
@@ -172,100 +164,92 @@ class QuranWordAligner {
     if (_cursor < to) _cursor = to;
   }
 
-  /// Whether [tokens] (already normalized) match a contiguous run of the
-  /// expected words starting at [at] -- at least [minMatches] of them
-  /// close, in order. Used for "wrong ayah" detection outside the window.
+  /// How many of [tokens] (already normalized) match the expected words
+  /// starting at [at], position by position. Used for "wrong ayah"
+  /// detection outside the window.
   int matchesAt(List<String> tokens, int at) {
     var matches = 0;
     for (var k = 0; k < tokens.length && at + k < length; k++) {
-      if (_wordsClose(_expectedNormalized[at + k], tokens[k]) ||
-          _wordsClose(_expectedNoDagger[at + k], tokens[k])) {
-        matches++;
-      }
+      if (_closeToExpected(at + k, tokens[k])) matches++;
     }
     return matches;
   }
 
-  /// Feeds one recognized speech segment (raw ASR output text, in whatever
-  /// spelling convention the recognizer produces -- it is normalized
-  /// internally the same way the expected words are) into the aligner and
-  /// reports what changed.
-  ///
-  /// Only call this for segments the recognizer actually produced from
-  /// detected speech (e.g. one call per VAD-bounded utterance). Silence
-  /// detection/"the user hasn't said anything yet" is the caller's
-  /// responsibility, not the aligner's -- an empty or whitespace-only
-  /// segment is a no-op here.
-  SegmentOutcome submitRecognizedSegment(String rawRecognizedText) {
+  bool _closeToExpected(int index, String token, {bool lastToken = false}) =>
+      _wordsClose(_expectedNormalized[index], token, lastToken: lastToken) ||
+      _wordsClose(_expectedNoDagger[index], token, lastToken: lastToken);
+
+  /// Feeds one recognized speech segment (raw ASR output text) into the
+  /// aligner and reports what changed. [isFinal] is false for interim
+  /// (mid-utterance) decodes, which may advance on matches but never count
+  /// as a strike against the front word.
+  SegmentOutcome submitRecognizedSegment(
+    String rawRecognizedText, {
+    bool isFinal = true,
+  }) {
     if (isComplete) return const SegmentOutcome.empty();
 
     final tokens = normalizedArabicWords(rawRecognizedText);
     if (tokens.isEmpty) return const SegmentOutcome.empty();
 
-    final windowEnd = (_cursor + windowSize).clamp(_cursor, length);
-    final window = _expectedNormalized.sublist(_cursor, windowEnd);
-    if (window.isEmpty) return SegmentOutcome(tokens: tokens);
-
-    final alignment = _alignWindow(
-      window,
-      _expectedNoDagger.sublist(_cursor, windowEnd),
-      tokens,
-    );
-
-    if (alignment.matchedUpTo < 0) {
-      // Nothing in this segment aligned with anything still pending. Before
-      // treating that as a sign of trouble, rule out the harmless case: the
-      // user repeating a word or phrase they already recited correctly.
-      // Already-resolved words are deliberately excluded from `window` (so
-      // a real repeat can never match anything there), which makes a repeat
-      // and genuine noise look identical to the alignment step -- so check
-      // the trailing history and, if every token is explained by something
-      // already passed, ignore the segment rather than penalizing the next
-      // pending word for it.
-      //
-      // Ordering matters: this check runs only AFTER window alignment has
-      // found nothing, never before. The Quran repeats words (Al-Fatihah
-      // itself has عليهم in both ayah 6 and ayah 7) -- if the history check
-      // ran first, a segment carrying the *second* occurrence would be
-      // misread as a repeat of the first and swallowed, stranding the
-      // cursor on a word the user just recited correctly.
-      final historyStart = (_cursor - windowSize).clamp(0, _cursor);
-      final history = [
-        ..._expectedNormalized.sublist(historyStart, _cursor),
-        ..._expectedNoDagger.sublist(historyStart, _cursor),
-      ];
-      if (history.isNotEmpty && _looksLikeRepeatOfHistory(tokens, history)) {
-        return SegmentOutcome(tokens: tokens, repeatOfHistory: true);
-      }
-
-      // Genuine miss: bump the front word's miss streak; only promote to
-      // `mistake` once it's failed twice in a row (see class doc for why).
-      final frontIndex = _cursor;
-      _missStreak[frontIndex]++;
-      final promoted = _missStreak[frontIndex] >= 2;
-      _setStatus(
-        frontIndex,
-        promoted ? WordStatus.mistake : WordStatus.unclear,
-      );
-      if (promoted) {
-        _cursor = frontIndex + 1;
-        return SegmentOutcome(tokens: tokens, mistakes: [frontIndex]);
-      }
-      return SegmentOutcome(tokens: tokens, unclearIndex: frontIndex);
-    }
-
     final correct = <int>[];
     final skipped = <int>[];
-    var current = alignment;
     var remaining = tokens;
-    // A segment can carry more words than one window (a 5 s final segment
-    // is 8-12 words against a 6-word window). Consume it window by window:
-    // apply this alignment, drop the tokens it used, and align what's left
-    // against the next window until nothing more matches.
-    while (true) {
-      for (var rel = 0; rel <= current.matchedUpTo; rel++) {
+    var anyHistoryMatch = false;
+    var advanced = false;
+
+    // A segment can carry more words than one window. Consume it window by
+    // window: apply an alignment, drop the tokens it used, and align what's
+    // left against the next window until nothing more matches.
+    while (remaining.isNotEmpty && !isComplete) {
+      final historyStart = (_cursor - historySize).clamp(0, _cursor);
+      final windowEnd = (_cursor + windowSize).clamp(_cursor, length);
+      final historyLen = _cursor - historyStart;
+      var alignment = _alignContext(
+        contextStart: historyStart,
+        contextEnd: windowEnd,
+        historyLen: historyLen,
+        tokens: remaining,
+      );
+      if (alignment.historyMatched) anyHistoryMatch = true;
+      // A final decode re-covers audio an interim only saw in part: a word
+      // the interim could not hear (and so swept as skipped) now arrives
+      // whole. Matching it in the history repairs the verdict.
+      for (final abs in alignment.historyMatchedIndices) {
+        final st = _statuses[abs];
+        if (st == WordStatus.skipped || st == WordStatus.mistake) {
+          _missStreak[abs] = 0;
+          _setStatus(abs, WordStatus.correct);
+          correct.add(abs);
+          advanced = true;
+        }
+      }
+      if (alignment.matchedUpTo < 0) {
+        // Everything landed in the history. That is usually a harmless
+        // repeat -- but the Quran reuses words at close range (Al-Fatihah
+        // has عليهم in ayah 6 and ayah 7), and a segment carrying the
+        // SECOND occurrence must not be swallowed as a repeat of the first.
+        // So, as a fallback, align against the pending window alone.
+        if (!alignment.historyMatched) break;
+        final windowOnly = _alignContext(
+          contextStart: _cursor,
+          contextEnd: windowEnd,
+          historyLen: 0,
+          tokens: remaining,
+        );
+        // Accept the fallback only when it explains most of the segment;
+        // one lucky word out of ten is a repeat, not a continuation.
+        if (windowOnly.matchedUpTo < 0 ||
+            windowOnly.matchedTokens * 2 < remaining.length) {
+          break;
+        }
+        alignment = windowOnly;
+      }
+
+      advanced = true;
+      for (var rel = 0; rel <= alignment.matchedUpTo; rel++) {
         final absoluteIndex = _cursor + rel;
-        if (current.matchedRelIndices.contains(rel)) {
+        if (alignment.matchedRelIndices.contains(rel)) {
           _missStreak[absoluteIndex] = 0;
           if (_statuses[absoluteIndex] != WordStatus.correct) {
             correct.add(absoluteIndex);
@@ -276,21 +260,36 @@ class QuranWordAligner {
           _setStatus(absoluteIndex, WordStatus.skipped);
         }
       }
-      _cursor += current.matchedUpTo + 1;
-      if (isComplete || current.matchedTokenUpTo + 1 >= remaining.length) {
-        break;
-      }
-      remaining = remaining.sublist(current.matchedTokenUpTo + 1);
-      final nextEnd = (_cursor + windowSize).clamp(_cursor, length);
-      final next = _alignWindow(
-        _expectedNormalized.sublist(_cursor, nextEnd),
-        _expectedNoDagger.sublist(_cursor, nextEnd),
-        remaining,
-      );
-      if (next.matchedUpTo < 0) break;
-      current = next;
+      _cursor += alignment.matchedUpTo + 1;
+      if (alignment.matchedTokenUpTo + 1 >= remaining.length) break;
+      remaining = remaining.sublist(alignment.matchedTokenUpTo + 1);
     }
-    return SegmentOutcome(tokens: tokens, correct: correct, skipped: skipped);
+
+    if (advanced) {
+      return SegmentOutcome(tokens: tokens, correct: correct, skipped: skipped);
+    }
+
+    // Nothing in this segment aligned with anything still pending.
+    if (anyHistoryMatch) {
+      // The user repeated words they already recited: harmless.
+      return SegmentOutcome(tokens: tokens, repeatOfHistory: true);
+    }
+
+    // Genuine miss. Only FINAL segments count as strikes: an interim is cut
+    // mid-air and routinely garbled. Promote to `mistake` on the second
+    // consecutive final strike (see class doc for why not the first).
+    final frontIndex = _cursor;
+    if (isFinal) _missStreak[frontIndex]++;
+    final promoted = _missStreak[frontIndex] >= 2;
+    _setStatus(
+      frontIndex,
+      promoted ? WordStatus.mistake : WordStatus.unclear,
+    );
+    if (promoted) {
+      _cursor = frontIndex + 1;
+      return SegmentOutcome(tokens: tokens, mistakes: [frontIndex]);
+    }
+    return SegmentOutcome(tokens: tokens, unclearIndex: frontIndex);
   }
 
   void _setStatus(int index, WordStatus status) {
@@ -299,78 +298,104 @@ class QuranWordAligner {
     onWordResolved?.call(index);
   }
 
-  /// Bounded word-level alignment of [window] (still-pending expected
-  /// words, oldest first) against [tokens] (this segment's recognized
-  /// words), via a small edit-distance DP -- the word-granularity analogue
-  /// of classic character-level edit distance, with "equal" replaced by
-  /// [_wordsClose] so minor spelling/diacritic noise doesn't count as a
-  /// mismatch.
-  static _WindowAlignment _alignWindow(
-    List<String> window,
-    List<String> windowAlt,
-    List<String> tokens,
-  ) {
-    final n = window.length;
+  /// Word-level alignment of the expected words in
+  /// `[contextStart, contextEnd)` -- the first [historyLen] of them already
+  /// resolved, the rest the pending window -- against [tokens], via a small
+  /// edit-distance DP with "equal" replaced by [_wordsClose]. Reports which
+  /// WINDOW words matched (relative to the window start) and the last token
+  /// that took part in a window match.
+  _ContextAlignment _alignContext({
+    required int contextStart,
+    required int contextEnd,
+    required int historyLen,
+    required List<String> tokens,
+  }) {
+    final n = contextEnd - contextStart;
     final m = tokens.length;
-    // dp[i][j] = min edit cost aligning window[0..i) with tokens[0..j)
+    const mismatch = 2;
+    bool close(int i, int j) => _closeToExpected(
+          contextStart + i - 1,
+          tokens[j - 1],
+          lastToken: j == m,
+        );
+
+    // Leaving a HISTORY word unmatched is free -- it was already resolved
+    // and the segment simply may not repeat it -- while leaving a pending
+    // window word unmatched costs 1 (it would be "skipped"). Without this,
+    // placing a repeated phrase in the history or in the window tied on
+    // cost and the tie-break wrongly favoured the history, skipping the
+    // window's copy (e.g. every "وَأَمَّا إِن كَانَ مِنَ" of Al-Waqi'ah).
+    int deleteCost(int i) => i - 1 < historyLen ? 0 : 1;
+
+    // dp[i][j] = min cost aligning context[0..i) with tokens[0..j).
     final dp = List.generate(n + 1, (_) => List<int>.filled(m + 1, 0));
     for (var i = 1; i <= n; i++) {
-      dp[i][0] = i;
+      dp[i][0] = dp[i - 1][0] + deleteCost(i);
     }
     for (var j = 1; j <= m; j++) {
       dp[0][j] = j;
     }
     for (var i = 1; i <= n; i++) {
       for (var j = 1; j <= m; j++) {
-        final matchCost = _wordsClose(window[i - 1], tokens[j - 1],
-                    lastToken: j == m) ||
-                _wordsClose(windowAlt[i - 1], tokens[j - 1], lastToken: j == m)
-            ? 0
-            : 1;
-        final substitute = dp[i - 1][j - 1] + matchCost;
-        final deleteExpected = dp[i - 1][j] + 1; // expected word not heard
+        final substitute = dp[i - 1][j - 1] + (close(i, j) ? 0 : mismatch);
+        final deleteExpected = dp[i - 1][j] + deleteCost(i); // not heard
         final insertToken = dp[i][j - 1] + 1; // extra/noise token
-        dp[i][j] = [
-          substitute,
-          deleteExpected,
-          insertToken,
-        ].reduce((a, b) => a < b ? a : b);
+        var best = substitute;
+        if (deleteExpected < best) best = deleteExpected;
+        if (insertToken < best) best = insertToken;
+        dp[i][j] = best;
       }
     }
 
-    // Traceback from (n, m) to (0, 0) to recover which expected words
-    // matched. When several alignments tie on cost, prefer the one that
-    // matches tokens as EARLY in the window as possible: walking backward,
-    // try consuming a window word as a deletion (i--) before trying a
-    // diagonal match, which pushes any tied match toward lower indices.
-    // This matters for repeated words -- the Quran reuses words at close
-    // range (Al-Fatihah has عليهم twice, five words apart), and a
-    // diagonal-first traceback would happily bind a token to the *far*
-    // occurrence at equal cost, wrongly marking everything in between as
-    // skipped. Walking backward, the first true match (matchCost == 0)
-    // encountered is the furthest (highest-index) one, since indices only
-    // decrease.
-    var i = n, j = m;
+    // Traceback from (n, m). On ties prefer consuming a context word as a
+    // deletion before a diagonal, which pushes tied matches toward LOWER
+    // indices (earlier words -- and history before window): the Quran
+    // reuses words at close range (Al-Fatihah has عليهم twice, five words
+    // apart) and binding a token to the far occurrence would wrongly skip
+    // everything in between. Walking backward, the first true match seen
+    // is the furthest one, since indices only decrease.
+    // Semi-global end: the segment need not reach the end of the window --
+    // pending words after the last match simply have not been recited yet
+    // and cost nothing. Without this, a lucky fuzzy hit six words ahead was
+    // cheaper than stopping, and words got skipped.
+    var endI = historyLen;
+    var bestCost = dp[historyLen][m];
+    for (var i = historyLen + 1; i <= n; i++) {
+      // On ties prefer the later end: it explains more of what was heard
+      // (a genuinely skipped ayah costs the same as unexplained words, and
+      // the reciter really did say those words).
+      if (dp[i][m] <= bestCost) {
+        bestCost = dp[i][m];
+        endI = i;
+      }
+    }
+
+    var i = endI, j = m;
     final matchedRelIndices = <int>{};
+    final historyMatchedIndices = <int>[];
     var matchedUpTo = -1;
     var matchedTokenUpTo = -1;
+    var matchedTokens = 0;
+    var historyMatched = false;
     while (i > 0 || j > 0) {
-      if (i > 0 && dp[i][j] == dp[i - 1][j] + 1) {
+      if (i > 0 && dp[i][j] == dp[i - 1][j] + deleteCost(i)) {
         i--;
         continue;
       }
       if (i > 0 && j > 0) {
-        final matchCost = _wordsClose(window[i - 1], tokens[j - 1],
-                    lastToken: j == m) ||
-                _wordsClose(windowAlt[i - 1], tokens[j - 1], lastToken: j == m)
-            ? 0
-            : 1;
-        if (dp[i][j] == dp[i - 1][j - 1] + matchCost) {
-          if (matchCost == 0) {
-            matchedRelIndices.add(i - 1);
-            matchedUpTo = matchedUpTo == -1 ? i - 1 : matchedUpTo;
-            matchedTokenUpTo =
-                matchedTokenUpTo == -1 ? j - 1 : matchedTokenUpTo;
+        final isMatch = close(i, j);
+        if (dp[i][j] == dp[i - 1][j - 1] + (isMatch ? 0 : mismatch)) {
+          if (isMatch) {
+            matchedTokens++;
+            if (i - 1 >= historyLen) {
+              final rel = i - 1 - historyLen;
+              matchedRelIndices.add(rel);
+              if (matchedUpTo == -1) matchedUpTo = rel;
+              if (matchedTokenUpTo == -1) matchedTokenUpTo = j - 1;
+            } else {
+              historyMatched = true;
+              historyMatchedIndices.add(contextStart + i - 1);
+            }
           }
           i--;
           j--;
@@ -380,23 +405,13 @@ class QuranWordAligner {
       j--;
     }
 
-    return _WindowAlignment(
+    return _ContextAlignment(
       matchedUpTo: matchedUpTo,
       matchedTokenUpTo: matchedTokenUpTo,
       matchedRelIndices: matchedRelIndices,
-    );
-  }
-
-  /// Whether every token in a recognized segment is explained by something
-  /// in the trailing `history` of already-resolved expected words -- i.e.
-  /// this segment looks like a harmless repeat of words already accounted
-  /// for, not a new attempt at the still-pending ones.
-  static bool _looksLikeRepeatOfHistory(
-    List<String> tokens,
-    List<String> history,
-  ) {
-    return tokens.every(
-      (token) => history.any((word) => _wordsClose(token, word)),
+      matchedTokens: matchedTokens,
+      historyMatched: historyMatched,
+      historyMatchedIndices: historyMatchedIndices,
     );
   }
 
@@ -420,17 +435,14 @@ class QuranWordAligner {
     if (lastToken && b.length >= 3 && a.length > b.length && a.startsWith(b)) {
       return true;
     }
-    final threshold = a.length <= 3
-        ? 0
-        : (a.length <= 7 ? 1 : 2);
+    final threshold = a.length <= 3 ? 0 : (a.length <= 7 ? 1 : 2);
     if (threshold == 0) return false;
     return _levenshtein(a, b, maxDistance: threshold) <= threshold;
   }
 
   /// Character-level edit distance between [a] and [b], short-circuiting
   /// (returning `maxDistance + 1`) once it's clear the result will exceed
-  /// [maxDistance] -- callers only care whether the words are "close",
-  /// never the exact distance beyond that.
+  /// [maxDistance].
   static int _levenshtein(String a, String b, {required int maxDistance}) {
     if ((a.length - b.length).abs() > maxDistance) return maxDistance + 1;
     var previous = List<int>.generate(b.length + 1, (j) => j);
@@ -440,11 +452,10 @@ class QuranWordAligner {
       var rowMin = current[0];
       for (var j = 1; j <= b.length; j++) {
         final cost = a[i - 1] == b[j - 1] ? 0 : 1;
-        current[j] = [
-          previous[j] + 1,
-          current[j - 1] + 1,
-          previous[j - 1] + cost,
-        ].reduce((x, y) => x < y ? x : y);
+        var best = previous[j] + 1;
+        if (current[j - 1] + 1 < best) best = current[j - 1] + 1;
+        if (previous[j - 1] + cost < best) best = previous[j - 1] + cost;
+        current[j] = best;
         if (current[j] < rowMin) rowMin = current[j];
       }
       if (rowMin > maxDistance) return maxDistance + 1;
@@ -480,7 +491,7 @@ class SegmentOutcome {
   /// Expected-word indices promoted to `mistake` by this segment.
   final List<int> mistakes;
 
-  /// The front word left `unclear` (first strike), or -1.
+  /// The front word left `unclear` (a strike, or an interim miss), or -1.
   final int unclearIndex;
 
   /// The segment only repeated already-recited words and was ignored.
@@ -491,23 +502,34 @@ class SegmentOutcome {
       tokens.isNotEmpty && correct.isEmpty && skipped.isEmpty;
 }
 
-class _WindowAlignment {
-  const _WindowAlignment({
+class _ContextAlignment {
+  const _ContextAlignment({
     required this.matchedUpTo,
     required this.matchedTokenUpTo,
     required this.matchedRelIndices,
+    required this.matchedTokens,
+    required this.historyMatched,
+    required this.historyMatchedIndices,
   });
 
-  /// Index of the last recognized token that took part in a true match,
+  /// How many tokens took part in a true match (history or window).
+  final int matchedTokens;
+
+  /// Absolute expected-word indices matched inside the history.
+  final List<int> historyMatchedIndices;
+
+  /// Highest window-relative expected-word index that matched a token, or
+  /// -1 if none did.
+  final int matchedUpTo;
+
+  /// Index of the last recognized token that took part in a window match,
   /// or -1. Tokens after it were not explained by this window.
   final int matchedTokenUpTo;
 
-  /// Highest relative (0-based, within the window) expected-word index that
-  /// matched a recognized token this segment, or -1 if none did.
-  final int matchedUpTo;
-
-  /// Relative indices (within the window) that were true matches, as
-  /// opposed to being swept up as "skipped" because they fell before
-  /// [matchedUpTo] without matching anything themselves.
+  /// Window-relative indices that were true matches, as opposed to being
+  /// swept up as "skipped" because they fell before [matchedUpTo].
   final Set<int> matchedRelIndices;
+
+  /// Whether any token matched an already-resolved (history) word.
+  final bool historyMatched;
 }

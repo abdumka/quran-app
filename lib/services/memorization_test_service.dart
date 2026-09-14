@@ -151,7 +151,7 @@ class MemorizationTestService {
   List<int> _ayahWordStarts = const [];
   int? _activePage;
   RecitationEngine? _engine;
-  StreamSubscription<String>? _segmentSub;
+  StreamSubscription<RecognizedSegment>? _segmentSub;
   StreamSubscription<Uint8List>? _audioSub;
   VoidCallback? _levelListener;
   VoidCallback? _busyListener;
@@ -161,6 +161,7 @@ class MemorizationTestService {
   DateTime _lastVoiceOrSegment = DateTime.now();
   bool _silenceWarned = false;
   int _lastAyahIndex = -1;
+  int _unexplainedFinals = 0;
   TasmeeSessionRecorder? _recorder;
   int _startToken = 0;
 
@@ -356,6 +357,7 @@ class MemorizationTestService {
       _activePage = pageNumber;
       _engine = engine;
       _lastAyahIndex = 0;
+      _unexplainedFinals = 0;
       lastHeard.value = '';
       _setFeedback(null);
       _levelListener = () {
@@ -543,20 +545,23 @@ class MemorizationTestService {
   // Recognition handling
   // ---------------------------------------------------------------------
 
-  void _handleSegment(String text) {
+  void _handleSegment(RecognizedSegment segment) {
     final aligner = _aligner;
     if (aligner == null || status.value != MemorizationTestStatus.listening) {
       return;
     }
+    final text = segment.text;
     _lastVoiceOrSegment = DateTime.now();
     _silenceWarned = false;
     lastHeard.value = text;
 
     final ayahBefore = currentAyahIndex;
     final cursorBefore = aligner.cursor;
-    final outcome = aligner.submitRecognizedSegment(text);
+    final outcome =
+        aligner.submitRecognizedSegment(text, isFinal: segment.isFinal);
     _recorder?.log('segment', {
       'text': text,
+      'final': segment.isFinal,
       'cursorBefore': cursorBefore,
       'cursorAfter': aligner.cursor,
       'correct': outcome.correct,
@@ -567,14 +572,43 @@ class MemorizationTestService {
     });
     revision.value++;
 
-    _explain(outcome, text, ayahBefore);
+    _explain(outcome, text, ayahBefore, isFinal: segment.isFinal);
     _finishIfComplete();
   }
 
   /// Turns an alignment outcome into the one line the panel shows.
-  void _explain(SegmentOutcome outcome, String text, int ayahBefore) {
+  void _explain(
+    SegmentOutcome outcome,
+    String text,
+    int ayahBefore, {
+    required bool isFinal,
+  }) {
     if (outcome.tokens.isEmpty) return;
     final aligner = _aligner!;
+
+    // An interim decode is cut mid-air; only its positive news is worth
+    // showing. Negative verdicts wait for the final decode.
+    if (!isFinal &&
+        outcome.correct.isEmpty &&
+        outcome.skipped.isEmpty) {
+      return;
+    }
+
+    // Several finals in a row that match nothing on the page, anywhere:
+    // the reciter has drifted into another surah (the Quran repeats
+    // phrases across surahs, and memory follows the phrase).
+    if (isFinal && outcome.alignedNothing && !outcome.repeatOfHistory) {
+      _unexplainedFinals++;
+    } else if (isFinal) {
+      _unexplainedFinals = 0;
+    }
+    if (_unexplainedFinals >= 2 && !_matchesAnywhere(outcome)) {
+      _setFeedback(const RecitationFeedback(
+        FeedbackKind.wrong,
+        'ما تقرؤه ليس في هذه الصفحة — عد إلى الآية المطلوبة أو اضغط «تلميح»',
+      ));
+      return;
+    }
 
     if (outcome.mistakes.isNotEmpty) {
       final w = _expectedWords[outcome.mistakes.first];
@@ -668,6 +702,18 @@ class MemorizationTestService {
               '${wanted.surahName} ${wanted.ayah}',
     ));
     return true;
+  }
+
+  /// Whether the segment's words match anywhere on the page well enough
+  /// to be one of its ayahs (the "wrong ayah" test, minus the message).
+  bool _matchesAnywhere(SegmentOutcome outcome) {
+    final aligner = _aligner;
+    if (aligner == null || outcome.tokens.length < 3) return true;
+    final needed = math.max(3, (outcome.tokens.length * 0.6).ceil());
+    for (var at = 0; at + needed <= aligner.length; at++) {
+      if (aligner.matchesAt(outcome.tokens, at) >= needed) return true;
+    }
+    return false;
   }
 
   void _checkSilence() {

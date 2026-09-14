@@ -8,12 +8,13 @@ import 'package:islamic_dawah_mushaf/widgets/quran/memorization_test_overlay.dar
 
 /// Hand-driven engine so the test controls exactly when segments arrive.
 class _ManualEngine extends RecitationEngine {
-  final _controller = StreamController<String>.broadcast();
+  final _controller = StreamController<RecognizedSegment>.broadcast();
 
-  void emit(String segment) => _controller.add(segment);
+  void emit(String segment, {bool isFinal = true}) =>
+      _controller.add(RecognizedSegment(segment, isFinal: isFinal));
 
   @override
-  Stream<String> get segments => _controller.stream;
+  Stream<RecognizedSegment> get segments => _controller.stream;
 
   @override
   Future<void> start() async {}

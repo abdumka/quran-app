@@ -7,14 +7,15 @@ import 'package:islamic_dawah_mushaf/utils/quran_word_aligner.dart';
 
 /// Hand-driven engine: the test pushes segments explicitly.
 class _ManualEngine extends RecitationEngine {
-  final _controller = StreamController<String>.broadcast();
+  final _controller = StreamController<RecognizedSegment>.broadcast();
   bool started = false;
   bool stopped = false;
 
-  void emit(String segment) => _controller.add(segment);
+  void emit(String segment, {bool isFinal = true}) =>
+      _controller.add(RecognizedSegment(segment, isFinal: isFinal));
 
   @override
-  Stream<String> get segments => _controller.stream;
+  Stream<RecognizedSegment> get segments => _controller.stream;
 
   @override
   Future<void> start() async => started = true;

@@ -2,6 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+/// One piece of recognized speech. [isFinal] is false for interim decodes
+/// of an utterance still in progress (cut mid-air, last word dropped, may
+/// be garbled) and true for the authoritative decode of a whole utterance.
+class RecognizedSegment {
+  const RecognizedSegment(this.text, {this.isFinal = true});
+  final String text;
+  final bool isFinal;
+}
+
 /// Source of recognized-speech text segments for the memorization test.
 ///
 /// The UI/service layer only ever consumes this interface; which concrete
@@ -38,7 +47,7 @@ abstract class RecitationEngine {
   /// happens downstream in the aligner. Segments may overlap/repeat text
   /// that was already recognized (interim decodes); the aligner is designed
   /// to absorb that.
-  Stream<String> get segments;
+  Stream<RecognizedSegment> get segments;
 
   /// Begins producing [segments]. Completes once the engine is live.
   Future<void> start();
@@ -58,12 +67,12 @@ class StubRecitationEngine extends RecitationEngine {
 
   final List<String> _scriptedSegments;
   final Duration _interval;
-  final _controller = StreamController<String>.broadcast();
+  final _controller = StreamController<RecognizedSegment>.broadcast();
   Timer? _timer;
   int _next = 0;
 
   @override
-  Stream<String> get segments => _controller.stream;
+  Stream<RecognizedSegment> get segments => _controller.stream;
 
   @override
   Future<void> start() async {
@@ -75,7 +84,7 @@ class StubRecitationEngine extends RecitationEngine {
       // A touch of fake liveliness so the demo exercises the same feedback
       // UI as the real engine.
       audioLevel.value = 0.3 + (_next % 3) * 0.25;
-      _controller.add(_scriptedSegments[_next++]);
+      _controller.add(RecognizedSegment(_scriptedSegments[_next++]));
     });
   }
 

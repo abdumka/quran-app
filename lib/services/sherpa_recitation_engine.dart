@@ -55,7 +55,7 @@ class SherpaRecitationEngine extends RecitationEngine {
   SherpaRecitationEngine(this._paths);
 
   final SherpaModelPaths _paths;
-  final _controller = StreamController<String>.broadcast();
+  final _controller = StreamController<RecognizedSegment>.broadcast();
   final _audioController = StreamController<Uint8List>.broadcast();
   final _recorder = AudioRecorder();
 
@@ -73,7 +73,7 @@ class SherpaRecitationEngine extends RecitationEngine {
   static const int _minInterimWords = 2;
 
   @override
-  Stream<String> get segments => _controller.stream;
+  Stream<RecognizedSegment> get segments => _controller.stream;
 
   /// Drops the trailing word of an interim (mid-utterance) transcription:
   /// the audio was cut while a word was possibly still being spoken, so the
@@ -100,8 +100,12 @@ class SherpaRecitationEngine extends RecitationEngine {
     receivePort.listen((message) {
       if (message is SendPort) {
         readyCompleter.complete(message);
-      } else if (message is String) {
-        if (!_controller.isClosed) _controller.add(message);
+      } else if (message is _SegmentEvent) {
+        if (!_controller.isClosed) {
+          _controller.add(
+            RecognizedSegment(message.text, isFinal: message.isFinal),
+          );
+        }
       } else if (message is _LevelEvent) {
         audioLevel.value = message.level;
       } else if (message is _BusyEvent) {
@@ -209,6 +213,12 @@ class SherpaRecitationEngine extends RecitationEngine {
   }
 }
 
+class _SegmentEvent {
+  const _SegmentEvent(this.text, {required this.isFinal});
+  final String text;
+  final bool isFinal;
+}
+
 class _DecodeStats {
   const _DecodeStats(this.kind, this.audioMs, this.milliseconds);
   final String kind;
@@ -267,7 +277,12 @@ const Duration _endGap = Duration(milliseconds: 1000);
 /// quietest 100 ms of the last [_softCutSearch] so it never lands inside a
 /// word the way a hard cut did.
 const Duration _maxUtterance = Duration(milliseconds: 12000);
-const Duration _softCutSearch = Duration(milliseconds: 1500);
+const Duration _softCutSearch = Duration(milliseconds: 3000);
+
+/// Audio before a soft cut that is replayed at the start of the next
+/// utterance, so a word the cut landed on is heard whole in the second
+/// segment (the aligner's history absorbs the duplicate).
+const Duration _softCutOverlap = Duration(milliseconds: 800);
 
 /// Digital silence appended to every segment before decoding. Whisper
 /// drops the final word of a segment that ends right after speech
@@ -385,6 +400,8 @@ Future<void> _workerMain(_WorkerInit init) async {
   final maxUtteranceSamples =
       _maxUtterance.inMilliseconds * _sampleRate ~/ 1000;
   final softCutSamples = _softCutSearch.inMilliseconds * _sampleRate ~/ 1000;
+  final softCutOverlapSamples =
+      _softCutOverlap.inMilliseconds * _sampleRate ~/ 1000;
   var preRollBuffer = <Float32List>[];
   var preRollLength = 0;
   var utterance = <Float32List>[];
@@ -486,7 +503,9 @@ Future<void> _workerMain(_WorkerInit init) async {
       utteranceLength = 0;
       silenceRun = 0;
       final text = decode(samples, 'final');
-      if (text.isNotEmpty) init.replyTo.send(text);
+      if (text.isNotEmpty) {
+        init.replyTo.send(_SegmentEvent(text, isFinal: true));
+      }
       lastDecodeStarted = DateTime.now();
       continue;
     }
@@ -500,11 +519,15 @@ Future<void> _workerMain(_WorkerInit init) async {
         searchSamples: softCutSamples,
       );
       final head = Float32List.sublistView(all, 0, cut);
-      final rest = Float32List.fromList(Float32List.sublistView(all, cut));
+      final restStart = math.max(0, cut - softCutOverlapSamples);
+      final rest =
+          Float32List.fromList(Float32List.sublistView(all, restStart));
       utterance = [rest];
       utteranceLength = rest.length;
       final text = decode(head, 'final');
-      if (text.isNotEmpty) init.replyTo.send(text);
+      if (text.isNotEmpty) {
+        init.replyTo.send(_SegmentEvent(text, isFinal: true));
+      }
       lastDecodeStarted = DateTime.now();
       continue;
     }
@@ -532,7 +555,9 @@ Future<void> _workerMain(_WorkerInit init) async {
         decode(tail, 'interim'),
       );
       if (cut) text = SherpaRecitationEngine.trimTailCutResult(text);
-      if (text.isNotEmpty) init.replyTo.send(text);
+      if (text.isNotEmpty) {
+        init.replyTo.send(_SegmentEvent(text, isFinal: false));
+      }
     }
   }
 
