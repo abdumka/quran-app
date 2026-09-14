@@ -294,7 +294,10 @@ class QuranWordAligner {
     }
     for (var i = 1; i <= n; i++) {
       for (var j = 1; j <= m; j++) {
-        final matchCost = _wordsClose(window[i - 1], tokens[j - 1]) ? 0 : 1;
+        final matchCost =
+            _wordsClose(window[i - 1], tokens[j - 1], lastToken: j == m)
+                ? 0
+                : 1;
         final substitute = dp[i - 1][j - 1] + matchCost;
         final deleteExpected = dp[i - 1][j] + 1; // expected word not heard
         final insertToken = dp[i][j - 1] + 1; // extra/noise token
@@ -328,7 +331,10 @@ class QuranWordAligner {
         continue;
       }
       if (i > 0 && j > 0) {
-        final matchCost = _wordsClose(window[i - 1], tokens[j - 1]) ? 0 : 1;
+        final matchCost =
+            _wordsClose(window[i - 1], tokens[j - 1], lastToken: j == m)
+                ? 0
+                : 1;
         if (dp[i][j] == dp[i - 1][j - 1] + matchCost) {
           if (matchCost == 0) {
             matchedRelIndices.add(i - 1);
@@ -373,9 +379,17 @@ class QuranWordAligner {
   /// meaningfully-different short function words one edit apart (e.g. "من"
   /// vs "عن"), so allowing any fuzziness there would cause false matches
   /// far more often than it forgives real noise.
-  static bool _wordsClose(String a, String b) {
+  ///
+  /// [lastToken] marks the final word of a recognized segment: audio is
+  /// cut at segment ends, so that word may be truncated ("المؤ" for
+  /// "المؤمنون"). A truncation of at least 3 letters that is a prefix of the
+  /// expected word then counts as a match.
+  static bool _wordsClose(String a, String b, {bool lastToken = false}) {
     if (a == b) return true;
     if (a.isEmpty || b.isEmpty) return false;
+    if (lastToken && b.length >= 3 && a.length > b.length && a.startsWith(b)) {
+      return true;
+    }
     final threshold = a.length <= 3
         ? 0
         : (a.length <= 7 ? 1 : 2);

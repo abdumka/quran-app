@@ -49,4 +49,33 @@ void main() {
       expect(SherpaRecitationEngine.trimTailCutResult('رب العالمين'), '');
     });
   });
+
+  group('quietestCut', () {
+    test('picks the quietest 100 ms frame inside the search window', () {
+      // 1 s of loud audio with a silent 100 ms frame at 0.6 s.
+      final samples = Float32List(16000);
+      for (var i = 0; i < samples.length; i++) {
+        samples[i] = 0.5;
+      }
+      for (var i = 9600; i < 11200; i++) {
+        samples[i] = 0.0;
+      }
+      expect(
+        SherpaRecitationEngine.quietestCut(samples, searchSamples: 16000),
+        9600,
+      );
+    });
+
+    test('ignores quiet frames outside the search window', () {
+      final samples = Float32List(16000);
+      for (var i = 0; i < samples.length; i++) {
+        samples[i] = 0.5;
+      }
+      for (var i = 0; i < 1600; i++) {
+        samples[i] = 0.0;
+      }
+      final cut = SherpaRecitationEngine.quietestCut(samples, searchSamples: 8000);
+      expect(cut, greaterThanOrEqualTo(8000));
+    });
+  });
 }

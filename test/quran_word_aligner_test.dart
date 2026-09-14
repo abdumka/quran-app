@@ -174,4 +174,20 @@ void main() {
       expect(aligner.statuses, [WordStatus.correct]);
     });
   });
+
+  group('truncated final word', () {
+    test('a segment cut mid-word still matches its last word by prefix', () {
+      final aligner = QuranWordAligner(['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ', 'الَّذِينَ']);
+      aligner.submitRecognizedSegment('قد افلح المؤ');
+      expect(aligner.statuses.sublist(0, 3), everyElement(WordStatus.correct));
+      expect(aligner.cursor, 3);
+    });
+
+    test('a prefix in the middle of a segment is not enough', () {
+      final aligner = QuranWordAligner(['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ', 'الَّذِينَ']);
+      aligner.submitRecognizedSegment('قد افلح المؤ الذين');
+      expect(aligner.statuses[2], isNot(WordStatus.correct));
+      expect(aligner.statuses[3], WordStatus.correct);
+    });
+  });
 }

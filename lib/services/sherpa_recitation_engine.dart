@@ -45,8 +45,9 @@ class SherpaModelPaths {
 ///    see [trimInterimResult]) and is fed to the aligner, whose
 ///    window/history design absorbs the resulting overlaps and repeats, so
 ///    words reveal WHILE the reciter keeps going.
-///  * The FINAL decode of each VAD segment (after a pause) is authoritative
-///    and re-covers the same audio in full.
+///  * The FINAL decode of each utterance (closed [_endGap] after the last
+///    detected speech, gap included) is authoritative and re-covers the
+///    same audio in full.
 ///
 /// The mic level ([audioLevel]) and decode activity ([busy]) are reported
 /// so the UI can show live "I hear you" feedback.
@@ -175,6 +176,28 @@ class SherpaRecitationEngine extends RecitationEngine {
     );
   }
 
+  /// Sample index of the quietest 100 ms frame within the last
+  /// [searchSamples] of [samples] -- where a forced split should land so it
+  /// falls between words rather than through one.
+  @visibleForTesting
+  static int quietestCut(Float32List samples, {required int searchSamples}) {
+    const frame = 1600; // 100 ms at 16 kHz
+    final from = math.max(0, samples.length - searchSamples);
+    var best = samples.length;
+    var bestEnergy = double.infinity;
+    for (var i = from; i + frame <= samples.length; i += frame) {
+      var e = 0.0;
+      for (var k = i; k < i + frame; k++) {
+        e += samples[k] * samples[k];
+      }
+      if (e < bestEnergy) {
+        bestEnergy = e;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   /// Drops the first word of a tail-cut interim transcription, on top of
   /// [trimInterimResult]'s trailing-word drop.
   @visibleForTesting
@@ -232,11 +255,19 @@ const Duration _minInterimAudio = Duration(milliseconds: 1000);
 /// to "detected" only after min_speech_duration of voiced audio).
 const Duration _preRoll = Duration(milliseconds: 400);
 
-/// Longest utterance the VAD may accumulate before force-closing it as a
-/// final segment. Recitation rarely pauses 300 ms inside an ayah, so
-/// without this a long ayah becomes one 20 s utterance whose final
-/// (authoritative) decode arrives only at the end.
-const double _maxSpeechSeconds = 5.0;
+/// An utterance closes once no speech has been detected for this long.
+/// Silero flags a sustained madd (a long steady vowel at an ayah's end)
+/// as silence within ~300 ms, so a short gap cut every "المؤمنون" down to
+/// "المؤ" on real recordings; the gap audio itself is KEPT in the segment
+/// because that is where the madd lives. 1 s recovered whole ayahs on the
+/// user's sessions (see tasmee_work/sweep.py).
+const Duration _endGap = Duration(milliseconds: 1000);
+
+/// Longest utterance before a soft force-split. The cut is placed at the
+/// quietest 100 ms of the last [_softCutSearch] so it never lands inside a
+/// word the way a hard cut did.
+const Duration _maxUtterance = Duration(milliseconds: 12000);
+const Duration _softCutSearch = Duration(milliseconds: 1500);
 
 /// Interim decodes look only at this much trailing audio (see
 /// [SherpaRecitationEngine.interimTail]).
@@ -244,8 +275,8 @@ const Duration _interimWindow = Duration(milliseconds: 5000);
 
 /// When one decode takes longer than this, the phone can't afford interim
 /// decodes on top of the final ones without falling ever further behind
-/// real time; interims are then skipped and only the (<= 5 s) final
-/// segments are decoded.
+/// real time; interims are then skipped and only the final segments (one
+/// per pause, at most [_maxUtterance] long) are decoded.
 const int _interimDisableDecodeMs = 2200;
 
 /// Entry point of the ASR worker isolate. Owns every sherpa_onnx object;
@@ -266,14 +297,17 @@ Future<void> _workerMain(_WorkerInit init) async {
           // responsive after a pause; recitation pauses within a phrase
           // (breath, short madd) that exceed it merely split the audio into
           // more segments, which the aligner handles.
-          minSilenceDuration: 0.3,
-          minSpeechDuration: 0.25,
-          maxSpeechDuration: _maxSpeechSeconds,
+          // Segmentation is done by this worker (see _endGap); the VAD is
+          // only consulted per chunk via isDetected(), so keep its own
+          // segmenter permissive and drain whatever it emits.
+          minSilenceDuration: 0.1,
+          minSpeechDuration: 0.1,
+          maxSpeechDuration: 60,
         ),
         sampleRate: _sampleRate,
         numThreads: 1,
       ),
-      bufferSizeInSeconds: 30,
+      bufferSizeInSeconds: 120,
     );
     recognizer = sherpa.OfflineRecognizer(
       sherpa.OfflineRecognizerConfig(
@@ -337,11 +371,17 @@ Future<void> _workerMain(_WorkerInit init) async {
       _minInterimAudio.inMilliseconds * _sampleRate ~/ 1000;
   final interimWindowSamples =
       _interimWindow.inMilliseconds * _sampleRate ~/ 1000;
+  final endGapSamples = _endGap.inMilliseconds * _sampleRate ~/ 1000;
+  final maxUtteranceSamples =
+      _maxUtterance.inMilliseconds * _sampleRate ~/ 1000;
+  final softCutSamples = _softCutSearch.inMilliseconds * _sampleRate ~/ 1000;
   var preRollBuffer = <Float32List>[];
   var preRollLength = 0;
   var utterance = <Float32List>[];
   var utteranceLength = 0;
   var speechActive = false;
+  // Samples accumulated into `utterance` since speech was last detected.
+  var silenceRun = 0;
   var lastDecodeStarted = DateTime.fromMillisecondsSinceEpoch(0);
   var lastLevelSent = DateTime.fromMillisecondsSinceEpoch(0);
   var peakRms = 0.0;
@@ -398,17 +438,24 @@ Future<void> _workerMain(_WorkerInit init) async {
     }
 
     vad.acceptWaveform(float32);
+    // Drain the VAD's own segments; only its live speech flag is used.
+    while (!vad.isEmpty()) {
+      vad.pop();
+    }
+    final speechNow = vad.isDetected();
 
-    // Track the in-progress utterance for interim decoding.
-    if (vad.isDetected()) {
-      if (!speechActive) {
-        speechActive = true;
-        utterance = List.of(preRollBuffer);
-        utteranceLength = preRollLength;
-      }
+    if (speechActive) {
       utterance.add(float32);
       utteranceLength += float32.length;
-    } else if (!speechActive) {
+      silenceRun = speechNow ? 0 : silenceRun + float32.length;
+    } else if (speechNow) {
+      speechActive = true;
+      silenceRun = 0;
+      utterance = List.of(preRollBuffer)..add(float32);
+      utteranceLength = preRollLength + float32.length;
+      preRollBuffer = [];
+      preRollLength = 0;
+    } else {
       preRollBuffer.add(float32);
       preRollLength += float32.length;
       while (preRollLength - preRollBuffer.first.length >= preRollMax &&
@@ -418,29 +465,41 @@ Future<void> _workerMain(_WorkerInit init) async {
       }
     }
 
-    // Final segments (utterance closed by a pause, or force-split at the
-    // VAD's max_speech_duration): decode in full, authoritative.
-    var poppedFinal = false;
-    while (!vad.isEmpty()) {
-      poppedFinal = true;
-      final segment = vad.front();
-      vad.pop();
-      final text = decode(segment.samples, 'final');
-      if (text.isNotEmpty) init.replyTo.send(text);
-      lastDecodeStarted = DateTime.now();
-    }
-    if (poppedFinal) {
-      // The utterance the buffers were tracking is covered by the final
-      // decode; start fresh.
+    if (!speechActive) continue;
+
+    // FINAL segment: the reciter has paused for _endGap (the gap audio
+    // stays in, so a trailing madd reaches the decoder whole).
+    if (silenceRun >= endGapSamples) {
+      final samples = concat(utterance, utteranceLength);
       speechActive = false;
       utterance = [];
       utteranceLength = 0;
-      preRollBuffer = [];
-      preRollLength = 0;
+      silenceRun = 0;
+      final text = decode(samples, 'final');
+      if (text.isNotEmpty) init.replyTo.send(text);
+      lastDecodeStarted = DateTime.now();
       continue;
     }
 
-    // Interim decode: speech still in progress, enough audio accumulated,
+    // SOFT SPLIT: a very long utterance is cut at its quietest recent
+    // point; the remainder seeds the next utterance.
+    if (utteranceLength >= maxUtteranceSamples) {
+      final all = concat(utterance, utteranceLength);
+      final cut = SherpaRecitationEngine.quietestCut(
+        all,
+        searchSamples: softCutSamples,
+      );
+      final head = Float32List.sublistView(all, 0, cut);
+      final rest = Float32List.fromList(Float32List.sublistView(all, cut));
+      utterance = [rest];
+      utteranceLength = rest.length;
+      final text = decode(head, 'final');
+      if (text.isNotEmpty) init.replyTo.send(text);
+      lastDecodeStarted = DateTime.now();
+      continue;
+    }
+
+    // INTERIM decode: speech still in progress, enough audio accumulated,
     // and the previous decode long enough ago. (Decodes run synchronously
     // in this isolate, so they're naturally serial; queued mic chunks just
     // wait in the port and VAD timing is sample-based, not wall-clock.)
@@ -450,7 +509,7 @@ Future<void> _workerMain(_WorkerInit init) async {
     final interimInterval = lastDecodeMs * 2 > _interimInterval.inMilliseconds
         ? Duration(milliseconds: lastDecodeMs * 2)
         : _interimInterval;
-    if (speechActive &&
+    if (speechNow &&
         lastDecodeMs < _interimDisableDecodeMs &&
         utteranceLength >= minInterimSamples &&
         DateTime.now().difference(lastDecodeStarted) >= interimInterval) {
