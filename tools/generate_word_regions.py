@@ -13,12 +13,20 @@ Method (see tasmee_work/word_boxes.py for the exploratory version):
   * the first and last word of a rect are stretched to the rect edges so
     the union of word boxes covers the rect exactly (no paper strips).
 
+  * finally each word's box is tightened to the ink that belongs to it:
+    the connected ink components whose centre lies in the line's core band
+    and inside the word's column span (so ascenders/descenders of the
+    neighbouring lines, which the full-height rect includes, are left
+    out), padded by 2 px. Masks drawn from these boxes therefore cover a
+    word's own letters and marks without clipping the lines above/below.
+
 Output format (ratios of the 720x1640 page image, 5 decimals):
   [{"page": N, "ayahs": [{"surah": S, "ayah": A,
-      "lines": [{"y": .., "h": .., "words": [[x, width], ...]}]}]}]
+      "lines": [{"y": .., "h": .., "words": [[x, width, y, height], ...]}]}]}]
 Words within a line are listed in reading order (right to left); lines
 in reading order; concatenating all lines' words gives the ayah's words in
-order, matching output.json.
+order, matching output.json. Each word's [x, width, y, height] is its own
+ink box; the line's y/h is the full line band.
 
 usage: python tools/generate_word_regions.py [--pages 1,2,3] [--check]
 """
@@ -170,6 +178,56 @@ def split_rect(mask, rect_px, words):
     return [(edges[i + 1], edges[i]) for i in range(n)], fell_back
 
 
+PAD = 2
+
+
+def ink_boxes(mask, rect_px, spans):
+    """Per word (column span) the bounding box of the ink components that
+    belong to it. A component belongs to this line when most of its height
+    lies inside the line band, and to the word whose span contains its
+    horizontal centre. Oversized components (surah frames,
+    rules) are ignored. Returns (x0, y0, x1, y1) per word, or None."""
+    x0, x1, y0, y1 = rect_px
+    h = y1 - y0
+    margin = int(h * 0.4)
+    ys0, ys1 = max(0, y0 - margin), min(mask.shape[0], y1 + margin)
+    strip = mask[ys0:ys1, x0:x1]
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(strip, connectivity=8)
+    boxes = [None] * len(spans)
+    for c in range(1, n):
+        cx, cy = cents[c]
+        cx += x0
+        bx, by, bw, bh, area = stats[c]
+        if bh > 1.6 * h or bw > 0.6 * (x1 - x0):
+            continue
+        # The component belongs to this line when most of its height lies
+        # inside the line band [y0, y1]: tall letters of the neighbouring
+        # lines mostly lie in their own band, while this line's pause
+        # marks, dots and descenders lie mostly in this one.
+        top, bottom = ys0 + by, ys0 + by + bh
+        inside = max(0, min(bottom, y1) - max(top, y0))
+        if inside < 0.5 * bh:
+            continue
+        for i, (sx0, sx1) in enumerate(spans):
+            if sx0 <= cx < sx1:
+                bb = (x0 + bx, ys0 + by, x0 + bx + bw, ys0 + by + bh)
+                if boxes[i] is None:
+                    boxes[i] = bb
+                else:
+                    o = boxes[i]
+                    boxes[i] = (min(o[0], bb[0]), min(o[1], bb[1]), max(o[2], bb[2]), max(o[3], bb[3]))
+                break
+    out = []
+    for i, (sx0, sx1) in enumerate(spans):
+        b = boxes[i]
+        if b is None:
+            # no ink found (should be rare): the column span on the core band
+            out.append((sx0, int(y0 + h * 0.2), sx1, int(y1 - h * 0.2)))
+        else:
+            out.append((max(0, b[0] - PAD), max(0, b[1] - PAD), b[2] + PAD, b[3] + PAD))
+    return out
+
+
 def process_page(page, regions, text):
     img = cv2.imread(os.path.join(ROOT, 'assets/images/page_%d.webp' % page), cv2.IMREAD_COLOR)
     H, Wd = img.shape[:2]
@@ -205,10 +263,15 @@ def process_page(page, regions, text):
                 continue
             spans, fb2 = split_rect(mask, rect, seg)
             fallbacks += fb2
+            boxes = ink_boxes(mask, rect, spans)
             lines.append({
                 'y': round(rect[2] / H, 5),
                 'h': round((rect[3] - rect[2]) / H, 5),
-                'words': [[round(a / Wd, 5), round((b - a) / Wd, 5)] for a, b in spans],
+                'words': [
+                    [round(bx0 / Wd, 5), round((bx1 - bx0) / Wd, 5),
+                     round(by0 / H, 5), round((by1 - by0) / H, 5)]
+                    for (bx0, by0, bx1, by1) in boxes
+                ],
             })
         assert sum(len(l['words']) for l in lines) == len(words), (page, ra['ayah'])
         ayahs_out.append({'surah': ra['surah'], 'ayah': ra['ayah'], 'lines': lines})

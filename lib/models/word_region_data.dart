@@ -31,15 +31,17 @@ class WordRegionAyah {
     final words = <WordBox>[];
     for (final line in json['lines'] as List<dynamic>) {
       final l = line as Map<String, dynamic>;
-      final y = (l['y'] as num).toDouble();
-      final h = (l['h'] as num).toDouble();
+      final lineY = (l['y'] as num).toDouble();
+      final lineH = (l['h'] as num).toDouble();
       for (final w in l['words'] as List<dynamic>) {
+        // [x, width, y, height]: the word's own ink box. Older data carried
+        // only [x, width] and used the line band vertically.
         final xw = w as List<dynamic>;
         words.add(WordBox(
           x: (xw[0] as num).toDouble(),
-          y: y,
           width: (xw[1] as num).toDouble(),
-          height: h,
+          y: xw.length > 2 ? (xw[2] as num).toDouble() : lineY,
+          height: xw.length > 3 ? (xw[3] as num).toDouble() : lineH,
         ));
       }
     }

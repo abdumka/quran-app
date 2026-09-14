@@ -87,11 +87,22 @@ void main() {
   int totalRects() =>
       service.regions!.ayahs.fold(0, (sum, a) => sum + a.rects.length);
 
-  /// Mask boxes the ayah being recited draws: one per word not yet heard.
+  /// Mask boxes an ayah draws: one per word not yet heard correctly.
   int pendingWordsOf(int ayahIndex) => service
       .wordStatusesOf(ayahIndex)
       .where((s) => s != WordStatus.correct)
       .length;
+
+  /// Every ayah of page 1 has word boxes, so the page is masked word by
+  /// word from the start: total pending words across all ayahs.
+  int pendingWords() {
+    var n = 0;
+    for (var i = 0; i < service.regions!.ayahs.length; i++) {
+      expect(service.wordBoxesFor(i), isNotNull);
+      n += pendingWordsOf(i);
+    }
+    return n;
+  }
 
   tearDown(() async => service.stop());
 
@@ -103,27 +114,22 @@ void main() {
     await pumpOverlay(tester);
     // Nothing recited yet: ayah 1 is masked word by word (4 words), the
     // other 6 Al-Fatihah ayahs by their line rects.
-    expect(service.wordBoxesFor(0), isNotNull);
     expect(pendingWordsOf(0), 4);
-    expect(_boxCount(tester), totalRects() - rectsOf(0) + pendingWordsOf(0));
+    expect(pendingWords(), 25);
+    expect(_boxCount(tester), 25);
 
     await reciteAndSettle(tester, engine, 'الحمد لله');
     // Two words of ayah 1 heard: two masks fewer, nothing else changes.
     expect(pendingWordsOf(0), 2);
-    expect(_boxCount(tester), totalRects() - rectsOf(0) + 2);
+    expect(_boxCount(tester), 23);
 
     await reciteAndSettle(tester, engine, 'رب العالمين');
-    // Ayah 1 revealed; ayah 2 is now the one masked word by word.
-    expect(
-      _boxCount(tester),
-      totalRects() - rectsOf(0) - rectsOf(1) + pendingWordsOf(1),
-    );
+    // Ayah 1 revealed entirely.
+    expect(_boxCount(tester), 21);
 
     await reciteAndSettle(tester, engine, 'الرحمن الرحيم');
-    expect(
-      _boxCount(tester),
-      totalRects() - rectsOf(0) - rectsOf(1) - rectsOf(2) + pendingWordsOf(2),
-    );
+    expect(_boxCount(tester), 19);
+    expect(totalRects() - rectsOf(0), greaterThan(0)); // rects still exist
   });
 
   testWidgets('draws nothing at all once every ayah is revealed',

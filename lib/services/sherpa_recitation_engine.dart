@@ -290,6 +290,16 @@ const Duration _softCutOverlap = Duration(milliseconds: 800);
 /// the word every time, while sherpa's tailPaddings did nothing for it.
 const Duration _decodeSilencePad = Duration(milliseconds: 1200);
 
+/// After every final decode of a segment longer than [_tailCheckMin], the
+/// last [_tailCheck] of it is decoded again on its own. Whisper-base is
+/// erratic about the last word or two of a segment ("…وَهُوَ الْعَزِي" for
+/// "…وَهُوَ الْعَزِيزُ الْحَكِيمُ", and the same audio decodes whole from a
+/// different start point), while a short window ending at the same place
+/// reliably gets the ending. The tail text is sent as a second final; the
+/// aligner's history absorbs the overlap.
+const Duration _tailCheck = Duration(milliseconds: 4000);
+const Duration _tailCheckMin = Duration(milliseconds: 5500);
+
 /// Interim decodes look only at this much trailing audio (see
 /// [SherpaRecitationEngine.interimTail]).
 const Duration _interimWindow = Duration(milliseconds: 5000);
@@ -402,6 +412,28 @@ Future<void> _workerMain(_WorkerInit init) async {
   final softCutSamples = _softCutSearch.inMilliseconds * _sampleRate ~/ 1000;
   final softCutOverlapSamples =
       _softCutOverlap.inMilliseconds * _sampleRate ~/ 1000;
+  final tailCheckSamples = _tailCheck.inMilliseconds * _sampleRate ~/ 1000;
+  final tailCheckMinSamples =
+      _tailCheckMin.inMilliseconds * _sampleRate ~/ 1000;
+
+  /// Decodes a whole final segment, then re-decodes its tail (see
+  /// _tailCheck) and sends both as finals.
+  void decodeFinal(Float32List samples) {
+    final text = decode(samples, 'final');
+    if (text.isNotEmpty) {
+      init.replyTo.send(_SegmentEvent(text, isFinal: true));
+    }
+    if (samples.length >= tailCheckMinSamples) {
+      final tail = Float32List.sublistView(
+        samples,
+        samples.length - tailCheckSamples,
+      );
+      final tailText = decode(tail, 'tail');
+      if (tailText.isNotEmpty) {
+        init.replyTo.send(_SegmentEvent(tailText, isFinal: true));
+      }
+    }
+  }
   var preRollBuffer = <Float32List>[];
   var preRollLength = 0;
   var utterance = <Float32List>[];
@@ -502,10 +534,7 @@ Future<void> _workerMain(_WorkerInit init) async {
       utterance = [];
       utteranceLength = 0;
       silenceRun = 0;
-      final text = decode(samples, 'final');
-      if (text.isNotEmpty) {
-        init.replyTo.send(_SegmentEvent(text, isFinal: true));
-      }
+      decodeFinal(samples);
       lastDecodeStarted = DateTime.now();
       continue;
     }
@@ -524,10 +553,7 @@ Future<void> _workerMain(_WorkerInit init) async {
           Float32List.fromList(Float32List.sublistView(all, restStart));
       utterance = [rest];
       utteranceLength = rest.length;
-      final text = decode(head, 'final');
-      if (text.isNotEmpty) {
-        init.replyTo.send(_SegmentEvent(text, isFinal: true));
-      }
+      decodeFinal(head);
       lastDecodeStarted = DateTime.now();
       continue;
     }

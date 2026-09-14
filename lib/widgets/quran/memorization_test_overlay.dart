@@ -93,22 +93,21 @@ class MemorizationTestOverlay extends StatelessWidget {
   }) {
     if (state == AyahRevealState.revealed) return const [];
 
-    // Word-level rendering for the ayah being recited and for flagged
-    // ayahs: each recognised word shows through the moment it is heard,
-    // words still to come stay masked, wrong/skipped words get the wash.
-    if (wordBoxes != null &&
-        wordBoxes.length == wordStatuses.length &&
-        (state == AyahRevealState.current ||
-            state == AyahRevealState.flagged)) {
+    // Word-level rendering wherever word boxes exist: each box is the
+    // word's own ink (letters and marks), so masking it hides exactly that
+    // word without clipping the tall letters of the lines above and below
+    // the way a full line band did. Hidden ayahs mask every word; the ayah
+    // being recited masks the words still to come and washes wrong/skipped
+    // ones; a flagged ayah washes only its wrong/skipped words.
+    if (wordBoxes != null && wordBoxes.length == wordStatuses.length) {
       return [
         for (var w = 0; w < wordBoxes.length; w++)
           if (wordStatuses[w] != WordStatus.correct)
             Positioned.fromRect(
               rect: Rect.fromLTRB(
-                wordBoxes[w].x * pageWidth - pageWidth * 0.003,
+                wordBoxes[w].x * pageWidth,
                 wordBoxes[w].y * pageHeight,
-                (wordBoxes[w].x + wordBoxes[w].width) * pageWidth +
-                    pageWidth * 0.003,
+                (wordBoxes[w].x + wordBoxes[w].width) * pageWidth,
                 (wordBoxes[w].y + wordBoxes[w].height) * pageHeight,
               ),
               child: DecoratedBox(

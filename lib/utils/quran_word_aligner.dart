@@ -5,8 +5,13 @@ import 'arabic_text_normalizer.dart';
 /// is findable by typing "الرحمان", but speech recognizers spell such words
 /// the everyday way -- "الرحمن", "ذلك", "هذا" -- and a 3-letter word like
 /// ذلك must match exactly, so "ذالك" would never be recognised as recited.
-String normalizeRecitationText(String text) =>
-    normalizeArabicText(text.replaceAll('ٰ', ''));
+///
+/// It also drops the silent alef of a plural-waw ending ("قالوا" -> "قالو"):
+/// recognizers often write "ويبسط" for وَيَبْسُطُواْ, two letters short of
+/// the expected spelling, which the length-scaled fuzzy match then rejects.
+String normalizeRecitationText(String text) => normalizeArabicText(
+      text.replaceAll('ٰ', ''),
+    ).replaceAll(RegExp(r'وا(?=\s|$)'), 'و');
 
 /// The recognition state of a single expected word in a memorization-test
 /// session, driving what the reveal UI shows for that word's position.
