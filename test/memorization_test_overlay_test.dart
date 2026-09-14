@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/services/memorization_test_service.dart';
 import 'package:islamic_dawah_mushaf/services/recitation_engine.dart';
+import 'package:islamic_dawah_mushaf/utils/quran_word_aligner.dart';
 import 'package:islamic_dawah_mushaf/widgets/quran/memorization_test_overlay.dart';
 
 /// Hand-driven engine so the test controls exactly when segments arrive.
@@ -86,6 +87,12 @@ void main() {
   int totalRects() =>
       service.regions!.ayahs.fold(0, (sum, a) => sum + a.rects.length);
 
+  /// Mask boxes the ayah being recited draws: one per word not yet heard.
+  int pendingWordsOf(int ayahIndex) => service
+      .wordStatusesOf(ayahIndex)
+      .where((s) => s != WordStatus.correct)
+      .length;
+
   tearDown(() async => service.stop());
 
   testWidgets('masks every ayah up-front, then unmasks each as it is recited',
@@ -94,15 +101,29 @@ void main() {
     await startSession(tester, engine);
 
     await pumpOverlay(tester);
-    // Nothing recited yet: all 7 Al-Fatihah ayahs are hidden.
-    expect(_boxCount(tester), totalRects());
+    // Nothing recited yet: ayah 1 is masked word by word (4 words), the
+    // other 6 Al-Fatihah ayahs by their line rects.
+    expect(service.wordBoxesFor(0), isNotNull);
+    expect(pendingWordsOf(0), 4);
+    expect(_boxCount(tester), totalRects() - rectsOf(0) + pendingWordsOf(0));
 
-    await reciteAndSettle(tester, engine, 'الحمد لله رب العالمين');
-    // Ayah 1 is now revealed, so its rects are gone.
-    expect(_boxCount(tester), totalRects() - rectsOf(0));
+    await reciteAndSettle(tester, engine, 'الحمد لله');
+    // Two words of ayah 1 heard: two masks fewer, nothing else changes.
+    expect(pendingWordsOf(0), 2);
+    expect(_boxCount(tester), totalRects() - rectsOf(0) + 2);
+
+    await reciteAndSettle(tester, engine, 'رب العالمين');
+    // Ayah 1 revealed; ayah 2 is now the one masked word by word.
+    expect(
+      _boxCount(tester),
+      totalRects() - rectsOf(0) - rectsOf(1) + pendingWordsOf(1),
+    );
 
     await reciteAndSettle(tester, engine, 'الرحمن الرحيم');
-    expect(_boxCount(tester), totalRects() - rectsOf(0) - rectsOf(1));
+    expect(
+      _boxCount(tester),
+      totalRects() - rectsOf(0) - rectsOf(1) - rectsOf(2) + pendingWordsOf(2),
+    );
   });
 
   testWidgets('draws nothing at all once every ayah is revealed',

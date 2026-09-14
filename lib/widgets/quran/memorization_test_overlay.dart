@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../models/ayah_region_data.dart';
+import '../../models/word_region_data.dart';
 import '../../services/memorization_test_service.dart';
 import '../../utils/quran_word_aligner.dart';
 
@@ -63,6 +64,8 @@ class MemorizationTestOverlay extends StatelessWidget {
                     states[i],
                     pageWidth: width,
                     pageHeight: height,
+                    wordBoxes: service.wordBoxesFor(i),
+                    wordStatuses: service.wordStatusesOf(i),
                   ),
                 // Live feedback + help buttons, floating near the bottom of
                 // the page area (over the page's lower margin).
@@ -85,8 +88,60 @@ class MemorizationTestOverlay extends StatelessWidget {
     AyahRevealState state, {
     required double pageWidth,
     required double pageHeight,
+    List<WordBox>? wordBoxes,
+    List<WordStatus> wordStatuses = const [],
   }) {
     if (state == AyahRevealState.revealed) return const [];
+
+    // Word-level rendering for the ayah being recited and for flagged
+    // ayahs: each recognised word shows through the moment it is heard,
+    // words still to come stay masked, wrong/skipped words get the wash.
+    if (wordBoxes != null &&
+        wordBoxes.length == wordStatuses.length &&
+        (state == AyahRevealState.current ||
+            state == AyahRevealState.flagged)) {
+      return [
+        for (var w = 0; w < wordBoxes.length; w++)
+          if (wordStatuses[w] != WordStatus.correct)
+            Positioned.fromRect(
+              rect: Rect.fromLTRB(
+                wordBoxes[w].x * pageWidth - pageWidth * 0.003,
+                wordBoxes[w].y * pageHeight,
+                (wordBoxes[w].x + wordBoxes[w].width) * pageWidth +
+                    pageWidth * 0.003,
+                (wordBoxes[w].y + wordBoxes[w].height) * pageHeight,
+              ),
+              child: DecoratedBox(
+                decoration: switch (wordStatuses[w]) {
+                  WordStatus.mistake ||
+                  WordStatus.skipped =>
+                    const BoxDecoration(color: _flaggedWash),
+                  _ => const BoxDecoration(color: _paperColor),
+                },
+              ),
+            ),
+        if (state == AyahRevealState.current)
+          for (final r in ayah.rects)
+            Positioned.fromRect(
+              rect: Rect.fromLTRB(
+                (r.x * pageWidth) - pageWidth * 0.006,
+                r.y * pageHeight,
+                (r.x + r.width) * pageWidth + pageWidth * 0.006,
+                (r.y + r.height) * pageHeight,
+              ),
+              // Position hint only (no fill): a faint gold frame around
+              // the ayah being recited. Wrapped so it is not counted as a
+              // mask box.
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: _currentBorder, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+      ];
+    }
 
     return [
       for (final r in ayah.rects)

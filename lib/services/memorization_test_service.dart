@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/ayah_region_data.dart';
 import '../models/quran_page_data.dart';
+import '../models/word_region_data.dart';
 import '../utils/quran_word_aligner.dart';
 import 'asr_model_manager.dart';
 import 'audio_service.dart';
@@ -15,6 +16,7 @@ import 'quran_json_service.dart';
 import 'recitation_engine.dart';
 import 'sherpa_recitation_engine.dart';
 import 'tasmee_session_recorder.dart';
+import 'word_region_service.dart';
 
 /// Lifecycle of a memorization-test session.
 enum MemorizationTestStatus {
@@ -146,6 +148,11 @@ class MemorizationTestService {
 
   QuranWordAligner? _aligner;
   AyahRegionPageData? _regions;
+
+  /// Per ayah (parallel to [regions]), the boxes of its words in order, or
+  /// null when no usable word geometry exists for that ayah (the overlay
+  /// then masks the whole ayah instead of word by word).
+  List<List<WordBox>?> _wordBoxes = const [];
   QuranPageData? _page;
   List<String> _expectedWords = const [];
   List<int> _ayahWordStarts = const [];
@@ -170,6 +177,25 @@ class MemorizationTestService {
 
   /// 1-based mushaf page of the active session, or null.
   int? get activePage => _activePage;
+
+  /// Word boxes of ayah [ayahIndex] in reading order, or null when the page
+  /// has no usable word geometry for it.
+  List<WordBox>? wordBoxesFor(int ayahIndex) =>
+      ayahIndex >= 0 && ayahIndex < _wordBoxes.length
+          ? _wordBoxes[ayahIndex]
+          : null;
+
+  /// Statuses of the words of ayah [ayahIndex], in reading order.
+  List<WordStatus> wordStatusesOf(int ayahIndex) {
+    final aligner = _aligner;
+    if (aligner == null || ayahIndex < 0 || ayahIndex + 1 >= _ayahWordStarts.length) {
+      return const [];
+    }
+    return aligner.statuses.sublist(
+      _ayahWordStarts[ayahIndex],
+      _ayahWordStarts[ayahIndex + 1],
+    );
+  }
 
   /// Per-word statuses in recitation order (all ayahs on the page, in
   /// order, words within each ayah in order). Empty when no session.
@@ -282,6 +308,7 @@ class MemorizationTestService {
 
     try {
       final regions = await AyahRegionService.forPage(pageNumber);
+      final wordRegions = await WordRegionService.forPage(pageNumber);
       final pages = await QuranJsonService.loadQuranPages();
       if (token != _startToken) return false;
 
@@ -351,6 +378,7 @@ class MemorizationTestService {
 
       _aligner = aligner;
       _regions = regions;
+      _wordBoxes = _usableWordBoxes(wordRegions, page);
       _page = page;
       _expectedWords = expectedWords;
       _ayahWordStarts = starts;
@@ -433,6 +461,31 @@ class MemorizationTestService {
     if (page == null) return false;
     _recorder?.log('control', {'action': 'restart'});
     return start(pageNumber: page);
+  }
+
+  /// Word boxes are only trusted for an ayah whose generated box count
+  /// equals its word count (and whose numbering matches); anything else
+  /// falls back to ayah-level masking for that ayah.
+  List<List<WordBox>?> _usableWordBoxes(
+    WordRegionPageData? wordRegions,
+    QuranPageData page,
+  ) {
+    return [
+      for (var i = 0; i < page.ayahs.length; i++)
+        () {
+          if (wordRegions == null || i >= wordRegions.ayahs.length) {
+            return null;
+          }
+          final w = wordRegions.ayahs[i];
+          final a = page.ayahs[i];
+          final count =
+              a.text.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).length;
+          if (w.surah != a.surah || w.ayah != a.ayah || w.words.length != count) {
+            return null;
+          }
+          return w.words;
+        }(),
+    ];
   }
 
   /// The regions were generated from the page images while the words come
@@ -828,6 +881,7 @@ class MemorizationTestService {
     lastHeard.value = '';
     _aligner = null;
     _regions = null;
+    _wordBoxes = const [];
     _page = null;
     _expectedWords = const [];
     _ayahWordStarts = const [];
