@@ -8,11 +8,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// How the user is told about an available update.
 enum UpdateNotifyMode {
-  /// Only inside the app (a dialog on startup / from Settings). This is the
-  /// default and needs no OS permissions.
+  /// Only inside the app (a dialog on startup / from Settings). Needs no OS
+  /// permissions.
   inApp,
 
-  /// A system notification in addition to the in-app dialog.
+  /// A system notification in addition to the in-app dialog. This is the
+  /// default; the OS permission it needs is asked for once, in context, by
+  /// [UpdateNotificationService.shouldAskForPermission].
   notification,
 }
 
@@ -113,9 +115,9 @@ class AppUpdateService {
   String currentVersion = '';
   int currentBuild = 0;
 
-  /// User's preferred delivery for update messages. Defaults to in-app only.
+  /// User's preferred delivery for update messages. Defaults to notification.
   final ValueNotifier<UpdateNotifyMode> notifyMode =
-      ValueNotifier<UpdateNotifyMode>(UpdateNotifyMode.inApp);
+      ValueNotifier<UpdateNotifyMode>(UpdateNotifyMode.notification);
 
   bool _loaded = false;
 
@@ -124,9 +126,11 @@ class AppUpdateService {
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_notifyModePrefKey);
-    notifyMode.value = stored == 'notification'
-        ? UpdateNotifyMode.notification
-        : UpdateNotifyMode.inApp;
+    // On unless the user has explicitly chosen in-app only (switched it off,
+    // or declined the permission question).
+    notifyMode.value = stored == 'inApp'
+        ? UpdateNotifyMode.inApp
+        : UpdateNotifyMode.notification;
     try {
       final info = await PackageInfo.fromPlatform();
       currentVersion = info.version;

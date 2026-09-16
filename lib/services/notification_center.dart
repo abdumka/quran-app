@@ -46,6 +46,11 @@ class NotificationCenter {
     }
   }
 
+  /// Routes a `<prefix>:<value>` payload that arrived by some other path than
+  /// this plugin — a tapped push notification, which the OS displayed itself —
+  /// to the same handlers local notifications use.
+  void handlePayload(String? payload) => _dispatch(payload);
+
   Future<void> ensureInitialized() async {
     if (_initialized) return;
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -120,7 +125,7 @@ class NotificationCenter {
   }
 
   /// Whether the OS currently lets the app post notifications. Unlike
-  /// [requestPermission] this never shows a first-time prompt on Android, so it
+  /// [requestPermission] this never shows a first-time prompt, so it
   /// is safe to poll on resume to notice a permission revoked in system
   /// settings.
   Future<bool> areNotificationsEnabled() async {
@@ -137,15 +142,14 @@ class NotificationCenter {
           >();
       return await android?.areNotificationsEnabled() ?? true;
     }
-    // iOS exposes no "are they enabled" query on the plugin; requestPermissions
-    // returns the standing answer without re-prompting once the user has
-    // decided, which is the closest equivalent.
-    final granted = await plugin
+    // checkPermissions only reads the current status. requestPermissions would
+    // pop the one-time system prompt for a user who hasn't answered yet.
+    final options = await plugin
         .resolvePlatformSpecificImplementation<
           IOSFlutterLocalNotificationsPlugin
         >()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
-    return granted ?? false;
+        ?.checkPermissions();
+    return options?.isEnabled ?? false;
   }
 
   /// Whether the OS grants this app exact alarms. Android 12+ withholds them

@@ -20,6 +20,7 @@ import '../../services/whats_new_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/background_playback_service.dart';
 import '../../services/daily_page_service.dart';
+import '../../services/kahf_reminder_service.dart';
 import '../../services/page_zoom_service.dart';
 import '../../services/page_color_service.dart';
 import '../../services/keep_screen_awake_service.dart';
@@ -35,6 +36,7 @@ import '../../utils/responsive_helper.dart';
 import 'settings_components.dart';
 import 'settings_coach_overlay.dart';
 import 'daily_page_tile.dart';
+import 'kahf_reminder_tile.dart';
 import '../hifz_lens_icon.dart';
 import 'downloads_management_page.dart';
 import '../menu/about_content.dart';
@@ -132,6 +134,7 @@ class _SettingsPageState extends State<SettingsPage> {
       RecitationBarOpacityService.instance;
   final AppUpdateService _appUpdateService = AppUpdateService.instance;
   final DailyPageService _dailyPageService = DailyPageService.instance;
+  final KahfReminderService _kahfReminderService = KahfReminderService.instance;
   bool _isCheckingForUpdate = false;
 
   // Controls the collapsible "إعدادات التلاوة والتفسير" section so it can be
@@ -190,6 +193,9 @@ class _SettingsPageState extends State<SettingsPage> {
     // when the OS is dropping them.
     _dailyPageService.load().then((_) {
       _dailyPageService.verifyPermissionStillGranted();
+    });
+    _kahfReminderService.load().then((_) {
+      _kahfReminderService.verifyPermissionStillGranted();
     });
     _loadGuidePreferences();
     _loadCurrentBrightness();
@@ -910,6 +916,26 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// Same permission rule as «صفحة اليوم»: the switch only moves once the OS
+  /// has actually granted notifications.
+  Future<void> _handleToggleKahfReminder(bool value) async {
+    final result = await _kahfReminderService.setEnabled(value);
+    if (!mounted) return;
+    switch (result) {
+      case DailyPageEnableResult.ok:
+        break;
+      case DailyPageEnableResult.permissionDenied:
+        _showSettingsNotice(
+          'لم يتم منح إذن الإشعارات. فعّل الإشعارات لهذا التطبيق من إعدادات النظام ثم أعد المحاولة.',
+        );
+      case DailyPageEnableResult.unsupported:
+        _showSettingsNotice('تذكير سورة الكهف متاح على الجوال فقط.');
+    }
+  }
+
+  String get _kahfReminderInfoText =>
+      'يذكّرك كل يوم جمعة بقراءة سورة الكهف في الوقت الذي تختاره بتوقيت جهازك، ويعمل بدون إنترنت. بالضغط على الإشعار يفتح التطبيق على أول صفحة من السورة.';
+
   String get _dailyPageInfoText =>
       'يذكّرك يوميًا بقراءة صفحة واحدة على الأقل من المصحف. اختر «وقت محدد» ليصلك التذكير في نفس الوقت كل يوم، أو «وقت عشوائي» ليصلك في وقت مختلف داخل الفترة التي تحددها. يحمل كل تذكير صفحة عشوائية، وبالضغط عليه يفتح التطبيق على تلك الصفحة مباشرة.';
 
@@ -1011,6 +1037,29 @@ class _SettingsPageState extends State<SettingsPage> {
           onWindowChanged: (start, end) =>
               _dailyPageService.setRandomWindow(start: start, end: end),
           onInfo: () => _showInfoNotice(_dailyPageInfoText),
+        );
+      },
+    );
+  }
+
+  /// The "سورة الكهف" card, directly under «صفحة اليوم» — both are reminders
+  /// the device schedules itself, and neither exists on the web.
+  Widget _buildKahfReminderSection() {
+    if (kIsWeb) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _kahfReminderService.enabled,
+        _kahfReminderService.minutes,
+        _kahfReminderService.nextReminderAt,
+      ]),
+      builder: (context, _) {
+        return KahfReminderTile(
+          enabled: _kahfReminderService.enabled.value,
+          minutes: _kahfReminderService.minutes.value,
+          nextReminderAt: _kahfReminderService.nextReminderAt.value,
+          onToggle: _handleToggleKahfReminder,
+          onMinutesChanged: _kahfReminderService.setMinutes,
+          onInfo: () => _showInfoNotice(_kahfReminderInfoText),
         );
       },
     );
@@ -1644,6 +1693,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       const SizedBox(height: 6),
                       _buildDailyPageSection(),
+                      const SizedBox(height: 6),
+                      _buildKahfReminderSection(),
                       const SizedBox(height: 6),
                       _buildRecitationTafsirSection(),
                       const SizedBox(height: 6),

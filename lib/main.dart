@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/app_update_service.dart';
 import 'services/background_playback_service.dart';
 import 'services/daily_page_service.dart';
+import 'services/kahf_reminder_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/debug_log_service.dart';
@@ -94,6 +95,9 @@ Future<void> main() async {
     // timezone database stay untouched until the reader tops the reminder
     // queue up after its first frame (see QuranPages).
     DailyPageService.instance.load(),
+    // Same deal: prefs only, and it claims its tap-payload prefix so a tap that
+    // cold-started the app is routed once the plugin is up.
+    KahfReminderService.instance.load(),
     PageColorService.instance.load(),
     PageZoomService.instance.load(),
     RecitationBarOpacityService.instance.load(),

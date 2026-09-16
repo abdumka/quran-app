@@ -138,7 +138,7 @@ class DailyPageTile extends StatelessWidget {
         _ModeSelector(mode: mode, onChanged: onModeChanged),
         const SizedBox(height: 10),
         if (mode == DailyPageReminderMode.fixed)
-          _TimeField(
+          ReminderTimeField(
             label: 'وقت التذكير',
             minutesOfDay: fixedMinutes,
             onPick: onFixedMinutesChanged,
@@ -148,7 +148,7 @@ class DailyPageTile extends StatelessWidget {
             textDirection: TextDirection.rtl,
             children: [
               Expanded(
-                child: _TimeField(
+                child: ReminderTimeField(
                   label: 'من',
                   minutesOfDay: windowStartMinutes,
                   // Two fields sharing a phone's width can't fit a label and a
@@ -159,7 +159,7 @@ class DailyPageTile extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _TimeField(
+                child: ReminderTimeField(
                   label: 'إلى',
                   minutesOfDay: windowEndMinutes,
                   stacked: true,
@@ -288,13 +288,16 @@ class _ModeSelector extends StatelessWidget {
 /// [stacked] puts the label on its own line above the value, for the two
 /// side-by-side fields of the random window where a single line does not fit on
 /// a phone.
-class _TimeField extends StatelessWidget {
+/// The bordered "label — time" button that opens [DailyPageTimeSheet]. Shared
+/// with the Friday Al-Kahf reminder tile.
+class ReminderTimeField extends StatelessWidget {
   final String label;
   final int minutesOfDay;
   final bool stacked;
   final ValueChanged<int> onPick;
 
-  const _TimeField({
+  const ReminderTimeField({
+    super.key,
     required this.label,
     required this.minutesOfDay,
     required this.onPick,

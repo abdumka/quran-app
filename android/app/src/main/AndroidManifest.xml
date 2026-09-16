@@ -75,6 +75,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- Push notifications (Firebase Cloud Messaging) that arrive while the
+             app is closed or in the background are displayed by the system on
+             this channel. PushNotificationService creates it; until it has run
+             once, FCM falls back to its own "Miscellaneous" channel. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="announcements" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/ic_launcher_background" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "293588449644",
+    "project_id": "mushaf-qaloon",
+    "storage_bucket": "mushaf-qaloon.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:293588449644:android:6d913a77dc17291242db49",
+        "android_client_info": {
+          "package_name": "com.mahfodqr.qalon_mushaf"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSNlSKy4ffmvWVgX_osPwYimjEYqd09y8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

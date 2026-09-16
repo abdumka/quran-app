@@ -22,8 +22,10 @@ import 'quran_constants.dart';
 import 'quran_reading_coordinator.dart';
 import 'services/background_playback_service.dart';
 import 'services/daily_page_service.dart';
+import 'services/kahf_reminder_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
+import 'services/push_notification_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
 import 'services/high_quality_images_service.dart';
@@ -545,6 +547,10 @@ class _QuranPagesState extends State<QuranPages>
     // OEM battery manager) that the once-a-day guard would otherwise skip past.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DailyPageService.instance.refreshSchedule(verifyQueue: true);
+      KahfReminderService.instance.refreshSchedule();
+      // Firebase too stays off the launch path. A push tapped while the app was
+      // closed is still delivered: FCM holds it until getInitialMessage asks.
+      PushNotificationService.instance.start();
     });
     _keepScreenAwakeService.enabled.addListener(_handleKeepScreenAwakeChanged);
     _setReadingMode(true);
@@ -2988,18 +2994,21 @@ class _QuranPagesState extends State<QuranPages>
   /// Startup update check. Runs off the critical launch path (fire-and-forget),
   /// stays silent when up to date / offline, and surfaces a given version only
   /// once unless it's marked mandatory. Honors the user's in-app vs.
-  /// notification delivery preference (default: in-app only).
+  /// notification delivery preference (default: notification).
   ///
   /// Shows at most one popup per launch: the local "what's new" for changes
   /// bundled in the currently installed build takes priority; the network
   /// "update available" check (for a *newer*, not-yet-installed release) only
   /// runs afterwards, and only if "what's new" didn't already show, so the two
-  /// never stack on top of each other.
+  /// never stack on top of each other. The one-time OS notification permission
+  /// prompt follows once whichever popup was shown has closed.
   Future<void> _checkForUpdate() async {
     try {
       final shownWhatsNew = await _maybeShowWhatsNew();
-      if (shownWhatsNew || !mounted) return;
-      await _maybeShowUpdateAvailable();
+      if (!mounted) return;
+      if (!shownWhatsNew) await _maybeShowUpdateAvailable();
+      if (!mounted) return;
+      await _maybeAskForUpdateNotifications();
     } catch (_) {
       // An update check must never disrupt the app; swallow any failure.
     }
@@ -3020,6 +3029,23 @@ class _QuranPagesState extends State<QuranPages>
     if (!mounted) return false;
     await WhatsNewDialog.show(context, WhatsNewService.currentReleaseChanges);
     return true;
+  }
+
+  /// After the startup popups close, shows the OS notification permission
+  /// prompt once, so update notifications (on by default) can actually be
+  /// delivered on Android 13+ and iOS. Nothing is shown where the OS already
+  /// allows notifications.
+  Future<void> _maybeAskForUpdateNotifications() async {
+    final service = UpdateNotificationService.instance;
+    if (!await service.shouldAskForPermission()) return;
+    // Let the splash→reader transition (or the popup's exit) finish first.
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    // The user may have left for the store from the update popup.
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    await service.askForPermissionOnce();
   }
 
   Future<void> _maybeShowUpdateAvailable() async {

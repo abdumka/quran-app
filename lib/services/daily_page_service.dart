@@ -406,9 +406,9 @@ class DailyPageService {
     return page;
   }
 
-  /// Records the page a tapped reminder pointed at. Public only so a test can
-  /// drive the tap without a platform channel.
-  @visibleForTesting
+  /// Records the page a tapped notification pointed at: a reminder, or a push
+  /// notification carrying `page:<n>` (see PushNotificationService). Invalid
+  /// page numbers are ignored.
   void handleReminderTapped(String value) {
     final page = int.tryParse(value);
     if (page == null || page < 1 || page > pageCount) return;

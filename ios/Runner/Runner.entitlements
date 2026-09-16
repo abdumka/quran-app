@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Debug builds talk to Apple's sandbox push service, which is what a
+	     development provisioning profile allows. Release/Profile use
+	     RunnerRelease.entitlements ("production") instead. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

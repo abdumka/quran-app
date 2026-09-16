@@ -1,13 +1,18 @@
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'app_update_service.dart';
 import 'notification_center.dart';
 
 /// Presents an update as a system notification. Tapping it opens the store page.
 ///
-/// Only used when the user opts into notification delivery in Settings; the
-/// default is in-app only, which never touches this class (so no notification
-/// permission is requested unless the user asks for it).
+/// Notification delivery is on by default, but Android 13+ and iOS only allow
+/// it after the user taps "Allow" on the OS permission prompt, and no app can
+/// grant that itself. The prompt is shown once, right after the "what's new"
+/// popup ([shouldAskForPermission] / [askForPermissionOnce]) — never while the
+/// update check runs at launch.
 class UpdateNotificationService {
   UpdateNotificationService._();
   static final UpdateNotificationService instance =
@@ -20,6 +25,8 @@ class UpdateNotificationService {
   static const int _updateNotificationId = 4801;
   static const String _channelId = 'app_updates';
   static const String _channelName = 'تحديثات التطبيق';
+
+  static const String _permissionAskedPrefKey = 'updateNotifyPermissionAsked';
 
   bool _handlerRegistered = false;
 
@@ -41,15 +48,49 @@ class UpdateNotificationService {
   Future<bool> requestPermission() =>
       NotificationCenter.instance.requestPermission();
 
-  /// Shows the "update available" notification. Does nothing if permission is
-  /// denied. [storeUrl] is opened when the notification is tapped.
+  /// Whether to show the one-time OS permission prompt: delivery is set to
+  /// notification (the default), the prompt hasn't been shown for this yet, and
+  /// the OS doesn't already allow notifications (Android 12 and older, or
+  /// granted earlier for «صفحة اليوم» — then there's nothing to ask).
+  Future<bool> shouldAskForPermission() async {
+    if (kIsWeb) return false;
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return false;
+    }
+    if (AppUpdateService.instance.notifyMode.value !=
+        UpdateNotifyMode.notification) {
+      return false;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_permissionAskedPrefKey) ?? false) return false;
+    if (await NotificationCenter.instance.areNotificationsEnabled()) {
+      await prefs.setBool(_permissionAskedPrefKey, true);
+      return false;
+    }
+    return true;
+  }
+
+  /// Shows the OS permission prompt and remembers it was shown. Denying it
+  /// switches delivery to in-app only, so the Settings switch reflects what
+  /// will actually happen; turning the switch back on asks again.
+  Future<void> askForPermissionOnce() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_permissionAskedPrefKey, true);
+    if (!await requestPermission()) {
+      await AppUpdateService.instance.setNotifyMode(UpdateNotifyMode.inApp);
+    }
+  }
+
+  /// Shows the "update available" notification. Does nothing if the OS doesn't
+  /// allow notifications — it never prompts, since this runs at launch.
+  /// [storeUrl] is opened when the notification is tapped.
   Future<void> showUpdateNotification({
     required String title,
     required String body,
     required String storeUrl,
   }) async {
-    final allowed = await NotificationCenter.instance.requestPermission();
-    if (!allowed) return;
+    if (!await NotificationCenter.instance.areNotificationsEnabled()) return;
     registerTapHandler();
 
     const androidDetails = AndroidNotificationDetails(

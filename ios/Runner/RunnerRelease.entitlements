@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TestFlight and the App Store both use Apple's production push service,
+	     so archives must carry this value or every push is dropped. -->
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>
