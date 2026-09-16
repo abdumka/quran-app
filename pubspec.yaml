@@ -2,7 +2,7 @@ name: islamic_dawah_mushaf
 description: "المصحف الجامع - Al-Mushaf Al-Jame."
 publish_to: 'none'
 
-version: 1.4.0+25
+version: 1.4.0+26
 
 environment:
   sdk: ^3.11.1
