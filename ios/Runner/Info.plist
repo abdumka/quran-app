@@ -24,6 +24,13 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Answers App Store Connect's export-compliance question on every upload,
+	     so it stops asking. The app uses no non-exempt encryption: HTTPS is
+	     iOS's own, and the only other use is SHA-256 checksums verifying the
+	     downloaded image packs, which counts as data integrity, not
+	     encryption. Revisit this if the app ever encrypts user data itself. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
