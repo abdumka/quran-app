@@ -236,6 +236,18 @@ class AudioService {
   /// Subscription for split monitoring (intra-ayah UI updates).
   StreamSubscription? _splitMonitorSubscription;
 
+  /// The web-only clip-boundary watch — see [_armClipEnd].
+  StreamSubscription<Duration>? _clipEndSubscription;
+
+  /// How long the clip now playing runs for, once armed. Null whenever there is
+  /// nothing to watch: a whole-file clip, or a boundary already acted on.
+  Duration? _clipEndTarget;
+
+  /// Whether a position inside the armed clip has been seen yet. A position
+  /// left over from the previous clip can still arrive just after the new
+  /// source is set, and without this it would end the new clip before it began.
+  bool _sawPositionInsideClip = false;
+
   bool _isInitialized = false;
 
   Future<void> init() async {
@@ -277,6 +289,20 @@ class AudioService {
         _didHandleCompletion = false;
       }
     });
+
+    // A clip's end needs a closer watch than just_audio_web gives it (see
+    // [_armClipEnd]). One stream for the life of the player, not one per ayah:
+    // createPositionStream leaves its timer and its own event subscription
+    // running when the returned subscription is cancelled.
+    if (kIsWeb) {
+      _clipEndSubscription = _player
+          .createPositionStream(
+            steps: 800,
+            minPeriod: const Duration(milliseconds: 16),
+            maxPeriod: const Duration(milliseconds: 40),
+          )
+          .listen(_onClipPosition);
+    }
   }
 
   /// Pause the recitation when another app/the phone takes audio focus (incoming
@@ -762,6 +788,9 @@ class AudioService {
     bool autoPlay = true,
   }) async {
     final fileName = clip.file;
+    // Nothing to watch until the new source is armed below; a target left over
+    // from the previous clip must never fire against this one.
+    _clipEndTarget = null;
     try {
       final Uri uri;
       if (kIsWeb) {
@@ -813,6 +842,7 @@ class AudioService {
       if (seekTo != null) {
         await _player.seek(seekTo);
       }
+      _armClipEnd(clip);
       if (autoPlay) {
         _player.play();
       }
@@ -835,6 +865,49 @@ class AudioService {
       // Don't call stop() here — it could cascade into more errors
       return false;
     }
+  }
+
+  /// Arms (or, for a whole file, disarms) the web-only watch that ends a
+  /// clipped source at its own boundary.
+  ///
+  /// `just_audio_web` enforces a `ClippingAudioSource`'s end from the HTML
+  /// `timeupdate` event, which browsers fire only about four times a second, so
+  /// a clip keeps playing for up to ~250 ms past its end — 500 ms at 2× —
+  /// before completion is reported. Under [AudioScheme.timedSurah] the spans
+  /// are contiguous: an ayah's end *is* the next ayah's start, so that overshoot
+  /// is the opening of the next ayah, which the next clip then seeks back to and
+  /// plays again — «و… وما أدراك ما القارعة». Only audible where the sheikh runs
+  /// the two ayat together without a pause, which is why it showed up on
+  /// أبوسنينة (هبطي) and only in some surahs.
+  ///
+  /// [AudioPlayer.position] is interpolated from the wall clock, and frozen
+  /// while buffering rather than run on blindly, so watching it closes the
+  /// boundary to the poll period — ≤40 ms, shorter than a syllable — and follows
+  /// pause, resume and playback speed with no re-arming. Native players clip
+  /// sample-accurately, so none of this runs off the web. The JS web player
+  /// solves the same problem in its own `_armClipEnd`.
+  void _armClipEnd(AudioClip clip) {
+    if (!kIsWeb) return;
+    final duration = clip.duration;
+    _clipEndTarget =
+        (duration != null && duration > Duration.zero) ? duration : null;
+    _sawPositionInsideClip = false;
+  }
+
+  Future<void> _onClipPosition(Duration position) async {
+    final target = _clipEndTarget;
+    if (target == null) return;
+    if (position < target) {
+      _sawPositionInsideClip = true;
+      return;
+    }
+    if (!_sawPositionInsideClip) return;
+    _clipEndTarget = null; // disarm before the first await
+    // Silence first, then advance: _playCurrentAyah awaits the next source
+    // before it can swap it in, and every millisecond of that wait would be the
+    // next ayah's opening playing early.
+    await _player.pause();
+    _handleAyahCompleted();
   }
 
   // ─────────────────────────────────────
@@ -1562,6 +1635,7 @@ class AudioService {
   /// Stop playback and close the recitation bar.
   void stop() {
     _splitMonitorSubscription?.cancel();
+    _clipEndTarget = null;
     _player.stop();
     _player.seek(Duration.zero);
     isPlaying.value = false;
@@ -1583,6 +1657,7 @@ class AudioService {
 
   void dispose() {
     _splitMonitorSubscription?.cancel();
+    _clipEndSubscription?.cancel();
     _player.dispose();
   }
 }

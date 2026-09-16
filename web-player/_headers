@@ -1,2 +1,22 @@
 /data/*
   Cache-Control: public, max-age=3600, must-revalidate
+
+# Cloudflare Pages serves everything else with `max-age=14400`, and the Flutter
+# app's entry points are not content-hashed — `main.dart.js` keeps its name
+# across builds — so for four hours after a deploy a returning visitor kept
+# running the previous build with no way to ask for the new one (the generated
+# service worker no longer caches: it unregisters itself on activate). These
+# four files decide which code runs, so they revalidate on every load instead:
+# an ETag 304 costs a few hundred bytes, and reopening the page is then all it
+# takes to pick up a fix. Everything under /app/assets/ stays cached — it is
+# many files, and startup speed matters more there.
+/app/
+  Cache-Control: no-cache
+/app/index.html
+  Cache-Control: no-cache
+/app/flutter_bootstrap.js
+  Cache-Control: no-cache
+/app/main.dart.js
+  Cache-Control: no-cache
+/app/flutter_service_worker.js
+  Cache-Control: no-cache
