@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../firebase_options.dart';
+import 'app_update_service.dart';
 import 'daily_page_service.dart';
 import 'debug_log_service.dart';
 import 'notification_center.dart';
@@ -27,7 +28,9 @@ import 'notification_center.dart';
 /// `<prefix>:<value>` string, routed through [NotificationCenter] when the
 /// notification is tapped:
 ///
-///  * `update:<store url>` — opens the store page.
+///  * `store:` — opens this platform's own store page ("go update the app"),
+///    so one message can be sent to `all` rather than one per platform.
+///  * `update:<store url>` — opens that exact store page.
 ///  * `url:<https link>` — opens the link in the browser.
 ///  * `page:<1-602>` — opens that mushaf page.
 ///
@@ -113,6 +116,12 @@ class PushNotificationService {
       'page',
       DailyPageService.instance.handleReminderTapped,
     );
+    center.registerTapHandler('store', (_) {
+      final url = defaultTargetPlatform == TargetPlatform.iOS
+          ? AppUpdateService.appStoreUrl
+          : AppUpdateService.playStoreUrl;
+      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    });
   }
 
   void _handleOpened(RemoteMessage message) {
