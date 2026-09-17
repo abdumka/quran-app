@@ -31,10 +31,16 @@ void main(List<String> args) {
   for (final seg in input['segments'] as List) {
     final text = seg['text'] as String;
     final isFinal = seg['final'] as bool;
+    final speechMs = (seg['speechMs'] as num?)?.toInt() ?? -1;
+    final maxNew = speechMs < 0 ? 0 : (speechMs * 4.0 / 1000).ceil() + 2;
     final before = aligner.cursor;
-    final out = aligner.submitRecognizedSegment(text, isFinal: isFinal);
+    final out = aligner.submitRecognizedSegment(
+      text,
+      isFinal: isFinal,
+      maxNewWords: maxNew,
+    );
     stdout.writeln(
-      '${isFinal ? 'F' : 'i'} ${before.toString().padLeft(3)}->'
+      '${isFinal ? 'F' : 'i'}${maxNew > 0 ? maxNew.toString().padLeft(2) : '  '} ${before.toString().padLeft(3)}->'
       '${aligner.cursor.toString().padLeft(3)} '
       'ok=${out.correct} sk=${out.skipped} mi=${out.mistakes} '
       'un=${out.unclearIndex} rep=${out.repeatOfHistory}  «$text»',

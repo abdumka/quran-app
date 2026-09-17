@@ -198,4 +198,32 @@ void main() {
       expect(aligner.statuses, everyElement(WordStatus.correct));
     });
   });
+
+  group('speech budget', () {
+    test('a segment may not resolve more new words than its budget', () {
+      final aligner = QuranWordAligner(
+        ['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ', 'الَّذِينَ', 'هُمْ', 'فِي'],
+      );
+      // The recognizer guessed the whole phrase; only 0.5 s of speech was
+      // heard, so at most two words may be revealed for now.
+      final out = aligner.submitRecognizedSegment(
+        'قد افلح المؤمنون الذين هم في',
+        maxNewWords: 2,
+      );
+      expect(out.correct, [0, 1]);
+      expect(aligner.cursor, 2);
+      expect(aligner.statuses.sublist(2), everyElement(WordStatus.pending));
+
+      // More audio arrives: the same words resolve the rest.
+      aligner.submitRecognizedSegment('قد افلح المؤمنون الذين هم في',
+          maxNewWords: 10);
+      expect(aligner.isComplete, isTrue);
+    });
+
+    test('an unbounded budget behaves as before', () {
+      final aligner = QuranWordAligner(['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ']);
+      aligner.submitRecognizedSegment('قد افلح المؤمنون');
+      expect(aligner.isComplete, isTrue);
+    });
+  });
 }

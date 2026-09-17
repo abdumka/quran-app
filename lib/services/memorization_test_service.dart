@@ -134,6 +134,11 @@ class MemorizationTestService {
   /// the panel so a slow phone is visible rather than mysterious.
   final ValueNotifier<int> lastDecodeMs = ValueNotifier(0);
 
+  /// Latency the reciter felt for the last segment: milliseconds from the
+  /// capture of its last audio sample to its words being applied (-1 when
+  /// unknown). The number to watch when tuning speed.
+  final ValueNotifier<int> lastLagMs = ValueNotifier(-1);
+
   /// The most recent text the recognizer produced (raw), so the reciter
   /// can see what the app heard. Empty when nothing yet.
   final ValueNotifier<String> lastHeard = ValueNotifier('');
@@ -386,6 +391,7 @@ class MemorizationTestService {
       _engine = engine;
       _lastAyahIndex = 0;
       _unexplainedFinals = 0;
+      lastLagMs.value = -1;
       lastHeard.value = '';
       _setFeedback(null);
       _levelListener = () {
@@ -610,11 +616,19 @@ class MemorizationTestService {
 
     final ayahBefore = currentAyahIndex;
     final cursorBefore = aligner.cursor;
-    final outcome =
-        aligner.submitRecognizedSegment(text, isFinal: segment.isFinal);
+    final outcome = aligner.submitRecognizedSegment(
+      text,
+      isFinal: segment.isFinal,
+      maxNewWords: segment.maxNewWords,
+    );
+    if (segment.lagMs >= 0) lastLagMs.value = segment.lagMs;
     _recorder?.log('segment', {
       'text': text,
       'final': segment.isFinal,
+      'audioEndMs': segment.audioEndMs,
+      'speechMs': segment.speechMs,
+      'maxNew': segment.maxNewWords,
+      'lagMs': segment.lagMs,
       'cursorBefore': cursorBefore,
       'cursorAfter': aligner.cursor,
       'correct': outcome.correct,

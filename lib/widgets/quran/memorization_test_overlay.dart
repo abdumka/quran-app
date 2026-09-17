@@ -196,6 +196,7 @@ class _SessionPanel extends StatelessWidget {
         service.feedback,
         service.lastHeard,
         service.lastDecodeMs,
+        service.lastLagMs,
         service.lastSessionFiles,
       ]),
       builder: (context, _) {
@@ -381,6 +382,7 @@ class _SessionPanel extends StatelessWidget {
       label = busy ? 'جارٍ التحليل…' : 'يستمع إليك';
     }
     final ms = service.lastDecodeMs.value;
+    final lag = service.lastLagMs.value;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       textDirection: TextDirection.rtl,
@@ -398,7 +400,10 @@ class _SessionPanel extends StatelessWidget {
         if (ms > 0 && status == MemorizationTestStatus.listening) ...[
           const SizedBox(width: 8),
           Text(
-            '⏱ ${(ms / 1000).toStringAsFixed(1)} ث',
+            // decode time · lag behind the reciter's voice
+            lag >= 0
+                ? '⏱ ${(ms / 1000).toStringAsFixed(1)} ث · تأخر ${(lag / 1000).toStringAsFixed(1)} ث'
+                : '⏱ ${(ms / 1000).toStringAsFixed(1)} ث',
             style: TextStyle(
               color: _gold.withValues(alpha: 0.6),
               fontSize: 11,

@@ -6,9 +6,33 @@ import 'package:flutter/foundation.dart';
 /// of an utterance still in progress (cut mid-air, last word dropped, may
 /// be garbled) and true for the authoritative decode of a whole utterance.
 class RecognizedSegment {
-  const RecognizedSegment(this.text, {this.isFinal = true});
+  const RecognizedSegment(
+    this.text, {
+    this.isFinal = true,
+    this.audioEndMs = -1,
+    this.speechMs = -1,
+    this.maxNewWords = 0,
+    this.lagMs = -1,
+  });
+
   final String text;
   final bool isFinal;
+
+  /// Position (ms) in the microphone stream of the segment's last sample,
+  /// or -1 when the engine has no audio clock.
+  final int audioEndMs;
+
+  /// Speech-flagged audio (ms) heard since the previous segment, or -1.
+  final int speechMs;
+
+  /// Upper bound on how many NEW expected words this segment may resolve,
+  /// derived from [speechMs]; 0 means unbounded.
+  final int maxNewWords;
+
+  /// Milliseconds between the capture of the segment's last sample and
+  /// this segment reaching the service, or -1 when unknown. This is the
+  /// latency the reciter feels for the words in the segment.
+  final int lagMs;
 }
 
 /// Source of recognized-speech text segments for the memorization test.

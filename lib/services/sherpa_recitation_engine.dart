@@ -64,6 +64,7 @@ class SherpaRecitationEngine extends RecitationEngine {
 
   Isolate? _isolate;
   SendPort? _workerPort;
+  DateTime? _micStartedAt;
   StreamSubscription<Uint8List>? _micSub;
   ReceivePort? _receivePort;
 
@@ -101,10 +102,22 @@ class SherpaRecitationEngine extends RecitationEngine {
       if (message is SendPort) {
         readyCompleter.complete(message);
       } else if (message is _SegmentEvent) {
+        // Lag = how long ago the last sample of this segment was captured.
+        final micStart = _micStartedAt;
+        final lag = micStart == null
+            ? -1
+            : DateTime.now().difference(micStart).inMilliseconds -
+                message.audioEndMs;
         if (!_controller.isClosed) {
-          _controller.add(
-            RecognizedSegment(message.text, isFinal: message.isFinal),
-          );
+          _controller.add(RecognizedSegment(
+            message.text,
+            isFinal: message.isFinal,
+            audioEndMs: message.audioEndMs,
+            speechMs: message.speechMs,
+            maxNewWords:
+                (message.speechMs * _maxWordsPerSecond / 1000).ceil() + 2,
+            lagMs: lag,
+          ));
         }
       } else if (message is _LevelEvent) {
         audioLevel.value = message.level;
@@ -137,6 +150,7 @@ class SherpaRecitationEngine extends RecitationEngine {
         numChannels: 1,
       ),
     );
+    _micStartedAt = DateTime.now();
     _micSub = micStream.listen((chunk) {
       _workerPort?.send(chunk);
       if (_audioController.hasListener) _audioController.add(chunk);
@@ -214,9 +228,16 @@ class SherpaRecitationEngine extends RecitationEngine {
 }
 
 class _SegmentEvent {
-  const _SegmentEvent(this.text, {required this.isFinal});
+  const _SegmentEvent(
+    this.text, {
+    required this.isFinal,
+    required this.audioEndMs,
+    required this.speechMs,
+  });
   final String text;
   final bool isFinal;
+  final int audioEndMs;
+  final int speechMs;
 }
 
 class _DecodeStats {
@@ -263,7 +284,7 @@ const Duration _minInterimAudio = Duration(milliseconds: 1000);
 /// Rolling pre-roll kept while no speech is detected, prepended to the
 /// utterance buffer so the first word's onset isn't clipped (the VAD flips
 /// to "detected" only after min_speech_duration of voiced audio).
-const Duration _preRoll = Duration(milliseconds: 400);
+const Duration _preRoll = Duration(milliseconds: 1000);
 
 /// An utterance closes once no speech has been detected for this long.
 /// Silero flags a sustained madd (a long steady vowel at an ayah's end)
@@ -271,7 +292,7 @@ const Duration _preRoll = Duration(milliseconds: 400);
 /// "المؤ" on real recordings; the gap audio itself is KEPT in the segment
 /// because that is where the madd lives. 1 s recovered whole ayahs on the
 /// user's sessions (see tasmee_work/sweep.py).
-const Duration _endGap = Duration(milliseconds: 1000);
+const Duration _endGap = Duration(milliseconds: 800);
 
 /// Longest utterance before a soft force-split. The cut is placed at the
 /// quietest 100 ms of the last [_softCutSearch] so it never lands inside a
@@ -290,15 +311,23 @@ const Duration _softCutOverlap = Duration(milliseconds: 800);
 /// the word every time, while sherpa's tailPaddings did nothing for it.
 const Duration _decodeSilencePad = Duration(milliseconds: 1200);
 
-/// After every final decode of a segment longer than [_tailCheckMin], the
-/// last [_tailCheck] of it is decoded again on its own. Whisper-base is
-/// erratic about the last word or two of a segment ("…وَهُوَ الْعَزِي" for
-/// "…وَهُوَ الْعَزِيزُ الْحَكِيمُ", and the same audio decodes whole from a
-/// different start point), while a short window ending at the same place
-/// reliably gets the ending. The tail text is sent as a second final; the
-/// aligner's history absorbs the overlap.
+/// Every final segment is decoded twice: in full, and as a tail window
+/// ending at the same point (the last [_tailCheck], or the segment minus
+/// its first [_tailSkip] when it is shorter). Whisper-base is erratic about
+/// the last word or two of a segment ("…وَهُوَ الْعَزِي" for "…وَهُوَ
+/// الْعَزِيزُ الْحَكِيمُ") and the same audio decodes whole from a different
+/// start point, so a second decode from another start is the cheapest
+/// reliable fix; the aligner's history absorbs the overlap. When interim
+/// decodes are running (fast phone) the tail goes FIRST, since it is
+/// quicker to decode and carries the words the reciter just said.
 const Duration _tailCheck = Duration(milliseconds: 4000);
-const Duration _tailCheckMin = Duration(milliseconds: 5500);
+const Duration _tailSkip = Duration(milliseconds: 500);
+const Duration _tailCheckMin = Duration(milliseconds: 2000);
+
+/// Words per second no reciter exceeds; with the speech actually heard
+/// since the previous segment it bounds how many NEW words a segment may
+/// resolve (see RecognizedSegment.speechMs).
+const double _maxWordsPerSecond = 4.0;
 
 /// Interim decodes look only at this much trailing audio (see
 /// [SherpaRecitationEngine.interimTail]).
@@ -413,25 +442,45 @@ Future<void> _workerMain(_WorkerInit init) async {
   final softCutOverlapSamples =
       _softCutOverlap.inMilliseconds * _sampleRate ~/ 1000;
   final tailCheckSamples = _tailCheck.inMilliseconds * _sampleRate ~/ 1000;
+  final tailSkipSamples = _tailSkip.inMilliseconds * _sampleRate ~/ 1000;
   final tailCheckMinSamples =
       _tailCheckMin.inMilliseconds * _sampleRate ~/ 1000;
 
-  /// Decodes a whole final segment, then re-decodes its tail (see
-  /// _tailCheck) and sends both as finals.
-  void decodeFinal(Float32List samples) {
-    final text = decode(samples, 'final');
-    if (text.isNotEmpty) {
-      init.replyTo.send(_SegmentEvent(text, isFinal: true));
-    }
+  // Audio clock: samples received so far (the position of the newest
+  // sample in the stream), and speech-flagged samples accumulated since the
+  // previous emitted segment (the budget of new words it may carry).
+  var audioSamples = 0;
+  var speechSinceSegment = 0;
+
+  void emit(String text, {required bool isFinal, required int audioEnd}) {
+    if (text.isEmpty) return;
+    init.replyTo.send(_SegmentEvent(
+      text,
+      isFinal: isFinal,
+      audioEndMs: audioEnd * 1000 ~/ _sampleRate,
+      speechMs: speechSinceSegment * 1000 ~/ _sampleRate,
+    ));
+    speechSinceSegment = 0;
+  }
+
+  /// Decodes a final segment twice (full + tail window, see _tailCheck).
+  /// [audioEnd] is the stream position of the segment's last sample.
+  void decodeFinal(Float32List samples, int audioEnd) {
+    Float32List? tail;
     if (samples.length >= tailCheckMinSamples) {
-      final tail = Float32List.sublistView(
-        samples,
+      final from = math.max(
+        tailSkipSamples,
         samples.length - tailCheckSamples,
       );
-      final tailText = decode(tail, 'tail');
-      if (tailText.isNotEmpty) {
-        init.replyTo.send(_SegmentEvent(tailText, isFinal: true));
-      }
+      tail = Float32List.sublistView(samples, from);
+    }
+    final tailFirst = tail != null && lastDecodeMs < _interimDisableDecodeMs;
+    if (tailFirst) {
+      emit(decode(tail, 'tail'), isFinal: true, audioEnd: audioEnd);
+    }
+    emit(decode(samples, 'final'), isFinal: true, audioEnd: audioEnd);
+    if (tail != null && !tailFirst) {
+      emit(decode(tail, 'tail'), isFinal: true, audioEnd: audioEnd);
     }
   }
   var preRollBuffer = <Float32List>[];
@@ -496,12 +545,14 @@ Future<void> _workerMain(_WorkerInit init) async {
       peakRms = 0.0;
     }
 
+    audioSamples += float32.length;
     vad.acceptWaveform(float32);
     // Drain the VAD's own segments; only its live speech flag is used.
     while (!vad.isEmpty()) {
       vad.pop();
     }
     final speechNow = vad.isDetected();
+    if (speechNow) speechSinceSegment += float32.length;
 
     if (speechActive) {
       utterance.add(float32);
@@ -534,7 +585,7 @@ Future<void> _workerMain(_WorkerInit init) async {
       utterance = [];
       utteranceLength = 0;
       silenceRun = 0;
-      decodeFinal(samples);
+      decodeFinal(samples, audioSamples);
       lastDecodeStarted = DateTime.now();
       continue;
     }
@@ -553,7 +604,7 @@ Future<void> _workerMain(_WorkerInit init) async {
           Float32List.fromList(Float32List.sublistView(all, restStart));
       utterance = [rest];
       utteranceLength = rest.length;
-      decodeFinal(head);
+      decodeFinal(head, audioSamples - rest.length + softCutOverlapSamples);
       lastDecodeStarted = DateTime.now();
       continue;
     }
@@ -581,9 +632,7 @@ Future<void> _workerMain(_WorkerInit init) async {
         decode(tail, 'interim'),
       );
       if (cut) text = SherpaRecitationEngine.trimTailCutResult(text);
-      if (text.isNotEmpty) {
-        init.replyTo.send(_SegmentEvent(text, isFinal: false));
-      }
+      emit(text, isFinal: false, audioEnd: audioSamples);
     }
   }
 

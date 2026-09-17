@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'arabic_text_normalizer.dart';
 
 /// [normalizeArabicText] with the dagger alef (U+0670) removed rather than
@@ -188,9 +190,17 @@ class QuranWordAligner {
   /// aligner and reports what changed. [isFinal] is false for interim
   /// (mid-utterance) decodes, which may advance on matches but never count
   /// as a strike against the front word.
+  ///
+  /// [maxNewWords], when positive, bounds how many pending words this
+  /// segment may resolve (correct or skipped). The engine derives it from
+  /// the amount of speech heard since the previous segment: a Quran-tuned
+  /// recognizer readily completes a familiar phrase it has not actually
+  /// heard yet, and this keeps such guessed-ahead words masked until the
+  /// audio that carries them has arrived.
   SegmentOutcome submitRecognizedSegment(
     String rawRecognizedText, {
     bool isFinal = true,
+    int maxNewWords = 0,
   }) {
     if (isComplete) return const SegmentOutcome.empty();
 
@@ -202,11 +212,12 @@ class QuranWordAligner {
     var remaining = tokens;
     var anyHistoryMatch = false;
     var advanced = false;
+    var budget = maxNewWords > 0 ? maxNewWords : 1 << 30;
 
     // A segment can carry more words than one window. Consume it window by
     // window: apply an alignment, drop the tokens it used, and align what's
     // left against the next window until nothing more matches.
-    while (remaining.isNotEmpty && !isComplete) {
+    while (remaining.isNotEmpty && !isComplete && budget > 0) {
       final historyStart = (_cursor - historySize).clamp(0, _cursor);
       final windowEnd = (_cursor + windowSize).clamp(_cursor, length);
       final historyLen = _cursor - historyStart;
@@ -252,7 +263,11 @@ class QuranWordAligner {
       }
 
       advanced = true;
-      for (var rel = 0; rel <= alignment.matchedUpTo; rel++) {
+      // Never resolve more than the speech budget allows; the words the
+      // segment carries beyond it stay pending until more audio arrives.
+      final upTo = math.min(alignment.matchedUpTo, budget - 1);
+      budget -= upTo + 1;
+      for (var rel = 0; rel <= upTo; rel++) {
         final absoluteIndex = _cursor + rel;
         if (alignment.matchedRelIndices.contains(rel)) {
           _missStreak[absoluteIndex] = 0;
@@ -265,7 +280,8 @@ class QuranWordAligner {
           _setStatus(absoluteIndex, WordStatus.skipped);
         }
       }
-      _cursor += alignment.matchedUpTo + 1;
+      _cursor += upTo + 1;
+      if (upTo < alignment.matchedUpTo) break; // budget exhausted
       if (alignment.matchedTokenUpTo + 1 >= remaining.length) break;
       remaining = remaining.sublist(alignment.matchedTokenUpTo + 1);
     }
