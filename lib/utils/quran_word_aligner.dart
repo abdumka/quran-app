@@ -83,6 +83,7 @@ class QuranWordAligner {
     List<String> expectedWords, {
     this.windowSize = 6,
     this.historySize = 40,
+    this.resyncReach = 30,
   })  : assert(expectedWords.isNotEmpty, 'expectedWords must not be empty'),
         assert(windowSize > 0, 'windowSize must be positive'),
         _expectedNormalized = List.unmodifiable(
@@ -105,6 +106,10 @@ class QuranWordAligner {
   /// How many still-unresolved expected words (from the cursor forward) a
   /// single recognized segment is allowed to align against.
   final int windowSize;
+
+  /// How far past the window a final segment may resync (see
+  /// [_resyncPoint]): a few ayahs, never the whole page.
+  final int resyncReach;
 
   /// How many already-resolved words before the cursor take part in the
   /// alignment so that repeated / overlapping speech is absorbed instead of
@@ -263,10 +268,22 @@ class QuranWordAligner {
       }
 
       advanced = true;
-      // Never resolve more than the speech budget allows; the words the
-      // segment carries beyond it stay pending until more audio arrives.
-      final upTo = math.min(alignment.matchedUpTo, budget - 1);
-      budget -= upTo + 1;
+      // Never reveal more CORRECT words than the speech budget allows; the
+      // words the segment carries beyond it stay pending until more audio
+      // arrives. (Skipped words are not shown as recited, so they do not
+      // count -- a resync over a garbled stretch must stay possible.)
+      var upTo = alignment.matchedUpTo;
+      var matchedSoFar = 0;
+      for (var rel = 0; rel <= alignment.matchedUpTo; rel++) {
+        if (alignment.matchedRelIndices.contains(rel)) {
+          if (matchedSoFar >= budget) {
+            upTo = rel - 1;
+            break;
+          }
+          matchedSoFar++;
+        }
+      }
+      budget -= matchedSoFar;
       for (var rel = 0; rel <= upTo; rel++) {
         final absoluteIndex = _cursor + rel;
         if (alignment.matchedRelIndices.contains(rel)) {
@@ -280,6 +297,7 @@ class QuranWordAligner {
           _setStatus(absoluteIndex, WordStatus.skipped);
         }
       }
+      if (upTo < 0) break; // budget exhausted before the first match
       _cursor += upTo + 1;
       if (upTo < alignment.matchedUpTo) break; // budget exhausted
       if (alignment.matchedTokenUpTo + 1 >= remaining.length) break;
@@ -288,6 +306,35 @@ class QuranWordAligner {
 
     if (advanced) {
       return SegmentOutcome(tokens: tokens, correct: correct, skipped: skipped);
+    }
+
+    // RESYNC: nothing aligned near the cursor, but a final segment matches
+    // three or more consecutive words further down the page. The stretch
+    // in between was recited but garbled by the recognizer (it happens to
+    // whole phrases when the voice is quiet); without this the window never
+    // sees past it and the session is stuck. Jump there, marking the
+    // unheard stretch skipped, and align the segment from the new place.
+    if (isFinal && !anyHistoryMatch && tokens.length >= 3) {
+      final at = _resyncPoint(tokens);
+      if (at > _cursor) {
+        for (var i = _cursor; i < at; i++) {
+          skipped.add(i);
+          _setStatus(i, WordStatus.skipped);
+        }
+        _cursor = at;
+        final again = submitRecognizedSegment(
+          rawRecognizedText,
+          isFinal: isFinal,
+          maxNewWords: maxNewWords,
+        );
+        return SegmentOutcome(
+          tokens: tokens,
+          correct: again.correct,
+          skipped: [...skipped, ...again.skipped],
+          mistakes: again.mistakes,
+          unclearIndex: again.unclearIndex,
+        );
+      }
     }
 
     // Nothing in this segment aligned with anything still pending.
@@ -311,6 +358,28 @@ class QuranWordAligner {
       return SegmentOutcome(tokens: tokens, mistakes: [frontIndex]);
     }
     return SegmentOutcome(tokens: tokens, unclearIndex: frontIndex);
+  }
+
+  /// Where a segment that matched nothing near the cursor lines up further
+  /// ahead: the first position past the window (within [resyncReach]
+  /// words) at which the segment's leading tokens -- allowing up to two
+  /// garbled ones in front -- match at least three consecutive expected
+  /// words. Returns -1 when there is no such place.
+  int _resyncPoint(List<String> tokens) {
+    final from = _cursor + windowSize;
+    final to = math.min(length, _cursor + resyncReach);
+    for (var lead = 0; lead <= 2; lead++) {
+      if (tokens.length - lead < 3) break;
+      for (var at = from; at + 3 <= to; at++) {
+        var run = 0;
+        for (var k = lead; k < tokens.length && at + k - lead < length; k++) {
+          if (!_closeToExpected(at + k - lead, tokens[k])) break;
+          run++;
+        }
+        if (run >= 3) return at;
+      }
+    }
+    return -1;
   }
 
   void _setStatus(int index, WordStatus status) {

@@ -71,16 +71,19 @@ void main() {
     expect(service.statuses.first, WordStatus.mistake);
   });
 
-  test('reciting a different ayah of the page is called out by number',
+  test('jumping to a later ayah of the page is called out by number',
       () async {
     await startPage1();
-    // Ayah 5 while ayah 1 is expected: far outside the aligner window.
+    // Ayah 5 while ayah 1 is expected: the aligner resyncs there and the
+    // passed-over ayahs are reported as skipped.
     await emit('اهدنا الصراط المستقيم');
     expect(service.feedback.value?.kind, FeedbackKind.wrong);
-    expect(service.feedback.value?.message, contains('الآية 5'));
-    expect(service.feedback.value?.message, contains('المطلوب الآية 1'));
-    // Nothing was revealed by the wrong ayah.
-    expect(service.currentAyahIndex, 0);
+    expect(service.feedback.value?.message, contains('تجاوزت الآيات 1–4'));
+    expect(service.feedback.value?.message, contains('أنت الآن في الآية 6'));
+    expect(service.currentAyahIndex, 5);
+    expect(service.ayahStates.sublist(0, 4),
+        everyElement(AyahRevealState.flagged));
+    expect(service.ayahStates[4], AyahRevealState.revealed);
   });
 
   test('hint shows the next expected word without revealing anything',

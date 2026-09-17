@@ -226,4 +226,40 @@ void main() {
       expect(aligner.isComplete, isTrue);
     });
   });
+
+  group('resync after a garbled stretch', () {
+    final words = 'وإن امرأة خافت من بعلها نشوزا أو إعراضا فلا جناح عليهما أن يصلحا بينهما صلحا والصلح خير وأحضرت الأنفس الشح وإن تحسنوا وتتقوا فإن الله كان بما تعملون خبيرا'
+        .split(' ');
+
+    test('a final matching three words past the window jumps there', () {
+      final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('وإن امرأة خافت من بعلها');
+      expect(aligner.cursor, 5);
+      // The next nine words were garbled; then the recognizer catches up.
+      final out = aligner.submitRecognizedSegment('صلحا والصلح خير وأحضرت');
+      expect(out.correct, [14, 15, 16, 17]);
+      expect(aligner.cursor, 18);
+      expect(
+        aligner.statuses.sublist(5, 14),
+        everyElement(WordStatus.skipped),
+      );
+    });
+
+    test('interims never resync', () {
+      final aligner = QuranWordAligner(words);
+      final out = aligner.submitRecognizedSegment(
+        'صلحا والصلح خير وأحضرت',
+        isFinal: false,
+      );
+      expect(out.correct, isEmpty);
+      expect(aligner.cursor, 0);
+    });
+
+    test('two matching words are not enough to resync', () {
+      final aligner = QuranWordAligner(words);
+      final out = aligner.submitRecognizedSegment('كلام آخر والصلح خير');
+      expect(out.correct, isEmpty);
+      expect(aligner.cursor, 0);
+    });
+  });
 }

@@ -696,6 +696,26 @@ class MemorizationTestService {
       return;
     }
     if (outcome.skipped.isNotEmpty) {
+      // A jump across ayahs (the aligner resynced further down the page):
+      // say which ayahs were passed over and where the reciter is now.
+      final page = _page;
+      final firstAyah = _ayahIndexOfWord(outcome.skipped.first);
+      final lastSkippedAyah = _ayahIndexOfWord(outcome.skipped.last);
+      final nowAyah = aligner.isComplete
+          ? _ayahWordStarts.length - 2
+          : currentAyahIndex;
+      if (page != null && firstAyah >= 0 && nowAyah > firstAyah) {
+        final from = page.ayahs[firstAyah].ayah;
+        final to = page.ayahs[lastSkippedAyah].ayah;
+        final now = page.ayahs[nowAyah].ayah;
+        _setFeedback(RecitationFeedback(
+          FeedbackKind.wrong,
+          from == to
+              ? 'تجاوزت الآية $from — أنت الآن في الآية $now'
+              : 'تجاوزت الآيات $from–$to — أنت الآن في الآية $now',
+        ));
+        return;
+      }
       final words = outcome.skipped
           .take(3)
           .map((i) => _expectedWords[i])
