@@ -33,7 +33,7 @@ dependencies:
   # Memorization-test mode: on-device recitation recognition.
   record: ^6.1.2
   permission_handler: ^12.0.1
-  sherpa_onnx: ^1.13.4
+  sherpa_onnx: ^1.13.6
 
 dev_dependencies:
   flutter_test:
@@ -62,6 +62,7 @@ flutter:
     - assets/data/ayah_positions.json
     - assets/data/ayah_regions.json
     - assets/data/word_regions.json
+    - assets/data/page_phonemes.json
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
   

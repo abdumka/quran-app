@@ -184,6 +184,61 @@ class QuranWordAligner {
     if (_cursor < to) _cursor = to;
   }
 
+  /// Applies verdicts decided outside this aligner (the phoneme tracker of
+  /// the streaming engine) and moves the cursor to the first word still
+  /// pending. Statuses only ever improve: `pending` takes anything,
+  /// `skipped`/`mistake` may be repaired to `correct` (the reciter went
+  /// back and said the word), `correct` never changes. Returns what changed
+  /// in the same shape as [submitRecognizedSegment] so feedback can reuse
+  /// the same explanations; [heardTokens] is only carried through.
+  SegmentOutcome applyExternalVerdicts(
+    Map<int, WordStatus> updates, {
+    List<String> heardTokens = const [],
+  }) {
+    final correct = <int>[];
+    final skipped = <int>[];
+    final mistakes = <int>[];
+    final sorted = updates.keys.toList()..sort();
+    for (final i in sorted) {
+      if (i < 0 || i >= length) continue;
+      final wanted = updates[i]!;
+      final current = _statuses[i];
+      if (current == wanted) continue;
+      if (current == WordStatus.correct) continue;
+      if ((current == WordStatus.skipped || current == WordStatus.mistake) &&
+          wanted != WordStatus.correct) {
+        continue;
+      }
+      _missStreak[i] = 0;
+      _setStatus(i, wanted);
+      switch (wanted) {
+        case WordStatus.correct:
+          correct.add(i);
+        case WordStatus.skipped:
+          skipped.add(i);
+        case WordStatus.mistake:
+          mistakes.add(i);
+        case WordStatus.pending:
+        case WordStatus.unclear:
+          break;
+      }
+    }
+    var c = 0;
+    while (c < length &&
+        (_statuses[c] == WordStatus.correct ||
+            _statuses[c] == WordStatus.mistake ||
+            _statuses[c] == WordStatus.skipped)) {
+      c++;
+    }
+    _cursor = c;
+    return SegmentOutcome(
+      tokens: heardTokens,
+      correct: correct,
+      skipped: skipped,
+      mistakes: mistakes,
+    );
+  }
+
   /// How many of [tokens] (already normalized) match the expected words
   /// starting at [at], position by position. Used for "wrong ayah"
   /// detection outside the window.

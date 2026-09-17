@@ -8,7 +8,10 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/ayah_region_data.dart';
 import '../models/quran_page_data.dart';
 import '../models/word_region_data.dart';
+import '../utils/phoneme_tracker.dart';
 import '../utils/quran_word_aligner.dart';
+import 'page_phoneme_service.dart';
+import 'zipformer_recitation_engine.dart';
 import 'asr_model_manager.dart';
 import 'audio_service.dart';
 import 'ayah_region_service.dart';
@@ -152,6 +155,15 @@ class MemorizationTestService {
   final ValueNotifier<List<String>> lastSessionFiles = ValueNotifier(const []);
 
   QuranWordAligner? _aligner;
+
+  /// Set while the streaming phoneme engine runs: the page's expected
+  /// phonemes tracked online, judged into word verdicts that are applied
+  /// to [_aligner] (which stays the single source of word statuses).
+  PhonemeTracker? _tracker;
+  VerdictTracer? _tracer;
+  Timer? _trackerTimer;
+  DateTime _lastPhonemeAt = DateTime.now();
+  bool _settledApplied = false;
   AyahRegionPageData? _regions;
 
   /// Per ayah (parallel to [regions]), the boxes of its words in order, or
@@ -387,6 +399,32 @@ class MemorizationTestService {
         }
       }
 
+      PhonemeTracker? tracker;
+      VerdictTracer? tracer;
+      if (engine.emitsPhonemes) {
+        final phonemes = await PagePhonemeService.forPage(pageNumber);
+        if (token != _startToken) {
+          await engine.stop();
+          return false;
+        }
+        if (phonemes == null || phonemes.words.length != expectedWords.length) {
+          debugPrint('MemorizationTestService: page phonemes unusable for '
+              'page $pageNumber (${phonemes?.words.length} vs '
+              '${expectedWords.length} words)');
+          await engine.stop();
+          status.value = MemorizationTestStatus.failed;
+          return false;
+        }
+        tracker = PhonemeTracker(
+          PhonemeReference(phonemes.collapsed(), PhonemeCostTable()),
+        );
+        tracer = VerdictTracer(tracker);
+      }
+      _tracker = tracker;
+      _tracer = tracer;
+      _settledApplied = false;
+      _lastPhonemeAt = DateTime.now();
+
       _aligner = aligner;
       _regions = regions;
       _wordBoxes = _usableWordBoxes(wordRegions, page);
@@ -433,7 +471,11 @@ class MemorizationTestService {
         _recorder = await TasmeeSessionRecorder.begin(
           page: pageNumber,
           info: {
-            'engine': usingRealEngine.value ? 'sherpa' : 'stub',
+            'engine': engine.emitsPhonemes
+                ? 'zipformer'
+                : usingRealEngine.value
+                    ? 'sherpa'
+                    : 'stub',
             'stubReason': stubReason.value.name,
             'ayahs': [
               for (final a in page.ayahs) '${a.surah}:${a.ayah}',
@@ -456,6 +498,12 @@ class MemorizationTestService {
       _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         _checkSilence();
       });
+      if (tracker != null) {
+        _trackerTimer = Timer.periodic(
+          const Duration(milliseconds: 250),
+          (_) => _tickTracker(),
+        );
+      }
       revision.value++;
       return true;
     } catch (error, stack) {
@@ -550,6 +598,14 @@ class MemorizationTestService {
       return null;
     }
 
+    if (await manager.hasZipformer()) {
+      return ZipformerRecitationEngine(
+        ZipformerModelPaths(
+          model: await manager.pathFor('zipformer_p_arabic_v3.1.int8.onnx'),
+          tokens: await manager.pathFor('zipformer-tokens.txt'),
+        ),
+      );
+    }
     return SherpaRecitationEngine(
       SherpaModelPaths(
         encoder: await manager.pathFor('base-encoder.int8.onnx'),
@@ -616,6 +672,10 @@ class MemorizationTestService {
     if (aligner == null || status.value != MemorizationTestStatus.listening) {
       return;
     }
+    if (segment.phonemes != null) {
+      _handlePhonemes(segment);
+      return;
+    }
     final text = segment.text;
     _lastVoiceOrSegment = DateTime.now();
     _silenceWarned = false;
@@ -653,6 +713,121 @@ class MemorizationTestService {
     revision.value++;
 
     _explain(outcome, text, ayahBefore, isFinal: segment.isFinal);
+    _finishIfComplete();
+  }
+
+  // ---------------------------------------------------------------------
+  // Streaming phoneme path
+  // ---------------------------------------------------------------------
+
+  /// Feeds newly emitted phoneme tokens to the tracker and applies what it
+  /// can already judge. Verdicts that need the reciter to move on (dwell)
+  /// or to pause (settle) arrive through [_tickTracker].
+  void _handlePhonemes(RecognizedSegment segment) {
+    final tracker = _tracker;
+    if (tracker == null) return;
+    final tokens = segment.phonemes!;
+    if (tokens.isEmpty) return;
+    final times = segment.phonemeTimesMs ?? const <int>[];
+    _lastVoiceOrSegment = DateTime.now();
+    _silenceWarned = false;
+    final chars = <HeardChar>[];
+    for (var k = 0; k < tokens.length; k++) {
+      final ms = k < times.length ? times[k] : segment.audioEndMs;
+      final frame = (ms / 40).round();
+      for (final r in collapseMadd(tokens[k]).runes) {
+        chars.add(HeardChar(String.fromCharCode(r), frame));
+      }
+    }
+    tracker.feed(chars);
+    _lastPhonemeAt = DateTime.now();
+    _settledApplied = false;
+    if (segment.lagMs >= 0) lastLagMs.value = segment.lagMs;
+    final shown = lastHeard.value + tokens.join();
+    lastHeard.value =
+        shown.length > 40 ? shown.substring(shown.length - 40) : shown;
+    _recorder?.log('phonemes', {
+      'tokens': tokens,
+      'timesMs': times,
+      'audioEndMs': segment.audioEndMs,
+      'lagMs': segment.lagMs,
+    });
+    _applyTrackerVerdicts(settled: false);
+  }
+
+  void _tickTracker() {
+    if (_tracker == null || status.value != MemorizationTestStatus.listening) {
+      return;
+    }
+    final settled =
+        DateTime.now().difference(_lastPhonemeAt).inMilliseconds >= 1000;
+    if (!settled || _settledApplied) return;
+    _settledApplied = true;
+    _applyTrackerVerdicts(settled: true);
+  }
+
+  /// Maps tracker verdicts onto word statuses. `ok`/`unsure` reveal the
+  /// word; `skipped` marks it; `wrong` becomes a mistake only once the
+  /// reciter has clearly moved on or paused, so a self-correction a moment
+  /// later still repairs it. Words the cursor has passed without any
+  /// verdict are swept as skipped so ayahs can complete.
+  void _applyTrackerVerdicts({required bool settled}) {
+    final tracker = _tracker;
+    final tracer = _tracer;
+    final aligner = _aligner;
+    if (tracker == null || tracer == null || aligner == null ||
+        aligner.isComplete) {
+      return;
+    }
+    final ayahBefore = currentAyahIndex;
+    final cursorWord = tracker.cursorWord;
+    final updates = <int, WordStatus>{};
+    for (final v in tracer.verdicts(settled: settled)) {
+      switch (v.state) {
+        case VerdictState.ok:
+        case VerdictState.unsure:
+          updates[v.word] = WordStatus.correct;
+        case VerdictState.skipped:
+          updates[v.word] = WordStatus.skipped;
+        case VerdictState.wrong:
+          if (settled || v.word < cursorWord - 1) {
+            updates[v.word] = WordStatus.mistake;
+          }
+        case VerdictState.pending:
+          break;
+      }
+    }
+    final behind = settled ? cursorWord : cursorWord - 2;
+    for (var w = 0; w < behind && w < aligner.length; w++) {
+      if (aligner.statuses[w] == WordStatus.pending &&
+          !updates.containsKey(w)) {
+        updates[w] = WordStatus.skipped;
+      }
+    }
+    if (updates.isEmpty) return;
+    final heardWords = [
+      for (final e in updates.entries)
+        if (e.value == WordStatus.correct) aligner.expectedNormalized[e.key],
+    ];
+    final outcome = aligner.applyExternalVerdicts(
+      updates,
+      heardTokens: heardWords.isNotEmpty ? heardWords : const ['\u00b7'],
+    );
+    if (outcome.correct.isEmpty &&
+        outcome.skipped.isEmpty &&
+        outcome.mistakes.isEmpty) {
+      return;
+    }
+    _recorder?.log('verdicts', {
+      'settled': settled,
+      'cursor': cursorWord,
+      'correct': outcome.correct,
+      'skipped': outcome.skipped,
+      'mistakes': outcome.mistakes,
+      'cursorAfter': aligner.cursor,
+    });
+    revision.value++;
+    _explain(outcome, heardWords.join(' '), ayahBefore, isFinal: true);
     _finishIfComplete();
   }
 
@@ -883,6 +1058,8 @@ class MemorizationTestService {
   Future<void> _stopEngineOnly() async {
     _silenceTimer?.cancel();
     _silenceTimer = null;
+    _trackerTimer?.cancel();
+    _trackerTimer = null;
     await _segmentSub?.cancel();
     _segmentSub = null;
     await _audioSub?.cancel();
@@ -927,6 +1104,8 @@ class MemorizationTestService {
     feedback.value = null;
     lastHeard.value = '';
     _aligner = null;
+    _tracker = null;
+    _tracer = null;
     _regions = null;
     _wordBoxes = const [];
     _page = null;

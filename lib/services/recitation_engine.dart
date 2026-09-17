@@ -13,7 +13,17 @@ class RecognizedSegment {
     this.speechMs = -1,
     this.maxNewWords = 0,
     this.lagMs = -1,
+    this.phonemes,
+    this.phonemeTimesMs,
   });
+
+  /// Streaming phoneme engines (see `ZipformerRecitationEngine`) set these:
+  /// the newly emitted Quran-phonetic-script tokens and the audio time (ms
+  /// from stream start) each was emitted at. [text] then holds the tokens
+  /// joined, for display only, and the session feeds a phoneme tracker
+  /// instead of the word aligner.
+  final List<String>? phonemes;
+  final List<int>? phonemeTimesMs;
 
   final String text;
   final bool isFinal;
@@ -72,6 +82,10 @@ abstract class RecitationEngine {
   /// that was already recognized (interim decodes); the aligner is designed
   /// to absorb that.
   Stream<RecognizedSegment> get segments;
+
+  /// True for streaming phoneme engines whose segments carry
+  /// [RecognizedSegment.phonemes] instead of words.
+  bool get emitsPhonemes => false;
 
   /// Begins producing [segments]. Completes once the engine is live.
   Future<void> start();

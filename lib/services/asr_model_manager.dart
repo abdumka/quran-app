@@ -49,6 +49,15 @@ class AsrModelManager {
     'silero_vad.onnx': 643854,
   };
 
+  /// The streaming phoneme recognizer (Quran-Lab `zipformer_p_arabic_v3.1`,
+  /// int8, NPL-1.2 -- see `asr_model_upload/zipformer-LICENSE-NPL-1.2.txt`)
+  /// and its 251-token symbol table. When present this set is preferred
+  /// over the Whisper set above; it is what [download] fetches.
+  static const Map<String, int> zipformerFiles = {
+    'zipformer_p_arabic_v3.1.int8.onnx': 72705392,
+    'zipformer-tokens.txt': 2346,
+  };
+
   final ValueNotifier<AsrModelState> state =
       ValueNotifier(AsrModelState.notDownloaded);
 
@@ -85,23 +94,34 @@ class AsrModelManager {
 
   /// The directory the model is actually read from: the external dev-drop
   /// when it holds a complete set, otherwise the internal download dir.
-  Future<Directory> effectiveModelDirectory() async {
+  Future<Directory> effectiveModelDirectory([Map<String, int>? files]) async {
+    final set = files ?? _files;
     final drop = await _externalDropDirectory();
-    if (drop != null && await _dirHasAllFiles(drop)) return drop;
+    if (drop != null && await _dirHasAllFiles(drop, set)) return drop;
     return modelDirectory();
   }
 
   Future<String> pathFor(String fileName) async {
-    final dir = await effectiveModelDirectory();
+    final set = zipformerFiles.containsKey(fileName) ? zipformerFiles : _files;
+    final dir = await effectiveModelDirectory(set);
     return '${dir.path}${Platform.pathSeparator}$fileName';
   }
+
+  /// True when the streaming phoneme model set is present (dev-drop or
+  /// downloaded). The session prefers it over the Whisper set.
+  Future<bool> hasZipformer() async =>
+      _dirHasAllFiles(await effectiveModelDirectory(zipformerFiles), zipformerFiles);
+
+  /// True when the legacy Whisper set is present.
+  Future<bool> hasWhisper() async =>
+      _dirHasAllFiles(await effectiveModelDirectory(_files), _files);
 
   /// True when [dir] contains every expected file at a plausible size.
   /// Sanity floor at 1% of the expected size catches truncated files and
   /// error-page responses without rejecting legitimate re-exports whose
   /// size shifted.
-  Future<bool> _dirHasAllFiles(Directory dir) async {
-    for (final entry in _files.entries) {
+  Future<bool> _dirHasAllFiles(Directory dir, [Map<String, int>? files]) async {
+    for (final entry in (files ?? _files).entries) {
       final file = File('${dir.path}${Platform.pathSeparator}${entry.key}');
       if (!await file.exists() || await file.length() < entry.value ~/ 100) {
         return false;
@@ -112,12 +132,12 @@ class AsrModelManager {
 
   /// Rough total download size, for the user-facing prompt.
   int get totalDownloadBytes =>
-      _files.values.fold(0, (sum, size) => sum + size);
+      zipformerFiles.values.fold(0, (sum, size) => sum + size);
 
   /// Re-checks local file presence (external dev-drop or internal dir) and
   /// updates [state]. Never touches the network.
   Future<bool> refresh() async {
-    final allPresent = await _dirHasAllFiles(await effectiveModelDirectory());
+    final allPresent = await hasZipformer() || await hasWhisper();
     if (state.value != AsrModelState.downloading) {
       state.value =
           allPresent ? AsrModelState.ready : AsrModelState.notDownloaded;
@@ -142,7 +162,7 @@ class AsrModelManager {
       final total = totalDownloadBytes;
       var doneBytes = 0;
 
-      for (final entry in _files.entries) {
+      for (final entry in zipformerFiles.entries) {
         final target = File(
           '${dir.path}${Platform.pathSeparator}${entry.key}',
         );
