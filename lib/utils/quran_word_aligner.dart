@@ -224,6 +224,7 @@ class QuranWordAligner {
     final skipped = <int>[];
     var remaining = tokens;
     var anyHistoryMatch = false;
+    var historyMatchedTokens = 0;
     var advanced = false;
     var budget = maxNewWords > 0 ? maxNewWords : 1 << 30;
 
@@ -241,6 +242,7 @@ class QuranWordAligner {
         tokens: remaining,
       );
       if (alignment.historyMatched) anyHistoryMatch = true;
+      historyMatchedTokens += alignment.historyMatchedIndices.length;
       // A final decode re-covers audio an interim only saw in part: a word
       // the interim could not hear (and so swept as skipped) now arrives
       // whole. Matching it in the history repairs the verdict.
@@ -317,6 +319,13 @@ class QuranWordAligner {
       return SegmentOutcome(tokens: tokens, correct: correct, skipped: skipped);
     }
 
+    // A genuine repeat has most of its words in the history. One common
+    // word ("عليهم", "قال") landing there does not make a segment a repeat;
+    // treating it as one hid a whole clean ayah recited past a garbled
+    // stretch, and the session never resynced.
+    final isRepeat =
+        anyHistoryMatch && historyMatchedTokens * 2 >= tokens.length;
+
     // RESYNC: nothing aligned near the cursor, but a final segment matches
     // three or more consecutive words further down the page. The stretch
     // in between was recited but garbled by the recognizer (it happens to
@@ -327,11 +336,8 @@ class QuranWordAligner {
     // the second unexplained final in a row): on the first one the
     // caller's "you seem to be reading ayah N" feedback is the right
     // answer, and the cursor must stay put.
-    if (isFinal && !anyHistoryMatch && tokens.length >= 2) _lostFinals++;
-    if (isFinal &&
-        !anyHistoryMatch &&
-        tokens.length >= 3 &&
-        _lostFinals >= 2) {
+    if (isFinal && !isRepeat && tokens.length >= 2) _lostFinals++;
+    if (isFinal && !isRepeat && tokens.length >= 3 && _lostFinals >= 2) {
       final at = _resyncPoint(tokens);
       if (at > _cursor) {
         _lostFinals = 0;
@@ -356,7 +362,7 @@ class QuranWordAligner {
     }
 
     // Nothing in this segment aligned with anything still pending.
-    if (anyHistoryMatch) {
+    if (isRepeat) {
       // The user repeated words they already recited: harmless.
       return SegmentOutcome(tokens: tokens, repeatOfHistory: true);
     }
