@@ -275,7 +275,7 @@ class _BusyEvent {
 const int _sampleRate = 16000;
 
 /// How often, at most, an interim decode may start while speech continues.
-const Duration _interimInterval = Duration(milliseconds: 1300);
+const Duration _interimInterval = Duration(milliseconds: 1500);
 
 /// Minimum accumulated speech before the first interim decode -- avoids
 /// wasting a decode (and risking hallucination) on a fraction of a word.
@@ -297,7 +297,7 @@ const Duration _endGap = Duration(milliseconds: 800);
 /// Longest utterance before a soft force-split. The cut is placed at the
 /// quietest 100 ms of the last [_softCutSearch] so it never lands inside a
 /// word the way a hard cut did.
-const Duration _maxUtterance = Duration(milliseconds: 12000);
+const Duration _maxUtterance = Duration(milliseconds: 8000);
 const Duration _softCutSearch = Duration(milliseconds: 3000);
 
 /// Audio before a soft cut that is replayed at the start of the next
@@ -331,13 +331,13 @@ const double _maxWordsPerSecond = 4.0;
 
 /// Interim decodes look only at this much trailing audio (see
 /// [SherpaRecitationEngine.interimTail]).
-const Duration _interimWindow = Duration(milliseconds: 5000);
+const Duration _interimWindow = Duration(milliseconds: 4000);
 
 /// When one decode takes longer than this, the phone can't afford interim
 /// decodes on top of the final ones without falling ever further behind
 /// real time; interims are then skipped and only the final segments (one
 /// per pause, at most [_maxUtterance] long) are decoded.
-const int _interimDisableDecodeMs = 2200;
+const int _interimDisableDecodeMs = 4000;
 
 /// Entry point of the ASR worker isolate. Owns every sherpa_onnx object;
 /// nothing native ever crosses the isolate boundary -- only PCM bytes in
@@ -465,6 +465,9 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   /// Decodes a final segment twice (full + tail window, see _tailCheck).
   /// [audioEnd] is the stream position of the segment's last sample.
+  /// When the tail already covers all but the pre-roll of a short
+  /// utterance, the full decode is redundant and skipped -- one decode
+  /// fewer per pause, which is most of what the reciter waits for.
   void decodeFinal(Float32List samples, int audioEnd) {
     Float32List? tail;
     if (samples.length >= tailCheckMinSamples) {
@@ -475,10 +478,14 @@ Future<void> _workerMain(_WorkerInit init) async {
       tail = Float32List.sublistView(samples, from);
     }
     final tailFirst = tail != null && lastDecodeMs < _interimDisableDecodeMs;
+    final tailCoversAll = tail != null &&
+        samples.length - tail.length <= tailSkipSamples + _sampleRate ~/ 2;
     if (tailFirst) {
       emit(decode(tail, 'tail'), isFinal: true, audioEnd: audioEnd);
     }
-    emit(decode(samples, 'final'), isFinal: true, audioEnd: audioEnd);
+    if (!tailCoversAll) {
+      emit(decode(samples, 'final'), isFinal: true, audioEnd: audioEnd);
+    }
     if (tail != null && !tailFirst) {
       emit(decode(tail, 'tail'), isFinal: true, audioEnd: audioEnd);
     }
@@ -614,11 +621,15 @@ Future<void> _workerMain(_WorkerInit init) async {
     // in this isolate, so they're naturally serial; queued mic chunks just
     // wait in the port and VAD timing is sample-based, not wall-clock.)
     // The cadence adapts to the phone: never start an interim sooner than
-    // twice the last decode's duration, and skip interims altogether when
-    // decoding is too slow to keep up (see _interimDisableDecodeMs).
-    final interimInterval = lastDecodeMs * 2 > _interimInterval.inMilliseconds
-        ? Duration(milliseconds: lastDecodeMs * 2)
-        : _interimInterval;
+    // 1.5x the last decode's duration (the worker is serial, so this keeps
+    // a third of its time free for the finals), and skip interims only
+    // when decoding is far too slow to keep up. A phone whose decodes
+    // hover around a low threshold otherwise flips between live
+    // word-by-word updates and pause-only updates -- felt as stutter.
+    final interimInterval =
+        lastDecodeMs * 3 ~/ 2 > _interimInterval.inMilliseconds
+            ? Duration(milliseconds: lastDecodeMs * 3 ~/ 2)
+            : _interimInterval;
     if (speechNow &&
         lastDecodeMs < _interimDisableDecodeMs &&
         utteranceLength >= minInterimSamples &&

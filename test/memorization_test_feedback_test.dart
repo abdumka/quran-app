@@ -71,13 +71,19 @@ void main() {
     expect(service.statuses.first, WordStatus.mistake);
   });
 
-  test('jumping to a later ayah of the page is called out by number',
+  test('reciting a different ayah is reported first, followed only once lost',
       () async {
     await startPage1();
-    // Ayah 5 while ayah 1 is expected: the aligner resyncs there and the
-    // passed-over ayahs are reported as skipped.
+    // Ayah 5 while ayah 1 is expected: a slip -- report it, stay put.
     await emit('اهدنا الصراط المستقيم');
     expect(service.feedback.value?.kind, FeedbackKind.wrong);
+    expect(service.feedback.value?.message, contains('الآية 5'));
+    expect(service.feedback.value?.message, contains('المطلوب الآية 1'));
+    expect(service.currentAyahIndex, 0);
+
+    // A second unexplained final: the recognizer has lost its place, so a
+    // matching phrase further on is now followed, passed ayahs flagged.
+    await emit('اهدنا الصراط المستقيم');
     expect(service.feedback.value?.message, contains('تجاوزت الآيات 1–4'));
     expect(service.feedback.value?.message, contains('أنت الآن في الآية 6'));
     expect(service.currentAyahIndex, 5);

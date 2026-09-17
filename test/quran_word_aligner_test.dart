@@ -231,11 +231,22 @@ void main() {
     final words = 'وإن امرأة خافت من بعلها نشوزا أو إعراضا فلا جناح عليهما أن يصلحا بينهما صلحا والصلح خير وأحضرت الأنفس الشح وإن تحسنوا وتتقوا فإن الله كان بما تعملون خبيرا'
         .split(' ');
 
-    test('a final matching three words past the window jumps there', () {
+    test('the first unexplained final never jumps (a slip is reported)', () {
+      final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('وإن امرأة خافت من بعلها');
+      final out = aligner.submitRecognizedSegment('صلحا والصلح خير وأحضرت');
+      expect(out.correct, isEmpty);
+      expect(aligner.cursor, 5);
+    });
+
+    test('once lost (two unexplained finals) a matching final jumps there',
+        () {
       final aligner = QuranWordAligner(words);
       aligner.submitRecognizedSegment('وإن امرأة خافت من بعلها');
       expect(aligner.cursor, 5);
-      // The next nine words were garbled; then the recognizer catches up.
+      // The next nine words were garbled twice; then the recognizer
+      // catches up on the third final.
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
       final out = aligner.submitRecognizedSegment('صلحا والصلح خير وأحضرت');
       expect(out.correct, [14, 15, 16, 17]);
       expect(aligner.cursor, 18);
@@ -247,19 +258,25 @@ void main() {
 
     test('interims never resync', () {
       final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
       final out = aligner.submitRecognizedSegment(
         'صلحا والصلح خير وأحضرت',
         isFinal: false,
       );
       expect(out.correct, isEmpty);
-      expect(aligner.cursor, 0);
+      // The two garbled finals may have promoted a word or two by the
+      // two-strike rule, but nothing jumped to word 14.
+      expect(aligner.cursor, lessThan(3));
     });
 
     test('two matching words are not enough to resync', () {
       final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
       final out = aligner.submitRecognizedSegment('كلام آخر والصلح خير');
       expect(out.correct, isEmpty);
-      expect(aligner.cursor, 0);
+      expect(aligner.cursor, lessThan(4));
     });
   });
 }

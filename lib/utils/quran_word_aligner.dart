@@ -128,6 +128,13 @@ class QuranWordAligner {
 
   int _cursor = 0;
 
+  /// Consecutive FINAL segments that carried words but resolved nothing
+  /// near the cursor (and were not repeats). A resync needs two of them
+  /// first: one unexplained final is usually a slip -- the reciter said
+  /// the end of the next ayah instead of this one -- and must be reported,
+  /// not followed.
+  int _lostFinals = 0;
+
   /// Called (synchronously, from within [submitRecognizedSegment]) whenever
   /// a word's status is resolved away from [WordStatus.pending], with its
   /// index into the original `expectedWords` list.
@@ -153,6 +160,7 @@ class QuranWordAligner {
   /// Resets the aligner to its initial state.
   void reset() {
     _cursor = 0;
+    _lostFinals = 0;
     for (var i = 0; i < _statuses.length; i++) {
       _statuses[i] = WordStatus.pending;
       _missStreak[i] = 0;
@@ -305,6 +313,7 @@ class QuranWordAligner {
     }
 
     if (advanced) {
+      if (isFinal) _lostFinals = 0;
       return SegmentOutcome(tokens: tokens, correct: correct, skipped: skipped);
     }
 
@@ -314,9 +323,18 @@ class QuranWordAligner {
     // whole phrases when the voice is quiet); without this the window never
     // sees past it and the session is stuck. Jump there, marking the
     // unheard stretch skipped, and align the segment from the new place.
-    if (isFinal && !anyHistoryMatch && tokens.length >= 3) {
+    // Only once the recognizer has clearly lost its place (this is at least
+    // the second unexplained final in a row): on the first one the
+    // caller's "you seem to be reading ayah N" feedback is the right
+    // answer, and the cursor must stay put.
+    if (isFinal && !anyHistoryMatch && tokens.length >= 2) _lostFinals++;
+    if (isFinal &&
+        !anyHistoryMatch &&
+        tokens.length >= 3 &&
+        _lostFinals >= 2) {
       final at = _resyncPoint(tokens);
       if (at > _cursor) {
+        _lostFinals = 0;
         for (var i = _cursor; i < at; i++) {
           skipped.add(i);
           _setStatus(i, WordStatus.skipped);
