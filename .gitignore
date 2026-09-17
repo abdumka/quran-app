@@ -131,3 +131,6 @@ scratch/listen_*/
 
 # local staging area for ASR model uploads to R2 (154 MB, never commit)
 asr_model_upload/
+
+# R2 upload credentials for Tasmee session logs (build with --dart-define-from-file=tools/r2_upload.json)
+tools/r2_upload.json

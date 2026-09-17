@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 
@@ -10,6 +13,7 @@ import '../models/quran_page_data.dart';
 import '../models/word_region_data.dart';
 import '../utils/phoneme_tracker.dart';
 import '../utils/quran_word_aligner.dart';
+import 'install_id.dart';
 import 'page_phoneme_service.dart';
 import 'zipformer_recitation_engine.dart';
 import 'asr_model_manager.dart';
@@ -164,6 +168,17 @@ class MemorizationTestService {
   Timer? _trackerTimer;
   DateTime _lastPhonemeAt = DateTime.now();
   bool _settledApplied = false;
+
+  /// A word judged wrong that the reciter has not yet repaired: reveal is
+  /// held at it (later words stay masked) until the tracker hears it said
+  /// correctly, a help button resolves it, or the reciter has clearly gone
+  /// on for a while ([_holdReleaseWords] committed words past it).
+  int _holdWord = -1;
+  int _wordsPastHold = 0;
+  static const int _holdReleaseWords = 12;
+
+  /// The word currently held for a mistake, or -1 (for the UI).
+  final ValueNotifier<int> heldWord = ValueNotifier(-1);
   AyahRegionPageData? _regions;
 
   /// Per ayah (parallel to [regions]), the boxes of its words in order, or
@@ -424,6 +439,9 @@ class MemorizationTestService {
       _tracer = tracer;
       _settledApplied = false;
       _lastPhonemeAt = DateTime.now();
+      _holdWord = -1;
+      _wordsPastHold = 0;
+      heldWord.value = -1;
 
       _aligner = aligner;
       _regions = regions;
@@ -468,9 +486,21 @@ class MemorizationTestService {
       // Keep a shareable copy of every session (decisions, plus audio when
       // the real mic engine is running).
       if (engineOverride == null) {
+        final installId = await InstallId.get();
+        String appVersion = '';
+        try {
+          final pkg = await PackageInfo.fromPlatform();
+          appVersion = '${pkg.version}+${pkg.buildNumber}';
+        } catch (_) {}
         _recorder = await TasmeeSessionRecorder.begin(
           page: pageNumber,
+          installId: installId,
           info: {
+            'installId': installId,
+            'appVersion': appVersion,
+            'platform': Platform.operatingSystem,
+            'os': Platform.operatingSystemVersion,
+            'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1.int8' : 'whisper-base-ar-quran',
             'engine': engine.emitsPhonemes
                 ? 'zipformer'
                 : usingRealEngine.value
@@ -648,6 +678,7 @@ class MemorizationTestService {
       return;
     }
     _recorder?.log('control', {'action': action, 'ayah': ayah});
+    _releaseHold('control');
     aligner.forceResolveRange(
       _ayahWordStarts[ayah],
       _ayahWordStarts[ayah + 1],
@@ -781,17 +812,25 @@ class MemorizationTestService {
     }
     final ayahBefore = currentAyahIndex;
     final cursorWord = tracker.cursorWord;
+    final verdicts = tracer.verdicts(settled: settled);
     final updates = <int, WordStatus>{};
-    for (final v in tracer.verdicts(settled: settled)) {
+    final wrongVerdicts = <WordVerdict>[];
+    WordVerdict? repaired;
+    for (final v in verdicts) {
       switch (v.state) {
         case VerdictState.ok:
         case VerdictState.unsure:
           updates[v.word] = WordStatus.correct;
+          if (v.word == _holdWord) repaired = v;
         case VerdictState.skipped:
           updates[v.word] = WordStatus.skipped;
         case VerdictState.wrong:
-          if (settled || v.word < cursorWord - 1) {
+          // A wrong reading (Hafs habit) is certain at once; other wrong
+          // verdicts wait until the reciter has moved on or paused, so a
+          // self-correction a moment later still repairs the word.
+          if (v.reason == 'hafs' || settled || v.word < cursorWord - 1) {
             updates[v.word] = WordStatus.mistake;
+            wrongVerdicts.add(v);
           }
         case VerdictState.pending:
           break;
@@ -802,6 +841,23 @@ class MemorizationTestService {
       if (aligner.statuses[w] == WordStatus.pending &&
           !updates.containsKey(w)) {
         updates[w] = WordStatus.skipped;
+      }
+    }
+
+    // Hold: while a mistake stands, nothing after it is revealed.
+    if (_holdWord >= 0) {
+      if (repaired != null) {
+        _releaseHold('repaired');
+      } else {
+        final past = updates.entries
+            .where((e) => e.key > _holdWord && e.value == WordStatus.correct)
+            .length;
+        if (past > 0) _wordsPastHold = math.max(_wordsPastHold, past);
+        if (_wordsPastHold >= _holdReleaseWords) {
+          _releaseHold('moved-on');
+        } else {
+          updates.removeWhere((w, st) => w > _holdWord);
+        }
       }
     }
     if (updates.isEmpty) return;
@@ -825,10 +881,60 @@ class MemorizationTestService {
       'skipped': outcome.skipped,
       'mistakes': outcome.mistakes,
       'cursorAfter': aligner.cursor,
+      'hold': _holdWord,
+      'detail': [
+        for (final v in verdicts)
+          if (updates.containsKey(v.word))
+            {
+              'w': v.word,
+              's': v.state.name,
+              'd': double.parse(v.distance.toStringAsFixed(3)),
+              'h': v.heard,
+              if (v.reason.isNotEmpty) 'r': v.reason,
+            },
+      ],
     });
     revision.value++;
+
+    // A new mistake: hold the reveal there and say exactly what was heard.
+    final newMistake = wrongVerdicts
+        .where((v) => outcome.mistakes.contains(v.word))
+        .fold<WordVerdict?>(null, (a, b) => a == null || b.word < a.word ? b : a);
+    if (newMistake != null && (_holdWord < 0 || newMistake.word < _holdWord)) {
+      _holdWord = newMistake.word;
+      _wordsPastHold = 0;
+      heldWord.value = _holdWord;
+      final expected = _expectedWords[newMistake.word];
+      final heard = phonemesToArabic(newMistake.heard);
+      _recorder?.log('hold', {'word': _holdWord, 'reason': newMistake.reason, 'heard': newMistake.heard});
+      _setFeedback(
+        RecitationFeedback(
+          FeedbackKind.wrong,
+          newMistake.reason == 'hafs'
+              ? 'قرأت «$heard» بحفص، والصواب بقالون «$expected» — أعد الكلمة'
+              : 'خطأ في «$expected» — سمعت «$heard» — أعد الكلمة',
+        ),
+        sticky: true,
+      );
+      _finishIfComplete();
+      return;
+    }
     _explain(outcome, heardWords.join(' '), ayahBefore, isFinal: true);
     _finishIfComplete();
+  }
+
+  void _releaseHold(String how) {
+    if (_holdWord < 0) return;
+    _recorder?.log('holdReleased', {'word': _holdWord, 'how': how});
+    if (how == 'repaired') {
+      _setFeedback(RecitationFeedback(
+        FeedbackKind.good,
+        'أحسنت، «${_expectedWords[_holdWord]}» صحيحة الآن',
+      ));
+    }
+    _holdWord = -1;
+    _wordsPastHold = 0;
+    heldWord.value = -1;
   }
 
   /// Turns an alignment outcome into the one line the panel shows.
@@ -1106,6 +1212,9 @@ class MemorizationTestService {
     _aligner = null;
     _tracker = null;
     _tracer = null;
+    _holdWord = -1;
+    _wordsPastHold = 0;
+    heldWord.value = -1;
     _regions = null;
     _wordBoxes = const [];
     _page = null;

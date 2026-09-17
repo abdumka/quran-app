@@ -91,6 +91,7 @@ class TasmeeSessionRecorder {
   static Future<TasmeeSessionRecorder?> begin({
     required int page,
     required Map<String, Object?> info,
+    String installId = '',
   }) async {
     final dir = await _sessionsDir();
     if (dir == null) return null;
@@ -100,7 +101,10 @@ class TasmeeSessionRecorder {
           .replaceAll(':', '-')
           .split('.')
           .first;
-      final recorder = TasmeeSessionRecorder._(dir, 'tasmee_${stamp}_p$page');
+      // File names carry the install id (short form) so sessions from
+      // different users stay apart when uploaded or shared.
+      final who = installId.isEmpty ? '' : '${installId.substring(0, installId.length < 8 ? installId.length : 8)}_';
+      final recorder = TasmeeSessionRecorder._(dir, 'tasmee_$who${stamp}_p$page');
       recorder._pcmSink = File(recorder._pcmPath).openWrite();
       recorder._logSink = File(recorder.logPath).openWrite();
       recorder._clock.start();

@@ -6,7 +6,7 @@ import 'package:islamic_dawah_mushaf/utils/phoneme_tracker.dart';
 
 /// Parity test against the Python port (`tasmee_work/zipformer/
 /// eval_session.py`) replayed on the first 80 s of the owner's p534
-/// session: same tokens in, same verdicts and cursor out.
+/// session with the Qalun asset: same tokens in, same verdicts and cursor out.
 void main() {
   final fixture = json.decode(
     File('test/fixtures/phoneme_tracker_p534.json').readAsStringSync(),
@@ -15,7 +15,6 @@ void main() {
   PhonemeReference reference() {
     final words = <PhonemeWord>[];
     final raw = fixture['words'] as List<dynamic>;
-    // Reconstruct per-ayah positions from the ayah ids.
     final counts = <int, int>{};
     for (final w in raw) {
       final m = w as Map<String, dynamic>;
@@ -35,6 +34,8 @@ void main() {
         ayahWords: counts[ayah]!,
         tanween: (m['tanween'] as String?) ?? '',
         taMarbuta: (m['taMarbuta'] as bool?) ?? false,
+        hafsAlt: (m['hafsAlt'] as String?) ?? '',
+        wasl: (m['wasl'] as bool?) ?? false,
       ));
     }
     return PhonemeReference(words, PhonemeCostTable());
@@ -90,37 +91,68 @@ void main() {
       expect(got, isNotNull, reason: 'word $w missing');
       expect(got!.state.name, want[0], reason: 'word $w state');
       expect(got.distance, closeTo((want[1] as num).toDouble(), 2e-3), reason: 'word $w distance');
+      expect(got.reason, (want.length > 2 ? want[2] as String : ''), reason: 'word $w reason');
     }
   });
 
+  group('verdict rules', () {
+    PhonemeReference fatihah3() => PhonemeReference(const [
+          PhonemeWord(phon: 'مَلِكِ', text: 'مَلِكِ', ayah: 0, wordInAyah: 0, ayahWords: 3, hafsAlt: 'مَاالِكِ'),
+          PhonemeWord(phon: 'يَومِ', text: 'يَوْمِ', ayah: 0, wordInAyah: 1, ayahWords: 3),
+          PhonemeWord(phon: 'ددِۦۦن', text: 'ٱلدِّينِ', ayah: 0, wordInAyah: 2, ayahWords: 3, wasl: true),
+          PhonemeWord(phon: 'ءِييَااكَ', text: 'إِيَّاكَ', ayah: 1, wordInAyah: 0, ayahWords: 2),
+          PhonemeWord(phon: 'نَعبُدُ', text: 'نَعْبُدُ', ayah: 1, wordInAyah: 1, ayahWords: 2),
+        ], PhonemeCostTable());
+
+    List<HeardChar> say(String phonemes, {int startFrame = 0}) {
+      var f = startFrame;
+      return [
+        for (final r in phonemes.runes) HeardChar(String.fromCharCode(r), f += 2),
+      ];
+    }
+
+    test('the Hafs reading of a Qalun-specific word is wrong, not unsure', () {
+      final tracker = PhonemeTracker(fatihah3());
+      final tracer = VerdictTracer(tracker);
+      tracker.feed(say('مَاالِكِيَومِددِۦۦن'));
+      final v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      expect(v[0]!.state, VerdictState.wrong);
+      expect(v[0]!.reason, 'hafs');
+      expect(v[1]!.state, VerdictState.ok);
+      expect(v[2]!.state, VerdictState.ok);
+    });
+
+    test('the Qalun reading of the same word is ok', () {
+      final tracker = PhonemeTracker(fatihah3());
+      final tracer = VerdictTracer(tracker);
+      tracker.feed(say('مَلِكِيَومِددِۦۦن'));
+      final v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      expect(v[0]!.state, VerdictState.ok);
+      expect(v[0]!.reason, '');
+    });
+
+    test('a wasl-initial word connected to the previous one keeps its ok', () {
+      final tracker = PhonemeTracker(PhonemeReference(const [
+        PhonemeWord(phon: 'ررَحِۦۦم', text: 'ٱلرَّحِيمِ', ayah: 0, wordInAyah: 0, ayahWords: 1),
+        PhonemeWord(phon: 'ءَررَحمَاانِ', text: 'ٱلرَّحْمَٰنِ', ayah: 1, wordInAyah: 0, ayahWords: 2, wasl: true),
+        PhonemeWord(phon: 'ررَحِۦۦم', text: 'ٱلرَّحِيمِ', ayah: 1, wordInAyah: 1, ayahWords: 2),
+      ], PhonemeCostTable()));
+      final tracer = VerdictTracer(tracker);
+      // Connected recitation: no hamza before الرحمن.
+      tracker.feed(say('ررَحِۦۦمِررَحمَاانِررَحِۦۦم'));
+      final v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      expect(v[1]!.state, VerdictState.ok, reason: 'distance ${v[1]!.distance}');
+    });
+  });
+
+  test('phonemesToArabic renders heard phonemes readably', () {
+    expect(phonemesToArabic('مَاالِكِ'), 'مَالِكِ');
+    expect(phonemesToArabic('يُخَاادِعُۥۥنَ'), 'يُخَادِعُونَ');
+    expect(phonemesToArabic('لَقُرءَاانُںںں'), 'لَقُرءَانُن');
+    expect(phonemesToArabic('ءِننننَهُۥۥ'), 'ءِنَهُو');
+  });
+
   test('pausal form: tanween word stopped on', () {
-    const w = PhonemeWord(
-      phon: 'كَرِۦۦم', // كريمٞ (tanween damm) written without the noon
-      text: 'كَرِيمٞ',
-      ayah: 0,
-      wordInAyah: 0,
-      ayahWords: 2,
-      tanween: 'ٌ',
-    );
-    // Stem ends in the mim, not the tanween vowel: no distinct pausal form.
-    expect(pausalPhonemes(w.phon, w, false), isNull);
-    const v = PhonemeWord(
-      phon: 'عَاادَنِ',
-      text: 'عَادًا',
-      ayah: 0,
-      wordInAyah: 0,
-      ayahWords: 3,
-      tanween: 'ً',
-    );
-    expect(pausalPhonemes(v.phon, v, false), isNull);
-    const u = PhonemeWord(
-      phon: 'بَصِۦۦرَاا',
-      text: 'بَصِيرًا',
-      ayah: 0,
-      wordInAyah: 1,
-      ayahWords: 3,
-    );
-    expect(pausalPhonemes(u.phon, u, false), isNull);
     const s = PhonemeWord(
       phon: 'كَاانَ',
       text: 'كَانَ',

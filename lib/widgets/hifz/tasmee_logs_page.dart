@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../services/install_id.dart';
 import '../../services/tasmee_session_recorder.dart';
+import '../../services/tasmee_upload_service.dart';
 
 /// Lists every saved التسميع session (audio + decision log) with share /
 /// delete actions and the "keep how many sessions" setting.
@@ -58,6 +60,50 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
     }
   }
 
+  /// Uploads the sessions' files to the owner's private bucket (no share
+  /// sheet). Only offered when the build carries upload credentials.
+  Future<void> _upload(List<TasmeeSessionFiles> sessions) async {
+    final upload = TasmeeUploadService.instance;
+    final paths = [
+      for (final s in sessions)
+        for (final f in s.files) f.path,
+    ];
+    if (paths.isEmpty || upload.busy.value) return;
+    final installId = await InstallId.get();
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final failed = await upload.uploadAll(paths, installId: installId);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+        failed.isEmpty
+            ? 'تم رفع ${paths.length} ملفًا بنجاح'
+            : 'تعذّر رفع ${failed.length} من ${paths.length} ملفًا — تحقّق من الاتصال وحاول مرة أخرى',
+      ),
+      duration: const Duration(seconds: 5),
+    ));
+  }
+
+  Widget _uploadButton(List<TasmeeSessionFiles> sessions, {Color? color}) {
+    final upload = TasmeeUploadService.instance;
+    return ValueListenableBuilder<bool>(
+      valueListenable: upload.busy,
+      builder: (context, busy, _) => IconButton(
+        tooltip: upload.isConfigured ? 'رفع إلى الخادم' : 'الرفع غير مفعّل في هذه النسخة',
+        icon: busy
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: _gold),
+              )
+            : Icon(Icons.cloud_upload_outlined, color: color),
+        onPressed: upload.isConfigured && !busy && sessions.isNotEmpty
+            ? () => _upload(sessions)
+            : null,
+      ),
+    );
+  }
+
   Future<void> _deleteAll() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -104,6 +150,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
           foregroundColor: _gold,
           title: const Text('سجلات التسميع', style: TextStyle(fontFamily: 'Tajawal')),
           actions: [
+            _uploadButton(_sessions),
             IconButton(
               tooltip: 'مشاركة الكل',
               icon: const Icon(Icons.ios_share_rounded),
@@ -176,6 +223,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          _uploadButton([s], color: _gold),
                           IconButton(
                             tooltip: 'مشاركة',
                             icon: const Icon(Icons.ios_share_rounded, color: _gold),

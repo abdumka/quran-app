@@ -29,6 +29,8 @@ class PagePhonemes {
             ayahWords: w.ayahWords,
             tanween: w.tanween,
             taMarbuta: w.taMarbuta,
+            hafsAlt: collapseMadd(w.hafsAlt),
+            wasl: w.wasl,
           ),
       ];
 }
@@ -80,6 +82,8 @@ class PagePhonemeService {
             phon: w[1] as String,
             tanween: w.length > 2 ? w[2] as String : '',
             taMarbuta: w.length > 3 && (w[3] as num) != 0,
+            hafsAlt: w.length > 4 ? w[4] as String : '',
+            wasl: w.length > 5 && (w[5] as num) != 0,
             ayah: a,
             wordInAyah: i,
             ayahWords: ws.length,
