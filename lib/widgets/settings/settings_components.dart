@@ -364,26 +364,28 @@ class CompactActionTile extends StatelessWidget {
           padding: stacked
               ? const EdgeInsets.symmetric(vertical: 12, horizontal: 6)
               : const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-          child: stacked ? _buildStacked() : Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              PremiumIconWrapper(icon: icon),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
+          child: stacked
+              ? _buildStacked()
+              : Row(
                   textDirection: TextDirection.rtl,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF2C2C2C),
-                  ),
+                  children: [
+                    PremiumIconWrapper(icon: icon),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        textDirection: TextDirection.rtl,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2C2C2C),
+                        ),
+                      ),
+                    ),
+                    if (onInfo != null) InfoHintButton(onTap: onInfo!),
+                  ],
                 ),
-              ),
-              if (onInfo != null) InfoHintButton(onTap: onInfo!),
-            ],
-          ),
         ),
       ),
     );
@@ -476,6 +478,156 @@ class CompactSwitchTile extends StatelessWidget {
                 activeThumbColor: const Color(0xFF8B7355),
                 value: value,
                 onChanged: onChanged,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One-line "hide the recitation bar when idle" setting: icon, title, an
+/// inline −/+ seconds stepper and the on/off switch. Kept to a single row so
+/// it takes no more space than the other advanced toggles.
+class RecitationBarAutoHideTile extends StatelessWidget {
+  final bool enabled;
+  final int delaySeconds;
+  final int minSeconds;
+  final int maxSeconds;
+  final int stepSeconds;
+  final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<int> onDelayChanged;
+  final VoidCallback? onInfo;
+
+  const RecitationBarAutoHideTile({
+    super.key,
+    required this.enabled,
+    required this.delaySeconds,
+    required this.minSeconds,
+    required this.maxSeconds,
+    required this.stepSeconds,
+    required this.onEnabledChanged,
+    required this.onDelayChanged,
+    this.onInfo,
+  });
+
+  static const Color _gold = Color(0xFF8B7355);
+
+  Widget _stepButton(IconData icon, VoidCallback? onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Icon(
+          icon,
+          size: 16,
+          color: onTap == null ? _gold.withValues(alpha: 0.3) : _gold,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool canDecrease =
+        enabled && delaySeconds - stepSeconds >= minSeconds;
+    final bool canIncrease =
+        enabled && delaySeconds + stepSeconds <= maxSeconds;
+
+    // Layout: [icon] [title / "بعد − ١٥ ث +"] [ℹ] [switch]. The stepper sits
+    // under the title instead of beside it so the title never gets clipped on
+    // a phone; the tile is still only two short lines tall.
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => onEnabledChanged(!enabled),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE8DCC8), width: 0.5),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
+          child: Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              const Icon(Icons.timer_off_rounded, color: _gold, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'إخفاء شريط التلاوة تلقائيًا',
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF2C2C2C),
+                      ),
+                    ),
+                    Opacity(
+                      opacity: enabled ? 1 : 0.45,
+                      child: Row(
+                        textDirection: TextDirection.rtl,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'بعد',
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF6B6B6B),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          _stepButton(
+                            Icons.remove_rounded,
+                            canDecrease
+                                ? () =>
+                                      onDelayChanged(delaySeconds - stepSeconds)
+                                : null,
+                          ),
+                          SizedBox(
+                            width: 40,
+                            child: Text(
+                              '$delaySeconds ث',
+                              textAlign: TextAlign.center,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _gold,
+                              ),
+                            ),
+                          ),
+                          _stepButton(
+                            Icons.add_rounded,
+                            canIncrease
+                                ? () =>
+                                      onDelayChanged(delaySeconds + stepSeconds)
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onInfo != null) ...[
+                InfoHintButton(onTap: onInfo!),
+                const SizedBox(width: 2),
+              ],
+              const SizedBox(width: 4),
+              Switch(
+                activeThumbColor: _gold,
+                value: enabled,
+                onChanged: onEnabledChanged,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ],

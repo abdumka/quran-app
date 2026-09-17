@@ -24,6 +24,17 @@ class BottomOverlayMenu extends StatefulWidget {
   final VoidCallback? onSearchTapped;
   final VoidCallback onDismiss;
 
+  /// Index of the item the TV remote is currently on, or null off-TV.
+  /// Drawn as a ring instead of relying on Flutter focus, which a D-pad
+  /// cannot drive here (the reader's key handler owns the arrow keys).
+  final int? tvFocusedIndex;
+
+  /// TV only: adds الإعدادات to the bar. On a TV the settings gear lives in
+  /// the top bar, which a remote cannot reach, and Settings is the only route
+  /// to the offline surah downloads -- so it gets a first-class entry here.
+  final bool showSettingsItem;
+  final VoidCallback? onOpenSettings;
+
   const BottomOverlayMenu({
     super.key,
     required this.showIndex,
@@ -48,13 +59,26 @@ class BottomOverlayMenu extends StatefulWidget {
     this.onPlayTapped,
     this.onSearchTapped,
     required this.onDismiss,
+    this.tvFocusedIndex,
+    this.showSettingsItem = false,
+    this.onOpenSettings,
   });
 
+  /// Labels in bar order. Index 5 exists only when [showSettingsItem].
+  static const List<String> tvItemLabels = [
+    'البحث',
+    'التفسير',
+    'التلاوة',
+    'العلامات',
+    'الفهرس',
+    'الإعدادات',
+  ];
+
   @override
-  State<BottomOverlayMenu> createState() => _BottomOverlayMenuState();
+  State<BottomOverlayMenu> createState() => BottomOverlayMenuState();
 }
 
-class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
+class BottomOverlayMenuState extends State<BottomOverlayMenu> {
   String? _selectedItem;
 
   void _handleTap(String label) {
@@ -76,12 +100,43 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
       case 'البحث':
         widget.onSearchTapped?.call();
         break;
+      case 'الإعدادات':
+        widget.onOpenSettings?.call();
+        break;
     }
     
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) setState(() => _selectedItem = null);
     });
   }
+
+  /// Fires the item the TV remote is sitting on. Called by the reader's key
+  /// handler so the tap and remote paths run exactly the same routing.
+  void activateTvIndex(int index) {
+    final labels = _itemLabels;
+    if (index < 0 || index >= labels.length) return;
+    _handleTap(labels[index]);
+  }
+
+  static IconData? _iconFor(String label) {
+    switch (label) {
+      case 'البحث':
+        return Icons.search_rounded;
+      case 'التلاوة':
+        return Icons.play_circle_rounded;
+      case 'العلامات':
+        return Icons.bookmark_rounded;
+      case 'الفهرس':
+        return Icons.menu_book_rounded;
+      case 'الإعدادات':
+        return Icons.settings_rounded;
+    }
+    return null; // التفسير uses an image asset instead.
+  }
+
+  List<String> get _itemLabels => widget.showSettingsItem
+      ? BottomOverlayMenu.tvItemLabels
+      : BottomOverlayMenu.tvItemLabels.sublist(0, 5);
 
   @override
   Widget build(BuildContext context) {
@@ -119,41 +174,18 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _NavItem(
-                      icon: Icons.search_rounded,
-                      label: 'البحث',
-                      isSelected: _selectedItem == 'البحث',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('البحث'),
-                    ),
-                    _NavItem(
-                      imagePath: 'assets/images/tafsir_icon.png',
-                      label: 'التفسير',
-                      isSelected: _selectedItem == 'التفسير',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('التفسير'),
-                    ),
-                    _NavItem(
-                      icon: Icons.play_circle_rounded,
-                      label: 'التلاوة',
-                      isSelected: _selectedItem == 'التلاوة',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('التلاوة'),
-                    ),
-                    _NavItem(
-                      icon: Icons.bookmark_rounded,
-                      label: 'العلامات',
-                      isSelected: _selectedItem == 'العلامات',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('العلامات'),
-                    ),
-                    _NavItem(
-                      icon: Icons.menu_book_rounded,
-                      label: 'الفهرس',
-                      isSelected: _selectedItem == 'الفهرس',
-                      compact: isLandscape,
-                      onTap: () => _handleTap('الفهرس'),
-                    ),
+                    for (int i = 0; i < _itemLabels.length; i++)
+                      _NavItem(
+                        icon: _iconFor(_itemLabels[i]),
+                        imagePath: _itemLabels[i] == 'التفسير'
+                            ? 'assets/images/tafsir_icon.png'
+                            : null,
+                        label: _itemLabels[i],
+                        isSelected: _selectedItem == _itemLabels[i],
+                        isTvFocused: widget.tvFocusedIndex == i,
+                        compact: isLandscape,
+                        onTap: () => _handleTap(_itemLabels[i]),
+                      ),
                   ],
                 ),
               ),
@@ -173,6 +205,7 @@ class _NavItem extends StatelessWidget {
   final String? imagePath;
   final String label;
   final bool isSelected;
+  final bool isTvFocused;
   final bool compact;
   final VoidCallback onTap;
 
@@ -182,12 +215,18 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.isSelected = false,
+    this.isTvFocused = false,
     this.compact = false,
   }) : assert(icon != null || imagePath != null);
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? const Color(0xFFD2B97E) : const Color(0xFF888888);
+    // The TV ring has to read from across a room, so a focused item is drawn
+    // in full gold on a filled, outlined plate rather than the faint overlay
+    // InkWell uses for keyboard focus.
+    final color = (isSelected || isTvFocused)
+        ? const Color(0xFFD2B97E)
+        : const Color(0xFF888888);
     final double iconSize = compact ? 22 : 30;
     final double gap = compact ? 2 : 6;
     final double fontSize = compact ? 10 : 13;
@@ -195,7 +234,17 @@ class _NavItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Padding(
+      child: Container(
+        decoration: isTvFocused
+            ? BoxDecoration(
+                color: const Color(0xFFD2B97E).withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFFD2B97E),
+                  width: 2,
+                ),
+              )
+            : null,
         padding: EdgeInsets.symmetric(horizontal: 4, vertical: compact ? 2 : 8),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

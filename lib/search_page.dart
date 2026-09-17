@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'services/quran_json_service.dart';
+import 'services/tv_service.dart';
 import 'services/ayah_position_service.dart';
 import 'utils/copy_helper.dart';
 
@@ -1084,7 +1085,11 @@ class _SearchPageState extends State<SearchPage> {
                   controller: _controller,
                   focusNode: _focusNode,
                   textDirection: TextDirection.rtl,
-                  autofocus: true,
+                  // On a TV, focusing the field raises the leanback IME
+                  // immediately and it re-opens as fast as Back dismisses it,
+                  // trapping the user on this page. Let them press Select on
+                  // the field when they actually want to type.
+                  autofocus: !TvService.instance.isTv,
                   decoration: InputDecoration(
                     hintText:
                         '\u0627\u0628\u062d\u062b \u0639\u0646 \u0622\u064a\u0629 \u0623\u0648 \u0643\u0644\u0645\u0629',

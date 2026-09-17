@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/tv_service.dart';
+
 class TabletLayoutHelper {
   const TabletLayoutHelper._();
 
@@ -8,6 +10,11 @@ class TabletLayoutHelper {
   }
 
   static bool isTabletDevice(BuildContext context) {
+    // A TV never passes the size test -- 1080p at density 320 is 960x540
+    // logical, so shortestSide is 540 -- but a 16:9 screen viewed from across
+    // the room is exactly where the two-page spread belongs, so treat it as a
+    // tablet regardless of its reported size.
+    if (TvService.instance.isTv) return true;
     return shortestSide(context) >= 600;
   }
 

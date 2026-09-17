@@ -16,6 +16,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'widgets/quran/bookmark_picker_dialog.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
+import 'widgets/tv/tv_focus_scope.dart';
+import 'widgets/tv/tv_remote_guide.dart';
+import 'widgets/tv/tv_settings_page.dart';
 import 'continuous_quran_view.dart';
 import 'models/reader_bookmark.dart';
 import 'quran_constants.dart';
@@ -30,7 +33,9 @@ import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
 import 'services/high_quality_images_service.dart';
 import 'services/page_quality_service.dart';
+import 'services/recitation_bar_auto_hide_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
+import 'services/tv_service.dart';
 
 import 'services/app_update_service.dart';
 import 'services/update_notification_service.dart';
@@ -369,6 +374,46 @@ class _QuranPagesState extends State<QuranPages>
   bool _showBookmarkNotice = false;
   bool _showAudioPlaybackNotice = false;
   bool _showBookmarkGuide = false;
+
+  /// Android TV remote onboarding, shown instead of the touch bookmark guide.
+  bool _showTvGuide = false;
+
+  /// Which bottom-menu item the TV remote is on while the menu is open.
+  /// Which half of a two-page spread the recitation controls act on:
+  /// 0 = the first (right-hand) page, 1 = the second (left-hand) page.
+  /// Before this existed the bar was hard-wired to the right-hand page, so on
+  /// a spread you could not play, repeat or pick an ayah from the left page at
+  /// all. Not TV-specific -- tablets in two-page mode had the same limitation.
+  int _spreadSelectedOffset = 0;
+
+  /// Idle hiding of the recitation bar (see
+  /// [RecitationBarAutoHideService]). Only the bar's visibility changes --
+  /// playback keeps running, and any input brings it straight back.
+  Timer? _recitationIdleTimer;
+  bool _recitationBarHidden = false;
+
+  int _tvMenuIndex = 0;
+
+  /// Remote focus parked on the top bar (above the bottom menu). Its three
+  /// controls are full-screen, the hifz hide-bar, and the gear that opens the
+  /// regular Settings page.
+  bool _tvTopBarFocused = false;
+  int _tvTopBarIndex = 2;
+  static const int _tvTopBarCount = 3;
+
+  /// TV focus zones while the chrome is open: the bottom menu, or the
+  /// recitation bar sitting below it. Without this the play/pause button
+  /// was unreachable by remote -- the arrows drive the menu and the ayah
+  /// stepper, so nothing was left to press it with.
+  bool _tvRecitationFocused = false;
+
+  /// Index into [_tvBarControls] -- which recitation-bar control the remote is
+  /// on. A list rather than fixed numbers because the page toggle only exists
+  /// while a two-page spread is showing.
+  int _tvBarIndex = 0;
+  final GlobalKey<BottomOverlayMenuState> _bottomMenuKey =
+      GlobalKey<BottomOverlayMenuState>();
+  static const String _tvGuideDismissedPrefKey = 'tvRemoteGuideDismissed';
   bool _hideBookmarkGuideForeverChecked = false;
   String? _visibleHizbText;
   String? _visibleSajdaText;
@@ -454,9 +499,42 @@ class _QuranPagesState extends State<QuranPages>
     });
   }
 
+  /// Restarts the recitation bar's idle countdown and un-hides it. Called from
+  /// every remote/tap interaction, so the bar only disappears during genuine
+  /// inactivity.
+  void _handleAutoHideSettingChanged() {
+    if (!mounted) return;
+    // Switching it off must also un-hide a bar that is already hidden.
+    _noteRecitationActivity();
+  }
+
+  void _noteRecitationActivity() {
+    _recitationIdleTimer?.cancel();
+    if (_recitationBarHidden && mounted) {
+      setState(() => _recitationBarHidden = false);
+    }
+    if (!RecitationBarAutoHideService.instance.enabled.value) return;
+    if (!AudioService.instance.isRecitationBarVisible.value) return;
+    _recitationIdleTimer = Timer(
+      RecitationBarAutoHideService.instance.idleDelay,
+      () {
+        if (!mounted) return;
+        setState(() => _recitationBarHidden = true);
+      },
+    );
+  }
+
   void _resetHideTimer() {
+    // Every bar control routes through here, so this is the one place that
+    // reliably sees "the user did something".
+    _noteRecitationActivity();
     _hideControlsTimer?.cancel();
-    _hideControlsTimer = Timer(const Duration(seconds: 10), () {
+    // Stepping along the bar with a remote takes far longer than tapping, so
+    // the TV gets a longer window. Phones keep the original 10s exactly.
+    final Duration hideAfter = TvService.instance.isTv
+        ? const Duration(seconds: 45)
+        : const Duration(seconds: 10);
+    _hideControlsTimer = Timer(hideAfter, () {
       if (mounted) {
         setState(() {
           // The top bar and bottom menu are one piece of chrome — auto-hide
@@ -475,6 +553,25 @@ class _QuranPagesState extends State<QuranPages>
   ];
 
   int get _currentPage => _readingCoordinator.currentPage;
+
+  /// Page the recitation controls act on. Identical to [_topBarCurrentPage]
+  /// outside the two-page spread; inside one it honours the page the user
+  /// picked with the bar's page toggle.
+  int get _recitationTargetPage {
+    final base = _topBarCurrentPage;
+    if (!_useTwoPageView(context) || _spreadSelectedOffset == 0) return base;
+    final candidate = base + _spreadSelectedOffset;
+    return candidate <= pages.length - 1 ? candidate : base;
+  }
+
+  /// The two page indices currently on screen, right-hand page first. Empty
+  /// when a single page is showing.
+  List<int> get _spreadPages {
+    if (!_useTwoPageView(context)) return const [];
+    final first = _topBarCurrentPage;
+    if (first + 1 > pages.length - 1) return [first];
+    return [first, first + 1];
+  }
 
   int get _topBarCurrentPage {
     final usePortraitScrolling =
@@ -572,7 +669,13 @@ class _QuranPagesState extends State<QuranPages>
     };
     AudioService.instance.isRecitationBarVisible.addListener(() async {
       if (!mounted) return;
+      _noteRecitationActivity();
       if (AudioService.instance.isRecitationBarVisible.value) {
+        // Another touch-era guide: it explains tapping the bar's buttons and
+        // its "فهمت" is only reachable by Flutter focus, which a remote cannot
+        // drive -- so on a TV it would sit there permanently. The remote guide
+        // covers playback instead (see TvRemoteGuide).
+        if (TvService.instance.isTv) return;
         final prefs = await SharedPreferences.getInstance();
         final dismissed = prefs.getBool('recitation_guide_dismissed') ?? false;
         if (!dismissed && mounted) {
@@ -580,6 +683,16 @@ class _QuranPagesState extends State<QuranPages>
         }
       }
     });
+    // Turning the setting on while the bar is already showing has to start the
+    // countdown too -- otherwise it only ever engages on the next interaction,
+    // which looks like the setting doing nothing.
+    RecitationBarAutoHideService.instance.enabled.addListener(
+      _handleAutoHideSettingChanged,
+    );
+    // A new delay restarts the countdown so the change is felt immediately.
+    RecitationBarAutoHideService.instance.delaySeconds.addListener(
+      _handleAutoHideSettingChanged,
+    );
     AudioService.instance.isPlaying.addListener(_handleAudioPlaybackChanged);
     AudioService.instance.playbackNotice.addListener(
       _handleAudioPlaybackNotice,
@@ -637,6 +750,7 @@ class _QuranPagesState extends State<QuranPages>
     WidgetsBinding.instance.removeObserver(this);
     HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
+    _recitationIdleTimer?.cancel();
     _hizbPopupTimer?.cancel();
     _sajdaPopupTimer?.cancel();
     _savePageTimer?.cancel();
@@ -649,6 +763,12 @@ class _QuranPagesState extends State<QuranPages>
     _pageZoomController.dispose();
     PageZoomService.instance.enabled.removeListener(
       _handlePageZoomSettingChanged,
+    );
+    RecitationBarAutoHideService.instance.enabled.removeListener(
+      _handleAutoHideSettingChanged,
+    );
+    RecitationBarAutoHideService.instance.delaySeconds.removeListener(
+      _handleAutoHideSettingChanged,
     );
     AudioService.instance.isPlaying.removeListener(_handleAudioPlaybackChanged);
     AudioService.instance.playbackNotice.removeListener(
@@ -756,6 +876,11 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   bool _isPhoneLandscape(BuildContext context) {
+    // A TV is always landscape and is never "a phone held sideways", so it must
+    // not be forced into continuous-scroll mode. Checked before the two-page
+    // test so turning the tablet-layout setting off on a TV still leaves the
+    // paged reader intact rather than falling back to the phone path.
+    if (TvService.instance.isTv) return false;
     // On the web a desktop browser window is almost always wider than tall, so
     // its orientation reports as landscape. On a phone that means "held
     // sideways" and we force continuous-scroll, but on the web it's just a
@@ -984,6 +1109,9 @@ class _QuranPagesState extends State<QuranPages>
     bool showHizbPopup = false,
   }) {
     final safePage = page.clamp(0, pages.length - 1);
+    // A new spread means the previous left/right choice no longer refers to
+    // anything the user can see.
+    _spreadSelectedOffset = 0;
     _readingCoordinator.setCurrentPage(safePage);
     _syncCurrentSurahForPage(safePage);
 
@@ -1280,6 +1408,20 @@ class _QuranPagesState extends State<QuranPages>
     // toggles both together.
     final bool willShow = !_showIndex;
     setState(() {
+      // Always reopen on the first item so the remote highlight starts
+      // somewhere predictable -- except during recitation, where the reason
+      // someone reaches for the remote is almost always to pause, so start on
+      // the play button instead (Up from there returns to the menu).
+      if (willShow) {
+        _tvMenuIndex = 0;
+        _tvTopBarFocused = false;
+        _tvRecitationFocused =
+            TvService.instance.isTv &&
+            AudioService.instance.isRecitationBarVisible.value;
+        _tvBarIndex = _tvBarDefaultIndex;
+      } else {
+        _tvRecitationFocused = false;
+      }
       _showIndex = willShow;
       _hideTopBarTemporarily = false;
       _hideBottomMenuTemporarily = false;
@@ -1779,6 +1921,20 @@ class _QuranPagesState extends State<QuranPages>
 
   Future<void> _loadBookmarkGuidePreference() async {
     final prefs = await SharedPreferences.getInstance();
+    // On a TV the bookmark guide is actively wrong: it demonstrates a long
+    // press with a finger icon, and nothing on a remote can perform or even
+    // dismiss it. Show the remote guide instead.
+    if (TvService.instance.isTv) {
+      final tvDismissed = prefs.getBool(_tvGuideDismissedPrefKey) ?? false;
+      if (tvDismissed) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _showTvGuide = true;
+        });
+      });
+      return;
+    }
     final dismissed = prefs.getBool(_bookmarkGuideDismissedPrefKey) ?? false;
     if (!mounted || dismissed) return;
 
@@ -1801,6 +1957,15 @@ class _QuranPagesState extends State<QuranPages>
     });
     _bookmarkGuideAnimationController.stop();
     _bookmarkGuideAnimationController.reset();
+  }
+
+  Future<void> _dismissTvGuide() async {
+    if (!mounted) return;
+    setState(() {
+      _showTvGuide = false;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_tvGuideDismissedPrefKey, true);
   }
 
   void _closeBookmarkGuideForNow() {
@@ -1902,6 +2067,7 @@ class _QuranPagesState extends State<QuranPages>
   bool _handleReaderKey(KeyEvent event) {
     if (!mounted) return false;
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    _noteRecitationActivity();
     // Don't steal keys while a search field, the surah list, or a dialog is up.
     // (_showIndex only controls chrome visibility, so it must NOT block keys.)
     if (_isSearching || _showSurahs) return false;
@@ -1909,9 +2075,171 @@ class _QuranPagesState extends State<QuranPages>
 
     final key = event.logicalKey;
 
+    // The TV remote guide is driven from here rather than through a focusable
+    // dialog on purpose: on Android TV the D-pad does not move Flutter's focus
+    // (only TAB does, and no remote has one), so a focus-based dialog is
+    // impossible to dismiss with a remote. Consume every key while it is up so
+    // nothing leaks through to the reader underneath.
+    if (_showTvGuide) {
+      if (key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.gameButtonA ||
+          key == LogicalKeyboardKey.space) {
+        _dismissTvGuide();
+      }
+      return true;
+    }
+
+    // While the bottom menu is open on a TV the arrows belong to the menu, not
+    // to page turning -- otherwise the bar is visible but nothing in it can be
+    // reached, which is exactly how it behaved before this existed.
+    if (TvService.instance.isTv && _showIndex && !_showSurahs) {
+      final audio = AudioService.instance;
+      final bool barVisible = audio.isRecitationBarVisible.value;
+      final bool onBar = _tvRecitationFocused && barVisible;
+
+      if (onBar) {
+        // The bar sits below the menu, so Up walks back up to it.
+        if (key == LogicalKeyboardKey.arrowUp) {
+          setState(() => _tvRecitationFocused = false);
+          _resetHideTimer();
+          return true;
+        }
+        // Left/Right walk the row of controls (repeat-page, skip, play/pause,
+        // repeat-ayah, close) rather than stepping ayat directly -- the skip
+        // buttons are themselves in the row, so nothing is lost and the repeat
+        // toggles become reachable.
+        final int barCount = _tvBarControls.length;
+        if (key == LogicalKeyboardKey.arrowRight) {
+          setState(() => _tvBarIndex = (_tvBarIndex + 1) % barCount);
+          _resetHideTimer();
+          return true;
+        }
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          setState(() => _tvBarIndex = (_tvBarIndex - 1 + barCount) % barCount);
+          _resetHideTimer();
+          return true;
+        }
+        if (key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.gameButtonA) {
+          _resetHideTimer();
+          _activateTvBarControl();
+          return true;
+        }
+        return true;
+      }
+
+      final int count = BottomOverlayMenu.tvItemLabels.length;
+      if (_tvTopBarFocused) {
+        if (key == LogicalKeyboardKey.arrowDown) {
+          setState(() => _tvTopBarFocused = false);
+          _resetHideTimer();
+          return true;
+        }
+        if (key == LogicalKeyboardKey.arrowRight) {
+          setState(
+            () => _tvTopBarIndex = (_tvTopBarIndex + 1) % _tvTopBarCount,
+          );
+          _resetHideTimer();
+          return true;
+        }
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          setState(
+            () => _tvTopBarIndex =
+                (_tvTopBarIndex - 1 + _tvTopBarCount) % _tvTopBarCount,
+          );
+          _resetHideTimer();
+          return true;
+        }
+        if (key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.gameButtonA) {
+          _resetHideTimer();
+          _activateTvTopBarControl();
+          return true;
+        }
+        return true;
+      }
+      // Up from the menu goes to the top bar -- that is where the gear for the
+      // full Settings page lives.
+      if (key == LogicalKeyboardKey.arrowUp) {
+        setState(() {
+          _tvTopBarFocused = true;
+          _tvTopBarIndex = 2;
+        });
+        _resetHideTimer();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowDown && barVisible) {
+        setState(() {
+          _tvRecitationFocused = true;
+          _tvBarIndex = _tvBarDefaultIndex;
+        });
+        _resetHideTimer();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowRight) {
+        setState(() => _tvMenuIndex = (_tvMenuIndex + 1) % count);
+        _resetHideTimer();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowLeft) {
+        setState(() => _tvMenuIndex = (_tvMenuIndex - 1 + count) % count);
+        _resetHideTimer();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.gameButtonA) {
+        _bottomMenuKey.currentState?.activateTvIndex(_tvMenuIndex);
+        return true;
+      }
+    }
+
+    // Everything below is TV-only. On phones, tablets, desktop and web these
+    // keys must keep doing exactly what they did before: media buttons there
+    // are already owned by the platform media session, and Enter/Select has no
+    // business toggling the reader chrome on a hardware keyboard.
+    if (TvService.instance.isTv) {
+      // DPAD_CENTER is the most-used button on a remote; without this it does
+      // nothing in the reader. Same effect as tapping the page on a phone.
+      if (key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.gameButtonA) {
+        _handleReaderTap();
+        return true;
+      }
+
+      // Transport keys on the remote drive the recitation.
+      if (key == LogicalKeyboardKey.mediaPlayPause ||
+          key == LogicalKeyboardKey.mediaPlay ||
+          key == LogicalKeyboardKey.mediaPause) {
+        final audio = AudioService.instance;
+        if (audio.isPlaying.value) {
+          audio.pause();
+        } else {
+          audio.resume();
+        }
+        return true;
+      }
+      if (key == LogicalKeyboardKey.mediaTrackNext ||
+          key == LogicalKeyboardKey.mediaFastForward) {
+        AudioService.instance.nextAyah();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.mediaTrackPrevious ||
+          key == LogicalKeyboardKey.mediaRewind) {
+        AudioService.instance.previousAyah();
+        return true;
+      }
+    }
+
     // While the recitation bar is up, Up/Down step through ayat — the
-    // keyboard equivalent of the bar's skip buttons.
-    if (AudioService.instance.isRecitationBarVisible.value) {
+    // keyboard equivalent of the bar's skip buttons. Not on TV: there Up/Down
+    // move between the menu and the bar, and the bar already exposes the skip
+    // buttons and the ayah picker, so stepping here would fight the zones.
+    if (!TvService.instance.isTv &&
+        AudioService.instance.isRecitationBarVisible.value) {
       if (key == LogicalKeyboardKey.arrowDown) {
         AudioService.instance.nextAyah();
         return true;
@@ -1936,6 +2264,129 @@ class _QuranPagesState extends State<QuranPages>
 
     _stepPage(delta);
     return true;
+  }
+
+  /// Recitation-bar controls the remote can reach, in on-screen order.
+  /// خيارات التلاوة is included: its sheet is wrapped in a TvFocusScope, so
+  /// the options inside it are reachable too.
+  List<_TvBarControl> get _tvBarControls => [
+    if (_spreadPages.length == 2) _TvBarControl.spreadToggle,
+    _TvBarControl.repeatPage,
+    _TvBarControl.prevAyah,
+    _TvBarControl.ayahPicker,
+    _TvBarControl.playPause,
+    _TvBarControl.nextAyah,
+    _TvBarControl.repeatAyah,
+    _TvBarControl.close,
+    _TvBarControl.optionsSheet,
+  ];
+
+  /// Where the highlight starts when the bar takes focus -- play/pause, since
+  /// that is what someone mid-recitation reaches for.
+  int get _tvBarDefaultIndex => _tvBarControls.indexOf(_TvBarControl.playPause);
+
+  /// Flips which half of the spread the recitation controls act on. Only
+  /// reachable while two pages are showing.
+  void _toggleSpreadPage() {
+    final spread = _spreadPages;
+    if (spread.length < 2) return;
+    setState(() {
+      _spreadSelectedOffset = _spreadSelectedOffset == 0 ? 1 : 0;
+    });
+    _resetHideTimer();
+  }
+
+  /// Fires the focused top-bar control: 0 full-screen, 1 hifz hide-bar,
+  /// 2 the gear that opens the regular Settings page.
+  void _activateTvTopBarControl() {
+    switch (_tvTopBarIndex) {
+      case 0:
+        _toggleFullScreenMode(!_isFullScreenMode);
+        break;
+      case 1:
+        _toggleHideBar(!_isHideBarEnabled);
+        break;
+      case 2:
+        setState(() {
+          _showIndex = false;
+          _tvTopBarFocused = false;
+        });
+        _hideControlsTimer?.cancel();
+        _openSettings();
+        break;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Fires whichever recitation-bar control the remote is sitting on. Mirrors
+  /// the onPressed of each button so the tap and remote paths stay identical.
+  void _activateTvBarControl() {
+    final audio = AudioService.instance;
+    final controls = _tvBarControls;
+    if (_tvBarIndex < 0 || _tvBarIndex >= controls.length) return;
+    switch (controls[_tvBarIndex]) {
+      case _TvBarControl.spreadToggle:
+        _toggleSpreadPage();
+        return;
+      case _TvBarControl.repeatPage:
+        audio.cyclePageRepeatMode();
+        break;
+      case _TvBarControl.prevAyah:
+        audio.previousAyah();
+        break;
+      case _TvBarControl.ayahPicker:
+        final ayah = audio.currentAyah.value;
+        if (ayah != null) _showAyahSelectionDialog(ayah);
+        return;
+      case _TvBarControl.playPause:
+        if (audio.isPlaying.value) {
+          audio.pause();
+        } else if (!audio.isAudioOnPage(_recitationTargetPage)) {
+          audio.playPage(_recitationTargetPage);
+        } else {
+          audio.resume();
+        }
+        break;
+      case _TvBarControl.nextAyah:
+        audio.nextAyah();
+        break;
+      case _TvBarControl.repeatAyah:
+        audio.cycleAyahRepeatMode();
+        break;
+      case _TvBarControl.close:
+        audio.stop();
+        break;
+      case _TvBarControl.optionsSheet:
+        _showTilawahOptionsSheet();
+        return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Draws the remote's focus ring around one recitation-bar control.
+  /// A no-op off-TV and when the bar does not hold focus.
+  Widget _tvBarFocus(
+    _TvBarControl control,
+    Widget child, {
+    bool circular = true,
+  }) {
+    final controls = _tvBarControls;
+    final focused =
+        TvService.instance.isTv &&
+        _tvRecitationFocused &&
+        _tvBarIndex >= 0 &&
+        _tvBarIndex < controls.length &&
+        controls[_tvBarIndex] == control;
+    if (!focused) return child;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFD2B97E).withValues(alpha: 0.30),
+        shape: circular ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: circular ? null : BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD2B97E), width: 3),
+      ),
+      child: child,
+    );
   }
 
   /// Moves [delta] views forward (+1) or back (-1).
@@ -3002,7 +3453,29 @@ class _QuranPagesState extends State<QuranPages>
   /// runs afterwards, and only if "what's new" didn't already show, so the two
   /// never stack on top of each other. The one-time OS notification permission
   /// prompt follows once whichever popup was shown has closed.
+  /// TV only. The phone Settings page cannot be driven by a D-pad: Material's
+  /// Switch and Slider consume the arrow keys to change their own value, so
+  /// scrolling the list flips settings on the way past. TvSettingsPage is a
+  /// separate screen where arrows only move the highlight.
+  void _openTvSettings() {
+    setState(() {
+      _showIndex = false;
+      _hideTopBarTemporarily = false;
+      _hideBottomMenuTemporarily = false;
+    });
+    _hideControlsTimer?.cancel();
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const TvSettingsPage()));
+  }
+
   Future<void> _checkForUpdate() async {
+    // These are route-based dialogs whose buttons are reachable only through
+    // Flutter's focus system, which a TV remote cannot drive (the D-pad does
+    // not move focus; only TAB does, and no remote has one). On a TV they
+    // would stack over the reader with no way to dismiss them, so skip them
+    // until they are made D-pad operable.
+    if (TvService.instance.isTv) return;
     try {
       final shownWhatsNew = await _maybeShowWhatsNew();
       if (!mounted) return;
@@ -3081,26 +3554,31 @@ class _QuranPagesState extends State<QuranPages>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SettingsPage(
-          isDarkMode: ThemeService.themeMode.value == ThemeMode.dark,
-          onToggleDarkMode: (value) {
-            ThemeService.setDarkMode(value);
-          },
-          isAutoScrollEnabled: _showAutoScrollBar,
-          onToggleAutoScroll: _toggleAutoScrollFromMenu,
-          isPortraitScrollMode: _isPortraitScrollMode,
-          allowPortraitScrollMode: _supportsPortraitScrollMode(context),
-          showTabletLayoutSetting: _shouldShowTabletLayoutSetting(context),
-          isTabletLayoutMode: _isTabletLayoutMode,
-          onToggleTabletLayoutMode: _setTabletLayoutMode,
-          onTogglePortraitScrollMode: _setPortraitScrollMode,
-          isHideBarEnabled: _isHideBarEnabled,
-          onToggleHideBar: _toggleHideBar,
-          isHifzModeEnabled: _isHifzModeEnabled,
-          onToggleHifzMode: _toggleHifzMode,
-          isFullScreenMode: _isFullScreenMode,
-          onToggleFullScreenMode: _toggleFullScreenMode,
-          onResetAllSettings: _resetAllSettings,
+        // TvFocusScope makes this hand-built page drivable by a remote without
+        // rewriting it: arrows move focus, Select activates, and the focused
+        // row gets a visible ring. Pass-through on phones.
+        builder: (_) => TvFocusScope(
+          child: SettingsPage(
+            isDarkMode: ThemeService.themeMode.value == ThemeMode.dark,
+            onToggleDarkMode: (value) {
+              ThemeService.setDarkMode(value);
+            },
+            isAutoScrollEnabled: _showAutoScrollBar,
+            onToggleAutoScroll: _toggleAutoScrollFromMenu,
+            isPortraitScrollMode: _isPortraitScrollMode,
+            allowPortraitScrollMode: _supportsPortraitScrollMode(context),
+            showTabletLayoutSetting: _shouldShowTabletLayoutSetting(context),
+            isTabletLayoutMode: _isTabletLayoutMode,
+            onToggleTabletLayoutMode: _setTabletLayoutMode,
+            onTogglePortraitScrollMode: _setPortraitScrollMode,
+            isHideBarEnabled: _isHideBarEnabled,
+            onToggleHideBar: _toggleHideBar,
+            isHifzModeEnabled: _isHifzModeEnabled,
+            onToggleHifzMode: _toggleHifzMode,
+            isFullScreenMode: _isFullScreenMode,
+            onToggleFullScreenMode: _toggleFullScreenMode,
+            onResetAllSettings: _resetAllSettings,
+          ),
         ),
       ),
     ).then((_) {
@@ -3793,7 +4271,8 @@ class _QuranPagesState extends State<QuranPages>
         ? 122
         : (isPhonePortrait ? 130 : 260);
     final bool isRecitationBarVisible =
-        AudioService.instance.isRecitationBarVisible.value;
+        AudioService.instance.isRecitationBarVisible.value &&
+        !_recitationBarHidden;
     // Auto-scroll and the recitation run independently, so both bars can be up
     // at once. The auto-scroll bar stacks on top of the recitation bar (which
     // already covers the system inset) instead of hiding behind it.
@@ -4166,9 +4645,16 @@ class _QuranPagesState extends State<QuranPages>
           ),
         ),
 
+        // Android TV remote onboarding. Sits next to the bookmark guide above
+        // because the two are mutually exclusive: TvService decides which of
+        // them a device ever sees (see _loadBookmarkGuidePreference).
+        if (_showTvGuide)
+          Positioned.fill(child: TvRemoteGuide(isDarkMode: isDarkMode)),
+
         if (!_isMarginImagesEnabled &&
             _showSajdaPopup &&
-            _visibleSajdaText != null)
+            _visibleSajdaText != null &&
+            !_showTvGuide)
           Positioned(
             top: isPhoneLandscape
                 ? MediaQuery.of(context).padding.top +
@@ -4232,7 +4718,8 @@ class _QuranPagesState extends State<QuranPages>
           ),
         if (!_isMarginImagesEnabled &&
             _showHizbPopup &&
-            _visibleHizbText != null)
+            _visibleHizbText != null &&
+            !_showTvGuide)
           Positioned(
             top: isPhoneLandscape
                 ? MediaQuery.of(context).padding.top + 70
@@ -4604,97 +5091,201 @@ class _QuranPagesState extends State<QuranPages>
     final useTwoPages = isPhonePortrait ? false : _useTwoPageView(context);
     final isPhoneLandscape = _isPhoneLandscape(context);
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: AudioService.instance.isRecitationBarVisible,
-      builder: (context, isRecitationVisible, _) {
-        final bgColor = Theme.of(context).brightness == Brightness.dark
-            ? const Color(0xFF1A1A1F)
-            : const Color(0xFFFAF6EE);
+    return PopScope(
+      // On a TV, Back is the only way out of anything, so it must unwind the
+      // UI one step at a time instead of quitting outright: without this the
+      // remote guide's "إغلاق القائمة، ثم الخروج من التطبيق" line would be
+      // wrong, and a stray Back press would drop the reader mid-page.
+      // Phones keep the system default (canPop stays true).
+      canPop: !TvService.instance.isTv || !(_showTvGuide || _showIndex),
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || !TvService.instance.isTv) return;
+        if (_showTvGuide) {
+          _dismissTvGuide();
+          return;
+        }
+        if (_showIndex) {
+          _handleReaderTap();
+        }
+      },
+      child: ValueListenableBuilder<bool>(
+        valueListenable: AudioService.instance.isRecitationBarVisible,
+        builder: (context, isRecitationVisible, _) {
+          final bgColor = Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFF1A1A1F)
+              : const Color(0xFFFAF6EE);
 
-        final scaffold = Scaffold(
-          backgroundColor: bgColor,
-          resizeToAvoidBottomInset: false,
-          body: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _handleReaderTap,
-            child: Stack(
-              children: [
-                // 1 — Reader fills the whole screen
-                Positioned.fill(
-                  child: isPhoneLandscape
-                      ? _buildLandscapeReader(isPhoneLandscape)
-                      : _buildPortraitReader(useTwoPages),
-                ),
+          final scaffold = Scaffold(
+            backgroundColor: bgColor,
+            resizeToAvoidBottomInset: false,
+            body: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _handleReaderTap,
+              child: Stack(
+                children: [
+                  // 1 — Reader fills the whole screen
+                  Positioned.fill(
+                    child: isPhoneLandscape
+                        ? _buildLandscapeReader(isPhoneLandscape)
+                        : _buildPortraitReader(useTwoPages),
+                  ),
 
-                // 2 — Shared Overlays (bookmarks, index, etc.)
-                Positioned.fill(child: _buildSharedOverlay(isPhoneLandscape)),
+                  // 2 — Shared Overlays (bookmarks, index, etc.)
+                  Positioned.fill(child: _buildSharedOverlay(isPhoneLandscape)),
 
-                // 3 — Recitation controls float over the page (the page stays
-                // full-size and visible behind the translucent bar) instead of
-                // being a bottomNavigationBar that shrinks the page.
-                if (isRecitationVisible)
-                  Positioned(
+                  // 3 — Recitation controls float over the page (the page stays
+                  // full-size and visible behind the translucent bar) instead of
+                  // being a bottomNavigationBar that shrinks the page.
+                  // _recitationBarHidden is the opt-in idle hide: playback keeps
+                  // running, only the bar goes away until the next input.
+                  if (isRecitationVisible && !_recitationBarHidden)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _MeasureSize(
+                        onChange: (size) {
+                          if (_recitationBarHeight != size.height) {
+                            setState(() => _recitationBarHeight = size.height);
+                          }
+                        },
+                        child: _buildRecitationBottomBar(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+
+          // SafeArea keeps the app clear of the system bars when they are
+          // visible. In full screen mode the bars are hidden and the insets
+          // are disabled so the whole screen shows the page.
+          return Container(
+            color: bgColor,
+            child: SafeArea(
+              left: !_isFullScreenMode,
+              top: !_isFullScreenMode,
+              right: !_isFullScreenMode,
+              bottom: !_isFullScreenMode,
+              child: Stack(
+                children: [
+                  scaffold,
+                  if (_showIndex)
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: () {
+                          setState(() {
+                            _showIndex = false;
+                            _showSurahs = false;
+                            _isSearching = false;
+                            _hideTopBarTemporarily = false;
+                            _hideBottomMenuTemporarily = false;
+                          });
+                          _updateSystemUI();
+                        },
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  // 3 — Top bar (slides in/out, respects camera notch)
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    top: (!_hideTopBarTemporarily && _showIndex) ? 0 : -120,
                     left: 0,
                     right: 0,
-                    bottom: 0,
-                    child: _MeasureSize(
-                      onChange: (size) {
-                        if (_recitationBarHeight != size.height) {
-                          setState(() => _recitationBarHeight = size.height);
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {}, // Block tap propagation
+                      onVerticalDragUpdate: (details) {
+                        // Swiping up on the top bar hides the whole chrome (both
+                        // bars move together).
+                        if (details.primaryDelta! < -5) {
+                          setState(() {
+                            _showIndex = false;
+                            _hideTopBarTemporarily = false;
+                            _hideBottomMenuTemporarily = false;
+                          });
+                          _hideControlsTimer?.cancel();
+                          _updateSystemUI();
                         }
                       },
-                      child: _buildRecitationBottomBar(),
+                      child: TopOverlayBar(
+                        tvFocusedIndex:
+                            (TvService.instance.isTv &&
+                                _showIndex &&
+                                _tvTopBarFocused)
+                            ? _tvTopBarIndex
+                            : null,
+                        show: !_hideTopBarTemporarily && _showIndex,
+                        isSearching: _isSearching,
+                        currentPage: _topBarCurrentPage,
+                        isTwoPageView: useTwoPages,
+                        getHizbNumber: _getHizbNumber,
+                        getSurahName: _getSurahName,
+                        onSettingsPressed: _openSettings,
+                        isHideBarEnabled: _isHideBarEnabled,
+                        onToggleHideBar: _toggleHideBar,
+                        isFullScreenMode: _isFullScreenMode,
+                        onToggleFullScreenMode: _toggleFullScreenMode,
+                      ),
                     ),
                   ),
-              ],
-            ),
-          ),
-        );
-
-        // SafeArea keeps the app clear of the system bars when they are
-        // visible. In full screen mode the bars are hidden and the insets
-        // are disabled so the whole screen shows the page.
-        return Container(
-          color: bgColor,
-          child: SafeArea(
-            left: !_isFullScreenMode,
-            top: !_isFullScreenMode,
-            right: !_isFullScreenMode,
-            bottom: !_isFullScreenMode,
-            child: Stack(
-              children: [
-                scaffold,
-                if (_showIndex)
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () {
+                  if (_showIndex && !_hideBottomMenuTemporarily)
+                    BottomOverlayMenu(
+                      key: _bottomMenuKey,
+                      // Null while the remote is parked on the recitation bar,
+                      // so only one thing on screen ever looks focused.
+                      tvFocusedIndex:
+                          (TvService.instance.isTv &&
+                              _showIndex &&
+                              !_showSurahs &&
+                              !_tvRecitationFocused &&
+                              !_tvTopBarFocused)
+                          ? _tvMenuIndex
+                          : null,
+                      showSettingsItem: TvService.instance.isTv,
+                      onOpenSettings: _openTvSettings,
+                      showIndex: _showIndex,
+                      showSurahs: _showSurahs,
+                      surahs: surahList,
+                      isDarkMode:
+                          Theme.of(context).brightness == Brightness.dark,
+                      isAutoScrollEnabled: _showAutoScrollBar,
+                      isPortraitScrollMode: _isPortraitScrollMode,
+                      allowPortraitScrollMode: _supportsPortraitScrollMode(
+                        context,
+                      ),
+                      showTabletLayoutSetting: _shouldShowTabletLayoutSetting(
+                        context,
+                      ),
+                      isTabletLayoutMode: _isTabletLayoutMode,
+                      // Anchor the action bar exactly on top of the recitation bar
+                      // using its real measured height, so they stay perfectly flush
+                      // (no gap, no overlap) in full screen, standard, and during
+                      // transitions.
+                      bottomOffset: isRecitationVisible
+                          ? _recitationBarHeight
+                          : 0,
+                      onToggleSurahs: () async {
                         setState(() {
                           _showIndex = false;
                           _showSurahs = false;
                           _isSearching = false;
-                          _hideTopBarTemporarily = false;
-                          _hideBottomMenuTemporarily = false;
                         });
                         _updateSystemUI();
+
+                        await Future.delayed(const Duration(milliseconds: 260));
+                        if (!mounted) return;
+
+                        _openQuranIndexPage();
                       },
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                // 3 — Top bar (slides in/out, respects camera notch)
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  top: (!_hideTopBarTemporarily && _showIndex) ? 0 : -120,
-                  left: 0,
-                  right: 0,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {}, // Block tap propagation
-                    onVerticalDragUpdate: (details) {
-                      // Swiping up on the top bar hides the whole chrome (both
-                      // bars move together).
-                      if (details.primaryDelta! < -5) {
+                      onGoToPage: _goToPage,
+                      onGoToBookmark: _goToBookmark,
+                      onOpenTafsir: () => _showTafsirDialog(_topBarCurrentPage),
+                      onDismiss: () {
+                        // Dismissing the bottom menu hides the whole chrome (both
+                        // bars move together).
                         setState(() {
                           _showIndex = false;
                           _hideTopBarTemporarily = false;
@@ -4702,159 +5293,97 @@ class _QuranPagesState extends State<QuranPages>
                         });
                         _hideControlsTimer?.cancel();
                         _updateSystemUI();
-                      }
-                    },
-                    child: TopOverlayBar(
-                      show: !_hideTopBarTemporarily && _showIndex,
-                      isSearching: _isSearching,
-                      currentPage: _topBarCurrentPage,
-                      isTwoPageView: useTwoPages,
-                      getHizbNumber: _getHizbNumber,
-                      getSurahName: _getSurahName,
-                      onSettingsPressed: _openSettings,
-                      isHideBarEnabled: _isHideBarEnabled,
-                      onToggleHideBar: _toggleHideBar,
-                      isFullScreenMode: _isFullScreenMode,
-                      onToggleFullScreenMode: _toggleFullScreenMode,
-                    ),
-                  ),
-                ),
-                if (_showIndex && !_hideBottomMenuTemporarily)
-                  BottomOverlayMenu(
-                    showIndex: _showIndex,
-                    showSurahs: _showSurahs,
-                    surahs: surahList,
-                    isDarkMode: Theme.of(context).brightness == Brightness.dark,
-                    isAutoScrollEnabled: _showAutoScrollBar,
-                    isPortraitScrollMode: _isPortraitScrollMode,
-                    allowPortraitScrollMode: _supportsPortraitScrollMode(
-                      context,
-                    ),
-                    showTabletLayoutSetting: _shouldShowTabletLayoutSetting(
-                      context,
-                    ),
-                    isTabletLayoutMode: _isTabletLayoutMode,
-                    // Anchor the action bar exactly on top of the recitation bar
-                    // using its real measured height, so they stay perfectly flush
-                    // (no gap, no overlap) in full screen, standard, and during
-                    // transitions.
-                    bottomOffset: isRecitationVisible
-                        ? _recitationBarHeight
-                        : 0,
-                    onToggleSurahs: () async {
-                      setState(() {
-                        _showIndex = false;
-                        _showSurahs = false;
-                        _isSearching = false;
-                      });
-                      _updateSystemUI();
-
-                      await Future.delayed(const Duration(milliseconds: 260));
-                      if (!mounted) return;
-
-                      _openQuranIndexPage();
-                    },
-                    onGoToPage: _goToPage,
-                    onGoToBookmark: _goToBookmark,
-                    onOpenTafsir: () => _showTafsirDialog(_topBarCurrentPage),
-                    onDismiss: () {
-                      // Dismissing the bottom menu hides the whole chrome (both
-                      // bars move together).
-                      setState(() {
-                        _showIndex = false;
-                        _hideTopBarTemporarily = false;
-                        _hideBottomMenuTemporarily = false;
-                      });
-                      _hideControlsTimer?.cancel();
-                      _updateSystemUI();
-                    },
-                    onPlayTapped: () {
-                      // Auto-scroll is deliberately left running: the two are
-                      // independent, and readers pair them to follow along.
-                      setState(() {
-                        _showIndex = false;
-                        _showSurahs = false;
-                      });
-                      _updateSystemUI();
-                      AudioService.instance.playPage(
-                        _topBarCurrentPage,
-                        autoPlay: false,
-                      );
-                    },
-                    onToggleDarkMode: (value) {
-                      ThemeService.setDarkMode(value);
-                    },
-                    onToggleAutoScroll: (value) {
-                      if (value && !_supportsPortraitScrollMode(context)) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'التمرير غير متاح في وضع الصفحتين على الشاشات العريضة',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      final bool shouldSwitchPortraitMode =
-                          value &&
-                          _supportsPortraitScrollMode(context) &&
-                          !_isPortraitScrollMode;
-                      setState(() {
-                        if (value) {
+                      },
+                      onPlayTapped: () {
+                        // Auto-scroll is deliberately left running: the two are
+                        // independent, and readers pair them to follow along.
+                        setState(() {
                           _showIndex = false;
                           _showSurahs = false;
-                          _isSearching = false;
-                        }
-                        if (shouldSwitchPortraitMode) {
-                          _isPortraitScrollMode = true;
-                        }
-                      });
-                      if (value) {
-                        _setAutoScrollEnabled(true);
-                      } else {
-                        _closeAutoScrollBar();
-                      }
-                      _updateSystemUI();
-                      if (shouldSwitchPortraitMode) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('تم تغيير الوضع من صفحات إلى تمرير'),
-                          ),
+                        });
+                        _updateSystemUI();
+                        AudioService.instance.playPage(
+                          _recitationTargetPage,
+                          autoPlay: false,
                         );
-                      }
-                    },
-                    onTogglePortraitScrollMode: (value) {
-                      _setPortraitScrollMode(value);
-                    },
-                    onToggleTabletLayoutMode: (value) {
-                      _setTabletLayoutMode(value);
-                    },
-                    onSearchStateChanged: (value) {
-                      setState(() {
-                        _isSearching = value;
-                      });
-                    },
-                    onSearchTapped: _openSearchPage,
-                  ),
+                      },
+                      onToggleDarkMode: (value) {
+                        ThemeService.setDarkMode(value);
+                      },
+                      onToggleAutoScroll: (value) {
+                        if (value && !_supportsPortraitScrollMode(context)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'التمرير غير متاح في وضع الصفحتين على الشاشات العريضة',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        final bool shouldSwitchPortraitMode =
+                            value &&
+                            _supportsPortraitScrollMode(context) &&
+                            !_isPortraitScrollMode;
+                        setState(() {
+                          if (value) {
+                            _showIndex = false;
+                            _showSurahs = false;
+                            _isSearching = false;
+                          }
+                          if (shouldSwitchPortraitMode) {
+                            _isPortraitScrollMode = true;
+                          }
+                        });
+                        if (value) {
+                          _setAutoScrollEnabled(true);
+                        } else {
+                          _closeAutoScrollBar();
+                        }
+                        _updateSystemUI();
+                        if (shouldSwitchPortraitMode) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'تم تغيير الوضع من صفحات إلى تمرير',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      onTogglePortraitScrollMode: (value) {
+                        _setPortraitScrollMode(value);
+                      },
+                      onToggleTabletLayoutMode: (value) {
+                        _setTabletLayoutMode(value);
+                      },
+                      onSearchStateChanged: (value) {
+                        setState(() {
+                          _isSearching = value;
+                        });
+                      },
+                      onSearchTapped: _openSearchPage,
+                    ),
 
-                // Edge hover arrows for page turning. Last in the Stack so
-                // they sit above the page, but they are only visible while the
-                // pointer is over the edge — and never on touch devices, which
-                // have no hover. Suppressed in scroll mode (no pages to flip),
-                // while zoomed (flipping is locked), and behind overlays.
-                if (!_isPortraitScrollMode &&
-                    !_showAutoScrollBar &&
-                    !_isPageZoomed &&
-                    !_isSearching &&
-                    !_showSurahs) ...[
-                  _buildHoverPageArrow(isLeftEdge: true),
-                  _buildHoverPageArrow(isLeftEdge: false),
+                  // Edge hover arrows for page turning. Last in the Stack so
+                  // they sit above the page, but they are only visible while the
+                  // pointer is over the edge — and never on touch devices, which
+                  // have no hover. Suppressed in scroll mode (no pages to flip),
+                  // while zoomed (flipping is locked), and behind overlays.
+                  if (!_isPortraitScrollMode &&
+                      !_showAutoScrollBar &&
+                      !_isPageZoomed &&
+                      !_isSearching &&
+                      !_showSurahs) ...[
+                    _buildHoverPageArrow(isLeftEdge: true),
+                    _buildHoverPageArrow(isLeftEdge: false),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -5008,13 +5537,13 @@ class _QuranPagesState extends State<QuranPages>
     final engaging = audio.thumnRepeatMode.value == AyahRepeatMode.off;
     final paused = !audio.isPlaying.value;
     if (engaging && paused) {
-      final onPage = audio.thumnsStartingOnPage(_topBarCurrentPage);
+      final onPage = audio.thumnsStartingOnPage(_recitationTargetPage);
       if (onPage.length > 1) {
         _showThumnChooser(onPage);
         return;
       }
     }
-    audio.cycleThumnRepeatMode(visiblePageIndex: _topBarCurrentPage);
+    audio.cycleThumnRepeatMode(visiblePageIndex: _recitationTargetPage);
   }
 
   /// Small chooser shown when the visible page has two thumn starts. Picking
@@ -5181,8 +5710,8 @@ class _QuranPagesState extends State<QuranPages>
       fromAyah = active.startAyah;
     } else {
       final playing = audio.currentAyah.value;
-      final pageAyahs = audio.getAyahsForPage(_topBarCurrentPage);
-      if (playing != null && audio.isAudioOnPage(_topBarCurrentPage)) {
+      final pageAyahs = audio.getAyahsForPage(_recitationTargetPage);
+      if (playing != null && audio.isAudioOnPage(_recitationTargetPage)) {
         fromSurah = playing.surah;
         fromAyah = playing.ayah;
       } else if (pageAyahs.isNotEmpty) {
@@ -5201,7 +5730,7 @@ class _QuranPagesState extends State<QuranPages>
     int toSurah = active?.endSurah ?? fromSurah;
     int toAyah =
         active?.endAyah ??
-        _sectionEndOnPage(_topBarCurrentPage, fromSurah, fromAyah);
+        _sectionEndOnPage(_recitationTargetPage, fromSurah, fromAyah);
 
     final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
     AyahRepeatMode mode = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
@@ -5600,304 +6129,310 @@ class _QuranPagesState extends State<QuranPages>
         final speedTileKey = GlobalKey();
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            return SafeArea(
-              child: Directionality(
-                textDirection: TextDirection.rtl,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Grab handle
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: borderColor,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-
-                      // Sheet title, with an explicit close (X) button. Closing
-                      // the sheet only pops this route — it never touches audio,
-                      // so Tilawah mode stays active (only the إغلاق button on
-                      // the recitation bar ends it).
-                      Row(
-                        children: [
-                          IconButton(
-                            style: IconButton.styleFrom(
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            icon: Icon(
-                              Icons.close_rounded,
-                              color: subTextColor,
-                              size: 22,
-                            ),
-                            onPressed: () => Navigator.of(context).pop(),
-                            tooltip: 'إغلاق',
-                          ),
-                          Expanded(
-                            child: Center(
-                              child: Text(
-                                'خيارات التلاوة',
-                                style: TextStyle(
-                                  color: titleColor,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                          // Balances the X button width so the title stays centered.
-                          const SizedBox(width: 32),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // ── القارئ (reciter dropdown) ──
-                      _sheetSectionLabel(
-                        Icons.record_voice_over_rounded,
-                        'القارئ',
-                        titleColor,
-                      ),
-                      const SizedBox(height: 8),
-                      ValueListenableBuilder<Reciter>(
-                        valueListenable: reciterService.selected,
-                        builder: (context, selected, _) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
+            return TvFocusScope(
+              child: SafeArea(
+                child: Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Grab handle
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 12),
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: borderColor),
+                              color: borderColor,
+                              borderRadius: BorderRadius.circular(2),
                             ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: selected.id,
-                                isExpanded: true,
-                                icon: Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: titleColor,
-                                ),
-                                dropdownColor: bgColor,
-                                borderRadius: BorderRadius.circular(12),
-                                items: [
-                                  for (final reciter in reciterService.reciters)
-                                    DropdownMenuItem(
-                                      value: reciter.id,
-                                      child: Text(
-                                        '${reciter.shortName} — ${reciter.riwaya}',
-                                        style: TextStyle(
-                                          color: textColor,
-                                          fontSize: 14.5,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                ],
-                                selectedItemBuilder: (context) => [
-                                  for (final reciter in reciterService.reciters)
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: Text(
-                                        reciter.shortName,
-                                        style: TextStyle(
-                                          color: textColor,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                ],
-                                onChanged: (id) {
-                                  if (id == null) return;
-                                  _resetHideTimer();
-                                  reciterService.select(
-                                    reciterService.reciters.firstWhere(
-                                      (r) => r.id == id,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // ── تكرار الثمن + تكرار مقطع + سرعة التلاوة (side by side) ──
-                      IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: ListenableBuilder(
-                                listenable: Listenable.merge([
-                                  audio.thumnRepeatMode,
-                                  audio.thumnRepeatCount,
-                                ]),
-                                builder: (context, _) {
-                                  final isActive =
-                                      audio.thumnRepeatMode.value !=
-                                      AyahRepeatMode.off;
-                                  return _optionTile(
-                                    icon: Icons.repeat_rounded,
-                                    title: 'تكرار الثمن',
-                                    valueLabel: isActive
-                                        ? audio.thumnRepeatLabel
-                                        : 'بدون',
-                                    isActive: isActive,
-                                    accentColor: accentColor,
-                                    borderColor: borderColor,
-                                    textColor: textColor,
-                                    subTextColor: subTextColor,
-                                    onTap: () {
-                                      _resetHideTimer();
-                                      _handleThumnRepeatTap();
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: ListenableBuilder(
-                                listenable: Listenable.merge([
-                                  audio.rangeRepeatMode,
-                                  audio.rangeRepeatCount,
-                                ]),
-                                builder: (context, _) {
-                                  final isActive =
-                                      audio.rangeRepeatMode.value !=
-                                      AyahRepeatMode.off;
-                                  return _optionTile(
-                                    icon: Icons.segment_rounded,
-                                    title: 'تكرار مقطع',
-                                    valueLabel: isActive
-                                        ? audio.rangeRepeatLabel
-                                        : 'بدون',
-                                    isActive: isActive,
-                                    accentColor: accentColor,
-                                    borderColor: borderColor,
-                                    textColor: textColor,
-                                    subTextColor: subTextColor,
-                                    onTap: () {
-                                      _resetHideTimer();
-                                      _showRangeRepeatPicker(
-                                        // Starting a section closes the sheet so
-                                        // the user lands straight on the page it
-                                        // begins at.
-                                        onStarted: () {
-                                          if (ctx.mounted) Navigator.pop(ctx);
-                                        },
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: ListenableBuilder(
-                                listenable: audio.playbackSpeed,
-                                builder: (context, _) {
-                                  final isActive =
-                                      audio.playbackSpeed.value != 1.0;
-                                  return _optionTile(
-                                    key: speedTileKey,
-                                    icon: Icons.speed_rounded,
-                                    title: 'سرعة التلاوة',
-                                    valueLabel: audio.playbackSpeedLabel,
-                                    isActive: isActive,
-                                    accentColor: accentColor,
-                                    borderColor: borderColor,
-                                    textColor: textColor,
-                                    subTextColor: subTextColor,
-                                    onTap: () {
-                                      _resetHideTimer();
-                                      _showSpeedPopup(speedTileKey);
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                      // Live status of the running section — the only text under
-                      // the row, and only while a section is actually armed.
-                      ListenableBuilder(
-                        listenable: Listenable.merge([
-                          audio.repeatRange,
-                          audio.rangeRepeatDone,
-                          audio.rangeRepeatCount,
-                          audio.rangeRepeatMode,
-                        ]),
-                        builder: (context, _) {
-                          final range = audio.repeatRange.value;
-                          if (range == null) return const SizedBox.shrink();
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'المقطع: ${_rangeStatusLabel(range)}',
-                              style: const TextStyle(
-                                color: accentColor,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
 
-                      const SizedBox(height: 20),
-                      Divider(color: borderColor, height: 1),
-                      const SizedBox(height: 4),
-
-                      // ── الإرشادات (open the button guide) ──
-                      InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _showRecitationBarGuide();
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.help_outline_rounded,
-                                color: titleColor,
-                                size: 22,
+                        // Sheet title, with an explicit close (X) button. Closing
+                        // the sheet only pops this route — it never touches audio,
+                        // so Tilawah mode stays active (only the إغلاق button on
+                        // the recitation bar ends it).
+                        Row(
+                          children: [
+                            IconButton(
+                              style: IconButton.styleFrom(
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'شرح أزرار شريط التلاوة',
-                                style: TextStyle(
-                                  color: textColor,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const Spacer(),
-                              Icon(
-                                Icons.chevron_left_rounded,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: Icon(
+                                Icons.close_rounded,
                                 color: subTextColor,
                                 size: 22,
+                              ),
+                              onPressed: () => Navigator.of(context).pop(),
+                              tooltip: 'إغلاق',
+                            ),
+                            Expanded(
+                              child: Center(
+                                child: Text(
+                                  'خيارات التلاوة',
+                                  style: TextStyle(
+                                    color: titleColor,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // Balances the X button width so the title stays centered.
+                            const SizedBox(width: 32),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── القارئ (reciter dropdown) ──
+                        _sheetSectionLabel(
+                          Icons.record_voice_over_rounded,
+                          'القارئ',
+                          titleColor,
+                        ),
+                        const SizedBox(height: 8),
+                        ValueListenableBuilder<Reciter>(
+                          valueListenable: reciterService.selected,
+                          builder: (context, selected, _) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: borderColor),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selected.id,
+                                  isExpanded: true,
+                                  icon: Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: titleColor,
+                                  ),
+                                  dropdownColor: bgColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                  items: [
+                                    for (final reciter
+                                        in reciterService.reciters)
+                                      DropdownMenuItem(
+                                        value: reciter.id,
+                                        child: Text(
+                                          '${reciter.shortName} — ${reciter.riwaya}',
+                                          style: TextStyle(
+                                            color: textColor,
+                                            fontSize: 14.5,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
+                                  selectedItemBuilder: (context) => [
+                                    for (final reciter
+                                        in reciterService.reciters)
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          reciter.shortName,
+                                          style: TextStyle(
+                                            color: textColor,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: (id) {
+                                    if (id == null) return;
+                                    _resetHideTimer();
+                                    reciterService.select(
+                                      reciterService.reciters.firstWhere(
+                                        (r) => r.id == id,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // ── تكرار الثمن + تكرار مقطع + سرعة التلاوة (side by side) ──
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: ListenableBuilder(
+                                  listenable: Listenable.merge([
+                                    audio.thumnRepeatMode,
+                                    audio.thumnRepeatCount,
+                                  ]),
+                                  builder: (context, _) {
+                                    final isActive =
+                                        audio.thumnRepeatMode.value !=
+                                        AyahRepeatMode.off;
+                                    return _optionTile(
+                                      icon: Icons.repeat_rounded,
+                                      title: 'تكرار الثمن',
+                                      valueLabel: isActive
+                                          ? audio.thumnRepeatLabel
+                                          : 'بدون',
+                                      isActive: isActive,
+                                      accentColor: accentColor,
+                                      borderColor: borderColor,
+                                      textColor: textColor,
+                                      subTextColor: subTextColor,
+                                      onTap: () {
+                                        _resetHideTimer();
+                                        _handleThumnRepeatTap();
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ListenableBuilder(
+                                  listenable: Listenable.merge([
+                                    audio.rangeRepeatMode,
+                                    audio.rangeRepeatCount,
+                                  ]),
+                                  builder: (context, _) {
+                                    final isActive =
+                                        audio.rangeRepeatMode.value !=
+                                        AyahRepeatMode.off;
+                                    return _optionTile(
+                                      icon: Icons.segment_rounded,
+                                      title: 'تكرار مقطع',
+                                      valueLabel: isActive
+                                          ? audio.rangeRepeatLabel
+                                          : 'بدون',
+                                      isActive: isActive,
+                                      accentColor: accentColor,
+                                      borderColor: borderColor,
+                                      textColor: textColor,
+                                      subTextColor: subTextColor,
+                                      onTap: () {
+                                        _resetHideTimer();
+                                        _showRangeRepeatPicker(
+                                          // Starting a section closes the sheet so
+                                          // the user lands straight on the page it
+                                          // begins at.
+                                          onStarted: () {
+                                            if (ctx.mounted) Navigator.pop(ctx);
+                                          },
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ListenableBuilder(
+                                  listenable: audio.playbackSpeed,
+                                  builder: (context, _) {
+                                    final isActive =
+                                        audio.playbackSpeed.value != 1.0;
+                                    return _optionTile(
+                                      key: speedTileKey,
+                                      icon: Icons.speed_rounded,
+                                      title: 'سرعة التلاوة',
+                                      valueLabel: audio.playbackSpeedLabel,
+                                      isActive: isActive,
+                                      accentColor: accentColor,
+                                      borderColor: borderColor,
+                                      textColor: textColor,
+                                      subTextColor: subTextColor,
+                                      onTap: () {
+                                        _resetHideTimer();
+                                        _showSpeedPopup(speedTileKey);
+                                      },
+                                    );
+                                  },
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                    ],
+                        // Live status of the running section — the only text under
+                        // the row, and only while a section is actually armed.
+                        ListenableBuilder(
+                          listenable: Listenable.merge([
+                            audio.repeatRange,
+                            audio.rangeRepeatDone,
+                            audio.rangeRepeatCount,
+                            audio.rangeRepeatMode,
+                          ]),
+                          builder: (context, _) {
+                            final range = audio.repeatRange.value;
+                            if (range == null) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'المقطع: ${_rangeStatusLabel(range)}',
+                                style: const TextStyle(
+                                  color: accentColor,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 20),
+                        Divider(color: borderColor, height: 1),
+                        const SizedBox(height: 4),
+
+                        // ── الإرشادات (open the button guide) ──
+                        InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _showRecitationBarGuide();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.help_outline_rounded,
+                                  color: titleColor,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'شرح أزرار شريط التلاوة',
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  Icons.chevron_left_rounded,
+                                  color: subTextColor,
+                                  size: 22,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -6626,8 +7161,8 @@ class _QuranPagesState extends State<QuranPages>
     if (_allQuranPages == null) return;
 
     final pageData = _allQuranPages!.firstWhere(
-      (p) => p.page == _currentPage + 1,
-      orElse: () => QuranPageData(page: _currentPage + 1, ayahs: []),
+      (p) => p.page == _recitationTargetPage + 1,
+      orElse: () => QuranPageData(page: _recitationTargetPage + 1, ayahs: []),
     );
     final pageAyahs = pageData.ayahs;
 
@@ -6645,7 +7180,7 @@ class _QuranPagesState extends State<QuranPages>
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'اختر الآية - صفحة ${_currentPage + 1}',
+                  'اختر الآية - صفحة ${_recitationTargetPage + 1}',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -6805,288 +7340,370 @@ class _QuranPagesState extends State<QuranPages>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // تكرار الصفحة
-                      IconButton(
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: _barIconConstraints,
-                        onPressed: () {
-                          _resetHideTimer();
-                          audio.cyclePageRepeatMode();
-                        },
-                        icon: SizedBox(
-                          width: repeatIconBoxW,
-                          height: repeatIconBoxH,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            alignment: Alignment.center,
-                            children: [
-                              // The icon stays white in every state; the badge below
-                              // signals that page-repeat is active and how many times.
-                              // This PNG has ~24% transparent padding around its glyph
-                              // (unlike the ayah icon), so scale it up to match the
-                              // visual size of the other bar icons.
-                              Transform.scale(
-                                scale: 1.3,
-                                child: Image.asset(
-                                  'assets/images/icon_repeat_page.png',
-                                  width: repeatIconW,
-                                  height: repeatIconH,
-                                  fit: BoxFit.contain,
-                                  color: iconColor,
-                                  colorBlendMode: BlendMode.modulate,
+                      // Which page of the spread everything below acts on.
+                      // Only meaningful when two pages are showing, so it is
+                      // absent otherwise rather than being a dead control.
+                      if (_spreadPages.length == 2)
+                        _tvBarFocus(
+                          _TvBarControl.spreadToggle,
+                          circular: false,
+                          GestureDetector(
+                            onTap: _toggleSpreadPage,
+                            child: Tooltip(
+                              message: 'الصفحة المستهدفة بالتلاوة',
+                              child: Container(
+                                margin: const EdgeInsets.only(left: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
-                              ),
-                              if (isPageRepeating && pageRepeatLabel.isNotEmpty)
-                                Positioned(
-                                  right: -4,
-                                  bottom: -5,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 1,
+                                decoration: BoxDecoration(
+                                  color: accentColor.withValues(alpha: 0.20),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: accentColor.withValues(alpha: 0.45),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.swap_horiz_rounded,
+                                      color: iconColor,
+                                      size: 16,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: accentColor,
-                                      borderRadius: BorderRadius.circular(9),
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 1,
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'ص ${_recitationTargetPage + 1}',
+                                      style: TextStyle(
+                                        color: iconColor,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    child: Text(
-                                      pageRepeatLabel,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        height: 1.0,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      _tvBarFocus(
+                        _TvBarControl.repeatPage,
+                        IconButton(
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: _barIconConstraints,
+                          onPressed: () {
+                            _resetHideTimer();
+                            audio.cyclePageRepeatMode();
+                          },
+                          icon: SizedBox(
+                            width: repeatIconBoxW,
+                            height: repeatIconBoxH,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.center,
+                              children: [
+                                // The icon stays white in every state; the badge below
+                                // signals that page-repeat is active and how many times.
+                                // This PNG has ~24% transparent padding around its glyph
+                                // (unlike the ayah icon), so scale it up to match the
+                                // visual size of the other bar icons.
+                                Transform.scale(
+                                  scale: 1.3,
+                                  child: Image.asset(
+                                    'assets/images/icon_repeat_page.png',
+                                    width: repeatIconW,
+                                    height: repeatIconH,
+                                    fit: BoxFit.contain,
+                                    color: iconColor,
+                                    colorBlendMode: BlendMode.modulate,
+                                  ),
+                                ),
+                                if (isPageRepeating &&
+                                    pageRepeatLabel.isNotEmpty)
+                                  Positioned(
+                                    right: -4,
+                                    bottom: -5,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: accentColor,
+                                        borderRadius: BorderRadius.circular(9),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        pageRepeatLabel,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          height: 1.0,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
+                          tooltip: 'تكرار الصفحة',
                         ),
-                        tooltip: 'تكرار الصفحة',
                       ),
 
                       // السابق
-                      IconButton(
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      _tvBarFocus(
+                        _TvBarControl.prevAyah,
+                        IconButton(
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: _barIconConstraints,
+                          icon: Icon(
+                            Icons.skip_previous_rounded,
+                            color: iconColor,
+                            size: skipIconSize,
+                          ),
+                          onPressed: () {
+                            _resetHideTimer();
+                            audio.previousAyah();
+                          },
+                          tooltip: 'الآية السابقة',
                         ),
-                        padding: EdgeInsets.zero,
-                        constraints: _barIconConstraints,
-                        icon: Icon(
-                          Icons.skip_previous_rounded,
-                          color: iconColor,
-                          size: skipIconSize,
-                        ),
-                        onPressed: () {
-                          _resetHideTimer();
-                          audio.previousAyah();
-                        },
-                        tooltip: 'الآية السابقة',
                       ),
 
                       // رقم الآية
-                      GestureDetector(
-                        onTap: () {
-                          _resetHideTimer();
-                          if (currentAyah != null) {
-                            _showAyahSelectionDialog(currentAyah);
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: accentColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: accentColor.withValues(alpha: 0.3),
+                      _tvBarFocus(
+                        _TvBarControl.ayahPicker,
+                        circular: false,
+                        GestureDetector(
+                          onTap: () {
+                            _resetHideTimer();
+                            if (currentAyah != null) {
+                              _showAyahSelectionDialog(currentAyah);
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
                             ),
-                          ),
-                          child: Text(
-                            currentAyah != null
-                                ? 'آية ${currentAyah.ayah}'
-                                : 'آية 1',
-                            style: TextStyle(
-                              color: iconColor,
-                              fontSize: ayahFontSize,
-                              fontWeight: FontWeight.bold,
+                            decoration: BoxDecoration(
+                              color: accentColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: accentColor.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Text(
+                              currentAyah != null
+                                  ? 'آية ${currentAyah.ayah}'
+                                  : 'آية 1',
+                              style: TextStyle(
+                                color: iconColor,
+                                fontSize: ayahFontSize,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
                       ),
 
                       // إيقاف/تشغيل
-                      GestureDetector(
-                        onTap: () {
-                          _resetHideTimer();
-                          if (isPlaying) {
-                            audio.pause();
-                          } else {
-                            // Check if the user navigated to a different page while paused
-                            if (!audio.isAudioOnPage(_topBarCurrentPage)) {
-                              audio.playPage(_topBarCurrentPage);
+                      _tvBarFocus(
+                        _TvBarControl.playPause,
+                        GestureDetector(
+                          onTap: () {
+                            _resetHideTimer();
+                            if (isPlaying) {
+                              audio.pause();
                             } else {
-                              audio.resume();
+                              // Check if the user navigated to a different page while paused
+                              if (!audio.isAudioOnPage(_recitationTargetPage)) {
+                                audio.playPage(_recitationTargetPage);
+                              } else {
+                                audio.resume();
+                              }
                             }
-                          }
-                        },
-                        child: Container(
-                          width: playCircleSize,
-                          height: playCircleSize,
-                          decoration: BoxDecoration(
-                            color: accentColor.withValues(alpha: 0.25),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: accentColor.withValues(alpha: 0.4),
+                          },
+                          child: Container(
+                            width: playCircleSize,
+                            height: playCircleSize,
+                            decoration: BoxDecoration(
+                              // On TV this doubles as the remote's focus
+                              // indicator: a full-strength gold ring when the
+                              // D-pad is sitting on it, so it reads from a couch.
+                              color: accentColor.withValues(
+                                alpha: _tvRecitationFocused ? 0.45 : 0.25,
+                              ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: accentColor.withValues(
+                                  alpha: _tvRecitationFocused ? 1.0 : 0.4,
+                                ),
+                                width: _tvRecitationFocused ? 3 : 1,
+                              ),
                             ),
-                          ),
-                          child: Icon(
-                            isPlaying
-                                ? Icons.pause_rounded
-                                : Icons.play_arrow_rounded,
-                            color: iconColor,
-                            size: playIconSize,
+                            child: Icon(
+                              isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              color: iconColor,
+                              size: playIconSize,
+                            ),
                           ),
                         ),
                       ),
 
                       // التالي
-                      IconButton(
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      _tvBarFocus(
+                        _TvBarControl.nextAyah,
+                        IconButton(
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: _barIconConstraints,
+                          icon: Icon(
+                            Icons.skip_next_rounded,
+                            color: iconColor,
+                            size: skipIconSize,
+                          ),
+                          onPressed: () {
+                            _resetHideTimer();
+                            audio.nextAyah();
+                          },
+                          tooltip: 'الآية التالية',
                         ),
-                        padding: EdgeInsets.zero,
-                        constraints: _barIconConstraints,
-                        icon: Icon(
-                          Icons.skip_next_rounded,
-                          color: iconColor,
-                          size: skipIconSize,
-                        ),
-                        onPressed: () {
-                          _resetHideTimer();
-                          audio.nextAyah();
-                        },
-                        tooltip: 'الآية التالية',
                       ),
 
                       // تكرار الآية
-                      IconButton(
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        padding: EdgeInsets.zero,
-                        constraints: _barIconConstraints,
-                        onPressed: () {
-                          _resetHideTimer();
-                          audio.cycleAyahRepeatMode();
-                        },
-                        icon: SizedBox(
-                          width: repeatIconBoxW,
-                          height: repeatIconBoxH,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            alignment: Alignment.center,
-                            children: [
-                              // The icon stays white in every state; the badge below
-                              // signals that ayah-repeat is active and how many times.
-                              Image.asset(
-                                'assets/images/icon_repeat_ayah.png',
-                                width: repeatIconW,
-                                height: repeatIconH,
-                                fit: BoxFit.contain,
-                                color: iconColor,
-                                colorBlendMode: BlendMode.modulate,
-                              ),
-                              if (isRepeating && repeatLabel.isNotEmpty)
-                                Positioned(
-                                  right: -4,
-                                  bottom: -5,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: accentColor,
-                                      borderRadius: BorderRadius.circular(9),
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 1,
+                      _tvBarFocus(
+                        _TvBarControl.repeatAyah,
+                        IconButton(
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: _barIconConstraints,
+                          onPressed: () {
+                            _resetHideTimer();
+                            audio.cycleAyahRepeatMode();
+                          },
+                          icon: SizedBox(
+                            width: repeatIconBoxW,
+                            height: repeatIconBoxH,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.center,
+                              children: [
+                                // The icon stays white in every state; the badge below
+                                // signals that ayah-repeat is active and how many times.
+                                Image.asset(
+                                  'assets/images/icon_repeat_ayah.png',
+                                  width: repeatIconW,
+                                  height: repeatIconH,
+                                  fit: BoxFit.contain,
+                                  color: iconColor,
+                                  colorBlendMode: BlendMode.modulate,
+                                ),
+                                if (isRepeating && repeatLabel.isNotEmpty)
+                                  Positioned(
+                                    right: -4,
+                                    bottom: -5,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
                                       ),
-                                    ),
-                                    child: Text(
-                                      repeatLabel,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        height: 1.0,
+                                      decoration: BoxDecoration(
+                                        color: accentColor,
+                                        borderRadius: BorderRadius.circular(9),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        repeatLabel,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          height: 1.0,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
+                          tooltip: 'تكرار الآية',
                         ),
-                        tooltip: 'تكرار الآية',
                       ),
 
                       // إغلاق
-                      IconButton(
-                        style: IconButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      _tvBarFocus(
+                        _TvBarControl.close,
+                        IconButton(
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: _barIconConstraints,
+                          icon: Icon(
+                            Icons.close_rounded,
+                            color: iconColor,
+                            size: closeIconSize,
+                          ),
+                          onPressed: () {
+                            _resetHideTimer();
+                            audio.stop();
+                          },
+                          tooltip: 'إغلاق',
                         ),
-                        padding: EdgeInsets.zero,
-                        constraints: _barIconConstraints,
-                        icon: Icon(
-                          Icons.close_rounded,
-                          color: iconColor,
-                          size: closeIconSize,
-                        ),
-                        onPressed: () {
-                          _resetHideTimer();
-                          audio.stop();
-                        },
-                        tooltip: 'إغلاق',
                       ),
 
                       // خيارات (القارئ، سرعة التلاوة، تكرار الثمن، تكرار مقطع، الإرشادات)
                       // Wrapped in a gold accent chip so it stands apart from
                       // the plain-white transport icons and reads as "options".
-                      GestureDetector(
-                        onTap: () {
-                          _resetHideTimer();
-                          _showTilawahOptionsSheet();
-                        },
-                        child: Tooltip(
-                          message: 'خيارات التلاوة',
-                          child: Container(
-                            padding: EdgeInsets.all(isLandscape ? 6 : 7),
-                            decoration: BoxDecoration(
-                              color: accentColor.withValues(
-                                alpha: 0.22 * iconOpacity,
-                              ),
-                              shape: BoxShape.circle,
-                              border: Border.all(
+                      _tvBarFocus(
+                        _TvBarControl.optionsSheet,
+                        GestureDetector(
+                          onTap: () {
+                            _resetHideTimer();
+                            _showTilawahOptionsSheet();
+                          },
+                          child: Tooltip(
+                            message: 'خيارات التلاوة',
+                            child: Container(
+                              padding: EdgeInsets.all(isLandscape ? 6 : 7),
+                              decoration: BoxDecoration(
                                 color: accentColor.withValues(
-                                  alpha: 0.55 * iconOpacity,
+                                  alpha: 0.22 * iconOpacity,
                                 ),
-                                width: 1.2,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: accentColor.withValues(
+                                    alpha: 0.55 * iconOpacity,
+                                  ),
+                                  width: 1.2,
+                                ),
                               ),
-                            ),
-                            child: Icon(
-                              Icons.tune_rounded,
-                              color: iconColor,
-                              size: helpIconSize,
+                              child: Icon(
+                                Icons.tune_rounded,
+                                color: iconColor,
+                                size: helpIconSize,
+                              ),
                             ),
                           ),
                         ),
@@ -7601,7 +8218,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                               vertical: 8,
                             ),
                             itemCount: _tafsirData.length,
-                            separatorBuilder: (_, _) => const Divider(height: 32),
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 32),
                             itemBuilder: (context, index) {
                               final data = _tafsirData[index];
                               return Column(
@@ -7662,4 +8280,18 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
       },
     );
   }
+}
+
+/// Controls in the recitation bar that an Android TV remote can reach, in the
+/// order they appear on screen.
+enum _TvBarControl {
+  spreadToggle,
+  repeatPage,
+  prevAyah,
+  ayahPicker,
+  playPause,
+  nextAyah,
+  repeatAyah,
+  close,
+  optionsSheet,
 }

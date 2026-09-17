@@ -172,5 +172,6 @@
     "additionalDirectories": [
       "d:\\quran app\\quran-app-main\\lib"
     ]
-  }
+  },
+  "outputStyle": "default"
 }

@@ -14,8 +14,10 @@ import 'services/page_zoom_service.dart';
 import 'services/debug_log_service.dart';
 import 'services/reciter_service.dart';
 import 'services/tafsir_edition_service.dart';
+import 'services/recitation_bar_auto_hide_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
+import 'services/tv_service.dart';
 import 'services/update_notification_service.dart';
 import 'splash_screen.dart';
 
@@ -98,8 +100,13 @@ Future<void> main() async {
     // Same deal: prefs only, and it claims its tap-payload prefix so a tap that
     // cold-started the app is routed once the plugin is up.
     KahfReminderService.instance.load(),
+    // Resolved here rather than lazily: the very first frame's layout
+    // depends on it, and it rides along in the existing parallel batch so
+    // it adds no measurable time to the splash.
+    TvService.instance.initialize(),
     PageColorService.instance.load(),
     PageZoomService.instance.load(),
+    RecitationBarAutoHideService.instance.load(),
     RecitationBarOpacityService.instance.load(),
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -155,6 +162,34 @@ class QuranApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           scrollBehavior: _AppScrollBehavior(),
+          // Android TV: stop Select/Enter from ALSO being delivered to whatever
+          // widget holds Flutter focus. Every TV screen drives the D-pad
+          // explicitly through a HardwareKeyboard handler, and returning true
+          // from one of those stops the raw-key path but NOT the
+          // Shortcuts/Actions path -- so a single DPAD_CENTER fired our handler
+          // AND "clicked" the focused widget. That double-activation pushed two
+          // routes at once in the reader, and double-popped out of the index
+          // into a black screen. Declared app-wide because it bit on two
+          // separate routes; empty on every other platform.
+          shortcuts: TvService.instance.isTv
+              ? <ShortcutActivator, Intent>{
+                  ...WidgetsApp.defaultShortcuts,
+                  const SingleActivator(LogicalKeyboardKey.select):
+                      const DoNothingAndStopPropagationIntent(),
+                  const SingleActivator(LogicalKeyboardKey.enter):
+                      const DoNothingAndStopPropagationIntent(),
+                  const SingleActivator(LogicalKeyboardKey.gameButtonA):
+                      const DoNothingAndStopPropagationIntent(),
+                  // NOTE: the arrows are deliberately NOT blocked here.
+                  // Blocking them app-wide stopped Switch/Slider from mutating
+                  // during traversal, but it also left every screen without an
+                  // explicit handler (البحث, the tafsir sheet, bookmark
+                  // dialogs) with a completely dead D-pad. TvFocusScope instead
+                  // excludes focus in its own subtree, which achieves the same
+                  // protection locally because it drives by semantics rather
+                  // than focus.
+                }
+              : null,
           themeMode: themeMode,
           theme: ThemeData(
             brightness: Brightness.light,

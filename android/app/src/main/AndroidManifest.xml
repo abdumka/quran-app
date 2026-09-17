@@ -18,10 +18,17 @@
          an inexact alarm, so on Android 12+ a reminder may drift by a few
          minutes — which is fine for a "read a page today" nudge. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Android TV support. Leanback is declared non-required so phones and
+         tablets still match, and the touchscreen must be explicitly optional:
+         Play assumes required="true" when it is absent, which alone blocks the
+         app from TV devices. -->
+    <uses-feature android:name="android.software.leanback" android:required="false"/>
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/tv_banner">
         
         <activity
             android:name=".MainActivity"
@@ -43,6 +50,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+                <!-- Makes the app visible in the Android TV launcher. -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
             </intent-filter>
         </activity>
         <!-- Media session service + button receiver for background recitation

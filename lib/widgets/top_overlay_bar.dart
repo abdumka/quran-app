@@ -13,6 +13,12 @@ class TopOverlayBar extends StatelessWidget {
   final bool isFullScreenMode;
   final ValueChanged<bool> onToggleFullScreenMode;
 
+  /// Which of the three controls the TV remote is on (0 full-screen,
+  /// 1 hide-bar, 2 settings), or null off-TV / when focus is elsewhere.
+  /// Drawn as a ring because Flutter's own focus styling is invisible at
+  /// couch distance.
+  final int? tvFocusedIndex;
+
   const TopOverlayBar({
     super.key,
     required this.show,
@@ -26,7 +32,20 @@ class TopOverlayBar extends StatelessWidget {
     required this.onToggleHideBar,
     required this.isFullScreenMode,
     required this.onToggleFullScreenMode,
+    this.tvFocusedIndex,
   });
+
+  Widget _tvRing(int index, Widget child) {
+    if (tvFocusedIndex != index) return child;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFD2B97E).withValues(alpha: 0.30),
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFD2B97E), width: 3),
+      ),
+      child: child,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -102,55 +121,64 @@ class TopOverlayBar extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    icon: Icon(
-                      isFullScreenMode
-                          ? Icons.fullscreen_exit_rounded
-                          : Icons.fullscreen_rounded,
-                      color: isFullScreenMode
-                          ? const Color(0xFFD2B97E)
-                          : const Color(0xFFD2B97E).withValues(alpha: 0.5),
-                      size: isLandscape ? 20 : 24,
+                  _tvRing(
+                    0,
+                    IconButton(
+                      icon: Icon(
+                        isFullScreenMode
+                            ? Icons.fullscreen_exit_rounded
+                            : Icons.fullscreen_rounded,
+                        color: isFullScreenMode
+                            ? const Color(0xFFD2B97E)
+                            : const Color(0xFFD2B97E).withValues(alpha: 0.5),
+                        size: isLandscape ? 20 : 24,
+                      ),
+                      onPressed: () => onToggleFullScreenMode(!isFullScreenMode),
+                      padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                      constraints: BoxConstraints(
+                        minWidth: isLandscape ? 32 : 40,
+                        minHeight: isLandscape ? 32 : 40,
+                      ),
+                      tooltip: isFullScreenMode
+                          ? 'إيقاف وضع ملء الشاشة'
+                          : 'تفعيل وضع ملء الشاشة',
                     ),
-                    onPressed: () => onToggleFullScreenMode(!isFullScreenMode),
-                    padding: EdgeInsets.all(isLandscape ? 2 : 6),
-                    constraints: BoxConstraints(
-                      minWidth: isLandscape ? 32 : 40,
-                      minHeight: isLandscape ? 32 : 40,
-                    ),
-                    tooltip: isFullScreenMode
-                        ? 'إيقاف وضع ملء الشاشة'
-                        : 'تفعيل وضع ملء الشاشة',
                   ),
-                  IconButton(
-                    icon: Icon(
-                      isHideBarEnabled
-                          ? Icons.visibility_off_rounded
-                          : Icons.visibility_rounded,
-                      color: isHideBarEnabled
-                          ? const Color(0xFFD2B97E)
-                          : const Color(0xFFD2B97E).withValues(alpha: 0.5),
-                      size: isLandscape ? 20 : 24,
+                  _tvRing(
+                    1,
+                    IconButton(
+                      icon: Icon(
+                        isHideBarEnabled
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        color: isHideBarEnabled
+                            ? const Color(0xFFD2B97E)
+                            : const Color(0xFFD2B97E).withValues(alpha: 0.5),
+                        size: isLandscape ? 20 : 24,
+                      ),
+                      onPressed: () => onToggleHideBar(!isHideBarEnabled),
+                      padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                      constraints: BoxConstraints(
+                        minWidth: isLandscape ? 32 : 40,
+                        minHeight: isLandscape ? 32 : 40,
+                      ),
+                      tooltip: isHideBarEnabled ? 'إخفاء شريط الإخفاء' : 'إظهار شريط الإخفاء',
                     ),
-                    onPressed: () => onToggleHideBar(!isHideBarEnabled),
-                    padding: EdgeInsets.all(isLandscape ? 2 : 6),
-                    constraints: BoxConstraints(
-                      minWidth: isLandscape ? 32 : 40,
-                      minHeight: isLandscape ? 32 : 40,
-                    ),
-                    tooltip: isHideBarEnabled ? 'إخفاء شريط الإخفاء' : 'إظهار شريط الإخفاء',
                   ),
-                  IconButton(
-                    icon: Icon(
-                      Icons.settings_outlined,
-                      color: const Color(0xFFD2B97E),
-                      size: isLandscape ? 22 : 26,
-                    ),
-                    onPressed: onSettingsPressed,
-                    padding: EdgeInsets.all(isLandscape ? 4 : 8),
-                    constraints: BoxConstraints(
-                      minWidth: isLandscape ? 36 : 44,
-                      minHeight: isLandscape ? 36 : 44,
+                  _tvRing(
+                    2,
+                    IconButton(
+                      icon: Icon(
+                        Icons.settings_outlined,
+                        color: const Color(0xFFD2B97E),
+                        size: isLandscape ? 22 : 26,
+                      ),
+                      onPressed: onSettingsPressed,
+                      padding: EdgeInsets.all(isLandscape ? 4 : 8),
+                      constraints: BoxConstraints(
+                        minWidth: isLandscape ? 36 : 44,
+                        minHeight: isLandscape ? 36 : 44,
+                      ),
                     ),
                   ),
                 ],

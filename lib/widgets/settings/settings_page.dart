@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'settings_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:screen_brightness/screen_brightness.dart';
+
+import '../../services/recitation_bar_auto_hide_service.dart';
+import '../../services/tv_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -827,8 +830,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String get _marginImagesInfoText =>
       _marginImagesService.state.value.isAvailable
-          ? 'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.'
-          : 'نزّل حزمة صور الهوامش أولًا، ثم اختر لاحقًا تفعيل عرض الهوامش أو إيقافه.';
+      ? 'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.'
+      : 'نزّل حزمة صور الهوامش أولًا، ثم اختر لاحقًا تفعيل عرض الهوامش أو إيقافه.';
 
   String get _audioDownloadInfoText {
     final audioState = _audioDownloadService.state.value;
@@ -863,7 +866,9 @@ class _SettingsPageState extends State<SettingsPage> {
       await UpdateAvailableDialog.show(context, info);
     } catch (_) {
       if (mounted) {
-        _showSettingsNotice('تعذر التحقق من التحديثات. تحقق من اتصالك بالإنترنت.');
+        _showSettingsNotice(
+          'تعذر التحقق من التحديثات. تحقق من اتصالك بالإنترنت.',
+        );
       }
     } finally {
       if (mounted) setState(() => _isCheckingForUpdate = false);
@@ -885,8 +890,8 @@ class _SettingsPageState extends State<SettingsPage> {
     // Ask for the OS notification permission the moment the user opts in, so a
     // later update actually reaches them.
     if (useNotifications) {
-      final granted =
-          await UpdateNotificationService.instance.requestPermission();
+      final granted = await UpdateNotificationService.instance
+          .requestPermission();
       if (!mounted) return;
       if (!granted) {
         _showSettingsNotice(
@@ -950,6 +955,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String get _pageZoomInfoText =>
       'يتيح لك تكبير صفحة المصحف بتقريب أصابعك (Pinch) مثل الصور. عند إيقاف هذا الخيار لا يمكن تكبير الصفحة.';
+
+  String get _recitationBarAutoHideInfoText =>
+      'يُخفي شريط التلاوة تلقائيًا بعد المدة المحددة من عدم لمس الشاشة كي لا يغطي الصفحة أثناء الاستماع. التلاوة تستمر، وأي لمسة تُظهر الشريط من جديد. استخدم − و + لتغيير المدة بالثواني.';
 
   String get _pageColorInfoText =>
       'يغيّر لون ورق الصور بوضوح مع الحفاظ على وضوح النص. اختر «أصلي» لعرض الصور بلونها الطبيعي. في الوضع الداكن يبقى العرض الداكن.';
@@ -1114,9 +1122,8 @@ class _SettingsPageState extends State<SettingsPage> {
               return CompactSwitchTile(
                 title: 'تشغيل التلاوة في الخلفية',
                 icon: Icons.headset_rounded,
-                onInfo: () => _presentCoachManually(
-                  SettingsCoachStep.backgroundPlayback,
-                ),
+                onInfo: () =>
+                    _presentCoachManually(SettingsCoachStep.backgroundPlayback),
                 value: enabled,
                 onChanged: _backgroundPlaybackService.setEnabled,
               );
@@ -1186,8 +1193,36 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: Icons.gradient_rounded,
             opacity: backgroundOpacity,
             onChanged: _recitationBarOpacityService.setBackgroundOpacity,
-            onInfo:
-                () => _showInfoNotice(_recitationBarBackgroundOpacityInfoText),
+            onInfo: () =>
+                _showInfoNotice(_recitationBarBackgroundOpacityInfoText),
+          );
+        },
+      ),
+      ValueListenableBuilder<bool>(
+        valueListenable: RecitationBarAutoHideService.instance.enabled,
+        builder: (context, autoHideEnabled, _) {
+          return ValueListenableBuilder<int>(
+            valueListenable: RecitationBarAutoHideService.instance.delaySeconds,
+            builder: (context, autoHideSeconds, _) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: RecitationBarAutoHideTile(
+                  enabled: autoHideEnabled,
+                  delaySeconds: autoHideSeconds,
+                  minSeconds: RecitationBarAutoHideService.minDelaySeconds,
+                  maxSeconds: RecitationBarAutoHideService.maxDelaySeconds,
+                  stepSeconds: RecitationBarAutoHideService.delayStepSeconds,
+                  onEnabledChanged:
+                      RecitationBarAutoHideService.instance.setEnabled,
+                  onDelayChanged:
+                      RecitationBarAutoHideService.instance.setDelaySeconds,
+                  onInfo: () => _showInfoNotice(_recitationBarAutoHideInfoText),
+                ),
+              );
+            },
           );
         },
       ),
@@ -1243,8 +1278,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
@@ -1298,9 +1335,8 @@ class _SettingsPageState extends State<SettingsPage> {
             child: CompactActionTile(
               title: 'إعادة الإرشادات',
               icon: Icons.tips_and_updates_rounded,
-              onInfo: () => _presentCoachManually(
-                SettingsCoachStep.resetGuides,
-              ),
+              onInfo: () =>
+                  _presentCoachManually(SettingsCoachStep.resetGuides),
               onTap: _resetGuides,
             ),
           ),
@@ -1383,77 +1419,88 @@ class _SettingsPageState extends State<SettingsPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Screen brightness on a single compact line:
-                              // label, slider and percentage side by side.
-                              Container(
-                                key: _brightnessKey,
-                                child: Row(
-                                  textDirection: TextDirection.rtl,
-                                  children: [
-                                    const Icon(
-                                      Icons.wb_sunny_rounded,
-                                      color: Color(0xFF8B7355),
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'إضاءة الشاشة',
-                                      textDirection: TextDirection.rtl,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF2C2C2C),
+                              // A TV has no app-level brightness -- the
+                              // platform call is a no-op there -- and on a
+                              // D-pad the Slider swallows Up/Down, trapping
+                              // focus on the first row so the rest of Settings
+                              // (including the offline downloads) can never be
+                              // reached. Phones are unaffected.
+                              if (!TvService.instance.isTv) ...[
+                                // Screen brightness on a single compact line:
+                                // label, slider and percentage side by side.
+                                Container(
+                                  key: _brightnessKey,
+                                  child: Row(
+                                    textDirection: TextDirection.rtl,
+                                    children: [
+                                      const Icon(
+                                        Icons.wb_sunny_rounded,
+                                        color: Color(0xFF8B7355),
+                                        size: 18,
                                       ),
-                                    ),
-                                    const SizedBox(width: 2),
-                                    InfoHintButton(
-                                      onTap: () => _presentCoachManually(
-                                        SettingsCoachStep.screenBrightness,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: SliderTheme(
-                                        data: SliderTheme.of(context).copyWith(
-                                          trackHeight: 3,
-                                          activeTrackColor: const Color(
-                                            0xFF8D6E3F,
-                                          ),
-                                          thumbColor: const Color(0xFF8D6E3F),
-                                          overlayColor: const Color(
-                                            0xFF8D6E3F,
-                                          ).withValues(alpha: 0.1),
-                                          inactiveTrackColor: const Color(
-                                            0xFF8D6E3F,
-                                          ).withValues(alpha: 0.1),
-                                        ),
-                                        child: Slider(
-                                          value: _brightness,
-                                          onChanged: (v) async {
-                                            setState(() => _brightness = v);
-                                            await ScreenBrightness()
-                                                .setApplicationScreenBrightness(
-                                                  v,
-                                                );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      width: 38,
-                                      child: Text(
-                                        '${(_brightness * 100).round()}%',
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'إضاءة الشاشة',
+                                        textDirection: TextDirection.rtl,
+                                        style: TextStyle(
                                           fontSize: 13,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF8D6E3F),
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF2C2C2C),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 2),
+                                      InfoHintButton(
+                                        onTap: () => _presentCoachManually(
+                                          SettingsCoachStep.screenBrightness,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: SliderTheme(
+                                          data: SliderTheme.of(context)
+                                              .copyWith(
+                                                trackHeight: 3,
+                                                activeTrackColor: const Color(
+                                                  0xFF8D6E3F,
+                                                ),
+                                                thumbColor: const Color(
+                                                  0xFF8D6E3F,
+                                                ),
+                                                overlayColor: const Color(
+                                                  0xFF8D6E3F,
+                                                ).withValues(alpha: 0.1),
+                                                inactiveTrackColor: const Color(
+                                                  0xFF8D6E3F,
+                                                ).withValues(alpha: 0.1),
+                                              ),
+                                          child: Slider(
+                                            value: _brightness,
+                                            onChanged: (v) async {
+                                              setState(() => _brightness = v);
+                                              await ScreenBrightness()
+                                                  .setApplicationScreenBrightness(
+                                                    v,
+                                                  );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: 38,
+                                        child: Text(
+                                          '${(_brightness * 100).round()}%',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF8D6E3F),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              const Divider(height: 12),
+                                const Divider(height: 12),
+                              ],
                               Container(
                                 key: _darkModeKey,
                                 child: Row(
@@ -1502,42 +1549,50 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Container(
-                              key: _hideBarCardKey,
-                              child: CompactSwitchTile(
-                                title: 'شريط الإخفاء',
-                                icon: Icons.visibility_off_rounded,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.hideBar,
+                            // Both hifz controls are touch-only: the hide bar
+                            // is dragged by its golden frame and the lens is
+                            // revealed by sliding a finger over the page.
+                            // Neither can be operated with a remote, and
+                            // enabling one leaves a TV showing a permanently
+                            // blurred page, so they are hidden there.
+                            if (!TvService.instance.isTv) ...[
+                              Container(
+                                key: _hideBarCardKey,
+                                child: CompactSwitchTile(
+                                  title: 'شريط الإخفاء',
+                                  icon: Icons.visibility_off_rounded,
+                                  onInfo: () => _presentCoachManually(
+                                    SettingsCoachStep.hideBar,
+                                  ),
+                                  value: widget.isHideBarEnabled,
+                                  onChanged: (value) {
+                                    widget.onToggleHideBar(value);
+                                    Navigator.pop(context);
+                                  },
                                 ),
-                                value: widget.isHideBarEnabled,
-                                onChanged: (value) {
-                                  widget.onToggleHideBar(value);
-                                  Navigator.pop(context);
-                                },
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              key: _hifzLensKey,
-                              child: CompactSwitchTile(
-                                title: 'عدسة الإخفاء',
-                                icon: Icons.psychology_rounded,
-                                iconOverride: const HifzLensIcon(
-                                  size: 20,
-                                  color: Color(0xFF8B7355),
+                              const SizedBox(height: 6),
+                              Container(
+                                key: _hifzLensKey,
+                                child: CompactSwitchTile(
+                                  title: 'عدسة الإخفاء',
+                                  icon: Icons.psychology_rounded,
+                                  iconOverride: const HifzLensIcon(
+                                    size: 20,
+                                    color: Color(0xFF8B7355),
+                                  ),
+                                  onInfo: () => _presentCoachManually(
+                                    SettingsCoachStep.hifzLens,
+                                  ),
+                                  value: widget.isHifzModeEnabled,
+                                  onChanged: (value) {
+                                    widget.onToggleHifzMode(value);
+                                    Navigator.pop(context);
+                                  },
                                 ),
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.hifzLens,
-                                ),
-                                value: widget.isHifzModeEnabled,
-                                onChanged: (value) {
-                                  widget.onToggleHifzMode(value);
-                                  Navigator.pop(context);
-                                },
                               ),
-                            ),
-                            const SizedBox(height: 6),
+                              const SizedBox(height: 6),
+                            ],
                             Container(
                               key: _browseModeCardKey,
                               child: CompactSwitchTile(
@@ -1683,9 +1738,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                     _marginImagesService.pauseDownload,
                                 onToggleEnabled:
                                     _marginImagesService.setEnabled,
-                                onInfo: () => _showInfoNotice(
-                                  _marginImagesInfoText,
-                                ),
+                                onInfo: () =>
+                                    _showInfoNotice(_marginImagesInfoText),
                               );
                             },
                           ),

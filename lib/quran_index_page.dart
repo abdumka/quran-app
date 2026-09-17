@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'quran_constants.dart';
+import 'services/tv_service.dart';
 import 'thumn_data.dart';
 import 'utils/responsive_helper.dart';
 
@@ -63,20 +65,156 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   final GlobalKey _currentHizbKey = GlobalKey();
   bool _hizbEnsuredVisible = false;
 
+  /// Android TV only. The grids are plain GridViews with no focus indicator,
+  /// so a remote could scroll them via Flutter's traversal but the user could
+  /// not see where they were or reliably open anything. These drive an explicit
+  /// highlight instead. [_tvOnTabs] parks the highlight on the tab row above.
+  int _tvIndex = 0;
+  bool _tvOnTabs = false;
+
   @override
   void initState() {
     super.initState();
     _selectedTab = _lastSelectedTab ?? widget.initialTab;
+    if (TvService.instance.isTv) {
+      HardwareKeyboard.instance.addHandler(_onTvKey);
+    }
   }
 
   @override
   void dispose() {
+    if (TvService.instance.isTv) {
+      HardwareKeyboard.instance.removeHandler(_onTvKey);
+    }
     _searchController.dispose();
     _hizbSearchController.dispose();
     _pagesScrollController?.dispose();
     _surahsScrollController?.dispose();
     _hizbScrollController?.dispose();
     super.dispose();
+  }
+
+  static const List<QuranIndexTab> _tvTabOrder = [
+    QuranIndexTab.surahs,
+    QuranIndexTab.juzs,
+    QuranIndexTab.hizbs,
+    QuranIndexTab.pages,
+    QuranIndexTab.sajdas,
+  ];
+
+  /// Only the surahs grid has per-item remote navigation so far; the other tabs
+  /// can be switched to and read, but their items still need the same
+  /// treatment. Returns -1 when the active tab has no TV grid.
+  int get _tvItemCount =>
+      _selectedTab == QuranIndexTab.surahs ? _filteredSurahs().length : -1;
+
+  bool _onTvKey(KeyEvent event) {
+    if (!mounted) return false;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (ModalRoute.of(context)?.isCurrent != true) return false;
+
+    final key = event.logicalKey;
+    final bool select = key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.gameButtonA;
+
+    // The tab row sits above the grid.
+    if (_tvOnTabs) {
+      final int i = _tvTabOrder.indexOf(_selectedTab);
+      // Chips are laid out right-to-left, so Left advances through the list.
+      if (key == LogicalKeyboardKey.arrowLeft) {
+        setState(() {
+          _selectedTab = _tvTabOrder[(i + 1) % _tvTabOrder.length];
+          _tvIndex = 0;
+        });
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowRight) {
+        setState(() {
+          _selectedTab =
+              _tvTabOrder[(i - 1 + _tvTabOrder.length) % _tvTabOrder.length];
+          _tvIndex = 0;
+        });
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowDown || select) {
+        setState(() => _tvOnTabs = false);
+        return true;
+      }
+      return key == LogicalKeyboardKey.arrowUp;
+    }
+
+    final int count = _tvItemCount;
+    if (count <= 0) {
+      // No grid navigation on this tab yet -- let Up still reach the tabs so
+      // the user is never stuck.
+      if (key == LogicalKeyboardKey.arrowUp) {
+        setState(() => _tvOnTabs = true);
+        return true;
+      }
+      return false;
+    }
+
+    final int cols = _crossAxisCount();
+    if (key == LogicalKeyboardKey.arrowUp) {
+      setState(() {
+        if (_tvIndex < cols) {
+          _tvOnTabs = true;
+        } else {
+          _tvIndex -= cols;
+        }
+      });
+      _tvEnsureVisible();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      setState(() => _tvIndex = (_tvIndex + cols).clamp(0, count - 1));
+      _tvEnsureVisible();
+      return true;
+    }
+    // RTL grid: index increases leftwards, so Left is "next".
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      setState(() => _tvIndex = (_tvIndex + 1).clamp(0, count - 1));
+      _tvEnsureVisible();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      setState(() => _tvIndex = (_tvIndex - 1).clamp(0, count - 1));
+      _tvEnsureVisible();
+      return true;
+    }
+    if (select) {
+      final surahs = _filteredSurahs();
+      if (_tvIndex < surahs.length) {
+        final surah = surahs[_tvIndex];
+        widget.onSelectSurah(surah['number'] as int);
+        _goToPageAndClose(
+          surah['page'] as int,
+          yOffsetRatio: (surah['yOffsetRatio'] as num?)?.toDouble() ?? 0.0,
+        );
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /// Keeps the highlighted chip on screen as the remote walks the grid.
+  void _tvEnsureVisible() {
+    final c = _surahsScrollController;
+    if (c == null || !c.hasClients) return;
+    final int cols = _crossAxisCount();
+    final int row = _tvIndex ~/ cols;
+    // Row pitch is derived from the viewport rather than hard-coded so it holds
+    // across the tablet/landscape column counts.
+    final double rowExtent =
+        (c.position.viewportDimension / (_surahAspectRatio() * cols)) + 10;
+    final double target =
+        (row * rowExtent) - (c.position.viewportDimension / 2) + (rowExtent / 2);
+    c.animateTo(
+      target.clamp(0.0, c.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+    );
   }
 
   String _normalizeArabic(String text) {
@@ -332,6 +470,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
     Widget chip(QuranIndexTab tab, String label) {
       final isSelected = _selectedTab == tab;
+      final bool tvFocused =
+          TvService.instance.isTv && _tvOnTabs && isSelected;
       return InkWell(
         borderRadius: BorderRadius.circular(999),
         onTap: () {
@@ -350,9 +490,12 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             color: isSelected ? const Color(0xFF8D6E3F) : Colors.white,
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: isSelected
-                  ? const Color(0xFF8D6E3F)
-                  : const Color(0xFF8D6E3F).withValues(alpha: 0.18),
+              color: tvFocused
+                  ? const Color(0xFFD2B97E)
+                  : (isSelected
+                        ? const Color(0xFF8D6E3F)
+                        : const Color(0xFF8D6E3F).withValues(alpha: 0.18)),
+              width: tvFocused ? 3 : 1,
             ),
             boxShadow: [
               BoxShadow(
@@ -471,11 +614,13 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
-  Widget _buildSurahChip(Map<String, dynamic> surah) {
+  Widget _buildSurahChip(Map<String, dynamic> surah, int index) {
     final number = surah['number'] as int;
     final name = (surah['name'] ?? '').toString();
     final page = surah['page'] as int;
     final isCurrent = number == widget.currentSurahNumber;
+    final bool tvFocused =
+        TvService.instance.isTv && !_tvOnTabs && index == _tvIndex;
 
     return Material(
       color: Colors.transparent,
@@ -490,12 +635,19 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         },
         child: Container(
           decoration: BoxDecoration(
-            color: isCurrent ? const Color(0xFFE7D7AF) : Colors.white,
+            color: tvFocused
+                ? const Color(0xFFD2B97E)
+                : (isCurrent ? const Color(0xFFE7D7AF) : Colors.white),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: isCurrent
-                  ? const Color(0xFF8D6E3F)
-                  : const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+              // A thick gold ring is the remote's cursor here; without it the
+              // grid scrolls but nothing looks selected.
+              color: tvFocused
+                  ? const Color(0xFF5A4520)
+                  : (isCurrent
+                        ? const Color(0xFF8D6E3F)
+                        : const Color(0xFF8D6E3F).withValues(alpha: 0.10)),
+              width: tvFocused ? 3 : 1,
             ),
             boxShadow: [
               BoxShadow(
@@ -707,7 +859,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
               childAspectRatio: aspectRatio,
             ),
             itemCount: surahs.length,
-            itemBuilder: (context, index) => _buildSurahChip(surahs[index]),
+            itemBuilder: (context, index) =>
+                _buildSurahChip(surahs[index], index),
           ),
         );
       },
