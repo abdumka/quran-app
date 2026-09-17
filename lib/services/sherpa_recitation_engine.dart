@@ -478,8 +478,15 @@ Future<void> _workerMain(_WorkerInit init) async {
       tail = Float32List.sublistView(samples, from);
     }
     final tailFirst = tail != null && lastDecodeMs < _interimDisableDecodeMs;
+    // When interims are running they already covered the utterance's
+    // start, so an utterance up to ~2.5 s longer than the tail window needs
+    // no full decode (measured free on the recorded sessions; it removes
+    // a 2-4 s decode from most pauses). Without interims only the pre-roll
+    // may be left uncovered.
+    final uncoveredAllowed =
+        tailFirst ? _sampleRate * 5 ~/ 2 : _sampleRate ~/ 2;
     final tailCoversAll = tail != null &&
-        samples.length - tail.length <= tailSkipSamples + _sampleRate ~/ 2;
+        samples.length - tail.length <= tailSkipSamples + uncoveredAllowed;
     if (tailFirst) {
       emit(decode(tail, 'tail'), isFinal: true, audioEnd: audioEnd);
     }
