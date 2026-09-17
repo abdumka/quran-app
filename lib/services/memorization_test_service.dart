@@ -174,6 +174,12 @@ class MemorizationTestService {
   bool _silenceWarned = false;
   int _lastAyahIndex = -1;
   int _unexplainedFinals = 0;
+
+  /// Speech budget a previous segment did not use (see
+  /// [RecognizedSegment.maxNewWords]). A final is decoded twice; the first
+  /// decode takes the whole budget, so if it was garbled the second one
+  /// -- which may carry the words -- must inherit what was left.
+  int _carriedBudget = 0;
   TasmeeSessionRecorder? _recorder;
   int _startToken = 0;
 
@@ -391,6 +397,7 @@ class MemorizationTestService {
       _engine = engine;
       _lastAyahIndex = 0;
       _unexplainedFinals = 0;
+      _carriedBudget = 0;
       lastLagMs.value = -1;
       lastHeard.value = '';
       _setFeedback(null);
@@ -616,11 +623,17 @@ class MemorizationTestService {
 
     final ayahBefore = currentAyahIndex;
     final cursorBefore = aligner.cursor;
+    final budget = segment.maxNewWords > 0
+        ? segment.maxNewWords + _carriedBudget
+        : 0;
     final outcome = aligner.submitRecognizedSegment(
       text,
       isFinal: segment.isFinal,
-      maxNewWords: segment.maxNewWords,
+      maxNewWords: budget,
     );
+    if (budget > 0) {
+      _carriedBudget = math.min(20, budget - outcome.correct.length);
+    }
     if (segment.lagMs >= 0) lastLagMs.value = segment.lagMs;
     _recorder?.log('segment', {
       'text': text,

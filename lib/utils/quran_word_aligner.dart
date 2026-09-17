@@ -81,7 +81,7 @@ enum WordStatus {
 class QuranWordAligner {
   QuranWordAligner(
     List<String> expectedWords, {
-    this.windowSize = 6,
+    this.windowSize = 10,
     this.historySize = 40,
     this.resyncReach = 30,
   })  : assert(expectedWords.isNotEmpty, 'expectedWords must not be empty'),
@@ -543,10 +543,20 @@ class QuranWordAligner {
     if (lastToken && b.length >= 3 && a.length > b.length && a.startsWith(b)) {
       return true;
     }
+    // Recognizers drop or add the definite article ("رسول" for الرسول,
+    // "الكتاب" for كتاب). Accept the pair when the bare word is at least
+    // four letters -- never for "له" vs "الله" or "ذي" vs "الذي".
+    if (_sameButArticle(a, b) || _sameButArticle(b, a)) return true;
     final threshold = a.length <= 3 ? 0 : (a.length <= 7 ? 1 : 2);
     if (threshold == 0) return false;
     return _levenshtein(a, b, maxDistance: threshold) <= threshold;
   }
+
+  static bool _sameButArticle(String withArticle, String bare) =>
+      withArticle.length == bare.length + 2 &&
+      bare.length >= 4 &&
+      withArticle.startsWith('ال') &&
+      withArticle.endsWith(bare);
 
   /// Character-level edit distance between [a] and [b], short-circuiting
   /// (returning `maxDistance + 1`) once it's clear the result will exceed

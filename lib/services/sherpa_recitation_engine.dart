@@ -297,7 +297,7 @@ const Duration _endGap = Duration(milliseconds: 800);
 /// Longest utterance before a soft force-split. The cut is placed at the
 /// quietest 100 ms of the last [_softCutSearch] so it never lands inside a
 /// word the way a hard cut did.
-const Duration _maxUtterance = Duration(milliseconds: 8000);
+const Duration _maxUtterance = Duration(milliseconds: 12000);
 const Duration _softCutSearch = Duration(milliseconds: 3000);
 
 /// Audio before a soft cut that is replayed at the start of the next
@@ -331,7 +331,7 @@ const double _maxWordsPerSecond = 4.0;
 
 /// Interim decodes look only at this much trailing audio (see
 /// [SherpaRecitationEngine.interimTail]).
-const Duration _interimWindow = Duration(milliseconds: 4000);
+const Duration _interimWindow = Duration(milliseconds: 5000);
 
 /// When one decode takes longer than this, the phone can't afford interim
 /// decodes on top of the final ones without falling ever further behind

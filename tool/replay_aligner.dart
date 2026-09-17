@@ -28,17 +28,22 @@ void main(List<String> args) {
     }
   }
   final aligner = QuranWordAligner(words);
+  var carried = 0; // unused budget carried over, as the service does
   for (final seg in input['segments'] as List) {
     final text = seg['text'] as String;
     final isFinal = seg['final'] as bool;
     final speechMs = (seg['speechMs'] as num?)?.toInt() ?? -1;
-    final maxNew = speechMs < 0 ? 0 : (speechMs * 4.0 / 1000).ceil() + 2;
+    final own = speechMs < 0 ? 0 : (speechMs * 4.0 / 1000).ceil() + 2;
+    final maxNew = own > 0 ? own + carried : 0;
     final before = aligner.cursor;
     final out = aligner.submitRecognizedSegment(
       text,
       isFinal: isFinal,
       maxNewWords: maxNew,
     );
+    if (maxNew > 0) {
+      carried = (maxNew - out.correct.length).clamp(0, 20);
+    }
     stdout.writeln(
       '${isFinal ? 'F' : 'i'}${maxNew > 0 ? maxNew.toString().padLeft(2) : '  '} ${before.toString().padLeft(3)}->'
       '${aligner.cursor.toString().padLeft(3)} '
