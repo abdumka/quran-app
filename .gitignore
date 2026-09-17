@@ -134,3 +134,4 @@ asr_model_upload/
 
 # R2 upload credentials for Tasmee session logs (build with --dart-define-from-file=tools/r2_upload.json)
 tools/r2_upload.json
+tool/tasmee_r2.txt
