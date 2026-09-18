@@ -298,4 +298,18 @@ void main() {
       expect(aligner.statuses[0], isNot(WordStatus.correct));
     });
   });
+
+  test('reveal overwrites a held mistake or a skip, never a correct word', () {
+    final a = QuranWordAligner('alpha beta gamma delta'.split(' '));
+    a.applyExternalVerdicts({
+      0: WordStatus.correct,
+      1: WordStatus.mistake,
+      2: WordStatus.skipped,
+    });
+    a.forceResolveRange(0, 3, WordStatus.revealed);
+    expect(a.statuses[0], WordStatus.correct);
+    expect(a.statuses[1], WordStatus.revealed);
+    expect(a.statuses[2], WordStatus.revealed);
+    expect(a.statuses[3], WordStatus.pending);
+  });
 }

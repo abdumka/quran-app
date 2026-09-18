@@ -181,6 +181,7 @@ class QuranWordAligner {
       if (_statuses[i] == WordStatus.correct ||
           _statuses[i] == WordStatus.revealed ||
           (status != WordStatus.correct &&
+              status != WordStatus.revealed &&
               (_statuses[i] == WordStatus.mistake ||
                   _statuses[i] == WordStatus.skipped))) {
         continue;

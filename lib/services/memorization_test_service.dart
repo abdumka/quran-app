@@ -685,7 +685,16 @@ class MemorizationTestService {
     if (aligner == null || status.value != MemorizationTestStatus.listening) {
       return;
     }
-    final word = _holdWord >= 0 ? _holdWord : currentWordIndex;
+    // The held word first (the one the reciter is stuck on); otherwise the
+    // first word of the page that is still hidden, whatever its status.
+    var word = _holdWord;
+    if (word < 0) {
+      final st = aligner.statuses;
+      word = st.indexWhere(
+        (s) => s != WordStatus.correct && s != WordStatus.revealed,
+        _startResolved ? 0 : currentWordIndex.clamp(0, st.length),
+      );
+    }
     if (word < 0) return;
     _recorder?.log('control', {'action': 'hint', 'word': word});
     if (_holdWord == word) _releaseHold('control');
