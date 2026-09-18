@@ -808,6 +808,34 @@ class VerdictTracer {
     return -1;
   }
 
+  /// The same word in another nasal/assimilation form (مِن / مِںںں,
+  /// بَينَهُم / بَينَهُ۾۾۾) is not a substitution.
+  bool _sameWordFolded(String a, String b) {
+    String fold(String x) {
+      final f = x.replaceAll('ں', 'ن').replaceAll('۾', 'م');
+      final out = StringBuffer();
+      var prev = '';
+      for (final r in f.runes) {
+        final c = String.fromCharCode(r);
+        if (c != prev) out.write(c);
+        prev = c;
+      }
+      return out.toString();
+    }
+
+    return normalizedDistance(table.encode(fold(a)), table.encode(fold(b)), table) <= 0.2;
+  }
+
+  /// [hit] is the expected word minus its first letters (لَاا of عَلَاا, ءِذ
+  /// of وَءِذ) and that first consonant was heard just before the span: the
+  /// recognizer glued it to the previous word, nothing was omitted.
+  bool _prefixHeardBefore(String hit, String exp, int from) {
+    if (!exp.endsWith(hit) || hit.length >= exp.length) return false;
+    final missing = exp.substring(0, exp.length - hit.length);
+    final before = _slice(math.max(0, from - missing.length - 2), from);
+    return before.contains(missing[0]);
+  }
+
   String _slice(int from, int to) {
     final h = tracker.heard;
     final b = StringBuffer();
@@ -936,6 +964,8 @@ class VerdictTracer {
         if (hit != null &&
             !exp.startsWith(hit) &&
             !hit.startsWith(exp) &&
+            !_sameWordFolded(hit, exp) &&
+            !_prefixHeardBefore(hit, exp, from) &&
             normalizedDistance(table.encode(hit), table.encode(exp), table) > cfg.okDistance &&
             (wd.hafsAlt.isEmpty ||
                 normalizedDistance(table.encode(hit), table.encode(wd.hafsAlt), table) > cfg.okDistance)) {
