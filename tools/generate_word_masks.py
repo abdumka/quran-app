@@ -61,7 +61,10 @@ PREVIEW_DIR = os.path.join(WORK, "wordmasks")
 MARK = re.compile(r"[\u064b-\u065f\u0670\u06d6-\u06ed\u06e1\u08d3-\u08ff\u0610-\u061a]")
 BELOW_MARKS = set("\u0650\u064d\u06ed\u0656\u0655\u06e3\u065f")  # kasra, kasratan, small marks placed under
 BELOW_DOT_LETTERS = {"ب": 1, "ي": 2, "ج": 1}
+PAUSE = re.compile("[ۖ-ۜ]")
 PAD = 1
+BRIDGE_GAP = 14      # px: a stroke may span two ink groups this close (broken join, detached letter)
+BRIDGE_PEN = 0.3     # plus 0.04 per px of gap: a real word gap is bridged only when the widths insist
 WEAK_PENALTY = 0.7      # cost of a word boundary at a weak cut inside a stroke group
 FORCED_PENALTY = 1.5
 
@@ -199,6 +202,29 @@ class Page:
                 if inter >= 0.3 * (cy1 - cy0) or (inter >= 0.5 * bh and bh >= 3):
                     spans.append([int(bx), int(bx + bw), c])
                     claimed[c] = True
+            line["_spans"] = spans
+        # core-crossing ink outside every rect (first letter at the margin of a
+        # narrow rect): nearest line on the same row, within a third of a pitch
+        for c in range(1, self.ncomp):
+            if self.excluded[c] or claimed[c]:
+                continue
+            bx, by, bw, bh, a = self.stats[c]
+            cx = self.cents[c][0]
+            best, bd = None, 0.34 * self.pitch
+            for line in self.lines:
+                cy0, cy1 = line["core"]
+                inter = max(0, min(by + bh, cy1) - max(by, cy0))
+                if not (inter >= 0.3 * (cy1 - cy0) or (inter >= 0.5 * bh and bh >= 3)):
+                    continue
+                x0, x1 = line["px"][0], line["px"][1]
+                d = 0 if x0 <= cx < x1 else min(abs(cx - x0), abs(cx - x1))
+                if d < bd:
+                    best, bd = line, d
+            if best is not None:
+                best["_spans"].append([int(bx), int(bx + bw), c])
+                claimed[c] = True
+        for line in self.lines:
+            spans = line.pop("_spans")
             spans.sort()
             groups = []
             for s in spans:
@@ -391,14 +417,18 @@ class Page:
             last = segs[m - 1]
             li = last["line"]
             sc = line_scale[li]
-            # candidate run starts m0: back within the same group
+            # candidate run starts m0: back within the same group, or across a
+            # small gap into the previous group (a stroke whose ink is broken
+            # at a thin join), at a cost per bridged gap
             m0 = m - 1
+            bridge_pen = 0.0
+            bridges = 0
             while True:
                 first_seg = segs[m0]
                 width = first_seg["x1"] - last["x0"]
                 prev_line = segs[m0 - 1]["line"] if m0 >= 1 else None
-                boundary_pen = first_seg["cut_pen"]        # 0 at a group edge
-                whole_group = first_seg["group_start"] and last["group_end"]
+                boundary_pen = first_seg["cut_pen"] + bridge_pen   # 0 at a group edge
+                whole_group = first_seg["group_start"] and last["group_end"] and bridge_pen == 0
                 for k in range(0, K + 1):
                     if dp[m0][k] < INF and whole_group and width <= 10:   # stray ink, no stroke
                         c = dp[m0][k] + 3.0
@@ -417,14 +447,21 @@ class Page:
                             continue                                # a word never crosses a line
                         if not first and first_seg["group_start"] and m0 >= 1 and segs[m0 - 1]["group"] != first_seg["group"]:
                             pass                                    # detached stroke of the same word: fine
-                        cost = dp[m0][k0] + ((width - pred) / max(pred, 6.0)) ** 2
+                        cost = dp[m0][k0] + ((width - pred) / max(pred, 6.0)) ** 2 + bridge_pen
                         if first and not first_seg["group_start"]:
-                            cost += boundary_pen                    # word boundary at a cut
+                            cost += first_seg["cut_pen"]            # word boundary at a cut
                         if cost < dp[m][k]:
                             dp[m][k] = cost
                             bk[m][k] = (m0, k0)
-                if first_seg["group_start"] or m0 == 0:
+                if m0 == 0:
                     break
+                if first_seg["group_start"]:
+                    prev = segs[m0 - 1]
+                    gap = prev["x0"] - first_seg["x1"]
+                    if prev["line"] != first_seg["line"] or gap > BRIDGE_GAP or bridges >= 2:
+                        break
+                    bridge_pen += BRIDGE_PEN + 0.04 * max(0, gap)
+                    bridges += 1
                 m0 -= 1
         if dp[M][K] >= INF:
             return None
@@ -458,7 +495,9 @@ class Page:
             if self.owner[c] != -1:
                 continue
             bx, by, bw, bh, a = self.stats[c]
-            if bh > 0.7 * self.pitch or bw > 0.5 * self.pitch:
+            # marks are small: letters of a basmala or header near an ayah line
+            # must not be taken for marks of that line
+            if bh > 0.32 * self.pitch or bw > 0.45 * self.pitch:
                 continue
             cx = self.cents[c][0]
             top, bot = by, by + bh
@@ -474,10 +513,10 @@ class Page:
                 if top < cy1 and bot > cy0:
                     above = below = line
                     break
-                if cy1 <= top and (top - cy1) < 0.9 * self.pitch:
+                if cy1 <= top and (top - cy1) < 0.45 * self.pitch:
                     if above is None or line["core"][1] > above["core"][1]:
                         above = line
-                if cy0 >= bot and (cy0 - bot) < 0.9 * self.pitch:
+                if cy0 >= bot and (cy0 - bot) < 0.6 * self.pitch:
                     if below is None or line["core"][0] < below["core"][0]:
                         below = line
             if above is None and below is None:
@@ -489,7 +528,10 @@ class Page:
                 edge_dn = self.local_ink_edge(below, bx - 3, bx + bw + 3, "top")
                 d_up = (top - edge_up) if edge_up is not None else (top - above["core"][1])
                 d_dn = (edge_dn - bot) if edge_dn is not None else (below["core"][0] - bot)
-                if exp_below == 0:
+                # only kasra- or dot-sized ink can hang under a word; anything
+                # bigger between two lines (pause marks, small alef stacks) is
+                # an above-mark of the line below
+                if exp_below == 0 or bh > 7 or bw > 14:
                     chosen = below
                 elif d_up <= max(4, 0.16 * self.pitch) and d_up <= d_dn * 1.5:
                     chosen = above
@@ -502,8 +544,49 @@ class Page:
             wid = self.word_at(chosen, cx)
             if wid is None:
                 continue
+            # A pause mark (ۖ ۗ ۚ ۛ ۜ ۘ ۙ) is printed above the gap AFTER its
+            # word, i.e. over the start of the next word: a small component
+            # above the core band near the boundary goes to the previous word
+            # when that word's text carries a pause mark and this one's does not.
+            if bot <= chosen["core"][0] + 2:
+                wids = chosen["words"]
+                i = wids.index(wid)
+                if i > 0 and PAUSE.search(self.words[wids[i - 1]]["text"]) and not PAUSE.search(self.words[wid]["text"]):
+                    s_this = self.words[wid]["span"]
+                    if bx + bw >= s_this[1] - 0.35 * self.pitch:
+                        wid = wids[i - 1]
             self.words[wid]["comps"].append(c)
             self.owner[c] = wid
+
+    def sweep_leftovers(self):
+        """Ink that is neither a stroke nor a mark-sized component (a detached
+        bowl of a final nun, a tall mark stack) but lies within a line's reach
+        goes to the nearest word of that line, so nothing shows through."""
+        for c in range(1, self.ncomp):
+            if self.owner[c] != -1:
+                continue
+            bx, by, bw, bh, a = self.stats[c]
+            if a < 4 or bw > 0.6 * self.pitch or bh > 0.9 * self.pitch:
+                continue
+            cx, cy = self.cents[c]
+            best, bd = None, 1e9
+            for line in self.lines:
+                if not line["words"]:
+                    continue
+                cy0, cy1 = line["core"]
+                if cy < cy0 - 0.5 * self.pitch or cy > cy1 + 0.5 * self.pitch:
+                    continue
+                x0, x1 = line["px"][0], line["px"][1]
+                dx = 0 if x0 - 30 <= cx < x1 + 30 else 1e9
+                dy = 0 if cy0 <= cy <= cy1 else min(abs(cy - cy0), abs(cy - cy1))
+                if dx + dy < bd:
+                    best, bd = line, dx + dy
+            if best is None:
+                continue
+            wid = self.word_at(best, cx, any_distance=True)
+            if wid is not None:
+                self.words[wid]["comps"].append(c)
+                self.owner[c] = wid
 
     def word_at(self, line, cx, any_distance=False):
         best, bd = None, 1e9
@@ -535,7 +618,6 @@ class Page:
         own_arr = np.zeros(self.ncomp, bool)
         own_arr[comps] = True
         own_arr[0] = True
-        own_arr[self.owner == -3] = True   # shared (cut) components never block a merge
 
         def clean(r):
             sub = self.labels[r[1]:r[3], r[0]:r[2]]
@@ -570,6 +652,7 @@ class Page:
         for ai, ra in enumerate(self.regions["ayahs"]):
             self.split_ayah(ai, tmap.get((ra["surah"], ra["ayah"]), []))
         self.assign_marks()
+        self.sweep_leftovers()
         ayahs_out = []
         by_ayah = {}
         for w in self.words:
@@ -597,7 +680,7 @@ class Page:
                     lines=len(self.lines), unplaced_ayahs=len(self.unplaced), words=len(self.words),
                     resid_med=round(float(np.median(res)), 3), resid_bad=int((res > 0.5).sum()))
 
-    def preview(self, out_path):
+    def preview(self, out_path, debug_boxes=True):
         img = self.img.copy()
         palette = [(255, 128, 0), (0, 160, 255), (0, 200, 0), (200, 0, 200), (0, 0, 220), (180, 120, 0)]
         over = img.copy()
@@ -612,10 +695,11 @@ class Page:
             cy0, cy1 = self.lines[w["line"]]["core"]
             for x in w["span"]:
                 cv2.line(img, (int(x), cy0 - 3), (int(x), cy1 + 3), (0, 0, 0), 1)
-        for c in range(1, self.ncomp):
-            if self.owner[c] == -1 and self.stats[c][4] >= 6:
-                x, y, ww, hh, a = self.stats[c]
-                cv2.rectangle(img, (x - 1, y - 1), (x + ww + 1, y + hh + 1), (0, 0, 255), 1)
+        if debug_boxes:
+            for c in range(1, self.ncomp):
+                if self.owner[c] == -1 and self.stats[c][4] >= 6:
+                    x, y, ww, hh, a = self.stats[c]
+                    cv2.rectangle(img, (x - 1, y - 1), (x + ww + 1, y + hh + 1), (0, 0, 255), 1)
         cv2.imwrite(out_path, img)
         hidden = self.img.copy()
         for w in self.words:
@@ -703,6 +787,7 @@ def main():
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--out", default=os.path.join(ROOT, "assets/data/word_masks.json"))
     ap.add_argument("--no-write", action="store_true")
+    ap.add_argument("--site-previews", default=None, help="write tinted previews as webp for the review site into this dir")
     ap.add_argument("--fit-widths", action="store_true", help="fit tools/stroke_widths.json from one-group words of the given pages (no masks written)")
     args = ap.parse_args()
     regions = {p["page"]: p for p in json.load(open(os.path.join(ROOT, "assets/data/ayah_regions.json"), encoding="utf-8"))}
@@ -720,6 +805,13 @@ def main():
         r = P.report()
         reports.append(r)
         samples.extend(P.samples)
+        if args.site_previews:
+            os.makedirs(args.site_previews, exist_ok=True)
+            P.preview(os.path.join(args.site_previews, f"page_{page}.png"), debug_boxes=False)
+            im = cv2.imread(os.path.join(args.site_previews, f"page_{page}.png"))
+            cv2.imwrite(os.path.join(args.site_previews, f"page_{page}.webp"), im, [cv2.IMWRITE_WEBP_QUALITY, 82])
+            os.remove(os.path.join(args.site_previews, f"page_{page}.png"))
+            os.remove(os.path.join(args.site_previews, f"page_{page}_hidden.png"))
         if args.preview:
             P.preview(os.path.join(PREVIEW_DIR, f"preview_{page}.png"))
             worst = sorted(zip(P.residuals, P.words), key=lambda t: -t[0])[:12]
