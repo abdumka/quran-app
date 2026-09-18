@@ -893,6 +893,16 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
+  /// Whether [_imageProviderForPage] will show the margin-view image for
+  /// this page (mirrors its first branch), so overlays can map coordinates.
+  bool _usesMarginImage(int pageIndex) {
+    final marginState = _marginImagesService.state.value;
+    if (!marginState.isEnabled) return false;
+    if (kIsWeb) return true;
+    final dir = marginState.imagesDirectoryPath;
+    return dir != null && _downloadedPageFileForIndex(dir, pageIndex + 1) != null;
+  }
+
   ImageProvider _imageProviderForPage(int pageIndex, String assetPath) {
     // Levels 2 & 3 decode at native size (all sources are 720px wide, so this
     // is the same memory as the old ResizeImage(720)) and pair with a high
@@ -3406,7 +3416,9 @@ class _QuranPagesState extends State<QuranPages>
                             ),
                             if (_isMemorizationTestEnabled &&
                                 pageIndex == _memorizationTestPageIndex)
-                              const MemorizationTestOverlay(),
+                              MemorizationTestOverlay(
+                                marginView: _usesMarginImage(pageIndex),
+                              ),
                           ],
                         ),
                       ),
@@ -3509,7 +3521,9 @@ class _QuranPagesState extends State<QuranPages>
                         ),
                         if (_isMemorizationTestEnabled &&
                             pageIndex == _memorizationTestPageIndex)
-                          const MemorizationTestOverlay(),
+                          MemorizationTestOverlay(
+                            marginView: _usesMarginImage(pageIndex),
+                          ),
                       ],
                     ),
                   ),

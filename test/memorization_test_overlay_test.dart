@@ -24,21 +24,23 @@ class _ManualEngine extends RecitationEngine {
   Future<void> stop() async => _controller.close();
 }
 
-/// Counts the mask/wash boxes the overlay currently draws. Each rendered
-/// region rect is exactly one `Positioned.fromRect` whose direct child is a
-/// DecoratedBox -- revealed ayahs draw nothing. The predicate deliberately
-/// excludes the floating listening chip (its Positioned stretches with
-/// left+right and wraps a Center, not a DecoratedBox).
-int _boxCount(WidgetTester tester) => tester
-    .widgetList(
-      find.descendant(
-        of: find.byType(MemorizationTestOverlay),
-        matching: find.byWidgetPredicate(
-          (w) => w is Positioned && w.width != null && w.child is DecoratedBox,
-        ),
-      ),
-    )
-    .length;
+/// Counts the masked units (words of word-level ayahs, line rects of
+/// ayah-level ones) the overlay's painter currently draws -- revealed words
+/// and ayahs draw nothing. Zero when the overlay renders no painter at all.
+int _boxCount(WidgetTester tester) {
+  final paints = tester.widgetList<CustomPaint>(
+    find.descendant(
+      of: find.byType(MemorizationTestOverlay),
+      matching: find.byType(CustomPaint),
+    ),
+  );
+  var n = 0;
+  for (final p in paints) {
+    final painter = p.painter;
+    if (painter is MemorizationMaskPainter) n += painter.maskedUnits;
+  }
+  return n;
+}
 
 void main() {
   final service = MemorizationTestService.instance;

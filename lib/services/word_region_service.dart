@@ -5,12 +5,13 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import '../models/word_region_data.dart';
 
-/// Loads `assets/data/word_regions.json`: a box for every word of every
-/// page, generated offline by `tools/generate_word_regions.py` from the
-/// bundled page images and the ayah line rects. Lets the memorization test
-/// reveal the page word by word instead of ayah by ayah.
+/// Loads `assets/data/word_masks.json`: for every word of every page the
+/// small rectangles that cover exactly its ink, generated offline by
+/// `tools/generate_word_masks.py` from the bundled page images and the ayah
+/// line rects, plus each page's placement inside the margin-view image.
+/// Lets the memorization test reveal the page word by word.
 class WordRegionService {
-  static const String _assetPath = 'assets/data/word_regions.json';
+  static const String _assetPath = 'assets/data/word_masks.json';
   static Map<int, WordRegionPageData>? _cache;
   static Future<Map<int, WordRegionPageData>>? _loading;
 

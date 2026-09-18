@@ -26,7 +26,12 @@ import '../../utils/quran_word_aligner.dart';
 ///  * `revealed` — nothing drawn; the ayah on the page shows through.
 ///  * `flagged` — translucent amber wash over the now-visible ayah.
 class MemorizationTestOverlay extends StatelessWidget {
-  const MemorizationTestOverlay({super.key});
+  const MemorizationTestOverlay({super.key, this.marginView = false});
+
+  /// True when the box under this overlay shows the margin-view (هوامش)
+  /// image instead of the bundled page image: every ratio coordinate is
+  /// then mapped through the page's placement inside that image.
+  final bool marginView;
 
   /// Sampled from blank paper inside the page scans (the scan's paper tone,
   /// NOT the 0xFFFAF6EE used behind the image widget — the image fully
@@ -56,21 +61,41 @@ class MemorizationTestOverlay extends StatelessWidget {
             if (states.length != regions.ayahs.length) {
               return const SizedBox.shrink();
             }
-
             final width = constraints.maxWidth;
             final height = constraints.maxHeight;
 
+            // Ratio -> page-box mapping. In the margin view the page image
+            // occupies only `marginRect` of the shown image; without that
+            // rect the masks cannot be placed, so nothing is drawn there.
+            final margin = marginView ? service.wordMarginRect : null;
+            if (marginView && margin == null) {
+              return const SizedBox.shrink();
+            }
+            final map = _RatioMapper(width, height, margin);
+
+            final masks = <MaskPiece>[];
+            final frames = <Rect>[];
+            for (var i = 0; i < regions.ayahs.length; i++) {
+              _collectAyah(
+                regions.ayahs[i],
+                states[i],
+                map,
+                wordBoxes: service.wordBoxesFor(i),
+                wordStatuses: service.wordStatusesOf(i),
+                masks: masks,
+                frames: frames,
+              );
+            }
+
             return Stack(
               children: [
-                for (var i = 0; i < regions.ayahs.length; i++)
-                  ..._buildAyahLayer(
-                    regions.ayahs[i],
-                    states[i],
-                    pageWidth: width,
-                    pageHeight: height,
-                    wordBoxes: service.wordBoxesFor(i),
-                    wordStatuses: service.wordStatusesOf(i),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: MemorizationMaskPainter(masks, frames, _currentBorder),
+                    ),
                   ),
+                ),
                 // Live feedback + help buttons, floating near the bottom of
                 // the page area (over the page's lower margin).
                 Positioned(
@@ -87,95 +112,147 @@ class MemorizationTestOverlay extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildAyahLayer(
+  void _collectAyah(
     AyahRegion ayah,
-    AyahRevealState state, {
-    required double pageWidth,
-    required double pageHeight,
-    List<WordBox>? wordBoxes,
-    List<WordStatus> wordStatuses = const [],
+    AyahRevealState state,
+    _RatioMapper map, {
+    required List<WordBox>? wordBoxes,
+    required List<WordStatus> wordStatuses,
+    required List<MaskPiece> masks,
+    required List<Rect> frames,
   }) {
-    if (state == AyahRevealState.revealed) return const [];
+    if (state == AyahRevealState.revealed) return;
 
-    // Word-level rendering wherever word boxes exist: each box is the
-    // word's own ink (letters and marks), so masking it hides exactly that
-    // word without clipping the tall letters of the lines above and below
-    // the way a full line band did. Hidden ayahs mask every word; the ayah
-    // being recited masks the words still to come and washes wrong/skipped
-    // ones; a flagged ayah washes only its wrong/skipped words.
-    if (wordBoxes != null && wordBoxes.length == wordStatuses.length) {
-      return [
-        for (var w = 0; w < wordBoxes.length; w++)
-          if (wordStatuses[w] != WordStatus.correct)
-            Positioned.fromRect(
-              rect: Rect.fromLTRB(
-                wordBoxes[w].x * pageWidth,
-                wordBoxes[w].y * pageHeight,
-                (wordBoxes[w].x + wordBoxes[w].width) * pageWidth,
-                (wordBoxes[w].y + wordBoxes[w].height) * pageHeight,
-              ),
-              // Every non-correct word stays fully covered (opaque paper):
-              // a mistake or a skip is shown by the tint of its box, never
-              // by letting the ink show through.
-              child: DecoratedBox(
-                decoration: switch (wordStatuses[w]) {
-                  WordStatus.mistake => const BoxDecoration(color: _mistakeMask),
-                  WordStatus.skipped => const BoxDecoration(color: _skippedMask),
-                  WordStatus.unclear => const BoxDecoration(color: _unclearMask),
-                  _ => const BoxDecoration(color: _paperColor),
-                },
-              ),
-            ),
-        if (state == AyahRevealState.current)
-          for (final r in ayah.rects)
-            Positioned.fromRect(
-              rect: Rect.fromLTRB(
-                (r.x * pageWidth) - pageWidth * 0.006,
-                r.y * pageHeight,
-                (r.x + r.width) * pageWidth + pageWidth * 0.006,
-                (r.y + r.height) * pageHeight,
-              ),
-              // Position hint only (no fill): a faint gold frame around
-              // the ayah being recited. Wrapped so it is not counted as a
-              // mask box.
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: _currentBorder, width: 1.5),
-                  ),
-                ),
-              ),
-            ),
-      ];
+    // Word-level rendering wherever word boxes exist: each box is the set
+    // of small rects covering the word's own ink (letters and marks), so
+    // masking them hides exactly that word without clipping the marks of
+    // the lines above and below that reach into its bounding box. Hidden
+    // ayahs mask every word; the ayah being recited masks the words still
+    // to come; a mistake or a skip stays fully covered, shown by its tint.
+    if (wordBoxes != null &&
+        wordBoxes.isNotEmpty &&
+        wordBoxes.length == wordStatuses.length) {
+      for (var w = 0; w < wordBoxes.length; w++) {
+        if (wordStatuses[w] == WordStatus.correct) continue;
+        final color = switch (wordStatuses[w]) {
+          WordStatus.mistake => _mistakeMask,
+          WordStatus.skipped => _skippedMask,
+          WordStatus.unclear => _unclearMask,
+          _ => _paperColor,
+        };
+        final parts = wordBoxes[w].parts.isEmpty
+            ? [wordBoxes[w].bounds]
+            : wordBoxes[w].parts;
+        final unit = Object();
+        for (final p in parts) {
+          masks.add(MaskPiece(map.rect(p), color, unit));
+        }
+      }
+      if (state == AyahRevealState.current) {
+        // Position hint only (no fill): a faint gold frame around the
+        // ayah being recited.
+        for (final r in ayah.rects) {
+          frames.add(map.rect(
+            Rect.fromLTWH(r.x, r.y, r.width, r.height),
+            slackX: 0.006,
+          ));
+        }
+      }
+      return;
     }
 
-    return [
-      for (final r in ayah.rects)
-        Positioned.fromRect(
-          // The rects span the full line height already; a little
-          // horizontal slack hides glyph tails that lean into the marker
-          // gap without ever reaching the marker itself.
-          rect: Rect.fromLTRB(
-            (r.x * pageWidth) - pageWidth * 0.006,
-            r.y * pageHeight,
-            (r.x + r.width) * pageWidth + pageWidth * 0.006,
-            (r.y + r.height) * pageHeight,
-          ),
-          child: DecoratedBox(
-            decoration: switch (state) {
-              AyahRevealState.flagged => const BoxDecoration(
-                  color: _flaggedWash,
-                ),
-              AyahRevealState.current => BoxDecoration(
-                  color: _paperColor,
-                  border: Border.all(color: _currentBorder, width: 1.5),
-                ),
-              _ => const BoxDecoration(color: _paperColor),
-            },
-          ),
-        ),
-    ];
+    for (final r in ayah.rects) {
+      // The rects span the full line height already; a little horizontal
+      // slack hides glyph tails that lean into the marker gap without ever
+      // reaching the marker itself.
+      final rect = map.rect(
+        Rect.fromLTWH(r.x, r.y, r.width, r.height),
+        slackX: 0.006,
+      );
+      final unit = Object();
+      switch (state) {
+        case AyahRevealState.flagged:
+          masks.add(MaskPiece(rect, _flaggedWash, unit));
+        case AyahRevealState.current:
+          masks.add(MaskPiece(rect, _paperColor, unit));
+          frames.add(rect);
+        default:
+          masks.add(MaskPiece(rect, _paperColor, unit));
+      }
+    }
   }
+}
+
+/// Maps page-image ratios onto the overlay's box, through the page's
+/// placement inside the margin-view image when that is what is shown.
+class _RatioMapper {
+  const _RatioMapper(this.width, this.height, this.margin);
+
+  final double width;
+  final double height;
+  final Rect? margin;
+
+  Rect rect(Rect r, {double slackX = 0}) {
+    var left = r.left - slackX;
+    var right = r.right + slackX;
+    var top = r.top;
+    var bottom = r.bottom;
+    final m = margin;
+    if (m != null) {
+      left = m.left + left * m.width;
+      right = m.left + right * m.width;
+      top = m.top + top * m.height;
+      bottom = m.top + bottom * m.height;
+    }
+    return Rect.fromLTRB(left * width, top * height, right * width, bottom * height);
+  }
+}
+
+/// One filled rectangle of the mask layer: a part of a word's ink box or an
+/// ayah line rect, with the paper colour or the tint of its status.
+class MaskPiece {
+  const MaskPiece(this.rect, this.color, this.unit);
+  final Rect rect;
+  final Color color;
+
+  /// The word or ayah rect this piece belongs to (a word is several parts).
+  final Object unit;
+}
+
+/// Paints every mask rect (opaque paper or a tint) and the gold frames of
+/// the ayah being recited. One painter for the whole page keeps the widget
+/// tree flat however many word parts there are.
+class MemorizationMaskPainter extends CustomPainter {
+  const MemorizationMaskPainter(this.masks, this.frames, this.frameColor);
+
+  final List<MaskPiece> masks;
+  final List<Rect> frames;
+  final Color frameColor;
+
+  /// How many words (word-level ayahs) and line rects (ayah-level ayahs)
+  /// are currently masked; a word counts once however many parts it has.
+  int get maskedUnits => masks.map((m) => m.unit).toSet().length;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (final m in masks) {
+      paint.color = m.color;
+      canvas.drawRect(m.rect, paint);
+    }
+    if (frames.isNotEmpty) {
+      final stroke = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = frameColor;
+      for (final f in frames) {
+        canvas.drawRect(f, stroke);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(MemorizationMaskPainter old) => true;
 }
 
 /// The floating panel under the page: status line (hearing you /

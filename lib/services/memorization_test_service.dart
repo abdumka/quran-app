@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Rect;
 import 'dart:math' as math;
 
 import 'dart:io' show Platform;
@@ -216,6 +217,11 @@ class MemorizationTestService {
   /// 1-based mushaf page of the active session, or null.
   int? get activePage => _activePage;
 
+  /// Where the page image sits inside the margin-view (هوامش) image of the
+  /// active page, as ratios of that image; null when unknown.
+  Rect? get wordMarginRect => _wordMarginRect;
+  Rect? _wordMarginRect;
+
   /// Word boxes of ayah [ayahIndex] in reading order, or null when the page
   /// has no usable word geometry for it.
   List<WordBox>? wordBoxesFor(int ayahIndex) =>
@@ -347,6 +353,7 @@ class MemorizationTestService {
     try {
       final regions = await AyahRegionService.forPage(pageNumber);
       final wordRegions = await WordRegionService.forPage(pageNumber);
+      _wordMarginRect = wordRegions?.marginRect;
       final pages = await QuranJsonService.loadQuranPages();
       if (token != _startToken) return false;
 
@@ -848,6 +855,24 @@ class MemorizationTestService {
         updates[w] = WordStatus.skipped;
       }
     }
+    // A one-to-three-letter word (قل، من، ما، إن) with both neighbours
+    // heard is almost always a recognizer drop, not a skip: the phone logs
+    // show the model losing such words after a pause or a long madd, and
+    // the offline decode of the same audio loses them too. Count it as
+    // recited rather than nag about it.
+    bool heard(int w) =>
+        w >= 0 &&
+        w < aligner.length &&
+        (aligner.statuses[w] == WordStatus.correct ||
+            updates[w] == WordStatus.correct);
+    for (final e in updates.entries.toList()) {
+      if (e.value != WordStatus.skipped) continue;
+      final w = e.key;
+      if (_isShortWord(w) && heard(w - 1) && heard(w + 1)) {
+        updates[w] = WordStatus.correct;
+        _recorder?.log('absorbed', {'word': w});
+      }
+    }
 
     // Hold: while a mistake stands, nothing after it is revealed.
     if (_holdWord >= 0) {
@@ -937,6 +962,16 @@ class MemorizationTestService {
     }
     _explain(outcome, heardWords.join(' '), ayahBefore, isFinal: true);
     _finishIfComplete();
+  }
+
+  static final RegExp _marks = RegExp(
+    r'[ً-ٰٟۖ-ۭؐ-ؚ࣓-ࣿ]',
+  );
+
+  /// A word of at most three letters once its marks are stripped.
+  bool _isShortWord(int w) {
+    if (w < 0 || w >= _expectedWords.length) return false;
+    return _expectedWords[w].replaceAll(_marks, '').length <= 3;
   }
 
   void _releaseHold(String how) {
