@@ -143,6 +143,50 @@ void main() {
       final v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
       expect(v[1]!.state, VerdictState.ok, reason: 'distance ${v[1]!.distance}');
     });
+
+    test('a restart re-judges the words the reciter went back to', () {
+      final tracker = PhonemeTracker(fatihah3());
+      final tracer = VerdictTracer(tracker);
+      // ملك يوم + a wrong third word, then the ayah again from its start,
+      // correctly, and on into the next ayah.
+      tracker.feed(say('مَلِكِيَومِبَبَبَ'));
+      var v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      expect(v[2]!.state, VerdictState.wrong, reason: 'setup: the slip');
+      tracker.feed(say('مَلِكِيَومِددِۦۦنءِييَااكَنَعبُدُ', startFrame: 100));
+      v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      // The restart costs its repeat penalty, so the DP only switches to
+      // the restarted path a couple of words in; the verdicts must still
+      // come from the restart's first phoneme, not from where it overtook.
+      for (var w = 0; w < 5; w++) {
+        expect(v[w]!.state, VerdictState.ok,
+            reason: 'word $w ${v[w]!.state} heard ${v[w]!.heard}');
+      }
+      expect(v[2]!.heard, 'ددِۦۦن');
+    });
+
+    test('a Hafs final vowel past the span still flags the habit', () {
+      PhonemeReference yaghfir() => PhonemeReference(const [
+            PhonemeWord(phon: 'فَيَغفِر', text: 'فَيَغْفِرْ', ayah: 0, wordInAyah: 0, ayahWords: 3, hafsAlt: 'فَيَغفِرُ'),
+            PhonemeWord(phon: 'لِمَيي', text: 'لِمَنْ', ayah: 0, wordInAyah: 1, ayahWords: 3),
+            PhonemeWord(phon: 'يَشَااءُ', text: 'يَشَآءُ', ayah: 0, wordInAyah: 2, ayahWords: 3),
+          ], PhonemeCostTable());
+      // Hafs: فَيَغْفِرُ. The damma is an insertion the aligner leaves
+      // between the words, outside this word's span.
+      var tracker = PhonemeTracker(yaghfir());
+      var tracer = VerdictTracer(tracker);
+      tracker.feed(say('فَيَغفِرُلِمَيييَشَااءُ'));
+      var v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      expect(v[0]!.state, VerdictState.wrong);
+      expect(v[0]!.reason, 'hafs');
+      expect(v[1]!.state, VerdictState.ok);
+      // Qalun: فَيَغْفِرْ, no vowel.
+      tracker = PhonemeTracker(yaghfir());
+      tracer = VerdictTracer(tracker);
+      tracker.feed(say('فَيَغفِرلِمَيييَشَااءُ'));
+      v = {for (final x in tracer.verdicts(settled: true)) x.word: x};
+      expect(v[0]!.state, VerdictState.ok);
+      expect(v[0]!.reason, '');
+    });
   });
 
   test('phonemesToArabic renders heard phonemes readably', () {

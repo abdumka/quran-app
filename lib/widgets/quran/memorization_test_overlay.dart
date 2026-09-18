@@ -34,6 +34,10 @@ class MemorizationTestOverlay extends StatelessWidget {
   static const Color _paperColor = Color(0xFFFCFCD8);
 
   static const Color _flaggedWash = Color(0x59E09000);
+  // Opaque tinted paper for words that must stay hidden but flagged.
+  static const Color _mistakeMask = Color(0xFFF2C4B8);
+  static const Color _skippedMask = Color(0xFFF0D9A6);
+  static const Color _unclearMask = Color(0xFFF6EBC4);
   static const Color _currentBorder = Color(0x80B99B5B);
 
   @override
@@ -110,11 +114,14 @@ class MemorizationTestOverlay extends StatelessWidget {
                 (wordBoxes[w].x + wordBoxes[w].width) * pageWidth,
                 (wordBoxes[w].y + wordBoxes[w].height) * pageHeight,
               ),
+              // Every non-correct word stays fully covered (opaque paper):
+              // a mistake or a skip is shown by the tint of its box, never
+              // by letting the ink show through.
               child: DecoratedBox(
                 decoration: switch (wordStatuses[w]) {
-                  WordStatus.mistake ||
-                  WordStatus.skipped =>
-                    const BoxDecoration(color: _flaggedWash),
+                  WordStatus.mistake => const BoxDecoration(color: _mistakeMask),
+                  WordStatus.skipped => const BoxDecoration(color: _skippedMask),
+                  WordStatus.unclear => const BoxDecoration(color: _unclearMask),
                   _ => const BoxDecoration(color: _paperColor),
                 },
               ),
@@ -321,10 +328,12 @@ class _SessionPanel extends StatelessWidget {
           children: [
             for (var i = 0; i < words.length; i++) ...[
               TextSpan(
+                // Only correctly recited words are spelled out; a mistake
+                // or a skip shows as a red/amber placeholder (the reciter
+                // must not be handed the word).
                 text: switch (words[i].$2) {
                   WordStatus.correct => words[i].$1,
-                  WordStatus.mistake => words[i].$1,
-                  WordStatus.skipped => words[i].$1,
+                  WordStatus.mistake => '\u2716\u2716\u2716',
                   _ => '\u2022\u2022\u2022',
                 },
                 style: TextStyle(

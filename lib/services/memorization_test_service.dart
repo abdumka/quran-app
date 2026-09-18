@@ -820,6 +820,11 @@ class MemorizationTestService {
       switch (v.state) {
         case VerdictState.ok:
         case VerdictState.unsure:
+          // `unsure` (distance 0.15-0.4, or low-confidence phonemes) reveals
+          // too: in the phone logs it is almost always a correctly recited
+          // word with model noise at a boundary (a fifth of the words on
+          // some pages), and a masked word would also stall the aligner's
+          // cursor, so the ayah could never complete.
           updates[v.word] = WordStatus.correct;
           if (v.word == _holdWord) repaired = v;
         case VerdictState.skipped:
@@ -846,6 +851,11 @@ class MemorizationTestService {
 
     // Hold: while a mistake stands, nothing after it is revealed.
     if (_holdWord >= 0) {
+      if (cursorWord < _holdWord) {
+        // The reciter went back (start of the ayah, previous ayah): a fresh
+        // attempt is under way, so the moved-on counter restarts.
+        _wordsPastHold = 0;
+      }
       if (repaired != null) {
         _releaseHold('repaired');
       } else {
@@ -904,15 +914,21 @@ class MemorizationTestService {
       _holdWord = newMistake.word;
       _wordsPastHold = 0;
       heldWord.value = _holdWord;
-      final expected = _expectedWords[newMistake.word];
+      // Say that there is a mistake and what was heard, but never the
+      // expected word itself: the reciter is testing memory. The hint
+      // button reveals it on request.
       final heard = phonemesToArabic(newMistake.heard);
+      final ayah = _ayahIndexOfWord(newMistake.word);
+      final position = ayah < 0 ? 0 : newMistake.word - _ayahWordStarts[ayah] + 1;
+      final number = ayah < 0 ? null : _page?.ayahs[ayah].ayah;
+      final where = number == null ? '' : ' (الآية $number، الكلمة $position)';
       _recorder?.log('hold', {'word': _holdWord, 'reason': newMistake.reason, 'heard': newMistake.heard});
       _setFeedback(
         RecitationFeedback(
           FeedbackKind.wrong,
           newMistake.reason == 'hafs'
-              ? 'قرأت «$heard» بحفص، والصواب بقالون «$expected» — أعد الكلمة'
-              : 'خطأ في «$expected» — سمعت «$heard» — أعد الكلمة',
+              ? 'قرأت «$heard» بحفص، وقالون يقرؤها بخلاف ذلك$where — أعد الكلمة'
+              : 'خطأ$where — سمعت «$heard» — أعد الكلمة أو اضغط «تلميح»',
         ),
         sticky: true,
       );
@@ -927,10 +943,7 @@ class MemorizationTestService {
     if (_holdWord < 0) return;
     _recorder?.log('holdReleased', {'word': _holdWord, 'how': how});
     if (how == 'repaired') {
-      _setFeedback(RecitationFeedback(
-        FeedbackKind.good,
-        'أحسنت، «${_expectedWords[_holdWord]}» صحيحة الآن',
-      ));
+      _setFeedback(const RecitationFeedback(FeedbackKind.good, 'أحسنت، صحيحة الآن'));
     }
     _holdWord = -1;
     _wordsPastHold = 0;
