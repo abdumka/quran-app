@@ -61,7 +61,13 @@ void main() {
   test('replaying the p534 token stream reproduces the Python verdicts', () {
     final ref = reference();
     final tracker = PhonemeTracker(ref);
-    final tracer = VerdictTracer(tracker);
+    // The Python port judges with the same lexicon the app ships.
+    final lexicon = PhonemeLexicon(
+      (json.decode(File('assets/data/phoneme_lexicon.json').readAsStringSync())
+              as List<dynamic>)
+          .cast<String>(),
+    );
+    final tracer = VerdictTracer(tracker, lexicon: lexicon);
     final tokens = (fixture['tokens'] as List<dynamic>).cast<String>();
     final times = (fixture['timestamps'] as List<dynamic>).cast<num>();
     final chars = <HeardChar>[];

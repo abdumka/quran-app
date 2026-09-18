@@ -2597,6 +2597,24 @@ class _QuranPagesState extends State<QuranPages>
         _memorizationTestPageIndex = -1;
       });
     }
+    // A finished page flows into the next one: after a short pause to read
+    // the summary line, turn the page; the session follows it.
+    if (service.status.value == MemorizationTestStatus.completed &&
+        _isMemorizationTestEnabled) {
+      final donePage = service.activePage;
+      Future<void>.delayed(const Duration(milliseconds: 2500), () {
+        if (!mounted ||
+            !_isMemorizationTestEnabled ||
+            MemorizationTestService.instance.status.value !=
+                MemorizationTestStatus.completed ||
+            MemorizationTestService.instance.activePage != donePage ||
+            donePage == null ||
+            donePage >= pages.length) {
+          return;
+        }
+        _goToPage(donePage + 1);
+      });
+    }
   }
 
   /// The "أدوات الحفظ" sheet: start/stop التسميع on the current page, or

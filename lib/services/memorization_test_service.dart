@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' show Rect;
 import 'dart:math' as math;
 
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:permission_handler/permission_handler.dart';
@@ -170,6 +172,23 @@ class MemorizationTestService {
   DateTime _lastPhonemeAt = DateTime.now();
   bool _settledApplied = false;
 
+  /// Set once the first words of the session are committed: a session that
+  /// starts mid-page reveals the ayahs before that point rather than
+  /// leaving them masked (they are not being tested).
+  bool _startResolved = false;
+  static PhonemeLexicon? _lexicon;
+
+  static Future<PhonemeLexicon?> _loadLexicon() async {
+    if (_lexicon != null) return _lexicon;
+    try {
+      final raw = await rootBundle.loadString('assets/data/phoneme_lexicon.json');
+      _lexicon = PhonemeLexicon((json.decode(raw) as List<dynamic>).cast<String>());
+    } catch (e) {
+      debugPrint('MemorizationTestService: no phoneme lexicon ($e)');
+    }
+    return _lexicon;
+  }
+
   /// A word judged wrong that the reciter has not yet repaired: reveal is
   /// held at it (later words stay masked) until the tracker hears it said
   /// correctly, a help button resolves it, or the reciter has clearly gone
@@ -291,7 +310,7 @@ class MemorizationTestService {
     if (aligner == null) return false;
     for (var w = _ayahWordStarts[i]; w < _ayahWordStarts[i + 1]; w++) {
       final s = aligner.statuses[w];
-      if (s == WordStatus.mistake || s == WordStatus.skipped) return true;
+      if (s == WordStatus.mistake || s == WordStatus.skipped || s == WordStatus.revealed) return true;
     }
     return false;
   }
@@ -440,11 +459,12 @@ class MemorizationTestService {
         tracker = PhonemeTracker(
           PhonemeReference(phonemes.collapsed(), PhonemeCostTable()),
         );
-        tracer = VerdictTracer(tracker);
+        tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
       }
       _tracker = tracker;
       _tracer = tracer;
       _settledApplied = false;
+      _startResolved = false;
       _lastPhonemeAt = DateTime.now();
       _holdWord = -1;
       _wordsPastHold = 0;
@@ -657,21 +677,30 @@ class MemorizationTestService {
   // Help buttons
   // ---------------------------------------------------------------------
 
-  /// Shows the next expected word (with its harakat) in the feedback line
-  /// without unmasking anything on the page.
+  /// Reveals the next word on the page (the held word when a mistake is
+  /// being held, else the first unresolved one) -- one word only, shown
+  /// with the amber wash and counted as a flaw of its ayah.
   void showHint() {
-    final word = currentWordIndex;
+    final aligner = _aligner;
+    if (aligner == null || status.value != MemorizationTestStatus.listening) {
+      return;
+    }
+    final word = _holdWord >= 0 ? _holdWord : currentWordIndex;
     if (word < 0) return;
     _recorder?.log('control', {'action': 'hint', 'word': word});
-    _setFeedback(
-      RecitationFeedback(FeedbackKind.info, 'الكلمة التالية: «${_expectedWords[word]}»'),
-      sticky: true,
-    );
+    if (_holdWord == word) _releaseHold('control');
+    aligner.forceResolveRange(word, word + 1, WordStatus.revealed);
+    _setFeedback(RecitationFeedback(
+      FeedbackKind.info,
+      'كُشفت الكلمة «${_expectedWords[word]}» — تابع من بعدها',
+    ));
+    revision.value++;
+    _finishIfComplete();
   }
 
-  /// Reveals the current ayah (marks its unresolved words as mistakes so it
-  /// shows with the warning tint) and moves on to the next one.
-  void revealCurrentAyah() => _resolveCurrentAyah('reveal', WordStatus.mistake);
+  /// Reveals the current ayah on the page (its unresolved words show with
+  /// the amber wash and count as flaws) and moves on to the next one.
+  void revealCurrentAyah() => _resolveCurrentAyah('reveal', WordStatus.revealed);
 
   /// Skips the current ayah (marks its unresolved words as skipped) and
   /// moves on to the next one.
@@ -895,6 +924,26 @@ class MemorizationTestService {
         }
       }
     }
+    // First commit of the session further down the page: the reciter
+    // chose to start there, so the ayahs before it are not under test and
+    // are shown (unflagged) rather than left masked.
+    if (!_startResolved) {
+      final firstCorrect = updates.entries
+          .where((e) => e.value == WordStatus.correct)
+          .map((e) => e.key)
+          .fold<int>(-1, (a, b) => a < 0 || b < a ? b : a);
+      if (firstCorrect >= 0) {
+        _startResolved = true;
+        final ayah = _ayahIndexOfWord(firstCorrect);
+        final start = ayah > 0 ? _ayahWordStarts[ayah] : 0;
+        if (start > 0 && !aligner.statuses.sublist(0, start).contains(WordStatus.correct)) {
+          for (var w = 0; w < start; w++) {
+            updates[w] = WordStatus.correct;
+          }
+          _recorder?.log('startAt', {'word': start, 'ayah': ayah});
+        }
+      }
+    }
     if (updates.isEmpty) return;
     final heardWords = [
       for (final e in updates.entries)
@@ -951,9 +1000,13 @@ class MemorizationTestService {
       _setFeedback(
         RecitationFeedback(
           FeedbackKind.wrong,
-          newMistake.reason == 'hafs'
-              ? 'قرأت «$heard» بحفص، وقالون يقرؤها بخلاف ذلك$where — أعد الكلمة'
-              : 'خطأ$where — سمعت «$heard» — أعد الكلمة أو اضغط «تلميح»',
+          switch (newMistake.reason) {
+            'hafs' =>
+              'قرأت «$heard» بحفص، وقالون يقرؤها بخلاف ذلك$where — أعد الكلمة',
+            'word' =>
+              'قرأت «$heard» وهي ليست الكلمة المطلوبة$where — أعد الكلمة أو اضغط «كشف كلمة»',
+            _ => 'خطأ$where — سمعت «$heard» — أعد الكلمة أو اضغط «كشف كلمة»',
+          },
         ),
         sticky: true,
       );

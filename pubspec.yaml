@@ -63,6 +63,7 @@ flutter:
     - assets/data/ayah_regions.json
     - assets/data/word_masks.json
     - assets/data/page_phonemes.json
+    - assets/data/phoneme_lexicon.json
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
   

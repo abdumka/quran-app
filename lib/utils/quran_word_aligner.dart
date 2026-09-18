@@ -39,6 +39,10 @@ enum WordStatus {
   /// at all. Transient -- deliberately does *not* flag a mistake from a
   /// single failed segment (see class doc). It's an internal waiting state.
   unclear,
+
+  /// Shown to the reciter on request (hint / reveal ayah) without having
+  /// been recited: visible on the page, counted as a flaw.
+  revealed,
 }
 
 /// Aligns a live stream of recognized speech segments against a known
@@ -175,8 +179,10 @@ class QuranWordAligner {
     final to = end.clamp(from, length);
     for (var i = from; i < to; i++) {
       if (_statuses[i] == WordStatus.correct ||
-          _statuses[i] == WordStatus.mistake ||
-          _statuses[i] == WordStatus.skipped) {
+          _statuses[i] == WordStatus.revealed ||
+          (status != WordStatus.correct &&
+              (_statuses[i] == WordStatus.mistake ||
+                  _statuses[i] == WordStatus.skipped))) {
         continue;
       }
       _setStatus(i, status);
@@ -204,7 +210,9 @@ class QuranWordAligner {
       final wanted = updates[i]!;
       final current = _statuses[i];
       if (current == wanted) continue;
-      if (current == WordStatus.correct) continue;
+      if (current == WordStatus.correct || current == WordStatus.revealed) {
+        continue;
+      }
       if ((current == WordStatus.skipped || current == WordStatus.mistake) &&
           wanted != WordStatus.correct) {
         continue;
@@ -220,12 +228,14 @@ class QuranWordAligner {
           mistakes.add(i);
         case WordStatus.pending:
         case WordStatus.unclear:
+        case WordStatus.revealed:
           break;
       }
     }
     var c = 0;
     while (c < length &&
         (_statuses[c] == WordStatus.correct ||
+            _statuses[c] == WordStatus.revealed ||
             _statuses[c] == WordStatus.mistake ||
             _statuses[c] == WordStatus.skipped)) {
       c++;

@@ -134,10 +134,12 @@ class MemorizationTestOverlay extends StatelessWidget {
         wordBoxes.length == wordStatuses.length) {
       for (var w = 0; w < wordBoxes.length; w++) {
         if (wordStatuses[w] == WordStatus.correct) continue;
+        // A revealed word stays visible under a translucent amber wash.
         final color = switch (wordStatuses[w]) {
           WordStatus.mistake => _mistakeMask,
           WordStatus.skipped => _skippedMask,
           WordStatus.unclear => _unclearMask,
+          WordStatus.revealed => _flaggedWash,
           _ => _paperColor,
         };
         final parts = wordBoxes[w].parts.isEmpty
@@ -291,16 +293,19 @@ class _SessionPanel extends StatelessWidget {
           return const SizedBox.shrink();
         }
         final fb = service.feedback.value;
-        final heard = service.lastHeard.value;
         final listening = status == MemorizationTestStatus.listening;
         final completed = status == MemorizationTestStatus.completed;
 
+        // One slim strip over the page's bottom margin: a status dot, the
+        // feedback line (or the ayah's word progress when there is none),
+        // and a menu with the help actions. Nothing taller: the page must
+        // stay readable.
         return ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+          constraints: const BoxConstraints(maxWidth: 560),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: const Color(0xF2FFFDF3),
-              borderRadius: BorderRadius.circular(16),
+              color: const Color(0xEEFFFDF3),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: _gold.withValues(alpha: 0.35)),
               boxShadow: const [
                 BoxShadow(
@@ -311,71 +316,71 @@ class _SessionPanel extends StatelessWidget {
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+              child: Row(
+                textDirection: TextDirection.rtl,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  _statusRow(status),
-                  if (listening) _ayahProgress(),
-                  if (fb != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      fb.message,
-                      textAlign: TextAlign.center,
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: switch (fb.kind) {
-                          FeedbackKind.good => _good,
-                          FeedbackKind.wrong => _wrong,
-                          FeedbackKind.unclear => _unclear,
-                          FeedbackKind.silent => _unclear,
-                          FeedbackKind.info => _gold,
-                        },
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        height: 1.4,
-                      ),
+                  _statusDot(status),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: fb != null
+                        ? Text(
+                            fb.message,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: switch (fb.kind) {
+                                FeedbackKind.good => _good,
+                                FeedbackKind.wrong => _wrong,
+                                FeedbackKind.unclear => _unclear,
+                                FeedbackKind.silent => _unclear,
+                                FeedbackKind.info => _gold,
+                              },
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1.3,
+                            ),
+                          )
+                        : (listening ? _ayahProgress() : _statusText(status)),
+                  ),
+                  if (listening)
+                    IconButton(
+                      tooltip: 'كشف كلمة',
+                      onPressed: service.showHint,
+                      icon: const Icon(Icons.lightbulb_outline_rounded, size: 22),
+                      color: _gold,
+                      visualDensity: VisualDensity.compact,
                     ),
-                  ],
-                  if (heard.isNotEmpty && !completed) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'سمعت: $heard',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: _gold.withValues(alpha: 0.75),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 4),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 2,
-                    runSpacing: 0,
-                    textDirection: TextDirection.rtl,
-                    children: [
+                  PopupMenuButton<String>(
+                    tooltip: 'خيارات',
+                    icon: const Icon(Icons.more_vert_rounded, color: _gold),
+                    onSelected: (v) {
+                      switch (v) {
+                        case 'reveal':
+                          service.revealCurrentAyah();
+                        case 'skip':
+                          service.skipCurrentAyah();
+                        case 'restart':
+                          service.restart();
+                        case 'share':
+                          _shareSession(context);
+                        case 'end':
+                          service.stop();
+                      }
+                    },
+                    itemBuilder: (context) => [
                       if (listening) ...[
-                        _button(Icons.lightbulb_outline_rounded, 'تلميح',
-                            service.showHint),
-                        _button(Icons.visibility_rounded, 'كشف الآية',
-                            service.revealCurrentAyah),
-                        _button(Icons.skip_next_rounded, 'تخطي الآية',
-                            service.skipCurrentAyah),
+                        const PopupMenuItem(value: 'reveal', child: Text('كشف الآية')),
+                        const PopupMenuItem(value: 'skip', child: Text('تخطي الآية')),
                       ],
                       if (listening || completed)
-                        _button(Icons.replay_rounded, 'إعادة',
-                            () => service.restart()),
-                      if (service.lastSessionFiles.value.isNotEmpty &&
-                          completed)
-                        _button(Icons.ios_share_rounded, 'مشاركة السجل',
-                            () => _shareSession(context)),
-                      _button(Icons.close_rounded, 'إنهاء',
-                          () => service.stop()),
+                        const PopupMenuItem(value: 'restart', child: Text('إعادة الصفحة')),
+                      if (service.lastSessionFiles.value.isNotEmpty && completed)
+                        const PopupMenuItem(value: 'share', child: Text('مشاركة السجل')),
+                      const PopupMenuItem(value: 'end', child: Text('إنهاء التسميع')),
                     ],
                   ),
                 ],
@@ -387,6 +392,42 @@ class _SessionPanel extends StatelessWidget {
     );
   }
 
+  Widget _statusDot(MemorizationTestStatus status) {
+    final level = service.audioLevel.value;
+    final busy = service.engineBusy.value;
+    final color = switch (status) {
+      MemorizationTestStatus.completed => _good,
+      MemorizationTestStatus.preparing => _unclear,
+      _ => busy ? _unclear : _good,
+    };
+    final size = 10.0 + 8.0 * level.clamp(0.0, 1.0);
+    return SizedBox(
+      width: 22,
+      height: 22,
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 80),
+          width: size,
+          height: size,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusText(MemorizationTestStatus status) {
+    return Text(
+      switch (status) {
+        MemorizationTestStatus.preparing => 'جارٍ التحضير…',
+        MemorizationTestStatus.completed => 'اكتملت الصفحة',
+        _ => 'أسمعك… ابدأ التلاوة',
+      },
+      textAlign: TextAlign.right,
+      textDirection: TextDirection.rtl,
+      style: const TextStyle(color: _gold, fontSize: 13.5, fontWeight: FontWeight.w600),
+    );
+  }
+
   /// The current ayah, word by word: recited words appear in the mushaf
   /// spelling, words still to come stay as dots -- so the reciter sees each
   /// word land the moment it is recognized, without unmasking the page.
@@ -394,14 +435,14 @@ class _SessionPanel extends StatelessWidget {
     final words = service.currentAyahWords;
     if (words.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: EdgeInsets.zero,
       child: RichText(
-        textAlign: TextAlign.center,
+        textAlign: TextAlign.right,
         textDirection: TextDirection.rtl,
-        maxLines: 3,
+        maxLines: 1,
         overflow: TextOverflow.ellipsis,
         text: TextSpan(
-          style: const TextStyle(fontSize: 17, height: 1.6, fontFamily: 'Tajawal'),
+          style: const TextStyle(fontSize: 15, height: 1.4, fontFamily: 'Tajawal'),
           children: [
             for (var i = 0; i < words.length; i++) ...[
               TextSpan(
@@ -409,7 +450,7 @@ class _SessionPanel extends StatelessWidget {
                 // or a skip shows as a red/amber placeholder (the reciter
                 // must not be handed the word).
                 text: switch (words[i].$2) {
-                  WordStatus.correct => words[i].$1,
+                  WordStatus.correct || WordStatus.revealed => words[i].$1,
                   WordStatus.mistake => '\u2716\u2716\u2716',
                   _ => '\u2022\u2022\u2022',
                 },
@@ -418,6 +459,7 @@ class _SessionPanel extends StatelessWidget {
                     WordStatus.correct => _good,
                     WordStatus.mistake => _wrong,
                     WordStatus.skipped => _unclear,
+                    WordStatus.revealed => _unclear,
                     WordStatus.unclear => _unclear.withValues(alpha: 0.6),
                     WordStatus.pending => _gold.withValues(alpha: 0.35),
                   },
@@ -434,86 +476,9 @@ class _SessionPanel extends StatelessWidget {
     );
   }
 
-  Widget _statusRow(MemorizationTestStatus status) {
-    final Widget icon;
-    final String label;
-    if (status == MemorizationTestStatus.completed) {
-      icon = const Icon(Icons.check_circle_rounded, color: _good, size: 18);
-      label = 'اكتمل التسميع';
-    } else if (status == MemorizationTestStatus.preparing) {
-      icon = const SizedBox(
-        width: 14,
-        height: 14,
-        child: CircularProgressIndicator(strokeWidth: 2, color: _gold),
-      );
-      label = 'جارٍ التحضير…';
-    } else {
-      final busy = service.engineBusy.value;
-      final level = service.audioLevel.value;
-      // Mic glyph swells with the reciter's own voice level -- the most
-      // direct "I hear you" signal possible.
-      icon = AnimatedScale(
-        scale: 1.0 + level * 0.5,
-        duration: const Duration(milliseconds: 90),
-        child: Icon(
-          Icons.mic_rounded,
-          size: 18,
-          color: Color.lerp(
-            _gold.withValues(alpha: 0.45),
-            _gold,
-            (0.3 + level).clamp(0.0, 1.0),
-          ),
-        ),
-      );
-      label = busy ? 'جارٍ التحليل…' : 'يستمع إليك';
-    }
-    final ms = service.lastDecodeMs.value;
-    final lag = service.lastLagMs.value;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      textDirection: TextDirection.rtl,
-      children: [
-        icon,
-        const SizedBox(width: 7),
-        Text(
-          label,
-          style: const TextStyle(
-            color: _gold,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        if (ms > 0 && status == MemorizationTestStatus.listening) ...[
-          const SizedBox(width: 8),
-          Text(
-            // decode time · lag behind the reciter's voice
-            lag >= 0
-                ? '⏱ ${(ms / 1000).toStringAsFixed(1)} ث · تأخر ${(lag / 1000).toStringAsFixed(1)} ث'
-                : '⏱ ${(ms / 1000).toStringAsFixed(1)} ث',
-            style: TextStyle(
-              color: _gold.withValues(alpha: 0.6),
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 
-  Widget _button(IconData icon, String label, VoidCallback onTap) {
-    return TextButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 16),
-      label: Text(label),
-      style: TextButton.styleFrom(
-        foregroundColor: _gold,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        minimumSize: const Size(0, 30),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
+
+
 
   Future<void> _shareSession(BuildContext context) async {
     final files = service.lastSessionFiles.value;

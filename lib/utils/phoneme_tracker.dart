@@ -99,6 +99,10 @@ class TrackerConfig {
   const TrackerConfig({
     this.jumpCost = 12,
     this.repeatCost = 10,
+    this.ayahJumpCost = 14,
+    this.farJumpCost = 28,
+    this.startAyahCost = 6,
+    this.lexiconDistance = 0.12,
     this.commitDwell = 6,
     this.okDistance = 0.15,
     this.unsureDistance = 0.4,
@@ -108,8 +112,28 @@ class TrackerConfig {
     this.lostRate = 0.35,
     this.settleFrames = 25,
   });
+  /// Cost of starting at any word (the session's first phonemes) and, once
+  /// under way, of the DP jumping to an arbitrary word.
   final double jumpCost;
   final double repeatCost;
+
+  /// Jumping to the first word of the next or the previous ayah: a reciter
+  /// who blanks and moves on, or goes back an ayah to regain the flow.
+  final double ayahJumpCost;
+
+  /// Any other jump (into the middle of an ayah, several ayahs away): only
+  /// when the recitation has strayed for a long stretch. Keeps a phrase
+  /// that happens to match the end of the next ayah (لبئس ما كانوا يصنعون
+  /// said for يعملون) from being followed there.
+  final double farJumpCost;
+
+  /// Cost of the first phonemes landing on an ayah start: a session may
+  /// begin at any ayah of the page.
+  final double startAyahCost;
+
+  /// A heard slice this close to some other Quran word is a substitution
+  /// (الفاسقون for الظالمون), even when it lies in the unsure band.
+  final double lexiconDistance;
   final int commitDwell;
   final double okDistance;
   final double unsureDistance;
@@ -439,7 +463,9 @@ class PhonemeTracker {
     originCell = Int32List(len + 1);
     for (var i = 0; i < reference.n; i++) {
       final m = reference.wordStart[i];
-      column[m] = m == 0 ? 0 : jump;
+      column[m] = m == 0
+          ? 0
+          : (reference.words[i].wordInAyah == 0 ? cfg.startAyahCost : jump);
       originCell[m] = m;
     }
     for (var m = 1; m <= len; m++) {
@@ -452,6 +478,21 @@ class PhonemeTracker {
     cursorLocalWord = -1;
     cursorCost = 0;
     lost = false;
+  }
+
+  /// Cost of restarting the path at word [i]: a repeat inside the current
+  /// ayah, a move to the first word of the next or previous ayah, or a far
+  /// jump anywhere else. Before the first phoneme every ayah start is cheap.
+  double _restartCost(int i, int cursorAyah, int cursorPos, double repeat,
+      double ayahJump, double jump) {
+    final w = reference.words[i];
+    final m = reference.wordStart[i];
+    if (cursorAyah < 0) return w.wordInAyah == 0 ? ayahJump : jump;
+    if (w.ayah == cursorAyah && m <= cursorPos) return repeat;
+    if (w.wordInAyah == 0 && (w.ayah == cursorAyah + 1 || w.ayah == cursorAyah - 1)) {
+      return ayahJump;
+    }
+    return jump;
   }
 
   double? costRate([int? window]) {
@@ -476,7 +517,9 @@ class PhonemeTracker {
     for (var m = 1; m <= L; m++) {
       if (prev[m] < colMin) colMin = prev[m];
     }
-    final jump = colMin + cfg.jumpCost;
+    final started = cursorLocalWord >= 0 && heard.isNotEmpty;
+    final jump = colMin + (started ? cfg.farJumpCost : cfg.jumpCost);
+    final ayahJump = colMin + (started ? cfg.ayahJumpCost : cfg.startAyahCost);
     final repeat = colMin + cfg.repeatCost;
     final cursorAyah =
         cursorLocalWord < 0 ? -1 : reference.words[cursorLocalWord].ayah;
@@ -493,7 +536,7 @@ class PhonemeTracker {
     nextOH[0] = prevOH[0];
     nextOC[0] = prevOC[0];
     if (reference.wordStart[0] == 0) {
-      final r = reference.words[0].ayah == cursorAyah ? repeat : jump;
+      final r = _restartCost(0, cursorAyah, cursorPos, repeat, ayahJump, jump);
       if (r < next[0]) {
         next[0] = r;
         nextOH[0] = g;
@@ -522,8 +565,7 @@ class PhonemeTracker {
     }
     for (var i = 0; i < reference.n; i++) {
       final m = reference.wordStart[i];
-      final restart =
-          (m <= cursorPos && reference.words[i].ayah == cursorAyah) ? repeat : jump;
+      final restart = _restartCost(i, cursorAyah, cursorPos, repeat, ayahJump, jump);
       if (restart < next[m]) {
         next[m] = restart;
         nextOH[m] = g;
@@ -634,11 +676,12 @@ String? pausalPhonemes(String ph, PhonemeWord w, bool atAyahEnd) {
 const Set<String> _shortVowels = {'َ', 'ُ', 'ِ'};
 
 class VerdictTracer {
-  VerdictTracer(this.tracker, {TrackerConfig? cfg})
+  VerdictTracer(this.tracker, {TrackerConfig? cfg, this.lexicon})
       : table = tracker.table,
         cfg = cfg ?? tracker.cfg;
 
   final PhonemeTracker tracker;
+  final PhonemeLexicon? lexicon;
   final PhonemeCostTable table;
   final TrackerConfig cfg;
   final Map<String, Map<int, _Span>> _cache = {};
@@ -882,10 +925,28 @@ class VerdictTracer {
         }
         if (dAlt < dExp && dAlt <= cfg.okDistance) reason = 'hafs';
       }
+      // A heard form that is not this word but IS another Quran word
+      // (الفاسقون for الظالمون, يفقهون for يعقلون, وإذا for وترى) is a
+      // substitution, however close the two happen to be acoustically.
+      String substitute = '';
+      if (!pending && reason.isEmpty && distance > cfg.okDistance && lexicon != null) {
+        final hit = lexicon!.nearest(heardSlice, cfg.lexiconDistance, table);
+        // A truncated or pausal form of the expected word itself (قَبلِ of
+        // قَبلِكُم, مَكَانَ of مَكَانًا) is not another word.
+        if (hit != null &&
+            !exp.startsWith(hit) &&
+            !hit.startsWith(exp) &&
+            normalizedDistance(table.encode(hit), table.encode(exp), table) > cfg.okDistance &&
+            (wd.hafsAlt.isEmpty ||
+                normalizedDistance(table.encode(hit), table.encode(wd.hafsAlt), table) > cfg.okDistance)) {
+          reason = 'word';
+          substitute = hit;
+        }
+      }
       final VerdictState state;
       if (pending) {
         state = VerdictState.pending;
-      } else if (reason == 'hafs') {
+      } else if (reason == 'hafs' || reason == 'word') {
         state = VerdictState.wrong;
       } else if (distance <= cfg.okDistance) {
         state = VerdictState.ok;
@@ -900,13 +961,56 @@ class VerdictTracer {
         distance: distance,
         heardRatio: heardRatio,
         margin: margin,
-        heard: heardSlice,
+        heard: substitute.isNotEmpty ? substitute : heardSlice,
         spanFrom: from,
         spanTo: to,
         reason: reason,
       ));
     }
     return out;
+  }
+}
+
+/// Every distinct phoneme string of the mushaf's words (context and pausal
+/// forms), for the substitution check: is what was heard some *other* word?
+class PhonemeLexicon {
+  PhonemeLexicon(Iterable<String> entries) {
+    for (final e in entries) {
+      (_byLength[e.runes.length] ??= []).add(e);
+    }
+  }
+
+  final Map<int, List<String>> _byLength = {};
+
+  /// The lexicon entry within [maxDistance] of [heard] with the smallest
+  /// distance, or null. Only entries of a similar length are tried.
+  String? nearest(String heard, double maxDistance, PhonemeCostTable table) {
+    // Verdicts are recomputed ten times a second; a slice is looked up once.
+    if (_cache.containsKey(heard)) return _cache[heard];
+    return _cache[heard] = _nearest(heard, maxDistance, table);
+  }
+
+  final Map<String, String?> _cache = {};
+
+  String? _nearest(String heard, double maxDistance, PhonemeCostTable table) {
+    final n = heard.runes.length;
+    if (n < 2) return null;
+    final enc = table.encode(heard);
+    String? best;
+    var bestD = maxDistance;
+    final slack = (n * maxDistance).ceil();
+    for (var len = n - slack; len <= n + slack; len++) {
+      final bucket = _byLength[len];
+      if (bucket == null) continue;
+      for (final e in bucket) {
+        final d = normalizedDistance(enc, table.encode(e), table);
+        if (d <= bestD) {
+          bestD = d;
+          best = e;
+        }
+      }
+    }
+    return best;
   }
 }
 
