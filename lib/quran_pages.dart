@@ -514,6 +514,8 @@ class _QuranPagesState extends State<QuranPages>
     _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
     MemorizationTestService.instance.status
         .addListener(_handleMemorizationTestStatus);
+    MemorizationTestService.instance.pageAdvanced
+        .addListener(_handleMemorizationTestPageAdvanced);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
     _highQualityImagesService.state.addListener(
       _handleHighQualityImagesChanged,
@@ -627,6 +629,8 @@ class _QuranPagesState extends State<QuranPages>
     WidgetsBinding.instance.removeObserver(this);
     MemorizationTestService.instance.status
         .removeListener(_handleMemorizationTestStatus);
+    MemorizationTestService.instance.pageAdvanced
+        .removeListener(_handleMemorizationTestPageAdvanced);
     MemorizationTestService.instance.stop();
     HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
@@ -2591,6 +2595,16 @@ class _QuranPagesState extends State<QuranPages>
 
   /// Keeps the toolbar/overlay flags in step with the service when a
   /// session ends from inside the overlay (its "إنهاء" button) or restarts.
+  /// The service moved the live session onto the next page by itself (the
+  /// reciter read straight on): flip the view without restarting anything.
+  void _handleMemorizationTestPageAdvanced() {
+    final next = MemorizationTestService.instance.pageAdvanced.value;
+    if (!mounted || !_isMemorizationTestEnabled || next <= 0) return;
+    _memorizationTestPageIndex = next - 1;
+    _goToPage(next);
+    setState(() {});
+  }
+
   void _handleMemorizationTestStatus() {
     final service = MemorizationTestService.instance;
     if (!mounted) return;
