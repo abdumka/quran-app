@@ -52,6 +52,7 @@ import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
+import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
@@ -2605,6 +2606,14 @@ class _QuranPagesState extends State<QuranPages>
     setState(() {});
   }
 
+  /// The report of the run that just ended (also saved for later under
+  /// أدوات الحفظ).
+  void _showTasmeeRunSummary() {
+    final reports = MemorizationTestService.instance.takeRunReports();
+    if (!mounted || reports.isEmpty) return;
+    showTasmeeRunSummary(context, reports);
+  }
+
   void _handleMemorizationTestStatus() {
     final service = MemorizationTestService.instance;
     if (!mounted) return;
@@ -2628,6 +2637,7 @@ class _QuranPagesState extends State<QuranPages>
           _isMemorizationTestEnabled = false;
           _memorizationTestPageIndex = -1;
         });
+        _showTasmeeRunSummary();
       });
     }
     // A finished page flows into the next one: after a short pause to read
@@ -2665,6 +2675,9 @@ class _QuranPagesState extends State<QuranPages>
       onHifzMode: () => _toggleHifzMode(!_isHifzModeEnabled),
       onLogs: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const TasmeeLogsPage()),
+      ),
+      onReports: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const TasmeeReportsPage()),
       ),
     );
   }
@@ -3473,9 +3486,12 @@ class _QuranPagesState extends State<QuranPages>
                               gaplessPlayback: true,
                               filterQuality: _pageQualityService.filterQuality,
                             ),
-                            if (_isMemorizationTestEnabled &&
-                                pageIndex == _memorizationTestPageIndex)
+                            // On every page while the mode is on: the overlay
+                            // itself follows the service's live page and
+                            // pre-covers the page after it.
+                            if (_isMemorizationTestEnabled)
                               MemorizationTestOverlay(
+                                pageNumber: pageIndex + 1,
                                 marginView: _usesMarginImage(pageIndex),
                               ),
                           ],
@@ -3578,9 +3594,9 @@ class _QuranPagesState extends State<QuranPages>
                           gaplessPlayback: true,
                           filterQuality: _pageQualityService.filterQuality,
                         ),
-                        if (_isMemorizationTestEnabled &&
-                            pageIndex == _memorizationTestPageIndex)
+                        if (_isMemorizationTestEnabled)
                           MemorizationTestOverlay(
+                            pageNumber: pageIndex + 1,
                             marginView: _usesMarginImage(pageIndex),
                           ),
                       ],
@@ -4018,7 +4034,11 @@ class _QuranPagesState extends State<QuranPages>
                       // stays responsive.
                       onDoubleTapDown: (details) =>
                           _lastDoubleTapPosition = details.localPosition,
-                      onDoubleTap: _togglePageZoom,
+                      // Not during Tasmee: a stray double tap must not zoom
+                      // the page under the reciter; the app's own zoom
+                      // setting applies again once the session ends.
+                      onDoubleTap:
+                          _isMemorizationTestEnabled ? null : _togglePageZoom,
                       child: page,
                     );
                   },

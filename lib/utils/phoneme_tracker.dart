@@ -413,8 +413,11 @@ class PhonemeReference {
 // ---------------------------------------------------------------------------
 
 class PhonemeTracker {
-  PhonemeTracker(this.reference, {this.cfg = const TrackerConfig()})
-      : table = reference.table,
+  PhonemeTracker(
+    this.reference, {
+    this.cfg = const TrackerConfig(),
+    this.startAnywhere = true,
+  })  : table = reference.table,
         len = reference.length {
     _resetColumn();
   }
@@ -423,6 +426,11 @@ class PhonemeTracker {
   final PhonemeCostTable table;
   final TrackerConfig cfg;
   final int len;
+
+  /// Whether the first phonemes may land on any ayah of the page (a session
+  /// opened by the user) or only on its first word (a page the session
+  /// flowed into from the previous one).
+  final bool startAnywhere;
 
   late Float32List column;
 
@@ -465,7 +473,9 @@ class PhonemeTracker {
       final m = reference.wordStart[i];
       column[m] = m == 0
           ? 0
-          : (reference.words[i].wordInAyah == 0 ? cfg.startAyahCost : jump);
+          : !startAnywhere
+              ? double.infinity
+              : (reference.words[i].wordInAyah == 0 ? cfg.startAyahCost : jump);
       originCell[m] = m;
     }
     for (var m = 1; m <= len; m++) {
@@ -487,11 +497,16 @@ class PhonemeTracker {
       double ayahJump, double jump) {
     final w = reference.words[i];
     final m = reference.wordStart[i];
-    if (cursorAyah < 0) return w.wordInAyah == 0 ? ayahJump : jump;
-    if (w.ayah == cursorAyah && m <= cursorPos) return repeat;
-    if (w.wordInAyah == 0 && (w.ayah == cursorAyah + 1 || w.ayah == cursorAyah - 1)) {
-      return ayahJump;
+    if (cursorAyah < 0) {
+      if (!startAnywhere) return m == 0 ? repeat : double.infinity;
+      return w.wordInAyah == 0 ? ayahJump : jump;
     }
+    // Once under way the recitation never jumps FORWARD: where it starts is
+    // the only free choice (the start options live on in the DP column).
+    // A similar phrase further down the page is an error here, not a move.
+    if (m > cursorPos) return double.infinity;
+    if (w.ayah == cursorAyah) return repeat;
+    if (w.wordInAyah == 0 && w.ayah == cursorAyah - 1) return ayahJump;
     return jump;
   }
 
@@ -808,6 +823,17 @@ class VerdictTracer {
     return -1;
   }
 
+  /// Heard chars after [w]'s span that the alignment gave to no word, up to
+  /// the next word's span (same run, already settled). Empty when there is
+  /// no next span yet or the two spans touch.
+  String _gapAfter(Map<int, _Span> spans, int w, _Span span, int heardLen, int dwell) {
+    final next = spans[w + 1];
+    if (next == null || next.run != span.run) return '';
+    if (next.from <= span.to || next.to > heardLen - dwell) return '';
+    if (next.from - span.to > 14) return '';
+    return _slice(span.to, next.from);
+  }
+
   /// The same word in another nasal/assimilation form (مِن / مِںںں,
   /// بَينَهُم / بَينَهُ۾۾۾) is not a substitution.
   bool _sameWordFolded(String a, String b) {
@@ -973,10 +999,36 @@ class VerdictTracer {
           substitute = hit;
         }
       }
+      // What was heard BETWEEN this word and the next (assigned to neither):
+      // a few sounds that complete another Quran word (قالوا for قال, ذلكم
+      // for ذلك), or a whole extra word (رزقنا «به» من قبل).
+      if (!pending && reason.isEmpty && lexicon != null) {
+        final gap = _gapAfter(spans, w, span, heardLen, dwell);
+        if (gap.isNotEmpty) {
+          final n = gap.runes.length;
+          if (n <= 4) {
+            final hit = lexicon!.nearest(heardSlice + gap, 0.06, table);
+            if (hit != null &&
+                hit.runes.length > exp.runes.length &&
+                !_sameWordFolded(hit, exp) &&
+                normalizedDistance(table.encode(hit), table.encode(exp), table) > 0.1) {
+              reason = 'word';
+              substitute = hit;
+            }
+          }
+          if (reason.isEmpty && n >= 3) {
+            final hit = lexicon!.nearest(gap, cfg.lexiconDistance, table);
+            if (hit != null && hit.runes.length >= 3) {
+              reason = 'extra';
+              substitute = hit;
+            }
+          }
+        }
+      }
       final VerdictState state;
       if (pending) {
         state = VerdictState.pending;
-      } else if (reason == 'hafs' || reason == 'word') {
+      } else if (reason == 'hafs' || reason == 'word' || reason == 'extra') {
         state = VerdictState.wrong;
       } else if (distance <= cfg.okDistance) {
         state = VerdictState.ok;

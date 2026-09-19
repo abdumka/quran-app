@@ -78,7 +78,7 @@ void main() {
           body: SizedBox(
             width: 400,
             height: 800,
-            child: MemorizationTestOverlay(),
+            child: MemorizationTestOverlay(pageNumber: 1),
           ),
         ),
       ),

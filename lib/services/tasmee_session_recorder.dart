@@ -39,7 +39,7 @@ class TasmeeSessionRecorder {
   TasmeeSessionRecorder._(this._dir, this._stem);
 
   static const String _keepPref = 'tasmee_log_keep_sessions';
-  static const int defaultKeep = 20;
+  static const int defaultKeep = 50;
   static const List<int> keepChoices = [5, 10, 20, 50, 100];
   static const int _sampleRate = 16000;
 

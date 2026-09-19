@@ -670,8 +670,8 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                                       return child;
                                     },
                                   ),
-                                  if (index == widget.memorizationTestPageIndex)
-                                    const MemorizationTestOverlay(),
+                                  if (widget.memorizationTestPageIndex >= 0)
+                                    MemorizationTestOverlay(pageNumber: index + 1),
                                 ],
                               ),
                             ),

@@ -26,6 +26,7 @@ import 'quran_json_service.dart';
 import 'recitation_engine.dart';
 import 'sherpa_recitation_engine.dart';
 import 'tasmee_session_recorder.dart';
+import 'tasmee_report_store.dart';
 import 'word_region_service.dart';
 
 /// Lifecycle of a memorization-test session.
@@ -176,6 +177,60 @@ class MemorizationTestService {
   /// straight into the next one (the engine keeps listening; the page view
   /// only has to flip).
   final ValueNotifier<int> pageAdvanced = ValueNotifier<int>(0);
+
+  // Error journal of the page being recited, and the reports of the pages
+  // finished since the mode was switched on (shown when the run ends).
+  final List<TasmeeError> _errors = [];
+  final Set<String> _errorKeys = {};
+  final List<TasmeeReport> _runReports = [];
+  DateTime _pageStartedAt = DateTime.now();
+
+  /// Reports of the run that just ended; clears them.
+  List<TasmeeReport> takeRunReports() {
+    final out = List<TasmeeReport>.of(_runReports);
+    _runReports.clear();
+    return out;
+  }
+
+  void _noteError(int word, String kind, [String heard = '']) {
+    final ayah = _ayahIndexOfWord(word);
+    final page = _page;
+    if (ayah < 0 || page == null || word >= _expectedWords.length) return;
+    if (!_errorKeys.add('$word:$kind')) return;
+    final e = TasmeeError(
+      surah: page.ayahs[ayah].surah,
+      ayah: page.ayahs[ayah].ayah,
+      wordInAyah: word - _ayahWordStarts[ayah] + 1,
+      expected: _expectedWords[word],
+      kind: kind,
+      heard: heard,
+    );
+    _errors.add(e);
+    _recorder?.log('error', e.toJson());
+  }
+
+  /// Closes the page's journal into a saved report.
+  void _saveReport({required bool finished}) {
+    final aligner = _aligner;
+    final pageNumber = _activePage;
+    if (aligner == null || pageNumber == null) return;
+    final correct = aligner.statuses.where((s) => s == WordStatus.correct).length;
+    if (correct == 0 && _errors.isEmpty) return; // nothing was recited
+    final report = TasmeeReport(
+      page: pageNumber,
+      at: _pageStartedAt,
+      seconds: DateTime.now().difference(_pageStartedAt).inSeconds,
+      words: aligner.length,
+      correct: correct,
+      errors: List.of(_errors),
+      finished: finished,
+    );
+    _recorder?.log('report', report.toJson());
+    _runReports.add(report);
+    TasmeeReportStore.save(report);
+    _errors.clear();
+    _errorKeys.clear();
+  }
   bool _advancing = false;
   Map<String, Object?> _recorderInfo = const {};
   String _installId = '';
@@ -473,6 +528,9 @@ class MemorizationTestService {
       _tracer = tracer;
       _settledApplied = false;
       _startResolved = false;
+      _errors.clear();
+      _errorKeys.clear();
+      _pageStartedAt = DateTime.now();
       _lastPhonemeAt = DateTime.now();
       _holdWord = -1;
       _wordsPastHold = 0;
@@ -717,6 +775,7 @@ class MemorizationTestService {
     _recorder?.log('control', {'action': 'hint', 'word': word});
     if (_holdWord == word) _releaseHold('control');
     aligner.forceResolveRange(word, word + 1, WordStatus.revealed);
+    _noteError(word, 'revealed');
     _setFeedback(RecitationFeedback(
       FeedbackKind.info,
       'كُشفت الكلمة «${_expectedWords[word]}» — تابع من بعدها',
@@ -728,6 +787,26 @@ class MemorizationTestService {
   /// Reveals the current ayah on the page (its unresolved words show with
   /// the amber wash and count as flaws) and moves on to the next one.
   void revealCurrentAyah() => _resolveCurrentAyah('reveal', WordStatus.revealed);
+
+  /// Covers an ayah again and expects it from its first word: the current
+  /// ayah when part of it has been recited, otherwise the one before it.
+  void repeatAyah() {
+    final aligner = _aligner;
+    if (aligner == null || status.value != MemorizationTestStatus.listening) {
+      return;
+    }
+    var ayah = currentAyahIndex;
+    if (ayah < 0) ayah = _ayahWordStarts.length - 2;
+    final started = aligner.cursor > _ayahWordStarts[ayah];
+    if (!started && ayah > 0) ayah -= 1;
+    _recorder?.log('control', {'action': 'repeatAyah', 'ayah': ayah});
+    _releaseHold('control');
+    aligner.resetRange(_ayahWordStarts[ayah], aligner.length);
+    final number = _page?.ayahs[ayah].ayah ?? ayah + 1;
+    _setFeedback(RecitationFeedback(FeedbackKind.info, 'أعد الآية $number من أولها'));
+    _lastAyahIndex = ayah;
+    revision.value++;
+  }
 
   /// Skips the current ayah (marks its unresolved words as skipped) and
   /// moves on to the next one.
@@ -742,6 +821,12 @@ class MemorizationTestService {
     }
     _recorder?.log('control', {'action': action, 'ayah': ayah});
     _releaseHold('control');
+    for (var w = _ayahWordStarts[ayah]; w < _ayahWordStarts[ayah + 1]; w++) {
+      if (aligner.statuses[w] != WordStatus.correct) {
+        _noteError(w, action == 'skip' ? 'skippedAyah' : 'revealed');
+        if (action == 'skip') break;
+      }
+    }
     aligner.forceResolveRange(
       _ayahWordStarts[ayah],
       _ayahWordStarts[ayah + 1],
@@ -985,6 +1070,9 @@ class MemorizationTestService {
         outcome.mistakes.isEmpty) {
       return;
     }
+    for (final w in outcome.skipped) {
+      _noteError(w, 'skipped');
+    }
     _recorder?.log('verdicts', {
       'settled': settled,
       'cursor': cursorWord,
@@ -1024,6 +1112,8 @@ class MemorizationTestService {
       final number = ayah < 0 ? null : _page?.ayahs[ayah].ayah;
       final where = number == null ? '' : ' (الآية $number، الكلمة $position)';
       _recorder?.log('hold', {'word': _holdWord, 'reason': newMistake.reason, 'heard': newMistake.heard});
+      _noteError(newMistake.word, newMistake.reason.isEmpty ? 'distance' : newMistake.reason, heard);
+      TasmeeAlert.fire();
       _setFeedback(
         RecitationFeedback(
           FeedbackKind.wrong,
@@ -1032,6 +1122,7 @@ class MemorizationTestService {
               'قرأت «$heard» بحفص، وقالون يقرؤها بخلاف ذلك$where — أعد الكلمة',
             'word' =>
               'قرأت «$heard» وهي ليست الكلمة المطلوبة$where — أعد الكلمة أو اضغط «كشف كلمة»',
+            'extra' => 'زدت «$heard» وليست في الآية$where — أعد من هذه الكلمة',
             _ => 'خطأ$where — سمعت «$heard» — أعد الكلمة أو اضغط «كشف كلمة»',
           },
         ),
@@ -1258,6 +1349,7 @@ class MemorizationTestService {
   /// Ends the page for good: summary line, engine stopped, result left on
   /// screen until the user exits or restarts.
   void _finishPage() {
+    _saveReport(finished: true);
     status.value = MemorizationTestStatus.completed;
     final (clean, flagged) = summary;
     _recorder?.log('completed', {
@@ -1338,6 +1430,8 @@ class MemorizationTestService {
           oldTracker.heard.sublist(math.min(from, oldTracker.heard.length));
 
       final (clean, flagged) = summary;
+      _saveReport(finished: true);
+      _pageStartedAt = DateTime.now();
       _recorder?.log('completed', {
         'clean': clean,
         'flagged': flagged,
@@ -1374,6 +1468,7 @@ class MemorizationTestService {
 
       final tracker = PhonemeTracker(
         PhonemeReference(phonemes.collapsed(), PhonemeCostTable()),
+        startAnywhere: false, // a page the session flowed into starts at its top
       );
       _tracker = tracker;
       _tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
@@ -1473,6 +1568,9 @@ class MemorizationTestService {
 
   /// Ends the session and clears all state. Safe to call when idle.
   Future<void> stop() async {
+    if (status.value == MemorizationTestStatus.listening) {
+      _saveReport(finished: false);
+    }
     if (_recorder != null && status.value == MemorizationTestStatus.listening) {
       _recorder?.log('stopped', {
         'word': currentWordIndex,

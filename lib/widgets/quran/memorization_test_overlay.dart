@@ -3,7 +3,9 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../models/ayah_region_data.dart';
 import '../../models/word_region_data.dart';
+import '../../services/ayah_region_service.dart';
 import '../../services/memorization_test_service.dart';
+import '../../services/word_region_service.dart';
 import '../../utils/quran_word_aligner.dart';
 
 /// The reveal layer of the memorization test: covers every not-yet-recited
@@ -26,7 +28,17 @@ import '../../utils/quran_word_aligner.dart';
 ///  * `revealed` — nothing drawn; the ayah on the page shows through.
 ///  * `flagged` — translucent amber wash over the now-visible ayah.
 class MemorizationTestOverlay extends StatelessWidget {
-  const MemorizationTestOverlay({super.key, this.marginView = false});
+  const MemorizationTestOverlay({
+    super.key,
+    required this.pageNumber,
+    this.marginView = false,
+  });
+
+  /// The 1-based mushaf page this overlay sits on. It draws the live masks
+  /// only while the service's session is on this page, and a full cover
+  /// while this is the NEXT page, so a page the session is about to flow
+  /// into is already hidden when it slides in.
+  final int pageNumber;
 
   /// True when the box under this overlay shows the margin-view (هوامش)
   /// image instead of the bundled page image: every ratio coordinate is
@@ -54,8 +66,22 @@ class MemorizationTestOverlay extends StatelessWidget {
           listenable: Listenable.merge([service.status, service.revision]),
           builder: (context, _) {
             if (!service.isActive) return const SizedBox.shrink();
+            final active = service.activePage;
+            if (active != pageNumber) {
+              if (active != null && pageNumber == active + 1) {
+                return _NextPageCover(
+                  pageNumber: pageNumber,
+                  marginView: marginView,
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                );
+              }
+              return const SizedBox.shrink();
+            }
             final regions = service.regions;
-            if (regions == null) return const SizedBox.shrink();
+            if (regions == null || regions.page != pageNumber) {
+              return const SizedBox.shrink();
+            }
 
             final states = service.ayahStates;
             if (states.length != regions.ayahs.length) {
@@ -92,17 +118,21 @@ class MemorizationTestOverlay extends StatelessWidget {
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
-                      painter: MemorizationMaskPainter(masks, frames, _currentBorder),
+                      painter: MemorizationMaskPainter(
+                        masks,
+                        frames,
+                        _currentBorder,
+                      ),
                     ),
                   ),
                 ),
                 // Live feedback + help buttons, floating near the bottom of
                 // the page area (over the page's lower margin).
                 Positioned(
-                  left: 8,
-                  right: 8,
-                  bottom: height * 0.012,
-                  child: Center(child: _SessionPanel(service: service)),
+                  left: 6,
+                  right: 6,
+                  bottom: height * 0.006,
+                  child: Center(child: _SessionBar(service: service)),
                 ),
               ],
             );
@@ -154,10 +184,9 @@ class MemorizationTestOverlay extends StatelessWidget {
         // Position hint only (no fill): a faint gold frame around the
         // ayah being recited.
         for (final r in ayah.rects) {
-          frames.add(map.rect(
-            Rect.fromLTWH(r.x, r.y, r.width, r.height),
-            slackX: 0.006,
-          ));
+          frames.add(
+            map.rect(Rect.fromLTWH(r.x, r.y, r.width, r.height), slackX: 0.006),
+          );
         }
       }
       return;
@@ -206,7 +235,12 @@ class _RatioMapper {
       top = m.top + top * m.height;
       bottom = m.top + bottom * m.height;
     }
-    return Rect.fromLTRB(left * width, top * height, right * width, bottom * height);
+    return Rect.fromLTRB(
+      left * width,
+      top * height,
+      right * width,
+      bottom * height,
+    );
   }
 }
 
@@ -257,20 +291,90 @@ class MemorizationMaskPainter extends CustomPainter {
   bool shouldRepaint(MemorizationMaskPainter old) => true;
 }
 
-/// The floating panel under the page: status line (hearing you /
-/// analyzing / done), the current feedback message, what the recognizer
-/// heard last, and the help buttons (hint, reveal, skip, restart, end,
-/// share log). Without it the inevitable decode delay reads as deafness
-/// and a wrong verdict has no explanation.
-class _SessionPanel extends StatelessWidget {
-  const _SessionPanel({required this.service});
+/// Covers every ayah of a page the session has not reached yet (the page
+/// after the live one), from the same region data the live masks use.
+class _NextPageCover extends StatelessWidget {
+  const _NextPageCover({
+    required this.pageNumber,
+    required this.marginView,
+    required this.width,
+    required this.height,
+  });
+
+  final int pageNumber;
+  final bool marginView;
+  final double width;
+  final double height;
+
+  static final Map<int, Future<(AyahRegionPageData?, WordRegionPageData?)>>
+  _cache = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final future = _cache.putIfAbsent(pageNumber, () async {
+      final r = await AyahRegionService.forPage(pageNumber);
+      final w = await WordRegionService.forPage(pageNumber);
+      return (r, w);
+    });
+    if (_cache.length > 6) _cache.remove(_cache.keys.first);
+    return FutureBuilder<(AyahRegionPageData?, WordRegionPageData?)>(
+      future: future,
+      builder: (context, snap) {
+        final regions = snap.data?.$1;
+        if (regions == null) return const SizedBox.shrink();
+        final margin = marginView ? snap.data?.$2?.marginRect : null;
+        if (marginView && margin == null) return const SizedBox.shrink();
+        final map = _RatioMapper(width, height, margin);
+        final unit = Object();
+        final masks = <MaskPiece>[
+          for (final a in regions.ayahs)
+            for (final r in a.rects)
+              MaskPiece(
+                map.rect(
+                  Rect.fromLTWH(r.x, r.y, r.width, r.height),
+                  slackX: 0.006,
+                ),
+                MemorizationTestOverlay._paperColor,
+                unit,
+              ),
+        ];
+        return IgnorePointer(
+          child: CustomPaint(
+            size: Size(width, height),
+            painter: MemorizationMaskPainter(
+              masks,
+              const [],
+              const Color(0x00000000),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The session bar at the foot of the page: every action one tap away, the
+/// current message above it only while there is one, and a handle that folds
+/// the whole bar into a small dot so the last line stays readable. What the
+/// recognizer heard is not shown (it stays in the logs).
+class _SessionBar extends StatefulWidget {
+  const _SessionBar({required this.service});
 
   final MemorizationTestService service;
+
+  @override
+  State<_SessionBar> createState() => _SessionBarState();
+}
+
+class _SessionBarState extends State<_SessionBar> {
+  static bool _collapsed = false;
 
   static const Color _gold = Color(0xFF8A6D2F);
   static const Color _good = Color(0xFF2E7D32);
   static const Color _wrong = Color(0xFFB3261E);
   static const Color _unclear = Color(0xFFB26A00);
+
+  MemorizationTestService get service => widget.service;
 
   @override
   Widget build(BuildContext context) {
@@ -280,9 +384,6 @@ class _SessionPanel extends StatelessWidget {
         service.audioLevel,
         service.engineBusy,
         service.feedback,
-        service.lastHeard,
-        service.lastDecodeMs,
-        service.lastLagMs,
         service.lastSessionFiles,
       ]),
       builder: (context, _) {
@@ -295,115 +396,187 @@ class _SessionPanel extends StatelessWidget {
         final fb = service.feedback.value;
         final listening = status == MemorizationTestStatus.listening;
         final completed = status == MemorizationTestStatus.completed;
+        final message =
+            fb?.message ??
+            switch (status) {
+              MemorizationTestStatus.preparing => 'جارٍ التحضير…',
+              MemorizationTestStatus.completed => 'اكتملت الصفحة',
+              _ => null,
+            };
+        final messageColor = switch (fb?.kind) {
+          FeedbackKind.good => _good,
+          FeedbackKind.wrong => _wrong,
+          FeedbackKind.unclear || FeedbackKind.silent => _unclear,
+          _ => _gold,
+        };
 
-        // One slim strip over the page's bottom margin: a status dot, the
-        // feedback line (or the ayah's word progress when there is none),
-        // and a menu with the help actions. Nothing taller: the page must
-        // stay readable.
-        return ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: const Color(0xEEFFFDF3),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: _gold.withValues(alpha: 0.35)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x22000000),
-                  blurRadius: 6,
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
-              child: Row(
-                textDirection: TextDirection.rtl,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  _statusDot(status),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: fb != null
-                        ? Text(
-                            fb.message,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              color: switch (fb.kind) {
-                                FeedbackKind.good => _good,
-                                FeedbackKind.wrong => _wrong,
-                                FeedbackKind.unclear => _unclear,
-                                FeedbackKind.silent => _unclear,
-                                FeedbackKind.info => _gold,
-                              },
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              height: 1.3,
-                            ),
-                          )
-                        : (listening ? _ayahProgress() : _statusText(status)),
-                  ),
-                  if (listening)
-                    IconButton(
-                      tooltip: 'كشف كلمة',
-                      onPressed: service.showHint,
-                      icon: const Icon(Icons.lightbulb_outline_rounded, size: 22),
+        if (_collapsed) {
+          // Folded: a dot that still shows the mic level and turns red on
+          // a mistake; tap to unfold.
+          return Align(
+            alignment: AlignmentDirectional.bottomStart,
+            child: GestureDetector(
+              onTap: () => setState(() => _collapsed = false),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: _decoration(fb?.kind == FeedbackKind.wrong),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _statusDot(status, fb?.kind == FeedbackKind.wrong),
+                    const Icon(
+                      Icons.keyboard_arrow_up_rounded,
                       color: _gold,
-                      visualDensity: VisualDensity.compact,
+                      size: 20,
                     ),
-                  PopupMenuButton<String>(
-                    tooltip: 'خيارات',
-                    icon: const Icon(Icons.more_vert_rounded, color: _gold),
-                    onSelected: (v) {
-                      switch (v) {
-                        case 'reveal':
-                          service.revealCurrentAyah();
-                        case 'skip':
-                          service.skipCurrentAyah();
-                        case 'restart':
-                          service.restart();
-                        case 'share':
-                          _shareSession(context);
-                        case 'end':
-                          service.stop();
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      if (listening) ...[
-                        const PopupMenuItem(value: 'reveal', child: Text('كشف الآية')),
-                        const PopupMenuItem(value: 'skip', child: Text('تخطي الآية')),
-                      ],
-                      if (listening || completed)
-                        const PopupMenuItem(value: 'restart', child: Text('إعادة الصفحة')),
-                      if (service.lastSessionFiles.value.isNotEmpty && completed)
-                        const PopupMenuItem(value: 'share', child: Text('مشاركة السجل')),
-                      const PopupMenuItem(value: 'end', child: Text('إنهاء التسميع')),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
+          );
+        }
+
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (message != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: _decoration(false),
+                  child: Text(
+                    message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(
+                      color: messageColor,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              DecoratedBox(
+                decoration: _decoration(false),
+                // Scales down on a narrow screen instead of overflowing.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      const SizedBox(width: 4),
+                      _statusDot(status, false),
+                      if (listening) ...[
+                        _action(
+                          Icons.lightbulb_outline_rounded,
+                          'كلمة',
+                          service.showHint,
+                        ),
+                        _action(
+                          Icons.visibility_rounded,
+                          'الآية',
+                          service.revealCurrentAyah,
+                        ),
+                        _action(
+                          Icons.replay_circle_filled_rounded,
+                          'أعد الآية',
+                          service.repeatAyah,
+                        ),
+                        _action(
+                          Icons.skip_next_rounded,
+                          'تخطَّ',
+                          service.skipCurrentAyah,
+                        ),
+                      ],
+                      if (listening || completed)
+                        _action(
+                          Icons.restart_alt_rounded,
+                          'الصفحة',
+                          () => service.restart(),
+                        ),
+                      if (completed &&
+                          service.lastSessionFiles.value.isNotEmpty)
+                        _action(
+                          Icons.ios_share_rounded,
+                          'السجل',
+                          () => _shareSession(context),
+                        ),
+                      _action(
+                        Icons.close_rounded,
+                        'إنهاء',
+                        () => service.stop(),
+                      ),
+                      _action(
+                        Icons.keyboard_arrow_down_rounded,
+                        'إخفاء',
+                        () => setState(() => _collapsed = true),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _statusDot(MemorizationTestStatus status) {
+  BoxDecoration _decoration(bool alarm) => BoxDecoration(
+    color: alarm ? const Color(0xF2FFE3DE) : const Color(0xE6FFFDF3),
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(color: (alarm ? _wrong : _gold).withValues(alpha: 0.4)),
+    boxShadow: const [
+      BoxShadow(color: Color(0x22000000), blurRadius: 5, offset: Offset(0, 2)),
+    ],
+  );
+
+  Widget _action(IconData icon, String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 21, color: _gold),
+            Text(
+              label,
+              style: const TextStyle(
+                color: _gold,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statusDot(MemorizationTestStatus status, bool alarm) {
     final level = service.audioLevel.value;
-    final busy = service.engineBusy.value;
-    final color = switch (status) {
-      MemorizationTestStatus.completed => _good,
-      MemorizationTestStatus.preparing => _unclear,
-      _ => busy ? _unclear : _good,
-    };
-    final size = 10.0 + 8.0 * level.clamp(0.0, 1.0);
+    final color = alarm
+        ? _wrong
+        : switch (status) {
+            MemorizationTestStatus.completed => _good,
+            MemorizationTestStatus.preparing => _unclear,
+            _ => service.engineBusy.value ? _unclear : _good,
+          };
+    final size = 9.0 + 8.0 * level.clamp(0.0, 1.0);
     return SizedBox(
-      width: 22,
-      height: 22,
+      width: 20,
+      height: 20,
       child: Center(
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 80),
@@ -414,71 +587,6 @@ class _SessionPanel extends StatelessWidget {
       ),
     );
   }
-
-  Widget _statusText(MemorizationTestStatus status) {
-    return Text(
-      switch (status) {
-        MemorizationTestStatus.preparing => 'جارٍ التحضير…',
-        MemorizationTestStatus.completed => 'اكتملت الصفحة',
-        _ => 'أسمعك… ابدأ التلاوة',
-      },
-      textAlign: TextAlign.right,
-      textDirection: TextDirection.rtl,
-      style: const TextStyle(color: _gold, fontSize: 13.5, fontWeight: FontWeight.w600),
-    );
-  }
-
-  /// The current ayah, word by word: recited words appear in the mushaf
-  /// spelling, words still to come stay as dots -- so the reciter sees each
-  /// word land the moment it is recognized, without unmasking the page.
-  Widget _ayahProgress() {
-    final words = service.currentAyahWords;
-    if (words.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: EdgeInsets.zero,
-      child: RichText(
-        textAlign: TextAlign.right,
-        textDirection: TextDirection.rtl,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        text: TextSpan(
-          style: const TextStyle(fontSize: 15, height: 1.4, fontFamily: 'Tajawal'),
-          children: [
-            for (var i = 0; i < words.length; i++) ...[
-              TextSpan(
-                // Only correctly recited words are spelled out; a mistake
-                // or a skip shows as a red/amber placeholder (the reciter
-                // must not be handed the word).
-                text: switch (words[i].$2) {
-                  WordStatus.correct || WordStatus.revealed => words[i].$1,
-                  WordStatus.mistake => '\u2716\u2716\u2716',
-                  _ => '\u2022\u2022\u2022',
-                },
-                style: TextStyle(
-                  color: switch (words[i].$2) {
-                    WordStatus.correct => _good,
-                    WordStatus.mistake => _wrong,
-                    WordStatus.skipped => _unclear,
-                    WordStatus.revealed => _unclear,
-                    WordStatus.unclear => _unclear.withValues(alpha: 0.6),
-                    WordStatus.pending => _gold.withValues(alpha: 0.35),
-                  },
-                  fontWeight: words[i].$2 == WordStatus.pending
-                      ? FontWeight.w400
-                      : FontWeight.w700,
-                ),
-              ),
-              if (i + 1 < words.length) const TextSpan(text: ' '),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-
-
-
 
   Future<void> _shareSession(BuildContext context) async {
     final files = service.lastSessionFiles.value;
@@ -493,9 +601,9 @@ class _SessionPanel extends StatelessWidget {
       );
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّرت مشاركة سجل الجلسة')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّرت مشاركة سجل الجلسة')));
     }
   }
 }

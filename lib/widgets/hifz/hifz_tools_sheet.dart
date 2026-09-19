@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../services/tasmee_report_store.dart';
+
 /// The "أدوات الحفظ" sheet opened from the bottom action bar: one place for
 /// the memorization tools -- the recitation test (التسميع) and the page
 /// concealment lens (وضع الحفظ).
@@ -10,6 +12,7 @@ Future<void> showHifzToolsSheet(
   required VoidCallback onTasmee,
   required VoidCallback onHifzMode,
   required VoidCallback onLogs,
+  required VoidCallback onReports,
 }) {
   const gold = Color(0xFFD2B97E);
   return showModalBottomSheet<void>(
@@ -92,6 +95,14 @@ Future<void> showHifzToolsSheet(
                 onTap: onHifzMode,
               ),
               tile(
+                icon: Icons.fact_check_rounded,
+                title: 'تقارير التسميع',
+                subtitle: 'أخطاء كل صفحة سمّعتها: الكلمة، ونوع الخطأ، وما قرأته.',
+                active: false,
+                onTap: onReports,
+              ),
+              const _AlertModeTile(),
+              tile(
                 icon: Icons.receipt_long_rounded,
                 title: 'سجلات التسميع',
                 subtitle: 'كل جلسة تُسجَّل تلقائيًا (الصوت وسجل القرارات). '
@@ -106,4 +117,60 @@ Future<void> showHifzToolsSheet(
       );
     },
   );
+}
+
+/// How a mistake is signalled during Tasmee: tap to cycle through the modes.
+class _AlertModeTile extends StatefulWidget {
+  const _AlertModeTile();
+
+  @override
+  State<_AlertModeTile> createState() => _AlertModeTileState();
+}
+
+class _AlertModeTileState extends State<_AlertModeTile> {
+  static const gold = Color(0xFFD2B97E);
+  TasmeeAlertMode? _mode;
+
+  @override
+  void initState() {
+    super.initState();
+    TasmeeAlert.mode().then((m) {
+      if (mounted) setState(() => _mode = m);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = _mode ?? TasmeeAlertMode.vibrate;
+    return ListTile(
+      leading: const Icon(Icons.vibration_rounded, color: gold, size: 28),
+      title: const Text(
+        'تنبيه الخطأ في التسميع',
+        style: TextStyle(color: gold, fontSize: 17, fontWeight: FontWeight.bold, fontFamily: 'Tajawal'),
+      ),
+      subtitle: Text(
+        'الحالي: ${TasmeeAlert.label(mode)} — اضغط للتغيير',
+        style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 13),
+      ),
+      trailing: DropdownButton<TasmeeAlertMode>(
+        value: mode,
+        dropdownColor: const Color(0xFF2C2C2E),
+        underline: const SizedBox.shrink(),
+        iconEnabledColor: gold,
+        items: [
+          for (final m in TasmeeAlertMode.values)
+            DropdownMenuItem(
+              value: m,
+              child: Text(TasmeeAlert.label(m), style: const TextStyle(color: Colors.white, fontSize: 13)),
+            ),
+        ],
+        onChanged: (m) async {
+          if (m == null) return;
+          await TasmeeAlert.setMode(m);
+          if (mounted) setState(() => _mode = m);
+          TasmeeAlert.fire();
+        },
+      ),
+    );
+  }
 }

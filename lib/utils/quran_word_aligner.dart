@@ -174,6 +174,18 @@ class QuranWordAligner {
   /// Resolves every still-pending word in `[start, end)` with [status]
   /// without any recognition -- the "reveal this ayah" / "skip this ayah"
   /// help buttons. The cursor jumps past [end] if it was inside the range.
+  /// Puts the words of [start, end) back to pending (an ayah the reciter
+  /// wants to recite again) and moves the cursor back to the first of them.
+  void resetRange(int start, int end) {
+    final from = start.clamp(0, length);
+    final to = end.clamp(from, length);
+    for (var i = from; i < to; i++) {
+      _statuses[i] = WordStatus.pending;
+      _missStreak[i] = 0;
+    }
+    if (_cursor > from) _cursor = from;
+  }
+
   void forceResolveRange(int start, int end, WordStatus status) {
     final from = start.clamp(0, length);
     final to = end.clamp(from, length);
