@@ -34,6 +34,8 @@ dependencies:
   record: ^6.1.2
   permission_handler: ^12.0.1
   sherpa_onnx: ^1.13.6
+  vibration: ^3.2.1
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -64,6 +66,7 @@ flutter:
     - assets/data/word_masks.json
     - assets/data/page_phonemes.json
     - assets/data/phoneme_lexicon.json
+    - assets/audio/tasmee_alert.wav
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
   

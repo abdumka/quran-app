@@ -823,6 +823,21 @@ class VerdictTracer {
     return -1;
   }
 
+  /// The short vowel the mushaf word ends on, or '' (sukun, tanween, a long
+  /// vowel, or a pause form where none is written).
+  static String _finalVowel(String text) {
+    for (var i = text.length - 1; i >= 0; i--) {
+      final c = text[i];
+      if (_shortVowels.contains(c)) return c;
+      final u = c.codeUnitAt(0);
+      final isMark = (u >= 0x064B && u <= 0x065F) || u == 0x0670 || (u >= 0x06D6 && u <= 0x06ED);
+      if (!isMark) return '';
+      if (u >= 0x064B && u <= 0x064D) return ''; // tanween
+      if (u == 0x0652 || u == 0x06E1) return ''; // sukun
+    }
+    return '';
+  }
+
   /// Heard chars after [w]'s span that the alignment gave to no word, up to
   /// the next word's span (same run, already settled). Empty when there is
   /// no next span yet or the two spans touch.
@@ -999,6 +1014,30 @@ class VerdictTracer {
           substitute = hit;
         }
       }
+      // The vowel a word ends on (i'rab): everything else matches exactly
+      // and only the final short vowel differs (والنورِ for والنورَ). At a
+      // stop the vowel is silent and nothing can be said; read on, it is
+      // the first sound after the word.
+      if (!pending && reason.isEmpty) {
+        final want = _finalVowel(wd.text);
+        if (want.isNotEmpty) {
+          String got = '';
+          var stem = heardSlice;
+          if (heardSlice.isNotEmpty && _shortVowels.contains(heardSlice[heardSlice.length - 1])) {
+            got = heardSlice[heardSlice.length - 1];
+            stem = heardSlice.substring(0, heardSlice.length - 1);
+          } else if (to < heardLen && _shortVowels.contains(t.heard[to].ch)) {
+            got = t.heard[to].ch;
+          }
+          final expStem = _shortVowels.contains(exp[exp.length - 1])
+              ? exp.substring(0, exp.length - 1)
+              : exp;
+          if (got.isNotEmpty && got != want && stem == expStem) {
+            reason = 'haraka';
+            substitute = heardSlice == stem ? '$stem$got' : heardSlice;
+          }
+        }
+      }
       // What was heard BETWEEN this word and the next (assigned to neither):
       // a few sounds that complete another Quran word (قالوا for قال, ذلكم
       // for ذلك), or a whole extra word (رزقنا «به» من قبل).
@@ -1028,7 +1067,7 @@ class VerdictTracer {
       final VerdictState state;
       if (pending) {
         state = VerdictState.pending;
-      } else if (reason == 'hafs' || reason == 'word' || reason == 'extra') {
+      } else if (reason == 'hafs' || reason == 'word' || reason == 'extra' || reason == 'haraka') {
         state = VerdictState.wrong;
       } else if (distance <= cfg.okDistance) {
         state = VerdictState.ok;

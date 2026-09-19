@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+import 'package:vibration/vibration.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,6 +34,7 @@ class TasmeeError {
         'skipped' => 'كلمة متروكة',
         'revealed' => 'كُشفت بطلب',
         'skippedAyah' => 'آية متخطّاة',
+        'haraka' => 'خطأ في حركة آخر الكلمة',
         _ => 'خطأ في النطق',
       };
 
@@ -184,14 +186,45 @@ class TasmeeAlert {
     } catch (_) {}
   }
 
-  /// Signals a mistake according to the chosen mode.
+  static AudioPlayer? _player;
+
+  /// Signals a mistake according to the chosen mode. Uses the vibrator
+  /// itself (not the system's touch-feedback setting, which many phones
+  /// switch off) and a bundled tone on the media stream that neither takes
+  /// audio focus nor stops the microphone.
   static Future<void> fire() async {
     final m = await mode();
     if (m == TasmeeAlertMode.vibrate || m == TasmeeAlertMode.vibrateAndSound) {
-      HapticFeedback.vibrate();
+      try {
+        if (await Vibration.hasVibrator()) {
+          await Vibration.vibrate(pattern: [0, 140, 90, 140]);
+        }
+      } catch (e) {
+        debugPrint('TasmeeAlert: vibrate failed: $e');
+      }
     }
     if (m == TasmeeAlertMode.sound || m == TasmeeAlertMode.vibrateAndSound) {
-      SystemSound.play(SystemSoundType.alert);
+      try {
+        final player = _player ??= AudioPlayer(playerId: 'tasmee_alert');
+        await player.setAudioContext(AudioContext(
+          android: const AudioContextAndroid(
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.media,
+            audioFocus: AndroidAudioFocus.none,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playAndRecord,
+            options: const {
+              AVAudioSessionOptions.mixWithOthers,
+              AVAudioSessionOptions.defaultToSpeaker,
+            },
+          ),
+        ));
+        await player.stop();
+        await player.play(AssetSource('audio/tasmee_alert.wav'), volume: 1.0);
+      } catch (e) {
+        debugPrint('TasmeeAlert: tone failed: $e');
+      }
     }
   }
 }

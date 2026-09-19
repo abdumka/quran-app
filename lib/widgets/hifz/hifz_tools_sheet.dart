@@ -17,6 +17,7 @@ Future<void> showHifzToolsSheet(
   const gold = Color(0xFFD2B97E);
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: const Color(0xFF1C1C1E),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -61,7 +62,13 @@ Future<void> showHifzToolsSheet(
       return SafeArea(
         child: Directionality(
           textDirection: TextDirection.rtl,
-          child: Column(
+          // Scrolls on short screens instead of overflowing.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * 0.88,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Padding(
@@ -112,6 +119,8 @@ Future<void> showHifzToolsSheet(
               ),
               const SizedBox(height: 8),
             ],
+          ),
+            ),
           ),
         ),
       );
