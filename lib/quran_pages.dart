@@ -373,6 +373,10 @@ class _QuranPagesState extends State<QuranPages>
   // 0-based index of the page the live session is bound to (-1 when none).
   int _memorizationTestPageIndex = -1;
 
+  /// True while the session is being moved to another page (see
+  /// [_followMemorizationTestToPage]).
+  bool _memorizationTestMoving = false;
+
   int? _activeBookmarkSlot;
   bool _showBookmarkNotice = false;
   bool _showAudioPlaybackNotice = false;
@@ -2590,11 +2594,26 @@ class _QuranPagesState extends State<QuranPages>
   void _handleMemorizationTestStatus() {
     final service = MemorizationTestService.instance;
     if (!mounted) return;
+    // Moving the session to another page restarts it, and a restart passes
+    // through `idle`; only an idle outside such a move means the user (or
+    // the service) really ended the mode.
     if (service.status.value == MemorizationTestStatus.idle &&
-        _isMemorizationTestEnabled) {
-      setState(() {
-        _isMemorizationTestEnabled = false;
-        _memorizationTestPageIndex = -1;
+        _isMemorizationTestEnabled &&
+        !_memorizationTestMoving) {
+      // A restart of the same page also blips through idle: decide a moment
+      // later, when a real end is still idle and a restart is not.
+      Future<void>.delayed(const Duration(milliseconds: 400), () {
+        if (!mounted ||
+            !_isMemorizationTestEnabled ||
+            _memorizationTestMoving ||
+            MemorizationTestService.instance.status.value !=
+                MemorizationTestStatus.idle) {
+          return;
+        }
+        setState(() {
+          _isMemorizationTestEnabled = false;
+          _memorizationTestPageIndex = -1;
+        });
       });
     }
     // A finished page flows into the next one: after a short pause to read
@@ -2774,11 +2793,19 @@ class _QuranPagesState extends State<QuranPages>
   /// leaving the mic icon claiming a session that isn't there.
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
     _memorizationTestPageIndex = pageIndex;
-    final started = await MemorizationTestService.instance.start(
-      pageNumber: pageIndex + 1,
-    );
+    _memorizationTestMoving = true;
+    bool started;
+    try {
+      started = await MemorizationTestService.instance.start(
+        pageNumber: pageIndex + 1,
+      );
+    } finally {
+      _memorizationTestMoving = false;
+    }
     if (!mounted || _memorizationTestPageIndex != pageIndex) return;
-    if (!started && MemorizationTestService.instance.activePage == null) {
+    if (started) {
+      _isMemorizationTestEnabled = true;
+    } else if (MemorizationTestService.instance.activePage == null) {
       _isMemorizationTestEnabled = false;
       _memorizationTestPageIndex = -1;
     }
