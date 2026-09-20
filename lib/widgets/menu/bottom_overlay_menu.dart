@@ -128,7 +128,12 @@ class _BottomOverlayMenuState extends State<BottomOverlayMenu> {
                     // slot so an RTL reader reads it right after البحث, as the last item.
                     Expanded(
                       child: _NavItem(
-                        icon: Icons.quiz_rounded,
+                        // The owner's artwork when it is bundled
+                        // (assets/images/hifz_tools_icon.png, a silhouette on
+                        // a transparent background: it is tinted like the
+                        // other items); the Material icon until then.
+                        icon: Icons.psychology_rounded,
+                        imagePath: 'assets/images/hifz_tools_icon.png',
                         label: 'أدوات الحفظ',
                         isSelected: _selectedItem == 'أدوات الحفظ',
                         compact: isLandscape,
@@ -233,6 +238,11 @@ class _NavItem extends StatelessWidget {
                 width: iconSize,
                 height: iconSize,
                 color: color,
+                errorBuilder: (context, error, stack) => Icon(
+                  icon ?? Icons.apps_rounded,
+                  color: color,
+                  size: iconSize,
+                ),
               )
             else
               Icon(

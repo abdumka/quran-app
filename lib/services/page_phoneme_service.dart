@@ -31,6 +31,8 @@ class PagePhonemes {
             taMarbuta: w.taMarbuta,
             hafsAlt: collapseMadd(w.hafsAlt),
             wasl: w.wasl,
+            alts: [for (final a in w.alts) collapseMadd(a)],
+            accept: [for (final a in w.accept) collapseMadd(a)],
           ),
       ];
 }
@@ -84,6 +86,12 @@ class PagePhonemeService {
             taMarbuta: w.length > 3 && (w[3] as num) != 0,
             hafsAlt: w.length > 4 ? w[4] as String : '',
             wasl: w.length > 5 && (w[5] as num) != 0,
+            alts: w.length > 6
+                ? (w[6] as List<dynamic>).cast<String>()
+                : const [],
+            accept: w.length > 7
+                ? (w[7] as List<dynamic>).cast<String>()
+                : const [],
             ayah: a,
             wordInAyah: i,
             ayahWords: ws.length,

@@ -52,22 +52,22 @@ void main() {
     await emit('الحمد لله رب العالمين');
     expect(service.lastHeard.value, 'الحمد لله رب العالمين');
     expect(service.currentAyahIndex, 1);
-    expect(service.feedback.value?.kind, FeedbackKind.good);
-    expect(service.feedback.value?.message, contains('الآية 1 ✓'));
+    expect(service.lastMessage.value?.kind, FeedbackKind.good);
+    expect(service.lastMessage.value?.message, contains('الآية 1 ✓'));
   });
 
   test('an unrecognised segment asks to repeat, then flags a mistake',
       () async {
     await startPage1();
     await emit('كلمة غريبة');
-    expect(service.feedback.value?.kind, FeedbackKind.unclear);
-    expect(service.feedback.value?.message, contains('أعد'));
+    expect(service.lastMessage.value?.kind, FeedbackKind.unclear);
+    expect(service.lastMessage.value?.message, contains('أعد'));
     expect(service.statuses.first, WordStatus.unclear);
 
     await emit('كلمة غريبة');
-    expect(service.feedback.value?.kind, FeedbackKind.wrong);
-    expect(service.feedback.value?.message, contains('خطأ في'));
-    expect(service.feedback.value?.message, contains('سمعت'));
+    expect(service.lastMessage.value?.kind, FeedbackKind.wrong);
+    expect(service.lastMessage.value?.message, contains('خطأ في'));
+    expect(service.lastMessage.value?.message, contains('سمعت'));
     expect(service.statuses.first, WordStatus.mistake);
   });
 
@@ -76,16 +76,16 @@ void main() {
     await startPage1();
     // Ayah 5 while ayah 1 is expected: a slip -- report it, stay put.
     await emit('اهدنا الصراط المستقيم');
-    expect(service.feedback.value?.kind, FeedbackKind.wrong);
-    expect(service.feedback.value?.message, contains('الآية 5'));
-    expect(service.feedback.value?.message, contains('المطلوب الآية 1'));
+    expect(service.lastMessage.value?.kind, FeedbackKind.wrong);
+    expect(service.lastMessage.value?.message, contains('الآية 5'));
+    expect(service.lastMessage.value?.message, contains('المطلوب الآية 1'));
     expect(service.currentAyahIndex, 0);
 
     // A second unexplained final: the recognizer has lost its place, so a
     // matching phrase further on is now followed, passed ayahs flagged.
     await emit('اهدنا الصراط المستقيم');
-    expect(service.feedback.value?.message, contains('تجاوزت الآيات 1–4'));
-    expect(service.feedback.value?.message, contains('أنت الآن في الآية 6'));
+    expect(service.lastMessage.value?.message, contains('تجاوزت الآيات 1–4'));
+    expect(service.lastMessage.value?.message, contains('أنت الآن في الآية 6'));
     expect(service.currentAyahIndex, 5);
     expect(service.ayahStates.sublist(0, 4),
         everyElement(AyahRevealState.flagged));
@@ -96,8 +96,8 @@ void main() {
       () async {
     await startPage1();
     service.showHint();
-    expect(service.feedback.value?.kind, FeedbackKind.info);
-    expect(service.feedback.value?.message, contains('اِ۬لْحَمْدُ'));
+    expect(service.lastMessage.value?.kind, FeedbackKind.info);
+    expect(service.lastMessage.value?.message, contains('اِ۬لْحَمْدُ'));
     expect(service.ayahStates.first, AyahRevealState.current);
   });
 
@@ -107,12 +107,12 @@ void main() {
     service.revealCurrentAyah();
     expect(service.ayahStates[0], AyahRevealState.flagged);
     expect(service.currentAyahIndex, 1);
-    expect(service.feedback.value?.message, contains('تم كشف الآية 1'));
+    expect(service.lastMessage.value?.message, contains('تم كشف الآية 1'));
 
     service.skipCurrentAyah();
     expect(service.ayahStates[1], AyahRevealState.flagged);
     expect(service.currentAyahIndex, 2);
-    expect(service.feedback.value?.message, contains('تم تخطي الآية 2'));
+    expect(service.lastMessage.value?.message, contains('تم تخطي الآية 2'));
     expect(service.statuses.sublist(4, 6),
         everyElement(WordStatus.skipped));
   });
@@ -135,8 +135,8 @@ void main() {
     await emit('صراط الذين انعمت عليهم غير المغضوب عليهم ولا الضالين');
     expect(service.status.value, MemorizationTestStatus.completed);
     expect(service.summary, (7, 0));
-    expect(service.feedback.value?.kind, FeedbackKind.good);
-    expect(service.feedback.value?.message, contains('أحسنت'));
+    expect(service.lastMessage.value?.kind, FeedbackKind.good);
+    expect(service.lastMessage.value?.message, contains('أحسنت'));
   });
 
   test('restart starts the same page over', () async {

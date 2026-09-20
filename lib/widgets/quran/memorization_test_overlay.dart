@@ -65,28 +65,20 @@ class MemorizationTestOverlay extends StatelessWidget {
         return ListenableBuilder(
           listenable: Listenable.merge([service.status, service.revision]),
           builder: (context, _) {
-            if (!service.isActive) return const SizedBox.shrink();
-            final active = service.activePage;
-            if (active != pageNumber) {
-              if (active != null && pageNumber == active + 1) {
-                return _NextPageCover(
-                  pageNumber: pageNumber,
-                  marginView: marginView,
-                  width: constraints.maxWidth,
-                  height: constraints.maxHeight,
-                );
-              }
-              return const SizedBox.shrink();
+            final cover = _NextPageCover(
+              pageNumber: pageNumber,
+              marginView: marginView,
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+            );
+            if (!service.isActive || service.activePage != pageNumber) {
+              return cover;
             }
             final regions = service.regions;
-            if (regions == null || regions.page != pageNumber) {
-              return const SizedBox.shrink();
-            }
+            if (regions == null || regions.page != pageNumber) return cover;
 
             final states = service.ayahStates;
-            if (states.length != regions.ayahs.length) {
-              return const SizedBox.shrink();
-            }
+            if (states.length != regions.ayahs.length) return cover;
             final width = constraints.maxWidth;
             final height = constraints.maxHeight;
 
@@ -94,9 +86,7 @@ class MemorizationTestOverlay extends StatelessWidget {
             // occupies only `marginRect` of the shown image; without that
             // rect the masks cannot be placed, so nothing is drawn there.
             final margin = marginView ? service.wordMarginRect : null;
-            if (marginView && margin == null) {
-              return const SizedBox.shrink();
-            }
+            if (marginView && margin == null) return cover;
             final map = _RatioMapper(width, height, margin);
 
             final masks = <MaskPiece>[];
@@ -321,9 +311,24 @@ class _NextPageCover extends StatelessWidget {
       future: future,
       builder: (context, snap) {
         final regions = snap.data?.$1;
-        if (regions == null) return const SizedBox.shrink();
         final margin = marginView ? snap.data?.$2?.marginRect : null;
-        if (marginView && margin == null) return const SizedBox.shrink();
+        if (regions == null || (marginView && margin == null)) {
+          if (snap.connectionState == ConnectionState.done) {
+            return const SizedBox.shrink(); // no geometry for this page
+          }
+          return IgnorePointer(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: width * 0.04,
+                vertical: height * 0.03,
+              ),
+              child: const ColoredBox(
+                color: MemorizationTestOverlay._paperColor,
+                child: SizedBox.expand(),
+              ),
+            ),
+          );
+        }
         final map = _RatioMapper(width, height, margin);
         final unit = Object();
         final masks = <MaskPiece>[
@@ -385,6 +390,7 @@ class _SessionBarState extends State<_SessionBar> {
         service.engineBusy,
         service.feedback,
         service.lastSessionFiles,
+        service.drillLabel,
       ]),
       builder: (context, _) {
         final status = service.status.value;
@@ -398,6 +404,7 @@ class _SessionBarState extends State<_SessionBar> {
         final completed = status == MemorizationTestStatus.completed;
         final message =
             fb?.message ??
+            service.drillLabel.value ??
             switch (status) {
               MemorizationTestStatus.preparing => 'جارٍ التحضير…',
               MemorizationTestStatus.completed => 'اكتملت الصفحة',
@@ -416,9 +423,14 @@ class _SessionBarState extends State<_SessionBar> {
           return Align(
             alignment: AlignmentDirectional.bottomStart,
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => setState(() => _collapsed = false),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                margin: const EdgeInsets.fromLTRB(10, 12, 10, 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
                 decoration: _decoration(fb?.kind == FeedbackKind.wrong),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -436,97 +448,118 @@ class _SessionBarState extends State<_SessionBar> {
           );
         }
 
-        return ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (message != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 3),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: _decoration(false),
-                  child: Text(
-                    message,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                      color: messageColor,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
-                    ),
-                  ),
-                ),
-              DecoratedBox(
-                decoration: _decoration(false),
-                // Scales down on a narrow screen instead of overflowing.
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    textDirection: TextDirection.rtl,
-                    children: [
-                      const SizedBox(width: 4),
-                      _statusDot(status, false),
-                      if (listening) ...[
-                        _action(
-                          Icons.lightbulb_outline_rounded,
-                          'كلمة',
-                          service.showHint,
-                        ),
-                        _action(
-                          Icons.visibility_rounded,
-                          'الآية',
-                          service.revealCurrentAyah,
-                        ),
-                        _action(
-                          Icons.replay_circle_filled_rounded,
-                          'أعد الآية',
-                          service.repeatAyah,
-                        ),
-                        _action(
-                          Icons.skip_next_rounded,
-                          'تخطَّ',
-                          service.skipCurrentAyah,
-                        ),
-                      ],
-                      if (listening || completed)
-                        _action(
-                          Icons.restart_alt_rounded,
-                          'الصفحة',
-                          () => service.restart(),
-                        ),
-                      if (completed &&
-                          service.lastSessionFiles.value.isNotEmpty)
-                        _action(
-                          Icons.ios_share_rounded,
-                          'السجل',
-                          () => _shareSession(context),
-                        ),
-                      _action(
-                        Icons.close_rounded,
-                        'إنهاء',
-                        () => service.stop(),
-                      ),
-                      _action(
-                        Icons.keyboard_arrow_down_rounded,
-                        'إخفاء',
-                        () => setState(() => _collapsed = true),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+        // The pad around the bar swallows the taps that just miss a button:
+        // they used to fall through to the page and pull the app's menus up
+        // over the bar.
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => service.logUi('barMiss'),
+          onLongPress: () {},
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
+            child: _bar(
+              context,
+              status,
+              message,
+              messageColor,
+              listening,
+              completed,
+            ),
           ),
         );
       },
+    );
+  }
+
+  Widget _bar(
+    BuildContext context,
+    MemorizationTestStatus status,
+    String? message,
+    Color messageColor,
+    bool listening,
+    bool completed,
+  ) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (message != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: _decoration(false),
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  color: messageColor,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          DecoratedBox(
+            decoration: _decoration(false),
+            // Scales down on a narrow screen instead of overflowing.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                textDirection: TextDirection.rtl,
+                children: [
+                  const SizedBox(width: 4),
+                  _statusDot(status, false),
+                  if (listening) ...[
+                    _action(
+                      Icons.lightbulb_outline_rounded,
+                      'كلمة',
+                      service.showHint,
+                    ),
+                    _action(
+                      Icons.visibility_rounded,
+                      'الآية',
+                      service.revealCurrentAyah,
+                    ),
+                    _action(
+                      Icons.replay_circle_filled_rounded,
+                      'أعد الآية',
+                      service.repeatAyah,
+                    ),
+                    _action(
+                      Icons.skip_next_rounded,
+                      'تخطَّ',
+                      service.skipCurrentAyah,
+                    ),
+                  ],
+                  if (listening || completed)
+                    _action(
+                      Icons.restart_alt_rounded,
+                      'الصفحة',
+                      () => service.restart(),
+                    ),
+                  if (completed && service.lastSessionFiles.value.isNotEmpty)
+                    _action(
+                      Icons.ios_share_rounded,
+                      'السجل',
+                      () => _shareSession(context),
+                    ),
+                  _action(Icons.close_rounded, 'إنهاء', () => service.stop()),
+                  _action(
+                    Icons.keyboard_arrow_down_rounded,
+                    'إخفاء',
+                    () => setState(() => _collapsed = true),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -541,14 +574,17 @@ class _SessionBarState extends State<_SessionBar> {
 
   Widget _action(IconData icon, String label, VoidCallback onTap) {
     return InkWell(
-      onTap: onTap,
+      onTap: () {
+        service.logUi('bar', {'action': label});
+        onTap();
+      },
       borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 21, color: _gold),
+            Icon(icon, size: 23, color: _gold),
             Text(
               label,
               style: const TextStyle(

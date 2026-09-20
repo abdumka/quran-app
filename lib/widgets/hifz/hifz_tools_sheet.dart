@@ -13,6 +13,7 @@ Future<void> showHifzToolsSheet(
   required VoidCallback onHifzMode,
   required VoidCallback onLogs,
   required VoidCallback onReports,
+  required VoidCallback onWeakPoints,
 }) {
   const gold = Color(0xFFD2B97E);
   return showModalBottomSheet<void>(
@@ -100,6 +101,14 @@ Future<void> showHifzToolsSheet(
                     'إصبعك للمراجعة الذاتية.',
                 active: hifzModeActive,
                 onTap: onHifzMode,
+              ),
+              tile(
+                icon: Icons.fitness_center_rounded,
+                title: 'تقوية الحفظ',
+                subtitle: 'مراجعة مواضع أخطائك في التسميع: تبدأ من آية أو '
+                    'آيتين قبل الخطأ، وما قرأته صحيحًا يُحذف من القائمة.',
+                active: false,
+                onTap: onWeakPoints,
               ),
               tile(
                 icon: Icons.fact_check_rounded,

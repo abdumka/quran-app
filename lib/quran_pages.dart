@@ -53,6 +53,8 @@ import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
+import 'widgets/hifz/tasmee_weak_points_sheet.dart';
+import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
@@ -378,6 +380,20 @@ class _QuranPagesState extends State<QuranPages>
   /// [_followMemorizationTestToPage]).
   bool _memorizationTestMoving = false;
 
+  /// Strengthening drills still to run in this round (تقوية الحفظ).
+  final List<TasmeeDrill> _drillQueue = [];
+
+  /// What Tasmee switched off when it started, to put back when it ends:
+  /// the phone is kept upright (the landscape reader scrolls continuously,
+  /// which the word masks cannot follow) and the portrait scroll mode is
+  /// paused.
+  bool _tasmeeLockedPortrait = false;
+  bool _tasmeePausedScrollMode = false;
+
+  /// Height (in the reader's own box) of the last tap, to keep taps that
+  /// just miss the Tasmee bar from opening the menus over it.
+  double _lastReaderTapDy = -1;
+
   int? _activeBookmarkSlot;
   bool _showBookmarkNotice = false;
   bool _showAudioPlaybackNotice = false;
@@ -517,6 +533,8 @@ class _QuranPagesState extends State<QuranPages>
         .addListener(_handleMemorizationTestStatus);
     MemorizationTestService.instance.pageAdvanced
         .addListener(_handleMemorizationTestPageAdvanced);
+    MemorizationTestService.instance.drillResult
+        .addListener(_handleTasmeeDrillResult);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
     _highQualityImagesService.state.addListener(
       _handleHighQualityImagesChanged,
@@ -632,6 +650,8 @@ class _QuranPagesState extends State<QuranPages>
         .removeListener(_handleMemorizationTestStatus);
     MemorizationTestService.instance.pageAdvanced
         .removeListener(_handleMemorizationTestPageAdvanced);
+    MemorizationTestService.instance.drillResult
+        .removeListener(_handleTasmeeDrillResult);
     MemorizationTestService.instance.stop();
     HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
@@ -981,6 +1001,12 @@ class _QuranPagesState extends State<QuranPages>
     // The listening session follows the reader: turning the page restarts
     // it against the new page's text instead of leaving it running against
     // the previous page.
+    if (_isMemorizationTestEnabled) {
+      MemorizationTestService.instance.logUi('pageShown', {
+        'page': safePage + 1,
+        'sessionPage': _memorizationTestPageIndex + 1,
+      });
+    }
     if (_isMemorizationTestEnabled && safePage != _memorizationTestPageIndex) {
       _followMemorizationTestToPage(safePage);
     }
@@ -1274,6 +1300,18 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   void _handleReaderTap() {
+    if (_isMemorizationTestEnabled) {
+      final height = MediaQuery.of(context).size.height;
+      final nearBar = _lastReaderTapDy >= 0 && _lastReaderTapDy > height * 0.84;
+      MemorizationTestService.instance.logUi('readerTap', {
+        'dy': _lastReaderTapDy.round(),
+        'height': height.round(),
+        'ignored': nearBar && !_showIndex,
+      });
+      // A tap around the Tasmee bar that missed its buttons must not pull
+      // the menus up over it.
+      if (nearBar && !_showIndex) return;
+    }
     // The top bar and the bottom menu are a single piece of chrome: one tap
     // toggles both together.
     final bool willShow = !_showIndex;
@@ -2213,6 +2251,13 @@ class _QuranPagesState extends State<QuranPages>
 
   void _setAutoScrollEnabled(bool value) {
     if (_isAutoScrollEnabled == value) return;
+    if (value && _isMemorizationTestEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('التمرير التلقائي متوقف أثناء التسميع')),
+      );
+      setState(() {});
+      return;
+    }
 
     if (value) {
       _toggleHideBar(false);
@@ -2320,6 +2365,13 @@ class _QuranPagesState extends State<QuranPages>
       return;
     }
     if (_isPortraitScrollMode == value) return;
+    if (value && _isMemorizationTestEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('وضع التمرير متوقف أثناء التسميع')),
+      );
+      setState(() {});
+      return;
+    }
 
     // Hide bar and scroll mode are mutually exclusive (both use vertical gestures)
     if (value && _isHideBarEnabled) {
@@ -2602,6 +2654,7 @@ class _QuranPagesState extends State<QuranPages>
     final next = MemorizationTestService.instance.pageAdvanced.value;
     if (!mounted || !_isMemorizationTestEnabled || next <= 0) return;
     _memorizationTestPageIndex = next - 1;
+    MemorizationTestService.instance.logUi('flipTo', {'page': next});
     _goToPage(next);
     setState(() {});
   }
@@ -2637,13 +2690,15 @@ class _QuranPagesState extends State<QuranPages>
           _isMemorizationTestEnabled = false;
           _memorizationTestPageIndex = -1;
         });
+        _onTasmeeModeEnded();
         _showTasmeeRunSummary();
       });
     }
     // A finished page flows into the next one: after a short pause to read
     // the summary line, turn the page; the session follows it.
     if (service.status.value == MemorizationTestStatus.completed &&
-        _isMemorizationTestEnabled) {
+        _isMemorizationTestEnabled &&
+        service.drillResult.value == null) {
       final donePage = service.activePage;
       Future<void>.delayed(const Duration(milliseconds: 2500), () {
         if (!mounted ||
@@ -2679,7 +2734,149 @@ class _QuranPagesState extends State<QuranPages>
       onReports: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const TasmeeReportsPage()),
       ),
+      onWeakPoints: _openTasmeeWeakPoints,
     );
+  }
+
+  // -------------------------------------------------------------------
+  // تقوية الحفظ: drills on the mistakes Tasmee collected
+  // -------------------------------------------------------------------
+
+  Future<void> _openTasmeeWeakPoints() async {
+    final start = await showTasmeeWeakPointsIntro(context);
+    if (!start || !mounted) return;
+    final pool = await TasmeeWeakPointStore.load();
+    if (!mounted) return;
+    _drillQueue
+      ..clear()
+      ..addAll(TasmeeWeakPointStore.plan(pool));
+    await _runNextTasmeeDrill();
+  }
+
+  /// Starts the next drill of the round: goes to the page an ayah or two
+  /// before the weak spot and starts Tasmee there, on that ayah.
+  Future<void> _runNextTasmeeDrill() async {
+    if (_drillQueue.isEmpty || !mounted) return;
+    final drill = _drillQueue.removeAt(0);
+    // Where to begin: up to two ayahs before the target on its page; when
+    // the target opens its page, the last two ayahs of the page before it
+    // (the session then flows over the page turn by itself).
+    final data = await QuranJsonService.loadQuranPages();
+    if (!mounted) return;
+    int ayahCount(int pageNumber) {
+      for (final p in data) {
+        if (p.page == pageNumber) return p.ayahs.length;
+      }
+      return 0;
+    }
+
+    var startPage = drill.page.clamp(1, pages.length).toInt();
+    var startAyahIndex = 0;
+    var target = -1;
+    for (final p in data) {
+      if (p.page != startPage) continue;
+      target = p.ayahs.indexWhere(
+        (a) => a.surah == drill.surah && a.ayah == drill.ayah,
+      );
+    }
+    if (target > 0) {
+      startAyahIndex = target >= 2 ? target - 2 : 0;
+    } else if (target == 0 && startPage > 1) {
+      startPage -= 1;
+      final n = ayahCount(startPage);
+      startAyahIndex = n >= 2 ? n - 2 : 0;
+    }
+    if (!_isMemorizationTestEnabled) {
+      await _prepareForTasmeeMode();
+      if (!mounted) return;
+    }
+    _memorizationTestMoving = true;
+    bool started;
+    try {
+      setState(() {
+        _isMemorizationTestEnabled = true;
+        _memorizationTestPageIndex = startPage - 1;
+      });
+      _goToPage(startPage);
+      started = await MemorizationTestService.instance.start(
+        pageNumber: startPage,
+        startAyahIndex: startAyahIndex,
+        drill: drill,
+      );
+    } finally {
+      _memorizationTestMoving = false;
+    }
+    if (!mounted) return;
+    if (!started) {
+      _drillQueue.clear();
+      setState(() {
+        _isMemorizationTestEnabled = false;
+        _memorizationTestPageIndex = -1;
+      });
+      _onTasmeeModeEnded();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر بدء التقوية على هذه الصفحة')),
+      );
+    } else {
+      setState(() {});
+    }
+  }
+
+  Future<void> _handleTasmeeDrillResult() async {
+    final result = MemorizationTestService.instance.drillResult.value;
+    if (result == null || !mounted) return;
+    final next = await showTasmeeDrillResult(
+      context,
+      result,
+      hasNext: _drillQueue.isNotEmpty,
+    );
+    if (!mounted) return;
+    if (next == TasmeeDrillNext.next && _drillQueue.isNotEmpty) {
+      await _runNextTasmeeDrill();
+    } else {
+      _drillQueue.clear();
+      await _toggleMemorizationTest(false);
+    }
+  }
+
+  /// Tasmee needs the paged, upright reader: the landscape reader and the
+  /// scroll mode move the page continuously under the word masks. Both are
+  /// put back by [_onTasmeeModeEnded].
+  Future<void> _prepareForTasmeeMode() async {
+    if (_showAutoScrollBar || _isAutoScrollEnabled) _closeAutoScrollBar();
+    if (_isPortraitScrollMode) {
+      _setPortraitScrollMode(false);
+      _tasmeePausedScrollMode = !_isPortraitScrollMode;
+    }
+    if (!kIsWeb && !TabletLayoutHelper.isTabletDevice(context)) {
+      final wasLandscape = _isPhoneLandscape(context);
+      _tasmeeLockedPortrait = true;
+      await SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+      if (wasLandscape) {
+        // Let the rotation land before the session measures the page.
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+      }
+    }
+  }
+
+  void _onTasmeeModeEnded() {
+    _drillQueue.clear();
+    if (_tasmeeLockedPortrait) {
+      _tasmeeLockedPortrait = false;
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    if (_tasmeePausedScrollMode) {
+      _tasmeePausedScrollMode = false;
+      if (mounted) _setPortraitScrollMode(true);
+    }
   }
 
   /// Enters/exits the memorization-test (word-reveal) mode. Unlike Hifz
@@ -2695,6 +2892,7 @@ class _QuranPagesState extends State<QuranPages>
           _memorizationTestPageIndex = -1;
         });
       }
+      _onTasmeeModeEnded();
       return;
     }
     setState(() {
@@ -2715,6 +2913,9 @@ class _QuranPagesState extends State<QuranPages>
       if (!mounted) return;
     }
 
+    await _prepareForTasmeeMode();
+    if (!mounted) return;
+
     final service = MemorizationTestService.instance;
     final pageIndex = _currentPage;
     final started = await service.start(pageNumber: pageIndex + 1);
@@ -2723,6 +2924,7 @@ class _QuranPagesState extends State<QuranPages>
       _isMemorizationTestEnabled = started;
       _memorizationTestPageIndex = started ? pageIndex : -1;
     });
+    if (!started) _onTasmeeModeEnded();
 
     // Be honest when we couldn't run the real mic check and fell back to the
     // scripted demo, so the auto-revealing words aren't mistaken for a
@@ -2819,6 +3021,7 @@ class _QuranPagesState extends State<QuranPages>
   /// If the new page can't be started the mode switches off rather than
   /// leaving the mic icon claiming a session that isn't there.
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
+    _drillQueue.clear();
     _memorizationTestPageIndex = pageIndex;
     _memorizationTestMoving = true;
     bool started;
@@ -2835,6 +3038,7 @@ class _QuranPagesState extends State<QuranPages>
     } else if (MemorizationTestService.instance.activePage == null) {
       _isMemorizationTestEnabled = false;
       _memorizationTestPageIndex = -1;
+      _onTasmeeModeEnded();
     }
     setState(() {});
   }
@@ -2847,6 +3051,7 @@ class _QuranPagesState extends State<QuranPages>
     _isMemorizationTestEnabled = false;
     _memorizationTestPageIndex = -1;
     MemorizationTestService.instance.stop();
+    _onTasmeeModeEnded();
     if (mounted) setState(() {});
   }
 
@@ -4028,12 +4233,19 @@ class _QuranPagesState extends State<QuranPages>
                     );
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
+                      onTapUp: (details) =>
+                          _lastReaderTapDy = details.globalPosition.dy,
                       onTap: _handleReaderTap,
                       // Double-tap toggles zoom (out to fit, or in to 2.5×)
                       // like a photo viewer. Kept lightweight so single-tap
-                      // stays responsive.
-                      onDoubleTapDown: (details) =>
-                          _lastDoubleTapPosition = details.localPosition,
+                      // stays responsive. (No double-tap recognizer at all
+                      // during Tasmee: it would delay every tap on the
+                      // session bar by 300 ms and swallow quick double taps
+                      // on its buttons.)
+                      onDoubleTapDown: _isMemorizationTestEnabled
+                          ? null
+                          : (details) =>
+                              _lastDoubleTapPosition = details.localPosition,
                       // Not during Tasmee: a stray double tap must not zoom
                       // the page under the reciter; the app's own zoom
                       // setting applies again once the session ends.

@@ -31,7 +31,21 @@ class PhonemeWord {
     this.taMarbuta = false,
     this.hafsAlt = '',
     this.wasl = false,
+    this.alts = const [],
+    this.accept = const [],
   });
+
+  /// Other phoneme forms that are equally correct for this word: what the
+  /// recognizer is known to produce for a CORRECT Qalun reading when it
+  /// cannot hear the Qalun feature (wa-hwa comes out as wa-huwa even from a
+  /// Qalun sheikh), and readings Qalun allows both ways.
+  final List<String> accept;
+
+  /// Phonemes of the words the Quran has at this spot in its look-alike
+  /// passages (mutashabihat: the same neighbours, another word). Hearing one
+  /// of them is a substitution even when it sounds close to the expected
+  /// word.
+  final List<String> alts;
 
   /// The Hafs reading's phonemes when Qalun reads the word differently
   /// (مَلِكِ vs مَاالِكِ); hearing this form is a habit error, flagged even
@@ -184,6 +198,9 @@ class PhonemeCostTable {
   late final Float32List _matrix;
 
   int get unknownId => _unknown;
+
+  /// Short vowels, sukun-like and tajweed marks (not letters).
+  static bool isMark(String ch) => _marks.contains(ch);
 
   int id(String ch) => _ids[ch] ?? _unknown;
 
@@ -417,6 +434,7 @@ class PhonemeTracker {
     this.reference, {
     this.cfg = const TrackerConfig(),
     this.startAnywhere = true,
+    this.startWord = 0,
   })  : table = reference.table,
         len = reference.length {
     _resetColumn();
@@ -431,6 +449,15 @@ class PhonemeTracker {
   /// opened by the user) or only on its first word (a page the session
   /// flowed into from the previous one).
   final bool startAnywhere;
+
+  /// With [startAnywhere] false, the only word the recitation may start on
+  /// (an ayah the reciter was sent back to, the first ayah of a drill).
+  final int startWord;
+
+  /// Barrier: no path may be in a cell past this one (null: none). Set while
+  /// the session is stopped at skipped words, so that whatever is recited
+  /// further down the page cannot carry the cursor on.
+  int? maxCell;
 
   late Float32List column;
 
@@ -471,11 +498,13 @@ class PhonemeTracker {
     originCell = Int32List(len + 1);
     for (var i = 0; i < reference.n; i++) {
       final m = reference.wordStart[i];
-      column[m] = m == 0
-          ? 0
-          : !startAnywhere
-              ? double.infinity
-              : (reference.words[i].wordInAyah == 0 ? cfg.startAyahCost : jump);
+      if (!startAnywhere) {
+        column[m] = i == startWord ? 0 : double.infinity;
+      } else {
+        column[m] = m == 0
+            ? 0
+            : (reference.words[i].wordInAyah == 0 ? cfg.startAyahCost : jump);
+      }
       originCell[m] = m;
     }
     for (var m = 1; m <= len; m++) {
@@ -484,7 +513,7 @@ class PhonemeTracker {
         originCell[m] = originCell[m - 1];
       }
     }
-    cursorCell = 0;
+    cursorCell = startAnywhere ? 0 : reference.wordStart[startWord];
     cursorLocalWord = -1;
     cursorCost = 0;
     lost = false;
@@ -498,7 +527,7 @@ class PhonemeTracker {
     final w = reference.words[i];
     final m = reference.wordStart[i];
     if (cursorAyah < 0) {
-      if (!startAnywhere) return m == 0 ? repeat : double.infinity;
+      if (!startAnywhere) return i == startWord ? repeat : double.infinity;
       return w.wordInAyah == 0 ? ayahJump : jump;
     }
     // Once under way the recitation never jumps FORWARD: where it starts is
@@ -548,7 +577,11 @@ class PhonemeTracker {
     final nextOH = Int32List(L + 1);
     final nextOC = Int32List(L + 1);
     next[0] = prev[0] + 1;
-    nextOH[0] = prevOH[0];
+    // A path still sitting on the cell it started (or restarted) on has
+    // matched nothing yet: what it heard so far is noise BEFORE its run (the
+    // ayah recited further down the page while the session waits at a
+    // skipped one), so the run begins after it.
+    nextOH[0] = prevOC[0] == 0 ? g + 1 : prevOH[0];
     nextOC[0] = prevOC[0];
     if (reference.wordStart[0] == 0) {
       final r = _restartCost(0, cursorAyah, cursorPos, repeat, ayahJump, jump);
@@ -565,8 +598,8 @@ class PhonemeTracker {
       final ins = prev[m] + 1;
       if (ins < v) {
         v = ins;
-        oh = prevOH[m];
         oc = prevOC[m];
+        oh = oc == m ? g + 1 : prevOH[m];
       }
       final del = next[m - 1] + 1;
       if (del < v) {
@@ -590,6 +623,12 @@ class PhonemeTracker {
           nextOH[j] = nextOH[j - 1];
           nextOC[j] = nextOC[j - 1];
         }
+      }
+    }
+    final cap = maxCell;
+    if (cap != null) {
+      for (var m = cap + 1; m <= L; m++) {
+        next[m] = double.infinity;
       }
     }
     var bestCell = 0;
@@ -823,6 +862,59 @@ class VerdictTracer {
     return -1;
   }
 
+  /// Whether the reciter read straight on from word [w] into the next one:
+  /// only then is the word's final short vowel pronounced and heard. At a
+  /// pause (a waqf sign, a breath) the vowel is silent and the recognizer
+  /// tends to invent one; and when the next word begins with the letter this
+  /// one ends on (kadhdhaba bi-) the two merge and the vowel is lost.
+  bool _readOn(Map<int, _Span> spans, int w, _Span span, String exp) {
+    final t = tracker;
+    final next = spans[w + 1];
+    if (next == null || next.run != span.run) return false;
+    if (span.to <= 0 || next.from >= t.heard.length || next.from < span.to) return false;
+    final gapFrames = t.heard[next.from].frame - t.heard[span.to - 1].frame;
+    if (gapFrames > 8) return false;
+    final nextExp = t.reference.words[w + 1].phon;
+    final stem = _skeleton(exp);
+    final nextStem = _skeleton(nextExp);
+    if (stem.isEmpty || nextStem.isEmpty) return false;
+    final a = table.encode(stem[stem.length - 1]);
+    final b = table.encode(nextStem[0]);
+    if (table.cost(a[0], b[0]) == 0) return false;
+    return true;
+  }
+
+  /// Nasal-assimilation symbols as plain letters, doubled letters single.
+  /// A final nasal counts as one sound whatever it assimilated to (min
+  /// before ba is heard as mim).
+  static String _foldNasal(String s) {
+    const nasals = 'منں۾';
+    final endsNasal = s.isNotEmpty && nasals.contains(s[s.length - 1]);
+    var x = s.replaceAll('ں', 'ن').replaceAll('۾', 'ن');
+    while (x.isNotEmpty && (x.endsWith('م') || x.endsWith('ن'))) {
+      x = x.substring(0, x.length - 1);
+    }
+    if (endsNasal) x = '$xن';
+    final b = StringBuffer();
+    String? last;
+    for (final r in x.runes) {
+      final c = String.fromCharCode(r);
+      if (c != last) b.write(c);
+      last = c;
+    }
+    return b.toString();
+  }
+
+  /// The consonants of a phoneme string (short vowels and marks dropped).
+  static String _skeleton(String s) {
+    final b = StringBuffer();
+    for (final r in s.runes) {
+      final c = String.fromCharCode(r);
+      if (!PhonemeCostTable.isMark(c)) b.write(c);
+    }
+    return b.toString();
+  }
+
   /// The short vowel the mushaf word ends on, or '' (sukun, tanween, a long
   /// vowel, or a pause form where none is written).
   static String _finalVowel(String text) {
@@ -994,11 +1086,18 @@ class VerdictTracer {
         }
         if (dAlt < dExp && dAlt <= cfg.okDistance) reason = 'hafs';
       }
+      // An equally correct form (see [PhonemeWord.accept]).
+      var accepted = false;
+      for (final a in wd.accept) {
+        final dA = normalizedDistance(table.encode(heardSlice), table.encode(a), table);
+        if (dA < distance) distance = dA;
+        if (dA <= cfg.okDistance) accepted = true;
+      }
       // A heard form that is not this word but IS another Quran word
       // (الفاسقون for الظالمون, يفقهون for يعقلون, وإذا for وترى) is a
       // substitution, however close the two happen to be acoustically.
       String substitute = '';
-      if (!pending && reason.isEmpty && distance > cfg.okDistance && lexicon != null) {
+      if (!pending && !accepted && reason.isEmpty && distance > cfg.okDistance && lexicon != null) {
         final hit = lexicon!.nearest(heardSlice, cfg.lexiconDistance, table);
         // A truncated or pausal form of the expected word itself (قَبلِ of
         // قَبلِكُم, مَكَانَ of مَكَانًا) is not another word.
@@ -1014,13 +1113,50 @@ class VerdictTracer {
           substitute = hit;
         }
       }
+      // Inside the ok band too, when what was heard is EXACTLY another
+      // Quran word that differs in a consonant (yahshuruhum for nahshuruhum):
+      // one cheap substitution in a long word stays under the ok distance.
+      if (!pending &&
+          !accepted &&
+          reason.isEmpty &&
+          distance > 0 &&
+          distance <= cfg.okDistance &&
+          lexicon != null &&
+          heardSlice.runes.length >= 3 &&
+          heardSlice != exp &&
+          heardSlice != pausal &&
+          lexicon!.contains(heardSlice) &&
+          !exp.startsWith(heardSlice) &&
+          !heardSlice.startsWith(exp) &&
+          _foldNasal(heardSlice) != _foldNasal(exp) &&
+          !_prefixHeardBefore(heardSlice, exp, from) &&
+          _skeleton(heardSlice) != _skeleton(exp) &&
+          heardSlice != wd.hafsAlt) {
+        reason = 'word';
+        substitute = heardSlice;
+      }
+      // Look-alike passages: the word another ayah has at this very spot.
+      if (!pending && !accepted && reason.isEmpty && wd.alts.isNotEmpty && heardSlice != exp) {
+        final enc = table.encode(heardSlice);
+        for (final alt in wd.alts) {
+          final dAlt = normalizedDistance(enc, table.encode(alt), table);
+          if (dAlt < 1e-6 || (dAlt <= 0.2 && dAlt + 0.1 <= distance)) {
+            reason = 'word';
+            substitute = alt;
+            break;
+          }
+        }
+      }
       // The vowel a word ends on (i'rab): everything else matches exactly
       // and only the final short vowel differs (والنورِ for والنورَ). At a
       // stop the vowel is silent and nothing can be said; read on, it is
       // the first sound after the word.
-      if (!pending && reason.isEmpty) {
+      if (!pending && !accepted && reason.isEmpty && _readOn(spans, w, span, exp)) {
         final want = _finalVowel(wd.text);
-        if (want.isNotEmpty) {
+        // (The expected phonemes must end on that very vowel: where the text
+        // and the phonemes disagree the fault is the phonetizer's.)
+        if (want.isNotEmpty &&
+            !(_shortVowels.contains(exp[exp.length - 1]) && !exp.endsWith(want))) {
           String got = '';
           var stem = heardSlice;
           if (heardSlice.isNotEmpty && _shortVowels.contains(heardSlice[heardSlice.length - 1])) {
@@ -1042,7 +1178,22 @@ class VerdictTracer {
       // a few sounds that complete another Quran word (قالوا for قال, ذلكم
       // for ذلك), or a whole extra word (رزقنا «به» من قبل).
       if (!pending && reason.isEmpty && lexicon != null) {
-        final gap = _gapAfter(spans, w, span, heardLen, dwell);
+        var gap = _gapAfter(spans, w, span, heardLen, dwell);
+        // Sounds that belong to the next word's doubled first letter (hal
+        // lana, in ya'fu) or that complete an accepted form are no gap.
+        if (gap.isNotEmpty && w + 1 < t.reference.n) {
+          final nextFirst = table.encode(t.reference.words[w + 1].phon);
+          if (nextFirst.isNotEmpty &&
+              table.encode(gap).every((c) => table.cost(c, nextFirst[0]) == 0)) {
+            gap = '';
+          }
+        }
+        if (gap.isNotEmpty) {
+          final joined = table.encode(heardSlice + gap);
+          for (final a in wd.accept) {
+            if (normalizedDistance(joined, table.encode(a), table) <= 0.06) gap = '';
+          }
+        }
         if (gap.isNotEmpty) {
           final n = gap.runes.length;
           if (n <= 4) {
@@ -1072,7 +1223,11 @@ class VerdictTracer {
       } else if (distance <= cfg.okDistance) {
         state = VerdictState.ok;
       } else if (distance <= cfg.unsureDistance || margin < cfg.minMargin) {
-        state = VerdictState.unsure;
+        // Much more was said than the word holds and it is not close: some
+        // other words were recited over it (akhadhnahum heard for fa-idha).
+        state = heardRatio >= 1.4 && distance > 0.3
+            ? VerdictState.wrong
+            : VerdictState.unsure;
       } else {
         state = VerdictState.wrong;
       }
@@ -1102,6 +1257,11 @@ class PhonemeLexicon {
   }
 
   final Map<int, List<String>> _byLength = {};
+  Set<String>? _all;
+
+  /// Whether [s] is exactly a lexicon entry.
+  bool contains(String s) =>
+      (_all ??= {for (final b in _byLength.values) ...b}).contains(s);
 
   /// The lexicon entry within [maxDistance] of [heard] with the smallest
   /// distance, or null. Only entries of a similar length are tried.
