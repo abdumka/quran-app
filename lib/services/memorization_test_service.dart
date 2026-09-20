@@ -1074,8 +1074,10 @@ class MemorizationTestService {
           // self-correction a moment later still repairs the word.
           // Until the first correct word has shown WHERE on the page the
           // reciter started, a wrong verdict is only the tracker guessing
-          // the first ayah: wait (a pause settles it).
-          if (!_startResolved && !settled) break;
+          // the first ayah (a cough or a false start lands on the page's
+          // first word): wait. A really wrong first word is flagged as soon
+          // as the second one is heard.
+          if (!_startResolved) break;
           if (v.reason == 'hafs' || settled || v.word < cursorWord - 1) {
             updates[v.word] = WordStatus.mistake;
             wrongVerdicts.add(v);
