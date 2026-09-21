@@ -249,6 +249,11 @@ class AudioService {
   /// source is set, and without this it would end the new clip before it began.
   bool _sawPositionInsideClip = false;
 
+  /// The whole-surah file currently loaded for [AudioScheme.timedSurah], if the
+  /// player is holding one. Non-null means the next ayah of that same surah can
+  /// be reached with a seek instead of a reload — see [_playClip].
+  Uri? _loadedSurahUri;
+
   /// The page turn the display still owes the recitation — see [_deferFlip].
   /// Null whenever the two are already on the same page.
   int? _deferredFlipPageIndex;
@@ -302,19 +307,20 @@ class AudioService {
       }
     });
 
-    // A clip's end needs a closer watch than just_audio_web gives it (see
-    // [_armClipEnd]). One stream for the life of the player, not one per ayah:
+    // A clip's end needs a closer watch than just_audio_web gives it, and under
+    // the timed scheme it is the ONLY thing that knows where an ayah stops on
+    // any platform (the surah is loaded whole so it can be seeked within — see
+    // [_playClip]). One stream for the life of the player, not one per ayah:
     // createPositionStream leaves its timer and its own event subscription
-    // running when the returned subscription is cancelled.
-    if (kIsWeb) {
-      _clipEndSubscription = _player
-          .createPositionStream(
-            steps: 800,
-            minPeriod: const Duration(milliseconds: 16),
-            maxPeriod: const Duration(milliseconds: 40),
-          )
-          .listen(_onClipPosition);
-    }
+    // running when the returned subscription is cancelled. It costs nothing
+    // while disarmed: [_onClipPosition] returns immediately on a null target.
+    _clipEndSubscription = _player
+        .createPositionStream(
+          steps: 800,
+          minPeriod: const Duration(milliseconds: 16),
+          maxPeriod: const Duration(milliseconds: 40),
+        )
+        .listen(_onClipPosition);
   }
 
   /// Pause the recitation when another app/the phone takes audio focus (incoming
@@ -833,6 +839,45 @@ class AudioService {
             ? Uri.file(localFile.path)
             : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
       }
+      // Under the timed scheme every ayah of a surah lives in ONE file, so
+      // re-loading that file per ayah buys nothing and costs a full prepare —
+      // a fresh HTTP fetch and re-buffer while streaming. Measured on an
+      // emulator: 0.2–1.9 s streamed, ~0.17 s from a downloaded file, against
+      // ~5 ms to seek within the file already open. That wait is silent, and
+      // it lands exactly between two ayat, which is what listeners report as
+      // a gap ("there is no audio at all between the two ayat"). So when the
+      // surah is already loaded, move inside it instead of loading it again.
+      //
+      // Checked before the web reset below on purpose: stopping the player
+      // would throw away the very source this path exists to reuse.
+      final canSeekWithinSurah =
+          clip.isClipped && clip.end != null && _loadedSurahUri == uri;
+      if (canSeekWithinSurah) {
+        // Consecutive ayat share a boundary — ayah N's end IS ayah N+1's start
+        // — and the clip watch stops within a few tens of ms of it, so playing
+        // straight on is already sitting where the next ayah begins. Seeking
+        // there anyway makes the player re-buffer (~200 ms of silence on a
+        // streamed file, the very gap this path exists to remove), so seek only
+        // when the position is genuinely somewhere else: a tapped ayah, a
+        // repeat, a jump. The window is symmetric because the position settles
+        // a little either side of the pause; being a few tens of ms out just
+        // means the handful of ms around the boundary — silence in both
+        // directions — is heard once more or once less, which is inaudible.
+        final drift = clip.start == null
+            ? _player.position
+            : _player.position - clip.start!;
+        const slack = Duration(milliseconds: 120);
+        final seekNeeded = drift < -slack || drift > slack;
+        if (seekNeeded) {
+          await _player.seek(clip.start ?? Duration.zero);
+        }
+        _armClipEnd(clip, absolute: true);
+        if (autoPlay) {
+          _player.play();
+        }
+        return true;
+      }
+
       if (kIsWeb) {
         // just_audio_web reuses one HTMLAudioElement and skips loading when it
         // thinks the URL is unchanged; swapping sources on a live player leaves
@@ -845,25 +890,47 @@ class AudioService {
       // main.dart). There is no media session on the web, so skip the tag
       // there.
       final tag = kIsWeb ? null : _mediaItemFor(uri, clip);
-      // A clipped source plays [start]..[end] and then reports
-      // ProcessingState.completed exactly as a whole file does — which is what
-      // lets ayah/page/ثمن/مقطع repeat work unchanged for the timed scheme. The
-      // tag belongs on the outermost source, so just_audio_background sees it.
-      await _player.setAudioSource(
-        clip.isClipped
-            ? ClippingAudioSource(
-                child: AudioSource.uri(uri),
-                start: clip.start,
-                end: clip.end,
-                tag: tag,
-              )
-            : AudioSource.uri(uri, tag: tag),
-      );
 
+      // A clipped source ends itself sample-exactly and reports
+      // ProcessingState.completed, which is what lets every repeat mode treat a
+      // slice exactly like a whole file. Loading the surah UNCLIPPED instead
+      // gives that up (the clip end is watched by [_onClipPosition] from here
+      // on) but is what makes the seek above possible for the rest of the
+      // surah. Whole-file reciters keep the plain source they always had.
+      final timedSurah = clip.isClipped && clip.end != null;
+      AudioSource buildSource() => timedSurah
+          ? AudioSource.uri(uri, tag: tag)
+          : clip.isClipped
+              ? ClippingAudioSource(
+                  child: AudioSource.uri(uri),
+                  start: clip.start,
+                  end: clip.end,
+                  tag: tag,
+                )
+              : AudioSource.uri(uri, tag: tag);
+      try {
+        await _player.setAudioSource(buildSource());
+      } on PlayerException catch (_) {
+        rethrow; // a real problem with the media itself
+      } catch (_) {
+        // Leaving a surah mid-file (the timed path pauses part-way through and
+        // keeps the transfer open) means handing the player a new source can
+        // abort the old one, which just_audio reports against the NEW load as
+        // "Connection aborted" / "Loading interrupted" even though nothing is
+        // wrong with the file. The old source is gone by now, so simply
+        // loading again succeeds — without this the recitation stopped dead
+        // on roughly one surah change in four while streaming.
+        await _player.setAudioSource(buildSource());
+      }
+      _loadedSurahUri = timedSurah ? uri : null;
+
+      if (timedSurah) {
+        await _player.seek(clip.start ?? Duration.zero);
+      }
       if (seekTo != null) {
         await _player.seek(seekTo);
       }
-      _armClipEnd(clip);
+      _armClipEnd(clip, absolute: timedSurah);
       if (autoPlay) {
         _player.play();
       }
@@ -888,8 +955,8 @@ class AudioService {
     }
   }
 
-  /// Arms (or, for a whole file, disarms) the web-only watch that ends a
-  /// clipped source at its own boundary.
+  /// Arms (or, for a whole file, disarms) the watch that ends an ayah at its
+  /// own boundary.
   ///
   /// `just_audio_web` enforces a `ClippingAudioSource`'s end from the HTML
   /// `timeupdate` event, which browsers fire only about four times a second, so
@@ -904,11 +971,27 @@ class AudioService {
   /// [AudioPlayer.position] is interpolated from the wall clock, and frozen
   /// while buffering rather than run on blindly, so watching it closes the
   /// boundary to the poll period — ≤40 ms, shorter than a syllable — and follows
-  /// pause, resume and playback speed with no re-arming. Native players clip
-  /// sample-accurately, so none of this runs off the web. The JS web player
+  /// pause, resume and playback speed with no re-arming. The JS web player
   /// solves the same problem in its own `_armClipEnd`.
-  void _armClipEnd(AudioClip clip) {
-    if (!kIsWeb) return;
+  ///
+  /// [absolute] is set when the player holds the whole surah rather than a
+  /// `ClippingAudioSource` — the timed scheme's normal case now, since keeping
+  /// the surah loaded is what removes the silence between ayat (see
+  /// [_playClip]). The target is then a position in that file, not an offset
+  /// from the clip's own start, and the watch is what ends the ayah on EVERY
+  /// platform, not just the web: nothing else knows where it stops. A
+  /// `ClippingAudioSource` still ends itself sample-accurately on native,
+  /// which is why the non-absolute case stays web-only.
+  void _armClipEnd(AudioClip clip, {bool absolute = false}) {
+    if (absolute) {
+      _clipEndTarget = clip.end;
+      _sawPositionInsideClip = false;
+      return;
+    }
+    if (!kIsWeb) {
+      _clipEndTarget = null;
+      return;
+    }
     final duration = clip.duration;
     _clipEndTarget =
         (duration != null && duration > Duration.zero) ? duration : null;
@@ -928,6 +1011,9 @@ class AudioService {
     // before it can swap it in, and every millisecond of that wait would be the
     // next ayah's opening playing early.
     await _player.pause();
+    // A clip that ends where the file does would otherwise ALSO arrive as
+    // ProcessingState.completed and advance a second time.
+    _didHandleCompletion = true;
     _handleAyahCompleted();
   }
 
@@ -1727,6 +1813,9 @@ class AudioService {
     _splitMonitorSubscription?.cancel();
     _cancelDeferredFlip();
     _clipEndTarget = null;
+    // stop() drops the loaded source, so the next ayah must load it again
+    // rather than seek into a player that is no longer holding the surah.
+    _loadedSurahUri = null;
     _player.stop();
     _player.seek(Duration.zero);
     isPlaying.value = false;

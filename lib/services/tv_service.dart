@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 /// cache by URL, so "I installed it but nothing changed" is otherwise
 /// impossible to diagnose. Bump this with every APK you publish, and publish
 /// under a matching filename.
-const String kTvBuildStamp = 'TV build 15 — 2026-09-17';
+const String kTvBuildStamp = 'TV build 20 — 2026-09-18';
 
 /// Whether this process is running on an Android TV (leanback) device.
 ///

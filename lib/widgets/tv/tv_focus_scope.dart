@@ -1,3 +1,5 @@
+// Tristate is a dart:ui type; SemanticsData.flagsCollection returns it.
+import 'dart:ui' show Tristate;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +49,21 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   Rect? _highlight;
   OverlayEntry? _ringEntry;
 
+  /// Which route scope (page, dialog, dropdown menu) the targets came from,
+  /// plus where the highlight was in each scope we stepped out of. When a
+  /// menu opens we remember the control that opened it; when it closes we go
+  /// back there. Without this, picking a surah in تكرار مقطع left the
+  /// highlight wherever the chosen row had been (it landed on ×5).
+  ///
+  /// Each scope is recognised by its on-screen RECT. Node ids are recycled
+  /// when a dialog rebuilds under an open menu, and counting scopes fails too:
+  /// routes under a modal barrier drop out of the semantics tree entirely, so
+  /// the count swings 2 -> 0 -> 1 while a menu is up. A dialog occupies the
+  /// same rectangle before and after, which is what identifies it.
+  Rect? _scopeRect;
+  Rect? _lastScopeRect;
+  final List<(Rect, Rect?)> _scopeStack = [];
+
   bool get _active => TvService.instance.isTv;
   bool get _isTop => _stack.isNotEmpty && identical(_stack.last, this);
 
@@ -90,14 +107,28 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     // A dialog or sheet pushes its own route scope; the last one in tree order
     // is what the user is actually looking at.
     SemanticsNode scope = root;
-    void findScope(SemanticsNode n) {
-      if (n.getSemanticsData().flagsCollection.scopesRoute) scope = n;
+    Rect scopeRect = root.rect;
+    bool foundScope = false;
+    void findScope(SemanticsNode n, Matrix4 inherited) {
+      final m = Matrix4.copy(inherited);
+      if (n.transform != null) m.multiply(n.transform!);
+      if (n.getSemanticsData().flagsCollection.scopesRoute) {
+        scope = n;
+        scopeRect = MatrixUtils.transformRect(m, n.rect);
+        foundScope = true;
+      }
       n.visitChildren((c) {
-        findScope(c);
+        findScope(c, m);
         return true;
       });
     }
-    findScope(root);
+    findScope(root, Matrix4.identity());
+    // Mid-transition (a menu opening or closing) there is briefly no route
+    // scope at all. Treat that frame as "nothing to target" rather than as a
+    // full-screen scope, which would match the page underneath and throw
+    // away where the user was.
+    if (!foundScope) return const [];
+    _lastScopeRect = scopeRect;
 
     final out = <_TvTarget>[];
     // A node's rect is in its own space and `transform` maps that to its
@@ -111,10 +142,15 @@ class _TvFocusScopeState extends State<TvFocusScope> {
       final bool tappable = data.hasAction(SemanticsAction.tap);
       final bool adjustable = data.hasAction(SemanticsAction.increase) ||
           data.hasAction(SemanticsAction.decrease);
+      final flags = data.flagsCollection;
+      // isSelected is a Tristate in this Flutter version.
+      final bool selected = flags.isSelected == Tristate.isTrue;
       if ((tappable || adjustable) && !hidden && !n.rect.isEmpty) {
         final r = MatrixUtils.transformRect(m, n.rect);
         if (r.width > 1 && r.height > 1) {
-          out.add(_TvTarget(n.id, r, adjustable: adjustable));
+          out.add(
+            _TvTarget(n.id, r, adjustable: adjustable, selected: selected),
+          );
         }
       }
       n.visitChildren((c) {
@@ -133,26 +169,61 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     return out;
   }
 
-  void _retarget(TraversalDirection? dir) {
-    if (!mounted) return;
+  /// Returns true when the highlight moved to a different target.
+  bool _retarget(TraversalDirection? dir) {
+    if (!mounted) return false;
     final targets = _targets();
     if (targets.isEmpty) {
       if (_highlight != null) {
         _highlight = null;
         _syncRing();
       }
-      return;
+      return false;
     }
 
+    // Entering a new scope: remember where we were and start fresh on the
+    // new scope's current value. Returning to an earlier scope: restore it.
+    final sr = _lastScopeRect;
+    final prev = _scopeRect;
+    if (sr != null && prev != null && !_sameRect(sr, prev)) {
+      final back = _scopeStack.lastIndexWhere((e) => _sameRect(e.$1, sr));
+      if (back >= 0) {
+        // Back to a scope we left (a menu closed): return to what opened it.
+        _anchor = _scopeStack[back].$2;
+        _scopeStack.removeRange(back, _scopeStack.length);
+      } else {
+        // A new scope (a menu or dialog opened): start on its current value.
+        _scopeStack.add((prev, _anchor));
+        _anchor = null;
+      }
+    }
+    _scopeRect = sr;
+
     final current = _resolve(targets);
-    final next = (current == null || dir == null)
-        ? (current ?? targets.first)
-        : (_nearest(targets, current, dir) ?? current);
+    final _TvTarget next;
+    if (current == null || dir == null) {
+      // Fresh target set (a chooser just opened): start on the current value
+      // if one is marked, otherwise the first entry.
+      next = current ??
+          targets.firstWhere(
+            (t) => t.selected,
+            orElse: () => targets.first,
+          );
+    } else {
+      next = _nearest(targets, current, dir) ?? current;
+    }
 
     _anchor = next.rect;
     _highlight = next.rect;
     _syncRing();
+    return current == null || next.id != current.id;
   }
+
+  static bool _sameRect(Rect a, Rect b) =>
+      (a.left - b.left).abs() < 4 &&
+      (a.top - b.top).abs() < 4 &&
+      (a.right - b.right).abs() < 4 &&
+      (a.bottom - b.bottom).abs() < 4;
 
   /// Re-finds the remembered target after a rebuild by nearest position.
   _TvTarget? _resolve(List<_TvTarget> targets) {
@@ -285,7 +356,21 @@ class _TvFocusScopeState extends State<TvFocusScope> {
           return true;
         }
       }
-      _retarget(dir);
+      final moved = _retarget(dir);
+      final vertical =
+          dir == TraversalDirection.up || dir == TraversalDirection.down;
+      if (!moved && vertical && _scrollPage(dir)) {
+        // Long lists (the 114-surah picker in تكرار مقطع) only build the rows
+        // that are on screen, so the last visible row looked like the end of
+        // the list and Down went nowhere. Scroll to build the next rows, then
+        // take the step again.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _retarget(dir);
+          _ensureVisible();
+        });
+        return true;
+      }
       _ensureVisible();
       return true;
     }
@@ -295,40 +380,57 @@ class _TvFocusScopeState extends State<TvFocusScope> {
         key == LogicalKeyboardKey.gameButtonA) {
       final target = _resolve(_targets());
       if (target != null) {
+        // The anchor is deliberately KEPT. Clearing it here sent the highlight
+        // back to the top of the list after every toggle. Material also places
+        // a dropdown so its selected row sits under the button, so keeping the
+        // anchor is what makes a chooser open on the current value.
+
         context
             .findRenderObject()
             ?.owner
             ?.semanticsOwner
             ?.performAction(target.id, SemanticsAction.tap);
-        // The tap may expand a section or open a dialog, so re-read the tree.
+        // The tap may expand a section or open a menu. The new subtree's
+        // semantics are not built on the very next frame, so retry briefly --
+        // otherwise a dropdown opens with no highlight at all.
         WidgetsBinding.instance.addPostFrameCallback((_) => _retarget(null));
+        // Menus also animate CLOSED (~300 ms), so keep retrying past that —
+        // otherwise the ring only reappears on the next key press.
+        for (final ms in const [120, 300, 500, 800]) {
+          Future.delayed(Duration(milliseconds: ms), () {
+            if (mounted) _retarget(null);
+          });
+        }
       }
       return true;
     }
     return false;
   }
 
-  /// Scrolls the target into view. The target is remembered by position, so
-  /// after scrolling the anchor is shifted by the same delta rather than being
-  /// re-resolved — re-resolving would just pick whatever row slid into that
-  /// spot and undo the move.
+  /// Scrolls the target into view, using the scrollable that actually
+  /// CONTAINS it.
+  ///
+  /// The first version grabbed the first Scrollable inside this subtree, which
+  /// for a Material dropdown meant scrolling the settings page *behind* the
+  /// open menu — the background slid, the ring drifted out of alignment with
+  /// the rows, and the last entry could never be reached. Searching from the
+  /// root element covers overlay routes (dropdowns, sheets) as well.
   void _ensureVisible() {
     final rect = _highlight;
     if (rect == null) return;
-    final self = context.findRenderObject();
-    if (self is! RenderBox || !self.hasSize) return;
-    final top = self.localToGlobal(Offset.zero).dy;
-    final h = self.size.height;
-    const margin = 90.0;
-    final localTop = rect.top - top;
-    final localBottom = rect.bottom - top;
+    final hit = _scrollableContaining(rect);
+    if (hit == null) return;
+    final (pos, viewport) = hit;
+
+    const margin = 40.0;
     double delta = 0;
-    if (localTop < margin) delta = localTop - margin;
-    if (localBottom > h - margin) delta = localBottom - (h - margin);
+    if (rect.top < viewport.top + margin) {
+      delta = rect.top - (viewport.top + margin);
+    } else if (rect.bottom > viewport.bottom - margin) {
+      delta = rect.bottom - (viewport.bottom - margin);
+    }
     if (delta == 0) return;
 
-    final pos = _firstScrollPosition();
-    if (pos == null) return;
     final target = (pos.pixels + delta).clamp(
       pos.minScrollExtent,
       pos.maxScrollExtent,
@@ -341,23 +443,63 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     _syncRing();
   }
 
-  /// Our own context is usually above the Scrollable, so find one beneath us.
-  ScrollPosition? _firstScrollPosition() {
-    ScrollPosition? found;
+  /// Scrolls the list holding the current target by half a viewport in
+  /// [dir]. Returns false when there is no such list or it is already at that
+  /// end — i.e. the highlight really is on the last entry.
+  bool _scrollPage(TraversalDirection dir) {
+    final rect = _highlight;
+    if (rect == null) return false;
+    final hit = _scrollableContaining(rect);
+    if (hit == null) return false;
+    final (pos, viewport) = hit;
+    final step = viewport.height * 0.5 *
+        (dir == TraversalDirection.down ? 1 : -1);
+    final target = (pos.pixels + step).clamp(
+      pos.minScrollExtent,
+      pos.maxScrollExtent,
+    );
+    final applied = target - pos.pixels;
+    if (applied.abs() < 1) return false;
+    pos.jumpTo(target);
+    _anchor = _anchor?.shift(Offset(0, -applied));
+    _highlight = _highlight?.shift(Offset(0, -applied));
+    _syncRing();
+    return true;
+  }
+
+  /// Innermost scrollable whose viewport contains [target], with its rect.
+  (ScrollPosition, Rect)? _scrollableContaining(Rect target) {
+    ScrollPosition? bestPos;
+    Rect? bestRect;
+    double bestArea = double.infinity;
     void visit(Element el) {
-      if (found != null) return;
-      final w = el.widget;
-      if (w is Scrollable) {
+      if (el.widget is Scrollable) {
         final st = (el as StatefulElement).state;
         if (st is ScrollableState && st.position.hasPixels) {
-          found = st.position;
-          return;
+          final box = st.context.findRenderObject();
+          if (box is RenderBox && box.hasSize && box.attached) {
+            final r = box.localToGlobal(Offset.zero) & box.size;
+            if (r.contains(target.center)) {
+              final area = r.width * r.height;
+              if (area < bestArea) {
+                bestArea = area;
+                bestPos = st.position;
+                bestRect = r;
+              }
+            }
+          }
         }
       }
       el.visitChildren(visit);
     }
-    (context as Element).visitChildren(visit);
-    return found;
+
+    final root = WidgetsBinding.instance.rootElement;
+    if (root == null) return null;
+    visit(root);
+    final p = bestPos;
+    final r = bestRect;
+    if (p == null || r == null) return null;
+    return (p, r);
   }
 
   @override
@@ -372,9 +514,19 @@ class _TvFocusScopeState extends State<TvFocusScope> {
 }
 
 class _TvTarget {
-  const _TvTarget(this.id, this.rect, {this.adjustable = false});
+  const _TvTarget(
+    this.id,
+    this.rect, {
+    this.adjustable = false,
+    this.selected = false,
+  });
   final int id;
   final Rect rect;
+
+  /// Marked selected/checked in semantics — where the highlight should start
+  /// when a chooser opens, so the remote lands on the current value rather
+  /// than at the top of the list.
+  final bool selected;
 
   /// Sliders expose increase/decrease instead of a meaningful tap, so
   /// Left/Right adjust them rather than moving the highlight away.
