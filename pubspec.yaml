@@ -2,7 +2,12 @@ name: islamic_dawah_mushaf
 description: "المصحف الجامع - Al-Mushaf Al-Jame."
 publish_to: 'none'
 
-version: 1.4.0+27
+# The build number is shared by both stores, and iOS is far ahead: App Store
+# Connect already has build 100, so anything lower is rejected outright
+# ("bundle version must be higher than the previously uploaded version: 100").
+# Jumped past it here so one number keeps working for both; Play only requires
+# the code to increase, and 101 clears its last release (26) easily.
+version: 1.4.1+101
 
 environment:
   sdk: ^3.11.1
