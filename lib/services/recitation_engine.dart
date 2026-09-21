@@ -50,11 +50,12 @@ class RecognizedSegment {
 /// The UI/service layer only ever consumes this interface; which concrete
 /// engine sits behind it is an implementation detail:
 ///
-///  * [StubRecitationEngine] -- replays scripted segments on a timer. Used
-///    when the real engine can't run (model not installed / mic denied) and
-///    for demos/tests.
-///  * `SherpaRecitationEngine` -- the real thing: mic -> VAD -> on-device
-///    Whisper.
+///  * `ZipformerRecitationEngine` -- mic -> streaming on-device phoneme
+///    model.
+///  * `SherpaRecitationEngine` -- mic -> VAD -> on-device Whisper.
+///
+/// There is no scripted fallback: when neither can run (model not installed
+/// / mic denied) the session does not start.
 ///
 /// Besides the text stream, engines expose two bits of live state the UI
 /// uses for "the app hears you" feedback:
@@ -93,44 +94,4 @@ abstract class RecitationEngine {
   /// Stops producing segments and releases resources. The engine cannot be
   /// restarted after [stop]; create a new instance instead.
   Future<void> stop();
-}
-
-/// Replays a fixed list of segments at a steady interval, as if a very
-/// punctual reciter were speaking them.
-class StubRecitationEngine extends RecitationEngine {
-  StubRecitationEngine(
-    this._scriptedSegments, {
-    Duration interval = const Duration(milliseconds: 900),
-  }) : _interval = interval;
-
-  final List<String> _scriptedSegments;
-  final Duration _interval;
-  final _controller = StreamController<RecognizedSegment>.broadcast();
-  Timer? _timer;
-  int _next = 0;
-
-  @override
-  Stream<RecognizedSegment> get segments => _controller.stream;
-
-  @override
-  Future<void> start() async {
-    _timer = Timer.periodic(_interval, (timer) {
-      if (_next >= _scriptedSegments.length) {
-        timer.cancel();
-        return;
-      }
-      // A touch of fake liveliness so the demo exercises the same feedback
-      // UI as the real engine.
-      audioLevel.value = 0.3 + (_next % 3) * 0.25;
-      _controller.add(RecognizedSegment(_scriptedSegments[_next++]));
-    });
-  }
-
-  @override
-  Future<void> stop() async {
-    _timer?.cancel();
-    _timer = null;
-    audioLevel.value = 0;
-    await _controller.close();
-  }
 }

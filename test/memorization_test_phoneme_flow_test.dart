@@ -152,4 +152,61 @@ void main() {
     expect(result.failed, isEmpty);
     expect(service.status.value, MemorizationTestStatus.completed);
   });
+
+  test('restarting the page inside a drill restarts the drill', () async {
+    final target = TasmeeWeakPoint(
+      surah: 1,
+      ayah: 4,
+      word: 1,
+      page: 1,
+      expected: 'x',
+      kind: 'word',
+    );
+    final drill = TasmeeDrill(page: 1, surah: 1, ayah: 4, targets: [target]);
+    final first = _PhonemeEngine();
+    await service.start(
+      pageNumber: 1,
+      engineOverride: first,
+      stopPlayback: false,
+      startAyahIndex: 1,
+      drill: drill,
+    );
+    first.recite(ayah(1));
+    await settle();
+    expect(service.statuses[firstWordOf(1)], WordStatus.correct);
+
+    final engine = _PhonemeEngine();
+    expect(
+      await service.restart(engineOverride: engine, stopPlayback: false),
+      isTrue,
+    );
+    // Still the drill: same label, same shown ayah, same starting ayah.
+    expect(service.drillActive, isTrue);
+    expect(service.drillLabel.value, isNotNull);
+    expect(service.statuses[0], WordStatus.correct);
+    expect(service.statuses[firstWordOf(1)], WordStatus.pending);
+
+    engine.recite(ayah(1));
+    engine.recite(ayah(2));
+    engine.recite(ayah(3));
+    engine.recite([ayah(4).first]);
+    await settle();
+    expect(service.drillResult.value, isNotNull);
+  });
+
+  test('restarting an ordinary page starts it from its first word', () async {
+    final first = _PhonemeEngine();
+    await service.start(pageNumber: 1, engineOverride: first, stopPlayback: false);
+    first.recite(ayah(0));
+    await settle();
+    expect(service.statuses[0], WordStatus.correct);
+
+    final engine = _PhonemeEngine();
+    expect(
+      await service.restart(engineOverride: engine, stopPlayback: false),
+      isTrue,
+    );
+    expect(service.drillActive, isFalse);
+    expect(service.statuses.every((s) => s == WordStatus.pending), isTrue);
+  });
 }

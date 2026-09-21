@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../services/tasmee_report_store.dart';
 
+/// «تقوية الحفظ» (the strengthening drills) is hidden for now: a drill can
+/// open on a fully covered page with nothing to start from. Mistakes are
+/// still collected meanwhile; set this to true to show the entry again.
+const bool kTasmeeDrillsEnabled = false;
+
 /// The "أدوات الحفظ" sheet opened from the bottom action bar: one place for
 /// the memorization tools -- the recitation test (التسميع) and the page
 /// concealment lens (وضع الحفظ).
@@ -102,14 +107,15 @@ Future<void> showHifzToolsSheet(
                 active: hifzModeActive,
                 onTap: onHifzMode,
               ),
-              tile(
-                icon: Icons.fitness_center_rounded,
-                title: 'تقوية الحفظ',
-                subtitle: 'مراجعة مواضع أخطائك في التسميع: تبدأ من آية أو '
-                    'آيتين قبل الخطأ، وما قرأته صحيحًا يُحذف من القائمة.',
-                active: false,
-                onTap: onWeakPoints,
-              ),
+              if (kTasmeeDrillsEnabled)
+                tile(
+                  icon: Icons.fitness_center_rounded,
+                  title: 'تقوية الحفظ',
+                  subtitle: 'مراجعة مواضع أخطائك في التسميع: تبدأ من آية أو '
+                      'آيتين قبل الخطأ، وما قرأته صحيحًا يُحذف من القائمة.',
+                  active: false,
+                  onTap: onWeakPoints,
+                ),
               tile(
                 icon: Icons.fact_check_rounded,
                 title: 'تقارير التسميع',

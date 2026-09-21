@@ -3402,12 +3402,14 @@ class _QuranPagesState extends State<QuranPages>
       _isSearching = false;
     });
 
-    // The real mic check needs the on-device recognition model. If it isn't
-    // installed yet, offer to download it once (from R2) before starting, so
-    // the user gets the real thing instead of silently dropping to the demo.
+    // The mic check needs the on-device recognition model. If it isn't
+    // installed yet, offer to download it once (from R2); without it there
+    // is nothing to start.
     if (!await AsrModelManager.instance.refresh()) {
       if (!mounted) return;
       await _promptAndDownloadAsrModel();
+      if (!mounted) return;
+      if (!await AsrModelManager.instance.refresh()) return;
       if (!mounted) return;
     }
 
@@ -3424,19 +3426,13 @@ class _QuranPagesState extends State<QuranPages>
     });
     if (!started) _onTasmeeModeEnded();
 
-    // Be honest when we couldn't run the real mic check and fell back to the
-    // scripted demo, so the auto-revealing words aren't mistaken for a
-    // broken recitation check.
-    if (started && !service.usingRealEngine.value) {
+    // Say why the session did not start when the mic or the model is the
+    // reason (there is no demo mode to fall back to).
+    if (!started && service.stubReason.value != StubReason.none) {
       final message = switch (service.stubReason.value) {
         StubReason.micPermissionDenied =>
-          'إذن الميكروفون مرفوض. يعمل الآن وضع العرض التوضيحي. '
-              'فعّل الميكروفون من الإعدادات لاختبار تلاوتك.',
-        StubReason.modelNotInstalled =>
-          'لم يتم تثبيت نموذج التعرف على التلاوة بعد، لذا يعمل وضع العرض '
-              'التوضيحي (تظهر الكلمات تلقائيًا).',
-        StubReason.none =>
-          'وضع العرض التوضيحي: تظهر الكلمات تلقائيًا.',
+          'إذن الميكروفون مرفوض. فعّل الميكروفون من الإعدادات لبدء التسميع.',
+        _ => 'لم يتم تثبيت نموذج التعرف على التلاوة بعد. نزّله لبدء التسميع.',
       };
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
@@ -3446,8 +3442,7 @@ class _QuranPagesState extends State<QuranPages>
 
   /// Offers to download the on-device recognition model (~160 MB, once),
   /// showing a blocking progress dialog while it fetches. Returns quietly
-  /// whether or not it succeeds — the caller proceeds to `start()` either
-  /// way (real engine if the model is now present, demo otherwise).
+  /// whether or not it succeeds — the caller checks for the model again.
   Future<void> _promptAndDownloadAsrModel() async {
     final wantsDownload = await showDialog<bool>(
       context: context,
@@ -3455,8 +3450,8 @@ class _QuranPagesState extends State<QuranPages>
         title: const Text('تنزيل نموذج التلاوة'),
         content: const Text(
           'لتفعيل التحقق الحقيقي من تلاوتك عبر الميكروفون، يلزم تنزيل نموذج '
-          'التعرّف مرة واحدة (حوالي ٧٥ ميغابايت). بدونه يعمل وضع العرض '
-          'التوضيحي فقط. تنبيه: التقييم الآلي للتلاوة والتجويد قد يخطئ ولا '
+          'التعرّف مرة واحدة (حوالي ٧٥ ميغابايت). بدونه لا يعمل التسميع. '
+          'تنبيه: التقييم الآلي للتلاوة والتجويد قد يخطئ ولا '
           'يغني عن المعلّم المتقن. هل تريد التنزيل الآن؟',
         ),
         actions: [
@@ -3506,8 +3501,7 @@ class _QuranPagesState extends State<QuranPages>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'تعذّر تنزيل النموذج. تحقّق من الاتصال وحاول مرة أخرى. '
-            'سيعمل وضع العرض التوضيحي الآن.',
+            'تعذّر تنزيل النموذج. تحقّق من الاتصال وحاول مرة أخرى.',
           ),
           duration: Duration(seconds: 6),
         ),

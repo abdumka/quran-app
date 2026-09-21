@@ -49,11 +49,11 @@ enum MemorizationTestStatus {
   failed,
 }
 
-/// Why a session is running on the scripted stub instead of the real
-/// mic/ASR engine -- surfaced so the UI can tell the user, rather than
-/// silently faking a live recitation check.
+/// Why a session could not start on the real mic/ASR engine -- surfaced so
+/// the UI can tell the user what to do about it. (The name dates from a
+/// scripted demo engine that used to run in that case; it is gone.)
 enum StubReason {
-  /// Not a stub run -- the real mic engine is live.
+  /// The real mic engine is live (or nothing was attempted).
   none,
 
   /// The on-device recognition model isn't installed yet.
@@ -123,14 +123,14 @@ class MemorizationTestService {
   /// this (plus [status]) instead of diffing the statuses list itself.
   final ValueNotifier<int> revision = ValueNotifier(0);
 
-  /// Whether the last session ran on the real mic/ASR engine (true) or fell
-  /// back to the scripted stub (false) because the model wasn't downloaded
-  /// or mic permission wasn't granted. Lets the UI explain a stub run.
+  /// Whether the session runs on the real mic/ASR engine. False when idle,
+  /// when a test injected its own engine, or when the engine could not be
+  /// built (see [stubReason]).
   final ValueNotifier<bool> usingRealEngine = ValueNotifier(false);
 
-  /// When [usingRealEngine] is false, why -- so the UI can show the right
-  /// message ("download the model" vs "grant mic access") instead of a
-  /// silent fake demo.
+  /// Why the last `start()` could not build the real engine -- so the UI
+  /// can show the right message ("download the model" vs "grant mic
+  /// access").
   final ValueNotifier<StubReason> stubReason =
       ValueNotifier(StubReason.none);
 
@@ -186,6 +186,11 @@ class MemorizationTestService {
   /// The strengthening drill under way (null in an ordinary session), its
   /// "2 / 5" label for the bar, and its outcome once it ends.
   TasmeeDrill? _drill;
+
+  /// Where the drill under way began (a restart goes back there; the page
+  /// can be the one before [TasmeeDrill.page]).
+  int _drillStartPage = 0;
+  int? _drillStartAyahIndex;
   final Set<String> _drillMissed = {};
   final ValueNotifier<String?> drillLabel = ValueNotifier<String?>(null);
   final ValueNotifier<TasmeeDrillResult?> drillResult =
@@ -510,9 +515,9 @@ class MemorizationTestService {
       final aligner = QuranWordAligner(expectedWords)
         ..onWordResolved = (_) => revision.value++;
 
-      // Pick the engine: an injected one (tests) wins; otherwise use the
-      // real mic/ASR engine when it's actually usable, else fall back to a
-      // scripted stub so the feature still demonstrates end-to-end.
+      // Pick the engine: an injected one (tests) wins; otherwise the real
+      // mic/ASR engine. When that can't run (mic denied, model missing) the
+      // session does not start; [stubReason] tells the UI why.
       final RecitationEngine engine;
       if (engineOverride != null) {
         engine = engineOverride;
@@ -524,18 +529,15 @@ class MemorizationTestService {
           await real?.stop();
           return false;
         }
-        if (real != null) {
-          engine = real;
-          usingRealEngine.value = true;
-          stubReason.value = StubReason.none;
-        } else {
-          // Stub replays the passage one WORD at a time so the reveal
-          // visibly advances, matching how the real engine resolves within
-          // an utterance. stubReason was set by _tryBuildRealEngine so the
-          // UI can explain why it's a demo.
-          engine = StubRecitationEngine(expectedWords);
+        if (real == null) {
+          // stubReason was set by _tryBuildRealEngine.
           usingRealEngine.value = false;
+          status.value = MemorizationTestStatus.failed;
+          return false;
         }
+        engine = real;
+        usingRealEngine.value = true;
+        stubReason.value = StubReason.none;
       }
 
       PhonemeTracker? tracker;
@@ -581,6 +583,8 @@ class MemorizationTestService {
       _wordsPastHold = 0;
       heldWord.value = -1;
       _drill = drill;
+      _drillStartPage = pageNumber;
+      _drillStartAyahIndex = startAyahIndex;
       _drillMissed.clear();
       drillLabel.value = drill == null
           ? null
@@ -648,7 +652,7 @@ class MemorizationTestService {
           'platform': Platform.operatingSystem,
           'os': Platform.operatingSystemVersion,
           'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1.int8' : 'whisper-base-ar-quran',
-          'engine': engine.emitsPhonemes ? 'zipformer' : usingRealEngine.value ? 'sherpa' : 'stub',
+          'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
           'stubReason': stubReason.value.name,
         };
         _recorder = await TasmeeSessionRecorder.begin(
@@ -660,11 +664,7 @@ class MemorizationTestService {
             'platform': Platform.operatingSystem,
             'os': Platform.operatingSystemVersion,
             'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1.int8' : 'whisper-base-ar-quran',
-            'engine': engine.emitsPhonemes
-                ? 'zipformer'
-                : usingRealEngine.value
-                    ? 'sherpa'
-                    : 'stub',
+            'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
             'stubReason': stubReason.value.name,
             'alertMode': (await TasmeeAlert.mode()).name,
             'ayahs': [
@@ -716,12 +716,37 @@ class MemorizationTestService {
     }
   }
 
-  /// Starts the same page over from the first word.
-  Future<bool> restart() async {
+  /// Starts the same page over from the first word. A drill starts over as
+  /// the same drill, from the ayah it began on. ([engineOverride] and
+  /// [stopPlayback] are for tests, as in [start].)
+  Future<bool> restart({
+    RecitationEngine? engineOverride,
+    bool stopPlayback = true,
+  }) async {
     final page = _activePage;
     if (page == null) return false;
     _recorder?.log('control', {'action': 'restart'});
-    return start(pageNumber: page);
+    final drill = _drill;
+    if (drill != null) {
+      final startPage = _drillStartPage;
+      if (startPage != page) {
+        // The drill had flowed over a page turn: the view goes back too.
+        pageAdvanced.value = 0;
+        pageAdvanced.value = startPage;
+      }
+      return start(
+        pageNumber: startPage,
+        engineOverride: engineOverride,
+        stopPlayback: stopPlayback,
+        startAyahIndex: _drillStartAyahIndex,
+        drill: drill,
+      );
+    }
+    return start(
+      pageNumber: page,
+      engineOverride: engineOverride,
+      stopPlayback: stopPlayback,
+    );
   }
 
   /// Word boxes are only trusted for an ayah whose generated box count
@@ -774,8 +799,8 @@ class MemorizationTestService {
     return true;
   }
 
-  /// Builds the real mic/ASR engine, or returns null (caller falls back to
-  /// the stub) when mic permission is denied or the model files aren't
+  /// Builds the real mic/ASR engine, or returns null (the session then does
+  /// not start) when mic permission is denied or the model files aren't
   /// present, setting [stubReason] to say which.
   ///
   /// Permission is requested FIRST -- before the model check -- so tapping
@@ -785,7 +810,7 @@ class MemorizationTestService {
     final permission = await Permission.microphone.request();
     if (!permission.isGranted) {
       debugPrint('MemorizationTestService: mic permission $permission; '
-          'using scripted stub.');
+          'not starting.');
       stubReason.value = StubReason.micPermissionDenied;
       return null;
     }
@@ -793,7 +818,7 @@ class MemorizationTestService {
     final manager = AsrModelManager.instance;
     if (!await manager.refresh()) {
       debugPrint('MemorizationTestService: ASR model not installed; '
-          'using scripted stub.');
+          'not starting.');
       stubReason.value = StubReason.modelNotInstalled;
       return null;
     }
