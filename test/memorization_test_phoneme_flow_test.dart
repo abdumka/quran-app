@@ -45,11 +45,25 @@ class _PhonemeEngine extends RecitationEngine {
     }
   }
 
+  /// The microphone hearing voice (a held madd) or going quiet.
+  Timer? _voice;
+  void voice(bool on) {
+    _voice?.cancel();
+    _voice = null;
+    audioLevel.value = 0;
+    if (!on) return;
+    var flip = false;
+    _voice = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      audioLevel.value = (flip = !flip) ? 0.5 : 0.6;
+    });
+  }
+
   @override
   Future<void> start() async {}
 
   @override
   Future<void> stop() async {
+    _voice?.cancel();
     await _controller.close();
   }
 }
@@ -159,6 +173,43 @@ void main() {
     expect(service.statuses[wrong], WordStatus.mistake);
     expect(service.statuses[wrong + 1], WordStatus.pending,
         reason: 'read correctly, but it comes after the wrong word');
+  });
+
+  test('half a word with the voice still sounding is not judged yet', () async {
+    // A long madd: the recognizer sends the opening of the word, then
+    // nothing for over a second while the reciter holds the sound.
+    final word = firstWordOf(1) + 1;
+    final whole = ayah(1)[1];
+    final opening = String.fromCharCodes(whole.runes.take(3));
+    final rest = String.fromCharCodes(whole.runes.skip(3));
+
+    final engine = _PhonemeEngine();
+    await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+    engine.recite(ayah(0));
+    engine.recite([ayah(1).first, opening]);
+    engine.voice(true);
+    await settle();
+    expect(service.heldWord.value, -1, reason: 'the word is still being said');
+    expect(service.statuses[word], WordStatus.pending);
+
+    engine.recite([rest]);
+    engine.voice(false);
+    await settle();
+    expect(service.heldWord.value, -1);
+    expect(service.statuses[word], WordStatus.correct);
+  });
+
+  test('half a word followed by silence is a mistake, as before', () async {
+    final word = firstWordOf(1) + 1;
+    final opening = String.fromCharCodes(ayah(1)[1].runes.take(3));
+
+    final engine = _PhonemeEngine();
+    await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+    engine.recite(ayah(0));
+    engine.recite([ayah(1).first, opening]);
+    await settle();
+    expect(service.heldWord.value, word);
+    expect(service.statuses[word], WordStatus.mistake);
   });
 
   test('repeat ayah: the ayah is as if never read', () async {

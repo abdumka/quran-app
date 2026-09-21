@@ -1228,6 +1228,8 @@ class VerdictTracer {
         state = heardRatio >= 1.4 && distance > 0.3
             ? VerdictState.wrong
             : VerdictState.unsure;
+      } else if (heardCutShort(heardSlice, exp)) {
+        state = VerdictState.unsure;
       } else {
         state = VerdictState.wrong;
       }
@@ -1245,6 +1247,31 @@ class VerdictTracer {
     }
     return out;
   }
+}
+
+/// Whether [heard] is a short word's opening heard exactly, with only its
+/// held ending missing: the nasal of an ikhfa or an idgham (كُن فَيَكُونُ heard
+/// كُ, مِن وَّرَقَةٍ heard مِ) or a long vowel (مَا heard مَ, فِے heard فِ). The
+/// model hands that ending to the next word, and in a word of two letters
+/// its loss alone is a distance of 0.6: phone logs show correct readings
+/// stopped there for up to a minute. Such a word is `unsure`, not `wrong`.
+/// A missing letter (قَا for قَالَ) or a wrong sound (كَ for كُن) is no match.
+bool heardCutShort(String heard, String expected) {
+  final h = heard.runes.toList();
+  final e = expected.runes.toList();
+  if (h.length < 2 || h.length > 3 || e.length <= h.length) return false;
+  for (var i = 0; i < h.length; i++) {
+    if (h[i] != e[i]) return false;
+  }
+  final first = e[h.length];
+  for (var i = h.length; i < e.length; i++) {
+    if (e[i] != first) return false;
+  }
+  final tail = e.length - h.length;
+  final c = String.fromCharCode(first);
+  if ('اۥۦں۾'.contains(c)) return true;
+  // A doubled consonant with no vowel only ends a word through idgham.
+  return tail >= 2 && 'ويمنلر'.contains(c);
 }
 
 /// Every distinct phoneme string of the mushaf's words (context and pausal

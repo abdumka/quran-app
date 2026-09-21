@@ -178,6 +178,12 @@ class MemorizationTestService {
   DateTime _lastPhonemeAt = DateTime.now();
   bool _settledApplied = false;
 
+  /// When the microphone last heard voice (level above the listening
+  /// threshold), and the half-said word a pause verdict is waiting on (for
+  /// the log; -1 when none). See [_halfSaidWhileSounding].
+  DateTime _lastVoiceAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _settleWaitWord = -1;
+
   /// Fires with the new 1-based page number when a finished page flows
   /// straight into the next one (the engine keeps listening; the page view
   /// only has to flip).
@@ -612,6 +618,7 @@ class MemorizationTestService {
       _levelListener = () {
         audioLevel.value = engine.audioLevel.value;
         if (engine.audioLevel.value > 0.12) {
+          _lastVoiceAt = DateTime.now();
           _lastVoiceOrSegment = DateTime.now();
           _silenceWarned = false;
         }
@@ -1070,6 +1077,8 @@ class MemorizationTestService {
     final verdicts = tracer.verdicts(settled: settled);
     final updates = <int, WordStatus>{};
     final wrongVerdicts = <WordVerdict>[];
+    // Half-said words whose pause verdict waits for the voice to stop.
+    final waiting = <int>{};
     WordVerdict? repaired;
     for (final v in verdicts) {
       switch (v.state) {
@@ -1103,6 +1112,13 @@ class MemorizationTestService {
           // first word): wait. A really wrong first word is flagged as soon
           // as the second one is heard.
           if (!_startResolved) break;
+          if (settled &&
+              v.reason.isEmpty &&
+              v.word >= cursorWord - 1 &&
+              _halfSaidWhileSounding(v)) {
+            waiting.add(v.word);
+            break;
+          }
           if (v.reason == 'hafs' || settled || v.word < cursorWord - 1) {
             updates[v.word] = WordStatus.mistake;
             wrongVerdicts.add(v);
@@ -1111,9 +1127,21 @@ class MemorizationTestService {
           break;
       }
     }
+    if (waiting.isNotEmpty) {
+      // Look again at the next tick: the voice stops, more of the word
+      // arrives, or the wait runs out.
+      _settledApplied = false;
+      if (_settleWaitWord != waiting.first) {
+        _settleWaitWord = waiting.first;
+        _recorder?.log('settleWait', {'word': _settleWaitWord});
+      }
+    } else {
+      _settleWaitWord = -1;
+    }
     final behind = settled ? cursorWord : cursorWord - 2;
     for (var w = 0; w < behind && w < aligner.length; w++) {
       if (aligner.statuses[w] == WordStatus.pending &&
+          !waiting.contains(w) &&
           !updates.containsKey(w)) {
         updates[w] = WordStatus.skipped;
       }
@@ -1370,6 +1398,30 @@ class MemorizationTestService {
     }
     _explain(outcome, heardWords.join(' '), ayahBefore, isFinal: true);
     _finishIfComplete();
+  }
+
+  /// Whether [v] is the word being said right now, heard exactly right as far
+  /// as it goes, with the voice still sounding. A long madd holds one sound
+  /// for well over a second while the recognizer sends nothing (it sends the
+  /// madd once it ends): «أَتُحَٰٓجُّونِّے» reached the phone as ءَتُحَ, then 1.4 s
+  /// of nothing, and the "reciter has paused" verdict buzzed at half a word.
+  /// That verdict waits while the microphone still hears voice; a reciter
+  /// who stops mid-word goes quiet and is judged as before, and a noisy room
+  /// delays it by a few seconds at most.
+  bool _halfSaidWhileSounding(WordVerdict v) {
+    final reference = _reference;
+    if (reference == null || v.word < 0 || v.word >= reference.words.length) {
+      return false;
+    }
+    final expected = reference.words[v.word].phon;
+    if (v.heard.isEmpty ||
+        v.heard.length >= expected.length ||
+        !expected.startsWith(v.heard)) {
+      return false;
+    }
+    final now = DateTime.now();
+    return now.difference(_lastVoiceAt).inMilliseconds < 300 &&
+        now.difference(_lastPhonemeAt).inMilliseconds < 4000;
   }
 
   /// How many words right after [word] the pending verdicts call skipped

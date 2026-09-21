@@ -120,4 +120,37 @@ void main() {
     expect(v[1]!.state, isNot(VerdictState.ok));
     expect(v[1]!.state, isNot(VerdictState.unsure), reason: 'd=${v[1]!.distance} heard=${v[1]!.heard}');
   });
+
+  test('heardCutShort: only a held ending missing from a short word', () {
+    expect(heardCutShort('كُ', 'كُںںں'), isTrue); // ikhfa nasal
+    expect(heardCutShort('مِ', 'مِوو'), isTrue); // idgham into waw
+    expect(heardCutShort('مَ', 'مَاا'), isTrue); // long vowel
+    expect(heardCutShort('فِ', 'فِۦۦ'), isTrue);
+    expect(heardCutShort('كَ', 'كُںںں'), isFalse, reason: 'a wrong vowel');
+    expect(heardCutShort('قَا', 'قَاالَ'), isFalse, reason: 'a letter is missing');
+    expect(heardCutShort('مَ', 'مَن'), isFalse, reason: 'a plain final noon');
+    expect(heardCutShort('ك', 'كُںںں'), isFalse, reason: 'too little heard');
+    expect(heardCutShort('يَعلَمُ', 'يَعلَمُۥۥ'), isFalse, reason: 'not a short word');
+    expect(heardCutShort('كُںںں', 'كُںںں'), isFalse);
+  });
+
+  test('kun heard without its ikhfa nasal is unsure, not wrong', () {
+    // يَقُولُ كُن فَيَكُونُ, as a phone heard it (2026-09-21, p136).
+    PhonemeReference reference() => PhonemeReference(const [
+          PhonemeWord(phon: 'يَقُۥۥلُ', text: 'يَقُولُ', ayah: 0, wordInAyah: 0, ayahWords: 4),
+          PhonemeWord(phon: 'كُںںں', text: 'كُن', ayah: 0, wordInAyah: 1, ayahWords: 4),
+          PhonemeWord(phon: 'فَيَكُۥۥنُ', text: 'فَيَكُونُ', ayah: 0, wordInAyah: 2, ayahWords: 4),
+          PhonemeWord(phon: 'قَولُهُ', text: 'قَوْلُهُ', ayah: 0, wordInAyah: 3, ayahWords: 4),
+        ], PhonemeCostTable());
+    var tracker = PhonemeTracker(reference());
+    tracker.feed(say('يَقُۥۥلُكُفَيَكُۥۥنُقَولُهُ'));
+    var v = verdictsOf(VerdictTracer(tracker));
+    expect(v[1]!.state, VerdictState.unsure, reason: 'd=${v[1]!.distance} heard=${v[1]!.heard}');
+
+    // A different vowel is still a mistake.
+    tracker = PhonemeTracker(reference());
+    tracker.feed(say('يَقُۥۥلُكَفَيَكُۥۥنُقَولُهُ'));
+    v = verdictsOf(VerdictTracer(tracker));
+    expect(v[1]!.state, VerdictState.wrong, reason: 'd=${v[1]!.distance} heard=${v[1]!.heard}');
+  });
 }
