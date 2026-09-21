@@ -20,6 +20,7 @@ import 'widgets/tv/tv_focus_scope.dart';
 import 'widgets/tv/tv_remote_guide.dart';
 import 'widgets/tv/tv_settings_page.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
+import 'widgets/quran/playing_ayah_highlight.dart';
 import 'services/memorization_test_service.dart';
 import 'services/asr_model_manager.dart';
 import 'continuous_quran_view.dart';
@@ -685,6 +686,7 @@ class _QuranPagesState extends State<QuranPages>
     _loadReadingPreferences();
     _loadLastPage();
     _loadRangeRepeatPrefs();
+    PlayingAyahHighlightSetting.load();
     _loadBookmark();
     _loadBookmarkGuidePreference();
     _checkForUpdate();
@@ -4325,6 +4327,14 @@ class _QuranPagesState extends State<QuranPages>
                               MemorizationTestOverlay(
                                 pageNumber: pageIndex + 1,
                                 marginView: _usesMarginImage(pageIndex),
+                              )
+                            else
+                              PlayingAyahHighlight(
+                                pageNumber: pageIndex + 1,
+                                marginView: _usesMarginImage(pageIndex),
+                                dark:
+                                    Theme.of(context).brightness ==
+                                    Brightness.dark,
                               ),
                           ],
                         ),
@@ -4430,6 +4440,13 @@ class _QuranPagesState extends State<QuranPages>
                           MemorizationTestOverlay(
                             pageNumber: pageIndex + 1,
                             marginView: _usesMarginImage(pageIndex),
+                          )
+                        else
+                          PlayingAyahHighlight(
+                            pageNumber: pageIndex + 1,
+                            marginView: _usesMarginImage(pageIndex),
+                            dark:
+                                Theme.of(context).brightness == Brightness.dark,
                           ),
                       ],
                     ),
@@ -7096,6 +7113,46 @@ class _QuranPagesState extends State<QuranPages>
                         const SizedBox(height: 20),
                         Divider(color: borderColor, height: 1),
                         const SizedBox(height: 4),
+
+                        // ── تظليل الآية المتلوّة (highlight the ayah being recited) ──
+                        // A tappable row, not a Switch: a Switch swallows the
+                        // TV remote's arrow keys.
+                        ValueListenableBuilder<bool>(
+                          valueListenable: PlayingAyahHighlightSetting.enabled,
+                          builder: (context, on, _) => InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => PlayingAyahHighlightSetting.set(!on),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.highlight_rounded,
+                                    color: titleColor,
+                                    size: 22,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'تظليل الآية المتلوّة',
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Icon(
+                                    on
+                                        ? Icons.check_circle_rounded
+                                        : Icons.radio_button_unchecked_rounded,
+                                    color: on ? titleColor : subTextColor,
+                                    size: 22,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
 
                         // ── الإرشادات (open the button guide) ──
                         InkWell(

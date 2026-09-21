@@ -136,10 +136,19 @@ def _analyse_image(bgr, templates=None):
     cores = [(aa, bb) for aa, bb in merged if (bb - aa) >= 8]
     c = [(aa + bb) / 2 for aa, bb in cores]
     pitch = float(np.median(np.diff(c))) if len(c) > 1 else 109.0
+    # A core is the dense baseline row of one line (~20 px). A surah's last
+    # line often fuses with the header box under it into one tall core whose
+    # centre lies inside the header; measured from that centre, the boundary
+    # with the line above lands half a line too low and the last line is cut
+    # out of its own band. Towards the line above, a tall core counts from
+    # its first baseline (its top edge) instead.
+    heights = [bb - aa for aa, bb in cores if bb - aa < 60]
+    base_h = float(np.median(heights)) if heights else 22.0
+    up = [aa + base_h / 2 if (bb - aa) > 0.9 * pitch else (aa + bb) / 2 for aa, bb in cores]
     lines = []
     for i, (aa, bb) in enumerate(cores):
-        top = (c[i - 1] + c[i]) / 2 if i else c[i] - pitch / 2
-        bot = (c[i] + c[i + 1]) / 2 if i < len(cores) - 1 else c[i] + pitch / 2
+        top = (c[i - 1] + up[i]) / 2 if i else up[i] - pitch / 2
+        bot = (c[i] + up[i + 1]) / 2 if i < len(cores) - 1 else c[i] + pitch / 2
         lines.append((int(max(0, min(top, aa))), int(min(h, max(bot, bb))), aa, bb))
 
     # classify bands

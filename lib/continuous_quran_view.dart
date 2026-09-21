@@ -9,6 +9,7 @@ import 'services/debug_log_service.dart';
 import 'utils/responsive_helper.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
+import 'widgets/quran/playing_ayah_highlight.dart';
 
 class ContinuousQuranView extends StatefulWidget {
   const ContinuousQuranView({
@@ -671,7 +672,14 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                                     },
                                   ),
                                   if (widget.memorizationTestPageIndex >= 0)
-                                    MemorizationTestOverlay(pageNumber: index + 1),
+                                    MemorizationTestOverlay(pageNumber: index + 1)
+                                  else
+                                    PlayingAyahHighlight(
+                                      pageNumber: index + 1,
+                                      dark:
+                                          Theme.of(context).brightness ==
+                                          Brightness.dark,
+                                    ),
                                 ],
                               ),
                             ),

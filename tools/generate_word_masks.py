@@ -150,6 +150,10 @@ class Page:
             x, y, w, h, a = self.stats[c]
             if w > 0.45 * W or h > 0.09 * H or (w > 0.3 * W and h > 0.05 * H):
                 self.excluded[c] = True
+        # text ink only: a surah header's border rule inside a line's rect is
+        # the densest row there and would be taken for the line's baseline
+        self.text_ink = self.ink.copy()
+        self.text_ink[self.excluded[self.labels]] = 0
         for ay in self.regions["ayahs"]:
             m = ay.get("marker")
             if not m:
@@ -165,7 +169,7 @@ class Page:
     # -- 2. lines and stroke groups -----------------------------------------
     def core_band(self, rect):
         x0, x1, y0, y1 = rect
-        prof = self.ink[y0:y1, x0:x1].sum(axis=1).astype(float)
+        prof = self.text_ink[y0:y1, x0:x1].sum(axis=1).astype(float)
         if prof.max() <= 0:
             return y0 + (y1 - y0) // 3, y1 - (y1 - y0) // 3
         peak = int(np.argmax(prof))
@@ -344,7 +348,11 @@ class Page:
                 continue
             k = strokes[k0][0]
             word_runs.setdefault(k, []).append((m0, m1))
-            group_words.setdefault(segs[m0]["group"], set()).add(k)
+            # every group the run touches, not only its first: a word that
+            # starts in one group and ends inside the next one must get its
+            # piece of that next group, or the piece is left to nobody
+            for m in range(m0, m1):
+                group_words.setdefault(segs[m]["group"], set()).add(k)
         wid_of = {}
         for k, wtext in enumerate(words):
             rs = word_runs.get(k)
@@ -530,9 +538,16 @@ class Page:
                 d_dn = (edge_dn - bot) if edge_dn is not None else (below["core"][0] - bot)
                 # only kasra- or dot-sized ink can hang under a word; anything
                 # bigger between two lines (pause marks, small alef stacks) is
-                # an above-mark of the line below
-                if exp_below == 0 or bh > 7 or bw > 14:
+                # an above-mark of the line below. A kasra of this font is
+                # about 10x9 px and a «صـ» pause sign over 20 px tall: the old
+                # limit of 7x14 sent most kasras to the word of the line below.
+                if exp_below == 0 or bh > 14 or bw > 20:
                     chosen = below
+                elif bh > 7 or bw > 14:
+                    # kasra-sized, which is also fatha-sized: it hangs under the
+                    # word above only when clearly nearer to it (a fatha over a
+                    # tall lam-alef of the line below floats mid-gap)
+                    chosen = above if (d_up <= max(4, 0.16 * self.pitch) and d_up <= 0.5 * d_dn) else below
                 elif d_up <= max(4, 0.16 * self.pitch) and d_up <= d_dn * 1.5:
                     chosen = above
                 elif d_dn <= d_up:
@@ -566,7 +581,9 @@ class Page:
             if self.owner[c] != -1:
                 continue
             bx, by, bw, bh, a = self.stats[c]
-            if a < 4 or bw > 0.6 * self.pitch or bh > 0.9 * self.pitch:
+            # (no width limit: a stretched stroke the alignment skipped,
+            # «بِالْقِسْـطِ», is wider than most words; furniture is excluded)
+            if a < 4 or bh > 0.9 * self.pitch:
                 continue
             cx, cy = self.cents[c]
             best, bd = None, 1e9
@@ -587,6 +604,82 @@ class Page:
             if wid is not None:
                 self.words[wid]["comps"].append(c)
                 self.owner[c] = wid
+
+    def cover_cut_strokes(self):
+        """A stroke cut between words is covered by the words' clipped rects.
+        Whatever part of it no clip reached goes to the nearest word of its
+        line, so a cut can never leave a piece of a letter showing."""
+        for c in range(1, self.ncomp):
+            if self.owner[c] != -3:
+                continue
+            bx, by, bw, bh, _a = (int(v) for v in self.stats[c])
+            covered = np.zeros(bw, bool)
+            for w in self.words:
+                for r in w["clips"]:
+                    if r[1] <= by and r[3] >= by + bh:
+                        covered[max(0, r[0] - bx):max(0, r[2] - bx)] = True
+            cols = (self.labels[by:by + bh, bx:bx + bw] == c).any(axis=0)
+            x = 0
+            while x < bw:
+                if covered[x] or not cols[x]:
+                    x += 1
+                    continue
+                x1 = x
+                while x1 < bw and not covered[x1]:
+                    x1 += 1
+                cy = by + bh / 2.0
+                line = min((l for l in self.lines if l["words"]), default=None,
+                           key=lambda l: abs((l["core"][0] + l["core"][1]) / 2.0 - cy)
+                           + (0 if l["px"][0] - 30 <= bx + x < l["px"][1] + 30 else 1e6))
+                wid = self.word_at(line, bx + (x + x1) / 2.0, any_distance=True) if line else None
+                if wid is not None:
+                    self.words[wid]["clips"].append([bx + x, by, bx + x1, by + bh])
+                x = x1
+
+    def cover_uncovered_ink(self, ayahs_out, by_ayah):
+        """Last guarantee: text ink inside an ayah's rects that no word rect
+        covers (a letter touching a header's border rule is one component with
+        the frame and was excluded with it; a stroke no step claimed) is
+        boxed and given to the nearest word of that ayah. Ayah markers and
+        long horizontal rules are not text."""
+        H, W = self.H, self.W
+        cover = np.zeros((H, W), bool)
+        for a in ayahs_out:
+            for wd in a["words"]:
+                for x, y, w, h in wd:
+                    cover[y:y + h, x:x + w] = True
+        notext = cv2.morphologyEx(self.ink, cv2.MORPH_OPEN, np.ones((1, 150), np.uint8)) > 0
+        notext = cv2.dilate(notext.astype(np.uint8), np.ones((5, 1), np.uint8)) > 0
+        for ay in self.regions["ayahs"]:
+            m = ay.get("marker")
+            if m:
+                notext[max(0, int(m["y"] * H) - 3):int((m["y"] + m["height"]) * H) + 4,
+                       max(0, int(m["x"] * W) - 3):int((m["x"] + m["width"]) * W) + 4] = True
+        ink = self.ink > 0
+        for ai, ra in enumerate(self.regions["ayahs"]):
+            words = ayahs_out[ai]["words"]
+            ws = sorted(by_ayah.get(ai, []), key=lambda w: w["k"])
+            if not words or len(ws) != len(words):
+                continue
+            lines = [l for l in self.lines if l["ayah"] == ai]
+            for line in lines:
+                x0, x1, y0, y1 = line["px"]
+                sub = (ink & ~cover & ~notext)[y0:y1, x0:x1].astype(np.uint8)
+                n, lab, st, cen = cv2.connectedComponentsWithStats(sub, 8)
+                for i in range(1, n):
+                    bx, by, bw, bh, area = (int(v) for v in st[i])
+                    if area < 6:
+                        continue
+                    cx = x0 + bx + bw / 2.0
+                    on_line = [w for w in ws if self.lines[w["line"]] is line and w.get("span")]
+                    pool = on_line or [w for w in ws if w.get("span")]
+                    if not pool:
+                        continue
+                    w = min(pool, key=lambda w: 0 if w["span"][0] <= cx < w["span"][1]
+                            else min(abs(cx - w["span"][0]), abs(cx - w["span"][1])))
+                    r = [max(0, x0 + bx - PAD), max(0, y0 + by - PAD), bw + 2 * PAD, bh + 2 * PAD]
+                    words[ws.index(w)].append(r)
+                    cover[r[1]:r[1] + r[3], r[0]:r[0] + r[2]] = True
 
     def word_at(self, line, cx, any_distance=False):
         best, bd = None, 1e9
@@ -653,6 +746,7 @@ class Page:
             self.split_ayah(ai, tmap.get((ra["surah"], ra["ayah"]), []))
         self.assign_marks()
         self.sweep_leftovers()
+        self.cover_cut_strokes()
         ayahs_out = []
         by_ayah = {}
         for w in self.words:
@@ -664,6 +758,7 @@ class Page:
                 ayahs_out.append({"surah": ra["surah"], "ayah": ra["ayah"], "words": [self.word_rects(w) for w in ws]})
             else:
                 ayahs_out.append({"surah": ra["surah"], "ayah": ra["ayah"], "words": []})
+        self.cover_uncovered_ink(ayahs_out, by_ayah)
         hw = None
         if self.hw:
             hw = [round(self.hw["x"] / self.hw["W"], 5), round(self.hw["y"] / self.hw["H"], 5), round(self.hw["w"] / self.hw["W"], 5), round(self.hw["h"] / self.hw["H"], 5)]
