@@ -1,0 +1,6 @@
+{
+  "R2_UPLOAD_ENDPOINT": "https://<account-id>.r2.cloudflarestorage.com",
+  "R2_UPLOAD_BUCKET": "tasmee-sessions",
+  "R2_UPLOAD_KEY_ID": "<access key id of an Object-Write-only token scoped to that bucket>",
+  "R2_UPLOAD_SECRET": "<its secret access key>"
+}

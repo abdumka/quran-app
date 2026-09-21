@@ -128,3 +128,10 @@ tools/*_surahs/
 tools/_*_hashes.json
 tools/mushaf_*.html
 scratch/listen_*/
+
+# local staging area for ASR model uploads to R2 (154 MB, never commit)
+asr_model_upload/
+
+# R2 upload credentials for Tasmee session logs (build with --dart-define-from-file=tools/r2_upload.json)
+tools/r2_upload.json
+tool/tasmee_r2.txt

@@ -117,7 +117,7 @@ class TopOverlayBar extends StatelessWidget {
                   ),
                 ),
               ),
-              // Full Screen + Hifz Mode + Hide Bar Toggles + Settings Icon on Right
+              // Full Screen + Hide Bar Toggles + Settings Icon on Right
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

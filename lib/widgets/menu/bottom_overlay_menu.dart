@@ -22,6 +22,7 @@ class BottomOverlayMenu extends StatefulWidget {
   final VoidCallback? onOpenTafsir;
   final VoidCallback? onPlayTapped;
   final VoidCallback? onSearchTapped;
+  final VoidCallback? onOpenHifzTools;
   final VoidCallback onDismiss;
 
   /// Index of the item the TV remote is currently on, or null off-TV.
@@ -58,6 +59,7 @@ class BottomOverlayMenu extends StatefulWidget {
     this.onOpenTafsir,
     this.onPlayTapped,
     this.onSearchTapped,
+    this.onOpenHifzTools,
     required this.onDismiss,
     this.tvFocusedIndex,
     this.showSettingsItem = false,
@@ -103,6 +105,9 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
       case 'الإعدادات':
         widget.onOpenSettings?.call();
         break;
+      case 'أدوات الحفظ':
+        widget.onOpenHifzTools?.call();
+        break;
     }
     
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -130,13 +135,32 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
         return Icons.menu_book_rounded;
       case 'الإعدادات':
         return Icons.settings_rounded;
+      case 'أدوات الحفظ':
+        // Shown only until the artwork below loads (or if it is missing).
+        return Icons.psychology_rounded;
     }
     return null; // التفسير uses an image asset instead.
   }
 
+  static String? _imageFor(String label) {
+    switch (label) {
+      case 'التفسير':
+        return 'assets/images/tafsir_icon.png';
+      case 'أدوات الحفظ':
+        return 'assets/images/hifz_tools_icon.png';
+    }
+    return null;
+  }
+
+  /// Android TV ([showSettingsItem]): main's bar exactly. Everywhere else
+  /// the memorization tools (التسميع، تقوية الحفظ، وضع الحفظ) come first.
   List<String> get _itemLabels => widget.showSettingsItem
       ? BottomOverlayMenu.tvItemLabels
-      : BottomOverlayMenu.tvItemLabels.sublist(0, 5);
+      : ['أدوات الحفظ', ...BottomOverlayMenu.tvItemLabels.sublist(0, 5)];
+
+  /// Six items share the width off-TV; the TV bar keeps its own spacing.
+  Widget _wrapForBar(Widget item) =>
+      widget.showSettingsItem ? item : Expanded(child: item);
 
   @override
   Widget build(BuildContext context) {
@@ -174,17 +198,22 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
+                    // Phones and tablets: the memorization tools lead the bar (far
+                    // left for an RTL reader, right after البحث) and the items share
+                    // the width. Android TV keeps its own bar untouched: no
+                    // microphone or touch there, and the remote's focus index
+                    // counts on [BottomOverlayMenu.tvItemLabels].
                     for (int i = 0; i < _itemLabels.length; i++)
-                      _NavItem(
-                        icon: _iconFor(_itemLabels[i]),
-                        imagePath: _itemLabels[i] == 'التفسير'
-                            ? 'assets/images/tafsir_icon.png'
-                            : null,
-                        label: _itemLabels[i],
-                        isSelected: _selectedItem == _itemLabels[i],
-                        isTvFocused: widget.tvFocusedIndex == i,
-                        compact: isLandscape,
-                        onTap: () => _handleTap(_itemLabels[i]),
+                      _wrapForBar(
+                        _NavItem(
+                          icon: _iconFor(_itemLabels[i]),
+                          imagePath: _imageFor(_itemLabels[i]),
+                          label: _itemLabels[i],
+                          isSelected: _selectedItem == _itemLabels[i],
+                          isTvFocused: widget.tvFocusedIndex == i,
+                          compact: isLandscape,
+                          onTap: () => _handleTap(_itemLabels[i]),
+                        ),
                       ),
                   ],
                 ),
@@ -256,6 +285,11 @@ class _NavItem extends StatelessWidget {
                 width: iconSize,
                 height: iconSize,
                 color: color,
+                errorBuilder: (context, error, stack) => Icon(
+                  icon ?? Icons.apps_rounded,
+                  color: color,
+                  size: iconSize,
+                ),
               )
             else
               Icon(
@@ -264,13 +298,18 @@ class _NavItem extends StatelessWidget {
                 size: iconSize,
               ),
             SizedBox(height: gap),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: fontSize,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  color: color,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
               ),
             ),
           ],

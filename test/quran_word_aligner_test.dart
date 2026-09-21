@@ -1,0 +1,315 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:islamic_dawah_mushaf/utils/quran_word_aligner.dart';
+
+void main() {
+  group('QuranWordAligner', () {
+    test('reciting every word correctly reveals them all in order', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi', 'rabbi', 'alameen']);
+
+      aligner.submitRecognizedSegment('alhamdu lillahi');
+      expect(aligner.statuses, [
+        WordStatus.correct,
+        WordStatus.correct,
+        WordStatus.pending,
+        WordStatus.pending,
+      ]);
+
+      aligner.submitRecognizedSegment('rabbi alameen');
+      expect(aligner.statuses, [
+        WordStatus.correct,
+        WordStatus.correct,
+        WordStatus.correct,
+        WordStatus.correct,
+      ]);
+      expect(aligner.isComplete, isTrue);
+    });
+
+    test('a single mispronounced/garbled segment is only "unclear", never an immediate mistake', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi', 'rabbi']);
+
+      aligner.submitRecognizedSegment('xyzzy nonsense');
+      expect(aligner.statuses[0], WordStatus.unclear);
+      expect(aligner.isComplete, isFalse);
+    });
+
+    test('two consecutive unrecognizable segments promote the stuck word to mistake', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi', 'rabbi']);
+
+      aligner.submitRecognizedSegment('xyzzy');
+      expect(aligner.statuses[0], WordStatus.unclear);
+
+      aligner.submitRecognizedSegment('qwerty');
+      expect(aligner.statuses[0], WordStatus.mistake);
+      // The aligner advances past a promoted mistake so the session isn't
+      // stuck forever on one word.
+      expect(aligner.cursor, 1);
+    });
+
+    test('recovering after an unclear segment clears the miss streak', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi', 'rabbi']);
+
+      aligner.submitRecognizedSegment('xyzzy'); // unclear, miss streak = 1
+      aligner.submitRecognizedSegment('alhamdu'); // recognized correctly
+      expect(aligner.statuses[0], WordStatus.correct);
+
+      // A later unrelated segment should need two fresh strikes again, not
+      // pick up where the earlier streak left off.
+      aligner.submitRecognizedSegment('xyzzy');
+      expect(aligner.statuses[1], WordStatus.unclear);
+    });
+
+    test('a genuinely dropped word gets marked skipped when a later word matches', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi', 'rabbi', 'alameen']);
+
+      // User skips "lillahi" entirely and continues with "rabbi alameen".
+      aligner.submitRecognizedSegment('alhamdu rabbi alameen');
+
+      expect(aligner.statuses, [
+        WordStatus.correct,
+        WordStatus.skipped,
+        WordStatus.correct,
+        WordStatus.correct,
+      ]);
+      expect(aligner.isComplete, isTrue);
+    });
+
+    test('repeating an already-confirmed word/phrase does not double-advance or corrupt state', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi', 'rabbi', 'alameen']);
+
+      aligner.submitRecognizedSegment('alhamdu lillahi');
+      // User stutters and repeats the phrase they just said.
+      aligner.submitRecognizedSegment('alhamdu lillahi');
+
+      expect(aligner.statuses, [
+        WordStatus.correct,
+        WordStatus.correct,
+        WordStatus.pending,
+        WordStatus.pending,
+      ]);
+      expect(aligner.cursor, 2);
+
+      aligner.submitRecognizedSegment('rabbi alameen');
+      expect(aligner.isComplete, isTrue);
+    });
+
+    test('minor spelling/diacritic noise still counts as correct (near-match tolerance)', () {
+      final aligner = QuranWordAligner(['alrrahman']);
+      // One-character difference (missing a doubled letter), well within
+      // the near-match threshold for a 9-letter word.
+      aligner.submitRecognizedSegment('alrahman');
+      expect(aligner.statuses[0], WordStatus.correct);
+    });
+
+    test('a genuinely different word beyond the near-match threshold does not match', () {
+      final aligner = QuranWordAligner(['alrrahman', 'alraheem']);
+      aligner.submitRecognizedSegment('banana');
+      expect(aligner.statuses[0], isNot(WordStatus.correct));
+    });
+
+    test('a far-ahead coincidental match is bounded by windowSize, not skipping everything', () {
+      final aligner = QuranWordAligner(
+        ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+        windowSize: 3,
+      );
+      // "h" is 7 positions ahead of the cursor -- outside the window of 3 --
+      // so it must not be reachable from a single segment.
+      aligner.submitRecognizedSegment('h');
+      expect(aligner.statuses.any((s) => s == WordStatus.correct), isFalse);
+    });
+
+    test('empty/whitespace-only segments are a no-op', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi']);
+      aligner.submitRecognizedSegment('   ');
+      expect(aligner.statuses, [WordStatus.pending, WordStatus.pending]);
+      expect(aligner.cursor, 0);
+    });
+
+    test('reset restores the initial pending state', () {
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi']);
+      aligner.submitRecognizedSegment('alhamdu lillahi');
+      expect(aligner.isComplete, isTrue);
+
+      aligner.reset();
+      expect(aligner.isComplete, isFalse);
+      expect(aligner.cursor, 0);
+      expect(aligner.statuses, [WordStatus.pending, WordStatus.pending]);
+    });
+
+    test('onWordResolved fires with the resolved word index', () {
+      final resolved = <int>[];
+      final aligner = QuranWordAligner(['alhamdu', 'lillahi'])
+        ..onWordResolved = resolved.add;
+
+      aligner.submitRecognizedSegment('alhamdu lillahi');
+      expect(resolved, [0, 1]);
+    });
+
+    test('a word the passage repeats still matches at its second occurrence '
+        '(Al-Fatihah has عليهم in both ayah 6 and ayah 7)', () {
+      // Mirror of the real Fatihah tail: ... alayhim (ayah 6) ghayri
+      // almaghdubi alayhim (ayah 7) ...
+      final aligner = QuranWordAligner(
+        ['anamta', 'alayhim', 'ghayri', 'almaghdubi', 'alayhim', 'wala'],
+      );
+
+      aligner.submitRecognizedSegment('anamta alayhim');
+      aligner.submitRecognizedSegment('ghayri almaghdubi');
+      expect(aligner.cursor, 4);
+
+      // The second occurrence arrives alone in its own segment. The
+      // repeat-of-history guard must NOT swallow it just because the same
+      // word already appears in the confirmed history.
+      aligner.submitRecognizedSegment('alayhim');
+      expect(aligner.statuses[4], WordStatus.correct);
+      expect(aligner.cursor, 5);
+    });
+
+    test('submitting after completion is a no-op', () {
+      final aligner = QuranWordAligner(['alhamdu']);
+      aligner.submitRecognizedSegment('alhamdu');
+      expect(aligner.isComplete, isTrue);
+
+      // Should not throw or change state.
+      aligner.submitRecognizedSegment('anything');
+      expect(aligner.statuses, [WordStatus.correct]);
+    });
+  });
+
+  group('truncated final word', () {
+    test('a segment cut mid-word still matches its last word by prefix', () {
+      final aligner = QuranWordAligner(['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ', 'الَّذِينَ']);
+      aligner.submitRecognizedSegment('قد افلح المؤ');
+      expect(aligner.statuses.sublist(0, 3), everyElement(WordStatus.correct));
+      expect(aligner.cursor, 3);
+    });
+
+    test('a prefix in the middle of a segment is not enough', () {
+      final aligner = QuranWordAligner(['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ', 'الَّذِينَ']);
+      aligner.submitRecognizedSegment('قد افلح المؤ الذين');
+      expect(aligner.statuses[2], isNot(WordStatus.correct));
+      expect(aligner.statuses[3], WordStatus.correct);
+    });
+  });
+
+  group('dagger alef', () {
+    test('ذٰلك / هٰذا / الرحمٰن match their everyday spellings exactly', () {
+      final aligner = QuranWordAligner(['وَرَآءَ', 'ذَٰلِكَ', 'هَٰذَا', 'اَ۬لرَّحْمَٰنِ']);
+      aligner.submitRecognizedSegment('وراء ذلك هذا الرحمن');
+      expect(aligner.statuses, everyElement(WordStatus.correct));
+    });
+  });
+
+  group('speech budget', () {
+    test('a segment may not resolve more new words than its budget', () {
+      final aligner = QuranWordAligner(
+        ['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ', 'الَّذِينَ', 'هُمْ', 'فِي'],
+      );
+      // The recognizer guessed the whole phrase; only 0.5 s of speech was
+      // heard, so at most two words may be revealed for now.
+      final out = aligner.submitRecognizedSegment(
+        'قد افلح المؤمنون الذين هم في',
+        maxNewWords: 2,
+      );
+      expect(out.correct, [0, 1]);
+      expect(aligner.cursor, 2);
+      expect(aligner.statuses.sublist(2), everyElement(WordStatus.pending));
+
+      // More audio arrives: the same words resolve the rest.
+      aligner.submitRecognizedSegment('قد افلح المؤمنون الذين هم في',
+          maxNewWords: 10);
+      expect(aligner.isComplete, isTrue);
+    });
+
+    test('an unbounded budget behaves as before', () {
+      final aligner = QuranWordAligner(['قَدْ', 'أَفْلَحَ', 'الْمُؤْمِنُونَ']);
+      aligner.submitRecognizedSegment('قد افلح المؤمنون');
+      expect(aligner.isComplete, isTrue);
+    });
+  });
+
+  group('resync after a garbled stretch', () {
+    final words = 'وإن امرأة خافت من بعلها نشوزا أو إعراضا فلا جناح عليهما أن يصلحا بينهما صلحا والصلح خير وأحضرت الأنفس الشح وإن تحسنوا وتتقوا فإن الله كان بما تعملون خبيرا'
+        .split(' ');
+
+    test('the first unexplained final never jumps (a slip is reported)', () {
+      final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('وإن امرأة خافت من بعلها');
+      final out = aligner.submitRecognizedSegment('صلحا والصلح خير وأحضرت');
+      expect(out.correct, isEmpty);
+      expect(aligner.cursor, 5);
+    });
+
+    test('once lost (two unexplained finals) a matching final jumps there',
+        () {
+      final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('وإن امرأة خافت من بعلها');
+      expect(aligner.cursor, 5);
+      // The next nine words were garbled twice; then the recognizer
+      // catches up on the third final.
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      final out = aligner.submitRecognizedSegment('صلحا والصلح خير وأحضرت');
+      // (With a 10-word window "صلحا" may fuzzy-match "يصلحا" one edit
+      // away; what matters is that the phrase was found and the stretch
+      // before it marked skipped.)
+      expect(out.correct, containsAll([15, 16, 17]));
+      expect(aligner.cursor, 18);
+      expect(
+        aligner.statuses.sublist(5, 12),
+        everyElement(WordStatus.skipped),
+      );
+    });
+
+    test('interims never resync', () {
+      final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      final out = aligner.submitRecognizedSegment(
+        'صلحا والصلح خير وأحضرت',
+        isFinal: false,
+      );
+      expect(out.correct, isEmpty);
+      // The two garbled finals may have promoted a word or two by the
+      // two-strike rule, but nothing jumped to word 14.
+      expect(aligner.cursor, lessThan(3));
+    });
+
+    test('two matching words are not enough to resync', () {
+      final aligner = QuranWordAligner(words);
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      aligner.submitRecognizedSegment('كلام مبهم تماما');
+      final out = aligner.submitRecognizedSegment('كلام آخر والصلح خير');
+      expect(out.correct, isEmpty);
+      expect(aligner.cursor, lessThan(4));
+    });
+  });
+
+  group('definite article', () {
+    test('a dropped or added ال still matches a word of four letters or more',
+        () {
+      final aligner = QuranWordAligner(['جَاءَكُمُ', 'الرَّسُولُ', 'بِالْحَقِّ']);
+      aligner.submitRecognizedSegment('جاءكم رسول بالحق');
+      expect(aligner.statuses, everyElement(WordStatus.correct));
+    });
+
+    test('never for short words like له / الله', () {
+      final aligner = QuranWordAligner(['اللَّهُ', 'أَكْبَرُ']);
+      final out = aligner.submitRecognizedSegment('له أكبر');
+      expect(out.correct, [1]);
+      expect(aligner.statuses[0], isNot(WordStatus.correct));
+    });
+  });
+
+  test('reveal overwrites a held mistake or a skip, never a correct word', () {
+    final a = QuranWordAligner('alpha beta gamma delta'.split(' '));
+    a.applyExternalVerdicts({
+      0: WordStatus.correct,
+      1: WordStatus.mistake,
+      2: WordStatus.skipped,
+    });
+    a.forceResolveRange(0, 3, WordStatus.revealed);
+    expect(a.statuses[0], WordStatus.correct);
+    expect(a.statuses[1], WordStatus.revealed);
+    expect(a.statuses[2], WordStatus.revealed);
+    expect(a.statuses[3], WordStatus.pending);
+  });
+}

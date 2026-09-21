@@ -60,6 +60,10 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>يُستخدم الميكروفون في وضع اختبار الحفظ للاستماع إلى تلاوتك والتحقق منها على جهازك، دون إرسال الصوت إلى أي خادم.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

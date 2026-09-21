@@ -8,6 +8,7 @@ import 'models/reader_bookmark.dart';
 import 'services/debug_log_service.dart';
 import 'utils/responsive_helper.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
+import 'widgets/quran/memorization_test_overlay.dart';
 
 class ContinuousQuranView extends StatefulWidget {
   const ContinuousQuranView({
@@ -27,6 +28,7 @@ class ContinuousQuranView extends StatefulWidget {
     required this.onAutoScrollInterrupted,
     this.onTap,
     this.hifzModeEnabled = false,
+    this.memorizationTestPageIndex = -1,
     this.filterQuality = FilterQuality.low,
     this.diskBackedImages = false,
   });
@@ -55,6 +57,10 @@ class ContinuousQuranView extends StatefulWidget {
   final VoidCallback onAutoScrollInterrupted;
   final VoidCallback? onTap;
   final bool hifzModeEnabled;
+
+  /// 0-based index of the page whose ayahs the memorization test is
+  /// concealing (-1 when no session), so that page gets the reveal overlay.
+  final int memorizationTestPageIndex;
 
   /// When true, page images are read from disk (`FileImage`) instead of bundled
   /// assets. Disk images decode slower, so the auto-scroll look-ahead is
@@ -629,31 +635,45 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                           clipBehavior: Clip.antiAlias,
                           child: Align(
                             alignment: Alignment.topCenter,
-                            child: Image(
-                              image: widget.pageImageProviderBuilder(index),
+                            // The overlay shares the image's exact box so its
+                            // ratio coordinates map onto the page image.
+                            child: SizedBox(
                               width: _displayPageWidth,
                               height: _pageHeight,
-                              fit: BoxFit.fill,
-                              alignment: Alignment.center,
-                              gaplessPlayback: true,
-                              filterQuality: widget.filterQuality,
-                              frameBuilder: (
-                                context,
-                                child,
-                                frame,
-                                wasSynchronouslyLoaded,
-                              ) {
-                                if (!_loggedRenderedPages.contains(index) &&
-                                    (wasSynchronouslyLoaded || frame != null)) {
-                                  _loggedRenderedPages.add(index);
-                                  _debugEvent('imageFirstFrame', {
-                                    'page': index,
-                                    'frame': frame,
-                                    'sync': wasSynchronouslyLoaded,
-                                  });
-                                }
-                                return child;
-                              },
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image(
+                                    image:
+                                        widget.pageImageProviderBuilder(index),
+                                    fit: BoxFit.fill,
+                                    alignment: Alignment.center,
+                                    gaplessPlayback: true,
+                                    filterQuality: widget.filterQuality,
+                                    frameBuilder: (
+                                      context,
+                                      child,
+                                      frame,
+                                      wasSynchronouslyLoaded,
+                                    ) {
+                                      if (!_loggedRenderedPages
+                                              .contains(index) &&
+                                          (wasSynchronouslyLoaded ||
+                                              frame != null)) {
+                                        _loggedRenderedPages.add(index);
+                                        _debugEvent('imageFirstFrame', {
+                                          'page': index,
+                                          'frame': frame,
+                                          'sync': wasSynchronouslyLoaded,
+                                        });
+                                      }
+                                      return child;
+                                    },
+                                  ),
+                                  if (widget.memorizationTestPageIndex >= 0)
+                                    MemorizationTestOverlay(pageNumber: index + 1),
+                                ],
+                              ),
                             ),
                           ),
                         ),

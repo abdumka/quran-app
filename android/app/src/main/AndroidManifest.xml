@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-<uses-permission android:name="android.permission.INTERNET"/>
+<uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Background recitation playback + media notification controls -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -24,6 +25,12 @@
          app from TV devices. -->
     <uses-feature android:name="android.software.leanback" android:required="false"/>
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+    <!-- Memorization-test mode: on-device recitation recognition via the microphone -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- RECORD_AUDIO implies android.hardware.microphone as REQUIRED unless said
+         otherwise, which would hide the app from Android TV boxes (no mic) on
+         Play. Tasmee is simply not offered there. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"

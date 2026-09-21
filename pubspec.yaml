@@ -7,7 +7,7 @@ publish_to: 'none'
 # ("bundle version must be higher than the previously uploaded version: 100").
 # Jumped past it here so one number keeps working for both; Play only requires
 # the code to increase, and 101 clears its last release (26) easily.
-version: 1.4.1+101
+version: 1.4.1+102
 
 environment:
   sdk: ^3.11.1
@@ -39,6 +39,12 @@ dependencies:
   timezone: ^0.10.1
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
+  # Memorization-test mode: on-device recitation recognition.
+  record: ^6.1.2
+  permission_handler: ^12.0.1
+  sherpa_onnx: ^1.13.6
+  vibration: ^3.2.1
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -65,6 +71,11 @@ flutter:
     - assets/data/ar.jalalayn.json
     - assets/data/narration_map.json
     - assets/data/ayah_positions.json
+    - assets/data/ayah_regions.json
+    - assets/data/word_masks.json
+    - assets/data/page_phonemes.json
+    - assets/data/phoneme_lexicon.json
+    - assets/audio/tasmee_alert.wav
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
   
