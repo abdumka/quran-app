@@ -187,6 +187,14 @@ class AudioService {
   /// can show live progress ("2/3") while the section is looping.
   final ValueNotifier<int> rangeRepeatDone = ValueNotifier(0);
 
+  /// Whether the recitation reads on past the section once its repeats are
+  /// spent (the default), or stops there, parked on the section's first ayah.
+  final ValueNotifier<bool> rangeContinueAfter = ValueNotifier(true);
+
+  /// True when the section armed the per-ayah repeat ("repeat each ayah"), so
+  /// that ending the section ends it too.
+  bool _rangeArmedAyahRepeat = false;
+
   /// Lazily-built surah → highest ayah number map (see [ayahCountForSurah]).
   Map<int, int>? _ayahCounts;
 
@@ -1529,6 +1537,8 @@ class AudioService {
     required int endAyah,
     AyahRepeatMode mode = AyahRepeatMode.count,
     int count = 2,
+    int ayahRepeat = 1,
+    bool continueAfter = true,
   }) async {
     if (_quranPages == null) await init();
     if (mode == AyahRepeatMode.off) {
@@ -1561,6 +1571,18 @@ class AudioService {
     rangeRepeatCount.value = count;
     rangeRepeatMode.value = mode;
     rangeRepeatDone.value = 0;
+    rangeContinueAfter.value = continueAfter;
+
+    // "Repeat each ayah": every ayah of the section plays [ayahRepeat] times
+    // before the next one, through the ordinary per-ayah repeat.
+    if (ayahRepeat > 1) {
+      repeatCount.value = ayahRepeat;
+      repeatMode.value = AyahRepeatMode.count;
+      _rangeArmedAyahRepeat = true;
+    } else {
+      repeatMode.value = AyahRepeatMode.off;
+      _rangeArmedAyahRepeat = false;
+    }
 
     await jumpToAyah(s1, a1);
   }
@@ -1582,6 +1604,12 @@ class AudioService {
     rangeRepeatCount.value = 3;
     repeatRange.value = null;
     rangeRepeatDone.value = 0;
+    rangeContinueAfter.value = true;
+    if (_rangeArmedAyahRepeat) {
+      _rangeArmedAyahRepeat = false;
+      repeatMode.value = AyahRepeatMode.off;
+      _currentRepeatIteration = 0;
+    }
   }
 
   /// Whether ([surah], [ayah]) still falls inside the active section. Compares
@@ -1600,7 +1628,8 @@ class AudioService {
   }
 
   /// Called when playback is about to leave the active section. Returns true if
-  /// it looped back to the section's first ayah (caller must stop its normal
+  /// it looped back to the section's first ayah, or stopped there because
+  /// [rangeContinueAfter] is off (either way the caller must stop its normal
   /// advance); false when the repeats are spent — range repeat is cleared and
   /// the caller should carry on past the section normally.
   Future<bool> _handleRangeBoundary() async {
@@ -1618,8 +1647,28 @@ class AudioService {
       await jumpToAyah(range.startSurah, range.startAyah);
       return true;
     }
+    final stopHere = !rangeContinueAfter.value;
     _clearRangeRepeat();
+    if (stopHere) {
+      await _parkAt(range.startSurah, range.startAyah);
+      return true;
+    }
     return false;
+  }
+
+  /// Loads ([surah], [ayah]) paused: the bar stays open and play resumes
+  /// from there.
+  Future<void> _parkAt(int surah, int ayah) async {
+    // A finished file leaves the player "playing"; a new source would start
+    // by itself.
+    await _player.pause();
+    final pageIndex = pageIndexForAyah(surah, ayah);
+    if (pageIndex < 0) return;
+    final index = _quranPages![pageIndex].ayahs.indexWhere(
+      (a) => a.surah == surah && a.ayah == ayah,
+    );
+    onPageChangeRequired?.call(pageIndex);
+    await playPage(pageIndex, startFromAyahIndex: index, autoPlay: false);
   }
 
   /// Get a human-readable label for the current range repeat mode.

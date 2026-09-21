@@ -1197,6 +1197,28 @@ class MemorizationTestService {
         }
       }
     }
+    // A wrong word stops the reveal at once, like a skipped one: nothing
+    // after it is uncovered, however well it was read. The mistake itself is
+    // only confirmed once the reciter has moved on or paused (a
+    // self-correction may still repair it), and until then the words after
+    // it used to be uncovered one by one, past a word that then turned red.
+    // Verdicts are recomputed on every call, so what is held back here is
+    // applied as soon as the word is read right. (Words before the point
+    // the session started from are being shown, not judged.)
+    if (_startResolved && _holdWord < 0) {
+      var firstWrong = -1;
+      for (final v in verdicts) {
+        if (v.state != VerdictState.wrong ||
+            v.word < 0 ||
+            v.word >= aligner.length ||
+            aligner.statuses[v.word] != WordStatus.pending ||
+            updates[v.word] == WordStatus.correct) {
+          continue;
+        }
+        if (firstWrong < 0 || v.word < firstWrong) firstWrong = v.word;
+      }
+      if (firstWrong >= 0) updates.removeWhere((w, st) => w > firstWrong);
+    }
     // Where the session started is the only free choice. Until it is known
     // nothing is a skip; once it is, the recitation may not skip: a skipped
     // word stops the session there (a run of them, or a whole ayah, stops it

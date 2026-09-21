@@ -3,5 +3,5 @@
     <!-- Debug-only launcher label. Overrides src/main's app_name for debug
          builds so a locally-installed debug build is easy to tell apart
          from the Play Store release. -->
-    <string name="app_name">مصحف قالون (تجريبي)</string>
+    <string name="app_name">المصحف الجامع (تجريبي)</string>
 </resources>

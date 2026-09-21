@@ -388,6 +388,30 @@ class _QuranPagesState extends State<QuranPages>
   /// [_followMemorizationTestToPage]).
   bool _memorizationTestMoving = false;
 
+  /// The user's last choices in the تكرار مقطع picker, kept across launches:
+  /// passes of the section (0 = ∞), plays of each ayah (1 = no repeat), and
+  /// whether the recitation reads on once the section is done.
+  int _rangeCountPref = 3;
+  int _rangeAyahRepeatPref = 1;
+  bool _rangeContinueAfterPref = true;
+  static const String _rangeCountPrefKey = 'range_repeat_count';
+  static const String _rangeAyahRepeatPrefKey = 'range_repeat_each_ayah';
+  static const String _rangeContinueAfterPrefKey = 'range_repeat_continue_after';
+
+  Future<void> _loadRangeRepeatPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    _rangeCountPref = prefs.getInt(_rangeCountPrefKey) ?? 3;
+    _rangeAyahRepeatPref = prefs.getInt(_rangeAyahRepeatPrefKey) ?? 1;
+    _rangeContinueAfterPref = prefs.getBool(_rangeContinueAfterPrefKey) ?? true;
+  }
+
+  Future<void> _saveRangeRepeatPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_rangeCountPrefKey, _rangeCountPref);
+    await prefs.setInt(_rangeAyahRepeatPrefKey, _rangeAyahRepeatPref);
+    await prefs.setBool(_rangeContinueAfterPrefKey, _rangeContinueAfterPref);
+  }
+
   /// Strengthening drills still to run in this round (تقوية الحفظ).
   final List<TasmeeDrill> _drillQueue = [];
 
@@ -660,6 +684,7 @@ class _QuranPagesState extends State<QuranPages>
 
     _loadReadingPreferences();
     _loadLastPage();
+    _loadRangeRepeatPrefs();
     _loadBookmark();
     _loadBookmarkGuidePreference();
     _checkForUpdate();
@@ -3413,12 +3438,19 @@ class _QuranPagesState extends State<QuranPages>
       if (!mounted) return;
     }
 
-    await _prepareForTasmeeMode();
-    if (!mounted) return;
-
+    // Rotating to portrait and loading the recognition model take a second
+    // or three with nothing to see: say so, and keep stray taps off the page.
     final service = MemorizationTestService.instance;
     final pageIndex = _currentPage;
-    final started = await service.start(pageNumber: pageIndex + 1);
+    final closeLoading = _showTasmeeLoading();
+    bool started;
+    try {
+      await _prepareForTasmeeMode();
+      if (!mounted) return;
+      started = await service.start(pageNumber: pageIndex + 1);
+    } finally {
+      closeLoading();
+    }
     if (!mounted) return;
     setState(() {
       _isMemorizationTestEnabled = started;
@@ -3438,6 +3470,62 @@ class _QuranPagesState extends State<QuranPages>
         SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
       );
     }
+  }
+
+  /// A small "getting ready" notice over the page while Tasmee starts. It
+  /// blocks taps until the returned callback closes it.
+  VoidCallback _showTasmeeLoading() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    var open = true;
+    showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: false,
+      barrierColor: Colors.black26,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: Center(
+          child: Material(
+            color: isDark ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE),
+            elevation: 6,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                textDirection: TextDirection.rtl,
+                children: [
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      color: Color(0xFFB08A3C),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(
+                    'جارٍ تجهيز التسميع…',
+                    style: TextStyle(
+                      fontFamily: 'Tajawal',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF35250E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ).then((_) => open = false);
+    return () {
+      if (!open) return;
+      open = false;
+      navigator.pop();
+    };
   }
 
   /// Offers to download the on-device recognition model (~160 MB, once),
@@ -6281,10 +6369,24 @@ class _QuranPagesState extends State<QuranPages>
         _sectionEndOnPage(_recitationTargetPage, fromSurah, fromAyah);
 
     final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
-    AyahRepeatMode mode = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
+    // A running section shows its own settings; otherwise the last choices.
+    AyahRepeatMode mode = (wasActive
+            ? audio.rangeRepeatMode.value == AyahRepeatMode.infinite
+            : _rangeCountPref == 0)
         ? AyahRepeatMode.infinite
         : AyahRepeatMode.count;
-    int count = wasActive ? audio.rangeRepeatCount.value : 3;
+    int count = wasActive
+        ? audio.rangeRepeatCount.value
+        : (_rangeCountPref > 0 ? _rangeCountPref : 3);
+    // How many times each ayah of the section plays (1 = once, no repeat).
+    int ayahRepeat = wasActive
+        ? (audio.repeatMode.value == AyahRepeatMode.count
+            ? audio.repeatCount.value
+            : 1)
+        : _rangeAyahRepeatPref;
+    bool continueAfter = wasActive
+        ? audio.rangeContinueAfter.value
+        : _rangeContinueAfterPref;
 
     showDialog(
       context: context,
@@ -6565,10 +6667,54 @@ class _QuranPagesState extends State<QuranPages>
                           ),
                         ],
                       ),
+                      const SizedBox(height: 14),
+                      label('تكرار كل آية داخل المقطع'),
+                      Row(
+                        children: [
+                          countChip(
+                            'بدون',
+                            ayahRepeat <= 1,
+                            () => setPickerState(() => ayahRepeat = 1),
+                          ),
+                          for (final option in const [2, 3, 5]) ...[
+                            const SizedBox(width: 6),
+                            countChip(
+                              '$option×',
+                              ayahRepeat == option,
+                              () => setPickerState(() => ayahRepeat = option),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (mode != AyahRepeatMode.infinite) ...[
+                        const SizedBox(height: 14),
+                        label('بعد انتهاء المقطع'),
+                        Row(
+                          children: [
+                            countChip(
+                              'متابعة التلاوة',
+                              continueAfter,
+                              () => setPickerState(() => continueAfter = true),
+                            ),
+                            const SizedBox(width: 6),
+                            countChip(
+                              'التوقف',
+                              !continueAfter,
+                              () => setPickerState(() => continueAfter = false),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Text(
-                        'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم تتابع '
-                        'التلاوة بعد انتهاء التكرار.',
+                        mode == AyahRepeatMode.infinite
+                            ? 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده حتى '
+                                'توقف التكرار.'
+                            : continueAfter
+                                ? 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم '
+                                    'تتابع التلاوة بعد انتهاء التكرار.'
+                                : 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم '
+                                    'تتوقف التلاوة عند أوله بعد انتهاء التكرار.',
                         style: TextStyle(color: subTextColor, fontSize: 11.5),
                       ),
                     ],
@@ -6624,7 +6770,14 @@ class _QuranPagesState extends State<QuranPages>
                       endAyah: toAyah,
                       mode: mode,
                       count: count,
+                      ayahRepeat: ayahRepeat,
+                      continueAfter: continueAfter,
                     );
+                    _rangeCountPref =
+                        mode == AyahRepeatMode.infinite ? 0 : count;
+                    _rangeAyahRepeatPref = ayahRepeat;
+                    _rangeContinueAfterPref = continueAfter;
+                    _saveRangeRepeatPrefs();
                   },
                   child: Text(
                     'تشغيل المقطع',

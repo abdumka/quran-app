@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/tasmee_report_store.dart';
+import 'hifz_palette.dart';
 
 /// «تقوية الحفظ» (the strengthening drills) is hidden for now: a drill can
 /// open on a fully covered page with nothing to start from. Mistakes are
@@ -20,11 +21,11 @@ Future<void> showHifzToolsSheet(
   required VoidCallback onReports,
   required VoidCallback onWeakPoints,
 }) {
-  const gold = Color(0xFFD2B97E);
+  final p = HifzPalette.of(context);
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: const Color(0xFF1C1C1E),
+    backgroundColor: p.bg,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
@@ -37,11 +38,11 @@ Future<void> showHifzToolsSheet(
         required VoidCallback onTap,
       }) {
         return ListTile(
-          leading: Icon(icon, color: gold, size: 28),
+          leading: Icon(icon, color: p.title, size: 28),
           title: Text(
             title,
-            style: const TextStyle(
-              color: gold,
+            style: TextStyle(
+              color: p.title,
               fontSize: 17,
               fontWeight: FontWeight.bold,
               fontFamily: 'Tajawal',
@@ -50,14 +51,14 @@ Future<void> showHifzToolsSheet(
           subtitle: Text(
             subtitle,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.7),
+              color: p.sub,
               fontSize: 13,
               height: 1.4,
             ),
           ),
           trailing: active
-              ? const Icon(Icons.stop_circle_outlined, color: gold)
-              : const Icon(Icons.chevron_left_rounded, color: gold),
+              ? Icon(Icons.stop_circle_outlined, color: p.title)
+              : Icon(Icons.chevron_left_rounded, color: p.title),
           onTap: () {
             Navigator.of(sheetContext).pop();
             onTap();
@@ -77,12 +78,12 @@ Future<void> showHifzToolsSheet(
               child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
                 child: Text(
                   'أدوات الحفظ',
                   style: TextStyle(
-                    color: gold,
+                    color: p.title,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Tajawal',
@@ -152,7 +153,6 @@ class _AlertModeTile extends StatefulWidget {
 }
 
 class _AlertModeTileState extends State<_AlertModeTile> {
-  static const gold = Color(0xFFD2B97E);
   TasmeeAlertMode? _mode;
 
   @override
@@ -165,27 +165,28 @@ class _AlertModeTileState extends State<_AlertModeTile> {
 
   @override
   Widget build(BuildContext context) {
+    final p = HifzPalette.of(context);
     final mode = _mode ?? TasmeeAlertMode.vibrate;
     return ListTile(
-      leading: const Icon(Icons.vibration_rounded, color: gold, size: 28),
-      title: const Text(
+      leading: Icon(Icons.vibration_rounded, color: p.title, size: 28),
+      title: Text(
         'تنبيه الخطأ في التسميع',
-        style: TextStyle(color: gold, fontSize: 17, fontWeight: FontWeight.bold, fontFamily: 'Tajawal'),
+        style: TextStyle(color: p.title, fontSize: 17, fontWeight: FontWeight.bold, fontFamily: 'Tajawal'),
       ),
       subtitle: Text(
         'الحالي: ${TasmeeAlert.label(mode)} — اضغط للتغيير',
-        style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 13),
+        style: TextStyle(color: p.sub, fontSize: 13),
       ),
       trailing: DropdownButton<TasmeeAlertMode>(
         value: mode,
-        dropdownColor: const Color(0xFF2C2C2E),
+        dropdownColor: p.raised,
         underline: const SizedBox.shrink(),
-        iconEnabledColor: gold,
+        iconEnabledColor: p.title,
         items: [
           for (final m in TasmeeAlertMode.values)
             DropdownMenuItem(
               value: m,
-              child: Text(TasmeeAlert.label(m), style: const TextStyle(color: Colors.white, fontSize: 13)),
+              child: Text(TasmeeAlert.label(m), style: TextStyle(color: p.text, fontSize: 13)),
             ),
         ],
         onChanged: (m) async {

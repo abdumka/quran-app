@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'hifz_palette.dart';
 import '../../services/tasmee_report_store.dart';
 import '../../services/tasmee_weak_point_store.dart';
-
-const Color _gold = Color(0xFFD2B97E);
-const Color _sheet = Color(0xFF1C1C1E);
 
 String _kindLabel(String kind) => TasmeeError(
       surah: 0,
@@ -20,13 +18,14 @@ String _kindLabel(String kind) => TasmeeError(
 Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
   final pool = await TasmeeWeakPointStore.load();
   if (!context.mounted) return false;
+  final c = HifzPalette.of(context);
   final drills = TasmeeWeakPointStore.plan(pool);
   final ready = pool.length >= TasmeeWeakPointStore.minToStart;
   final missing = TasmeeWeakPointStore.minToStart - pool.length;
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: _sheet,
+    backgroundColor: c.bg,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
@@ -36,7 +35,7 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
             child: Text(
               text,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.85),
+                color: c.sub,
                 fontSize: 14.5,
                 height: 1.6,
               ),
@@ -55,10 +54,10 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'تقوية الحفظ',
                     style: TextStyle(
-                      color: _gold,
+                      color: c.title,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Tajawal',
@@ -86,7 +85,7 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.06),
+                      color: c.sub,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -98,8 +97,8 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                                   '${drills.length} آيات لهذه الجولة.'
                               : 'المواضع المجموعة: ${pool.length}. بقي '
                                   '$missing لتبدأ التقوية.',
-                      style: const TextStyle(
-                        color: _gold,
+                      style: TextStyle(
+                        color: c.title,
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                         height: 1.5,
@@ -116,7 +115,7 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                           ' (ص ${p.page}) — ${_kindLabel(p.kind)}'
                           '${p.count > 1 ? ' ×${p.count}' : ''}',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
+                            color: c.sub,
                             fontSize: 13,
                             height: 1.4,
                           ),
@@ -126,7 +125,7 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                       Text(
                         '… و${pool.length - 8} مواضع أخرى',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.55),
+                          color: c.sub,
                           fontSize: 12.5,
                         ),
                       ),
@@ -137,12 +136,12 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: _gold,
-                            foregroundColor: Colors.black,
+                            backgroundColor: c.title,
+                            foregroundColor: c.onTitle,
                             disabledBackgroundColor:
-                                Colors.white.withValues(alpha: 0.12),
+                                c.sub,
                             disabledForegroundColor:
-                                Colors.white.withValues(alpha: 0.4),
+                                c.sub,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: ready
@@ -161,9 +160,9 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                       const SizedBox(width: 10),
                       TextButton(
                         onPressed: () => Navigator.of(sheetContext).pop(false),
-                        child: const Text(
+                        child: Text(
                           'إغلاق',
-                          style: TextStyle(color: _gold, fontSize: 15),
+                          style: TextStyle(color: c.title, fontSize: 15),
                         ),
                       ),
                     ],
@@ -188,11 +187,12 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
   TasmeeDrillResult result, {
   required bool hasNext,
 }) async {
+  final c = HifzPalette.of(context);
   final choice = await showModalBottomSheet<TasmeeDrillNext>(
     context: context,
     isDismissible: false,
     enableDrag: false,
-    backgroundColor: _sheet,
+    backgroundColor: c.bg,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
@@ -213,7 +213,7 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                       allPassed
                           ? Icons.check_circle_rounded
                           : Icons.replay_circle_filled_rounded,
-                      color: allPassed ? const Color(0xFF7BC67E) : _gold,
+                      color: allPassed ? c.good : c.title,
                       size: 26,
                     ),
                     const SizedBox(width: 8),
@@ -222,8 +222,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                         allPassed
                             ? 'أحسنت — قرأتها صحيحة'
                             : 'ما زال هذا الموضع يحتاج مراجعة',
-                        style: const TextStyle(
-                          color: _gold,
+                        style: TextStyle(
+                          color: c.title,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Tajawal',
@@ -233,7 +233,7 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                     Text(
                       '${result.drill.index} / ${result.drill.total}',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
+                        color: c.sub,
                         fontSize: 13,
                       ),
                     ),
@@ -243,8 +243,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                 for (final p in result.passed)
                   Text(
                     '✓ «${p.expected}» — حُذفت من قائمة الأخطاء',
-                    style: const TextStyle(
-                      color: Color(0xFF9AD69C),
+                    style: TextStyle(
+                      color: c.good,
                       fontSize: 14,
                       height: 1.6,
                     ),
@@ -252,8 +252,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                 for (final p in result.failed)
                   Text(
                     '✗ «${p.expected}» — بقيت في القائمة',
-                    style: const TextStyle(
-                      color: Color(0xFFF0A59A),
+                    style: TextStyle(
+                      color: c.bad,
                       fontSize: 14,
                       height: 1.6,
                     ),
@@ -265,8 +265,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: _gold,
-                            foregroundColor: Colors.black,
+                            backgroundColor: c.title,
+                            foregroundColor: c.onTitle,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(sheetContext)
@@ -285,8 +285,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                     Expanded(
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: _gold,
-                          side: const BorderSide(color: _gold),
+                          foregroundColor: c.title,
+                          side: BorderSide(color: c.title),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: () => Navigator.of(sheetContext)

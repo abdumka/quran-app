@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'hifz_palette.dart';
 import '../../services/install_id.dart';
 import '../../services/tasmee_session_recorder.dart';
 import '../../services/tasmee_upload_service.dart';
@@ -15,7 +16,6 @@ class TasmeeLogsPage extends StatefulWidget {
 }
 
 class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
-  static const Color _gold = Color(0xFFD2B97E);
 
   List<TasmeeSessionFiles> _sessions = const [];
   int _keep = TasmeeSessionRecorder.defaultKeep;
@@ -91,10 +91,10 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
       builder: (context, busy, _) => IconButton(
         tooltip: upload.isConfigured ? 'رفع إلى الخادم' : 'الرفع غير مفعّل في هذه النسخة',
         icon: busy
-            ? const SizedBox(
+            ? SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: _gold),
+                child: CircularProgressIndicator(strokeWidth: 2, color: HifzPalette.of(context).title),
               )
             : Icon(Icons.cloud_upload_outlined, color: color),
         onPressed: upload.isConfigured && !busy && sessions.isNotEmpty
@@ -140,14 +140,15 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final p = HifzPalette.of(context);
     final total = _sessions.fold<int>(0, (sum, s) => sum + s.bytes);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFF111111),
+        backgroundColor: p.bg,
         appBar: AppBar(
-          backgroundColor: const Color(0xFF1C1C1E),
-          foregroundColor: _gold,
+          backgroundColor: p.bg,
+          foregroundColor: p.title,
           title: const Text('سجلات التسميع', style: TextStyle(fontFamily: 'Tajawal')),
           actions: [
             _uploadButton(_sessions),
@@ -164,23 +165,23 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
           ],
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator(color: _gold))
+            ? Center(child: CircularProgressIndicator(color: p.title))
             : ListView(
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.history_rounded, color: _gold),
-                    title: const Text('عدد الجلسات المحفوظة',
-                        style: TextStyle(color: Colors.white)),
+                    leading: Icon(Icons.history_rounded, color: p.title),
+                    title: Text('عدد الجلسات المحفوظة',
+                        style: TextStyle(color: p.text)),
                     subtitle: Text(
                       'تُحذف الأقدم تلقائيًا. الحجم الحالي: ${_size(total)}',
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                      style: TextStyle(color: p.sub),
                     ),
                     trailing: DropdownButton<int>(
                       value: TasmeeSessionRecorder.keepChoices.contains(_keep)
                           ? _keep
                           : TasmeeSessionRecorder.defaultKeep,
-                      dropdownColor: const Color(0xFF2C2C2E),
-                      style: const TextStyle(color: _gold, fontSize: 16),
+                      dropdownColor: p.raised,
+                      style: TextStyle(color: p.title, fontSize: 16),
                       items: [
                         for (final n in TasmeeSessionRecorder.keepChoices)
                           DropdownMenuItem(value: n, child: Text('$n')),
@@ -192,7 +193,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                       },
                     ),
                   ),
-                  const Divider(color: Color(0xFF2C2C2E)),
+                  Divider(color: p.border),
                   if (_sessions.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(32),
@@ -200,7 +201,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                         'لا توجد جلسات محفوظة بعد. تُسجَّل كل جلسة تسميع تلقائيًا '
                         '(الصوت وسجل القرارات) وتظهر هنا.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                        style: TextStyle(color: p.sub),
                       ),
                     ),
                   for (final s in _sessions)
@@ -209,30 +210,30 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                         s.files.any((f) => f.path.endsWith('.wav'))
                             ? Icons.graphic_eq_rounded
                             : Icons.description_outlined,
-                        color: _gold,
+                        color: p.title,
                       ),
                       title: Text(
                         s.page == null ? s.stem : 'صفحة ${s.page}',
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(color: p.text),
                       ),
                       subtitle: Text(
                         '${_when(s.modified)} · ${_size(s.bytes)} · '
                         '${s.files.map((f) => f.uri.pathSegments.last.split('.').last).join(' + ')}',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                        style: TextStyle(color: p.sub),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _uploadButton([s], color: _gold),
+                          _uploadButton([s], color: p.title),
                           IconButton(
                             tooltip: 'مشاركة',
-                            icon: const Icon(Icons.ios_share_rounded, color: _gold),
+                            icon: Icon(Icons.ios_share_rounded, color: p.title),
                             onPressed: () => _share([s]),
                           ),
                           IconButton(
                             tooltip: 'حذف',
                             icon: Icon(Icons.delete_outline_rounded,
-                                color: Colors.white.withValues(alpha: 0.6)),
+                                color: p.sub),
                             onPressed: () async {
                               await TasmeeSessionRecorder.deleteSession(s);
                               await _refresh();
