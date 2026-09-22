@@ -112,7 +112,6 @@ class MemorizationTestOverlay extends StatelessWidget {
                         masks,
                         frames,
                         _currentBorder,
-                        markers: _markerOvals(regions, map),
                       ),
                     ),
                   ),
@@ -132,23 +131,6 @@ class MemorizationTestOverlay extends StatelessWidget {
       },
     );
   }
-
-  /// The circle of every ayah-end marker of the page, a little wider than
-  /// its data box: the ornament's ring is about 48 px across on the 720 px
-  /// page while the box is 38 px, so the rect of the word beside it used to
-  /// slice the ring's edge off.
-  static List<Rect> _markerOvals(AyahRegionPageData regions, _RatioMapper map) => [
-        for (final a in regions.ayahs)
-          if (a.marker != null)
-            map.rect(
-              Rect.fromLTWH(
-                a.marker!.x - 0.007,
-                a.marker!.y - 0.003,
-                a.marker!.width + 0.014,
-                a.marker!.height + 0.006,
-              ),
-            ),
-      ];
 
   void _collectAyah(
     AyahRegion ayah,
@@ -267,20 +249,11 @@ class MaskPiece {
 /// the ayah being recited. One painter for the whole page keeps the widget
 /// tree flat however many word parts there are.
 class MemorizationMaskPainter extends CustomPainter {
-  const MemorizationMaskPainter(
-    this.masks,
-    this.frames,
-    this.frameColor, {
-    this.markers = const [],
-  });
+  const MemorizationMaskPainter(this.masks, this.frames, this.frameColor);
 
   final List<MaskPiece> masks;
   final List<Rect> frames;
   final Color frameColor;
-
-  /// Ovals no mask is painted into: the ayah-end markers stay whole however
-  /// the rects beside them were cut.
-  final List<Rect> markers;
 
   /// How many words (word-level ayahs) and line rects (ayah-level ayahs)
   /// are currently masked; a word counts once however many parts it has.
@@ -289,25 +262,10 @@ class MemorizationMaskPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..style = PaintingStyle.fill;
-    if (markers.isNotEmpty) {
-      final holes = Path();
-      for (final r in markers) {
-        holes.addOval(r);
-      }
-      canvas.save();
-      canvas.clipPath(
-        Path.combine(
-          PathOperation.difference,
-          Path()..addRect(Offset.zero & size),
-          holes,
-        ),
-      );
-    }
     for (final m in masks) {
       paint.color = m.color;
       canvas.drawRect(m.rect, paint);
     }
-    if (markers.isNotEmpty) canvas.restore();
     if (frames.isNotEmpty) {
       final stroke = Paint()
         ..style = PaintingStyle.stroke
@@ -392,7 +350,6 @@ class _NextPageCover extends StatelessWidget {
               masks,
               const [],
               const Color(0x00000000),
-              markers: MemorizationTestOverlay._markerOvals(regions, map),
             ),
           ),
         );
