@@ -59,6 +59,7 @@ class PlayingAyahHighlight extends StatelessWidget {
     return ListenableBuilder(
       listenable: Listenable.merge([
         audio.currentAyah,
+        audio.currentAyahGroup,
         audio.isRecitationBarVisible,
         PlayingAyahHighlightSetting.enabled,
       ]),
@@ -83,9 +84,14 @@ class PlayingAyahHighlight extends StatelessWidget {
             if (regions == null || (marginView && margin == null)) {
               return const SizedBox.shrink();
             }
+            final keys = highlightedAyat(
+              playing.surah,
+              playing.ayah,
+              [for (final g in audio.currentAyahGroup.value) (g.surah, g.ayah)],
+            );
             final rects = <Rect>[
               for (final a in regions.ayahs)
-                if (a.surah == playing.surah && a.ayah == playing.ayah)
+                if (keys.contains((a.surah, a.ayah)))
                   for (final r in a.rects)
                     Rect.fromLTWH(r.x, r.y, r.width, r.height),
             ];
@@ -102,6 +108,14 @@ class PlayingAyahHighlight extends StatelessWidget {
     );
   }
 }
+
+/// The (surah, ayah) pairs to tint while ([surah], [ayah]) plays. A reciter
+/// who joins ayat in one breath has one clip for the whole [group], so the
+/// whole group is tinted; the group only counts when it holds the playing
+/// ayah (it is refreshed a moment after the ayah changes), otherwise just
+/// the playing ayah is tinted, as for every other reciter.
+Set<(int, int)> highlightedAyat(int surah, int ayah, List<(int, int)> group) =>
+    group.contains((surah, ayah)) ? group.toSet() : {(surah, ayah)};
 
 class PlayingAyahHighlightPainter extends CustomPainter {
   const PlayingAyahHighlightPainter(this.rects, this.margin, this.dark);

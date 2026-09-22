@@ -14,6 +14,7 @@ import '../models/quran_page_data.dart';
 import '../models/reciter.dart';
 import '../page_span_data.dart';
 import '../thumn_data.dart';
+import '../utils/joined_ayah_group.dart';
 import 'audio_ayah_map_service.dart';
 import 'quran_json_service.dart';
 import 'reciter_service.dart';
@@ -96,6 +97,15 @@ class AudioService {
 
   /// The currently active ayah.
   final ValueNotifier<QuranAyahData?> currentAyah = ValueNotifier(null);
+
+  /// Every ayah the clip now playing recites: [currentAyah] plus the ayat
+  /// after it that the reciter joins to it in the same breath and that have
+  /// no audio of their own. Just the one ayah for a reciter who does not join
+  /// (and always for al-Husary). Empty when nothing is playing. For the page
+  /// highlight only; playback never reads it.
+  final ValueNotifier<List<QuranAyahData>> currentAyahGroup = ValueNotifier(
+    const [],
+  );
 
   /// Expose the current playlist for the UI.
   List<QuranAyahData> get currentPlaylist => List.unmodifiable(_playlistAyahs);
@@ -534,6 +544,62 @@ class AudioService {
         .toList();
   }
 
+  /// Whether [ayah] is recited inside the clip of the ayah before it, for
+  /// the reciter now selected. "Has no audio of its own" is not enough: an
+  /// ayah a mirror never published is not recited at all, and must not be
+  /// highlighted as if it were.
+  bool _isJoinedToPrevious(QuranAyahData ayah) {
+    final reciter = ReciterService.instance.selected.value;
+    final s = ayah.surah;
+    final a = ayah.ayah;
+    if (reciter.isMissing(s, a)) return false;
+    switch (reciter.scheme) {
+      case AudioScheme.mergedTail:
+        // al-Husary joins nothing; his merged surah tails are a different
+        // matter and keep their old behaviour.
+        return false;
+      case AudioScheme.covered:
+        return reciter.coveredAyat[s]?.contains(a) ?? false;
+      case AudioScheme.nativeQaloun:
+        final mapped = AudioAyahMapService.instance.lookup(s, a) ?? [a];
+        if (mapped.any((n) => reciter.isMissing(s, n))) return false;
+        return _getAudioFilesForAyah(ayah).isEmpty;
+      case AudioScheme.timedSurah:
+        // Only when the surah's timings are loaded: until then "no span"
+        // just means "not known yet".
+        if (SurahTimingsService.instance.cached(reciter, s) == null) {
+          return false;
+        }
+        return SurahTimingsService.instance.clipsFor(reciter, s, a).isEmpty;
+    }
+  }
+
+  /// [head] and the ayat joined to it (see [joinedAyahGroup]). Looks at most
+  /// three pages ahead; a group that long does not exist.
+  List<QuranAyahData> _joinedGroupOf(QuranAyahData head) {
+    final pages = _quranPages;
+    if (pages == null) return [head];
+    Iterable<QuranAyahData> following() sync* {
+      final at = _playlistAyahs.indexWhere(
+        (x) => x.surah == head.surah && x.ayah == head.ayah,
+      );
+      if (at < 0) return;
+      yield* _playlistAyahs.skip(at + 1);
+      for (var n = _currentPageIndex + 2; n <= _currentPageIndex + 4; n++) {
+        for (final page in pages) {
+          if (page.page == n) yield* page.ayahs;
+        }
+      }
+    }
+
+    try {
+      return joinedAyahGroup(head, following(), _isJoinedToPrevious);
+    } catch (e) {
+      debugPrint('AudioService: joined group failed: $e');
+      return [head];
+    }
+  }
+
   /// Loads the timing files for every surah represented in [ayahs], so the
   /// synchronous [_getClipsForAyah] can resolve them. A no-op for every scheme
   /// but [AudioScheme.timedSurah], and for surahs already loaded — a page's ayat
@@ -784,6 +850,9 @@ class AudioService {
       return;
     }
 
+    if (_currentFileIndexWithinAyah == 0) {
+      currentAyahGroup.value = _joinedGroupOf(ayah);
+    }
     final clip = _currentAyahClips[_currentFileIndexWithinAyah];
     final didStart = await _playClip(clip, autoPlay: autoPlay);
     if (!didStart) return;
@@ -1869,6 +1938,7 @@ class AudioService {
     _player.seek(Duration.zero);
     isPlaying.value = false;
     currentAyah.value = null;
+    currentAyahGroup.value = const [];
     isRecitationBarVisible.value = false;
     repeatMode.value = AyahRepeatMode.off;
     _currentRepeatIteration = 0;

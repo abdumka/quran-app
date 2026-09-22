@@ -53,6 +53,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import generate_word_regions as G  # noqa: E402  (letter width table)
+import page_furniture  # noqa: E402  (surah banners and basmala lines)
 
 WORK = r"D:\quran app\tasmee_work"
 HW_TRANSFORM = os.path.join(WORK, "hawamesh_transform.json")
@@ -146,6 +147,7 @@ class Page:
     # -- 1. furniture -------------------------------------------------------
     def _exclude_furniture(self):
         H, W = self.H, self.W
+        self.zones = [(x, y, x + w, y + h) for _k, x, y, w, h in page_furniture.zones(self.page)]
         for c in range(1, self.ncomp):
             x, y, w, h, a = self.stats[c]
             if w > 0.45 * W or h > 0.09 * H or (w > 0.3 * W and h > 0.05 * H):
@@ -154,6 +156,8 @@ class Page:
         # the densest row there and would be taken for the line's baseline
         self.text_ink = self.ink.copy()
         self.text_ink[self.excluded[self.labels]] = 0
+        for zx0, zy0, zx1, zy1 in self.zones:
+            self.text_ink[zy0:zy1, zx0:zx1] = 0
         for ay in self.regions["ayahs"]:
             m = ay.get("marker")
             if not m:
@@ -161,7 +165,37 @@ class Page:
             mx0, my0 = m["x"] * W, m["y"] * H
             mx1, my1 = mx0 + m["width"] * W, my0 + m["height"] * H
             cx, cy = self.cents[:, 0], self.cents[:, 1]
-            inside = (cx >= mx0 - 2) & (cx <= mx1 + 2) & (cy >= my0 - 2) & (cy <= my1 + 2)
+            # marker ink is the number in the middle of the ring: centred
+            # within 15 px of the ring's centre and small enough to sit inside
+            # it. (The whole box plus 2 px used to count, which threw away an
+            # alef standing right beside the ring: «تَفْجِيراٗ ۝».)
+            mcx, mcy = (mx0 + mx1) / 2, (my0 + my1) / 2
+            bx, by = self.stats[:, 0], self.stats[:, 1]
+            bw, bh = self.stats[:, 2], self.stats[:, 3]
+            inside = (np.hypot(cx - mcx, cy - mcy) <= 15) & (bx >= mcx - 23) & (bx + bw <= mcx + 23)                 & (by >= mcy - 23) & (by + bh <= mcy + 23)
+            # ...and the dark parts of the ring itself. They are brownish
+            # (red minus blue ~110) where a letter is neutral black (~20), so
+            # colour tells a ring fragment from an alef beside it.
+            near = np.where((np.hypot(cx - mcx, cy - mcy) <= 34) & (self.stats[:, 4] < 400) & ~inside)[0]
+            for c in near:
+                if c == 0:
+                    continue
+                x, y, w, h = (int(v) for v in self.stats[c][:4])
+                px = self.labels[y:y + h, x:x + w] == c
+                sub = self.img[y:y + h, x:x + w]
+                if float((sub[:, :, 2].astype(int) - sub[:, :, 0].astype(int))[px].mean()) > 60:
+                    inside[c] = True
+            self.excluded |= inside
+        # surah banners and basmala lines are never ayah text: their ink is
+        # out of the game, and no rect may reach into them (clip_to_text)
+        for zx0, zy0, zx1, zy1 in self.zones:
+            cx, cy = self.cents[:, 0], self.cents[:, 1]
+            bx, by = self.stats[:, 0], self.stats[:, 1]
+            bw, bh = self.stats[:, 2], self.stats[:, 3]
+            inside = (cx >= zx0) & (cx < zx1) & (cy >= zy0) & (cy < zy1)
+            # a component wholly inside the zone's rows as well (its centre
+            # can fall beside a basmala box that is narrower than the line)
+            inside |= (by >= zy0) & (by + bh <= zy1) & (bx + bw > zx0) & (bx < zx1)
             self.excluded |= inside
         self.excluded[0] = True
         self.owner[self.excluded] = -2
@@ -650,6 +684,8 @@ class Page:
                     cover[y:y + h, x:x + w] = True
         notext = cv2.morphologyEx(self.ink, cv2.MORPH_OPEN, np.ones((1, 150), np.uint8)) > 0
         notext = cv2.dilate(notext.astype(np.uint8), np.ones((5, 1), np.uint8)) > 0
+        for zx0, zy0, zx1, zy1 in self.zones:
+            notext[zy0:zy1, zx0:zx1] = True
         for ay in self.regions["ayahs"]:
             m = ay.get("marker")
             if m:
@@ -680,6 +716,75 @@ class Page:
                     r = [max(0, x0 + bx - PAD), max(0, y0 + by - PAD), bw + 2 * PAD, bh + 2 * PAD]
                     words[ws.index(w)].append(r)
                     cover[r[1]:r[1] + r[3], r[0]:r[0] + r[2]] = True
+
+    def keep_markers_whole(self, ayahs_out):
+        """A word's rect is cut away from the ayah markers, except exactly
+        where that word's own ink lies on one (a tail under the ring): the
+        ornament is about 46 px across and a rect beside it used to slice its
+        edge off. Letters stay covered; the ring shows wherever no letter is."""
+        H, W = self.H, self.W
+        boxes = []
+        for ay in self.regions["ayahs"]:
+            m = ay.get("marker")
+            if m:
+                cx, cy = (m["x"] + m["width"] / 2) * W, (m["y"] + m["height"] / 2) * H
+                boxes.append((int(cx - 23), int(cy - 23), int(cx + 23), int(cy + 23)))
+        if not boxes:
+            return
+        text = (self.ink > 0) & ~self.excluded[self.labels]
+        for a in ayahs_out:
+            for wi, rects in enumerate(a["words"]):
+                todo = [[x, y, x + w, y + h] for x, y, w, h in rects]
+                for mx0, my0, mx1, my1 in boxes:
+                    nxt = []
+                    for x0, y0, x1, y1 in todo:
+                        if x1 <= mx0 or x0 >= mx1 or y1 <= my0 or y0 >= my1:
+                            nxt.append([x0, y0, x1, y1])
+                            continue
+                        if y0 < my0:
+                            nxt.append([x0, y0, x1, my0])
+                        if y1 > my1:
+                            nxt.append([x0, my1, x1, y1])
+                        top, bot = max(y0, my0), min(y1, my1)
+                        if x0 < mx0:
+                            nxt.append([x0, top, mx0, bot])
+                        if x1 > mx1:
+                            nxt.append([mx1, top, x1, bot])
+                        # the part on the marker: only the ink that is there
+                        ix0, ix1 = max(x0, mx0), min(x1, mx1)
+                        ys, xs = np.nonzero(text[top:bot, ix0:ix1])
+                        if len(xs):
+                            nxt.append([max(ix0, ix0 + xs.min() - PAD), max(top, top + ys.min() - PAD),
+                                        min(ix1, ix0 + xs.max() + 1 + PAD), min(bot, top + ys.max() + 1 + PAD)])
+                    todo = nxt
+                a["words"][wi] = [[int(x0), int(y0), int(x1 - x0), int(y1 - y0)] for x0, y0, x1, y1 in todo if x1 - x0 >= 1 and y1 - y0 >= 1]
+
+    def clip_to_text(self, ayahs_out):
+        """Hard rule, whatever the steps above decided: no rect overlaps a
+        surah banner or a basmala. A rect that does is replaced by its parts
+        outside them."""
+        if not self.zones:
+            return
+        for a in ayahs_out:
+            for wi, rects in enumerate(a["words"]):
+                todo = [[x, y, x + w, y + h] for x, y, w, h in rects]
+                for zx0, zy0, zx1, zy1 in self.zones:
+                    nxt = []
+                    for x0, y0, x1, y1 in todo:
+                        if x1 <= zx0 or x0 >= zx1 or y1 <= zy0 or y0 >= zy1:
+                            nxt.append([x0, y0, x1, y1])
+                            continue
+                        if y0 < zy0:
+                            nxt.append([x0, y0, x1, zy0])
+                        if y1 > zy1:
+                            nxt.append([x0, zy1, x1, y1])
+                        top, bot = max(y0, zy0), min(y1, zy1)
+                        if x0 < zx0:
+                            nxt.append([x0, top, zx0, bot])
+                        if x1 > zx1:
+                            nxt.append([zx1, top, x1, bot])
+                    todo = nxt
+                a["words"][wi] = [[int(x0), int(y0), int(x1 - x0), int(y1 - y0)] for x0, y0, x1, y1 in todo if x1 - x0 >= 1 and y1 - y0 >= 1]
 
     def word_at(self, line, cx, any_distance=False):
         best, bd = None, 1e9
@@ -759,6 +864,8 @@ class Page:
             else:
                 ayahs_out.append({"surah": ra["surah"], "ayah": ra["ayah"], "words": []})
         self.cover_uncovered_ink(ayahs_out, by_ayah)
+        self.keep_markers_whole(ayahs_out)
+        self.clip_to_text(ayahs_out)
         hw = None
         if self.hw:
             hw = [round(self.hw["x"] / self.hw["W"], 5), round(self.hw["y"] / self.hw["H"], 5), round(self.hw["w"] / self.hw["W"], 5), round(self.hw["h"] / self.hw["H"], 5)]

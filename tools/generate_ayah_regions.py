@@ -7,6 +7,9 @@ Writes <outdir>/ayah_regions.json, <outdir>/report.json, overlays for sample pag
 import json, os, sys
 import cv2, numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import page_furniture
+
 root, outdir = sys.argv[1], sys.argv[2]
 only = [int(p) for p in sys.argv[3:]]
 os.makedirs(outdir, exist_ok=True)
@@ -64,6 +67,33 @@ def detect_markers(bgr, templates=None):
         cv2.rectangle(r, (x - TM_NMS, yy - TM_NMS), (x + TM_NMS, yy + TM_NMS), 0, -1)
     return out, float(mx)
 
+def centre_on_ring(bgr, markers):
+    """Template matching puts about one marker in ten some 18 px left of its
+    ring (one template is cut off-centre). The box then sits on the letters
+    beside the marker: those letters count as marker ink and are never
+    masked, and the mask of the word on the other side runs over half the
+    ring. Each marker is moved onto the centroid of the gold pixels around it
+    (mean shift, 30 px window); a jump of more than 26 px is not trusted."""
+    b, g, r = [bgr[:, :, i].astype(int) for i in range(3)]
+    gold = ((r - b > 45) & (r > g) & (g > b))
+    for m in markers:
+        cx, cy = m['cx'], m['cy']
+        for _ in range(6):
+            x0, y0 = int(max(0, cx - 30)), int(max(0, cy - 30))
+            ys, xs = np.nonzero(gold[y0:int(cy + 31), x0:int(cx + 31)])
+            keep = np.hypot(xs + x0 - cx, ys + y0 - cy) <= 30
+            if keep.sum() < 40:
+                break
+            nx, ny = (xs[keep] + x0).mean(), (ys[keep] + y0).mean()
+            done = abs(nx - cx) < 0.3 and abs(ny - cy) < 0.3
+            cx, cy = nx, ny
+            if done:
+                break
+        if np.hypot(cx - m['cx'], cy - m['cy']) <= 26:
+            m['cx'], m['cy'] = float(cx), float(cy)
+            m['x'], m['y'] = int(round(cx - m['w'] / 2.0)), int(round(cy - m['h'] / 2.0))
+    return markers
+
 # illuminated opening pages: analyse only the text panel inside the frame (x0, y0, x1, y1)
 CROP = {1: (140, 640, 545, 1150), 2: (165, 640, 555, 1140)}
 
@@ -116,6 +146,7 @@ def _analyse_image(bgr, templates=None):
 
     # markers (template matching on the yellowness channel)
     markers, next_score = detect_markers(bgr, templates)
+    markers = centre_on_ring(bgr, markers)
 
     # bands (line pitch on this crop is ~105-110 px)
     proj = (ink > 0).sum(axis=1).astype(float)
@@ -243,6 +274,32 @@ def build_regions(page, an):
         regions.append(dict(surah=surah, ayah=ayah, rects=[dict(x=round(x0 / w, 5), y=round(y0 / h, 5), width=round((x1 - x0) / w, 5), height=round((y1 - y0) / h, 5)) for x0, y0, x1, y1 in rects], marker=None))
     return regions, None
 
+def keep_out_of_furniture(page, regions):
+    """An ayah rect never reaches into a surah banner or a basmala: the band
+    of the line above a banner is cut half a pitch under its marker, and on a
+    page with several banners that lands well inside the banner, whose
+    ornaments were then masked with the ayah. A rect is cut back to the edge
+    of the banner/basmala on the side where most of the rect lies."""
+    zs = page_furniture.zones(page)
+    if not zs or not regions:
+        return regions
+    H = float(page_furniture.H)
+    for reg in regions:
+        kept = []
+        for r in reg['rects']:
+            y0, y1 = r['y'] * H, (r['y'] + r['height']) * H
+            for _kind, _zx, zy, _zw, zh in zs:
+                if y1 <= zy or y0 >= zy + zh:
+                    continue
+                if (y0 + y1) / 2 < zy + zh / 2:
+                    y1 = min(y1, zy)
+                else:
+                    y0 = max(y0, zy + zh)
+            if y1 - y0 >= 20:
+                kept.append(dict(r, y=round(y0 / H, 5), height=round((y1 - y0) / H, 5)))
+        reg['rects'] = kept
+    return regions
+
 def overlay(page, an, regions, path):
     vis = an['bgr'].copy()
     for b in an['bands']:
@@ -268,6 +325,7 @@ out, report = [], []
 for page in pages:
     an = analyse(page)
     regions, err = build_regions(page, an)
+    regions = keep_out_of_furniture(page, regions)
     kinds = ''.join(b['kind'][0].upper() for b in an['bands'])
     report.append(dict(page=page, markers=len(an['markers']), expected=len(ayah_ends(page)), bands=kinds, error=err,
                        min_score=round(an['min_score'], 2), next_score=round(an['next_score'], 2)))

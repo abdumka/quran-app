@@ -301,24 +301,42 @@ class SettingsTileHeader extends StatelessWidget {
   final String title;
   final VoidCallback? onInfo;
 
-  const SettingsTileHeader({super.key, required this.title, this.onInfo});
+  /// Shrink the title to fit one line instead of cutting it off with "…" —
+  /// for long titles that must stay fully readable next to a button.
+  final bool scaleDownToFit;
+
+  const SettingsTileHeader({
+    super.key,
+    required this.title,
+    this.onInfo,
+    this.scaleDownToFit = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final Widget text = Text(
+      title,
+      textDirection: TextDirection.rtl,
+      maxLines: 1,
+      softWrap: false,
+      overflow: scaleDownToFit ? TextOverflow.visible : TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF2C2C2C),
+      ),
+    );
     return Row(
       textDirection: TextDirection.rtl,
       children: [
         Flexible(
-          child: Text(
-            title,
-            textDirection: TextDirection.rtl,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2C2C2C),
-            ),
-          ),
+          child: scaleDownToFit
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: text,
+                )
+              : text,
         ),
         if (onInfo != null) ...[
           const SizedBox(width: 4),
@@ -2188,7 +2206,11 @@ class MarginImagesTile extends StatelessWidget {
             textDirection: TextDirection.rtl,
             children: [
               Expanded(
-                child: SettingsTileHeader(title: 'عرض الهوامش', onInfo: onInfo),
+                child: SettingsTileHeader(
+                  title: 'عرض الهوامش (يمين ويسار الصفحة)',
+                  onInfo: onInfo,
+                  scaleDownToFit: true,
+                ),
               ),
               if (state.isAvailable) ...[
                 const SizedBox(width: 4),
