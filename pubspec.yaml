@@ -2,12 +2,20 @@ name: islamic_dawah_mushaf
 description: "المصحف الجامع - Al-Mushaf Al-Jame."
 publish_to: 'none'
 
-# The build number is shared by both stores, and iOS is far ahead: App Store
-# Connect already has build 100, so anything lower is rejected outright
-# ("bundle version must be higher than the previously uploaded version: 100").
-# Jumped past it here so one number keeps working for both; Play only requires
-# the code to increase, and 101 clears its last release (26) easily.
-version: 1.4.1+102
+# ONE build number serves both stores, and it must only ever go UP.
+#
+# App Store Connect holds 1.4.0 (25, 26, 27, 100) and 1.4.1 (101). It rejects a
+# number it has already seen in the same version train ("bundle version must be
+# higher than the previously uploaded version: 100"), which is what stranded an
+# earlier 1.4.0+27 upload. A new marketing version may in principle restart the
+# count, but staying above the highest number ever uploaded removes the question.
+#
+# Play is the stricter one, because `--split-per-abi` does NOT ship this number
+# as-is: it multiplies by the ABI, so +102 became 1102 (armeabi-v7a), 2102
+# (arm64-v8a) and 4102 (x86_64). Play refuses any versionCode it has seen before
+# on any track, so a LOWER build number here silently becomes an unuploadable
+# APK — e.g. +30 would produce 1030/2030/4030, beneath the 4102 already built.
+version: 1.5.0+103
 
 environment:
   sdk: ^3.11.1
