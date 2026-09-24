@@ -35,7 +35,7 @@ class TasmeeError {
         'revealed' => 'كُشفت بطلب',
         'skippedAyah' => 'آية متخطّاة',
         'haraka' => 'خطأ في حركة آخر الكلمة',
-        _ => 'خطأ في النطق',
+        _ => 'لم تُسمع صحيحة',
       };
 
   Map<String, Object?> toJson() => {

@@ -323,4 +323,133 @@ void main() {
     expect(service.drillActive, isFalse);
     expect(service.statuses.every((s) => s == WordStatus.pending), isTrue);
   });
+
+  group('basmala before a surah', () {
+    // One token per phoneme, as the sheikh audit hears it.
+    const basmala = 'بِسمِللَااهِررَحمَاانِررَحِۦۦم';
+
+    Future<List<PhonemeWord>> pageWords(int page) async =>
+        (await PagePhonemeService.forPage(page))!.words;
+    List<String> ayahOf(List<PhonemeWord> ws, int index) => [
+          for (final w in ws)
+            if (w.ayah == index) collapseMadd(w.phon),
+        ];
+
+    test('at the top of a page that opens a surah it is not a mistake', () async {
+      final ws = await pageWords(151); // 7:1 at the top
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 151, engineOverride: engine, stopPlayback: false);
+      engine.recite([basmala.substring(0, 12), basmala.substring(12)]);
+      engine.recite(ayahOf(ws, 0));
+      await settle();
+      expect(service.heldWord.value, -1, reason: 'the basmala was swallowed');
+      expect(service.statuses[0], WordStatus.correct);
+      expect(service.statuses[3], WordStatus.correct);
+    });
+
+    test('without one, the opening is judged as before', () async {
+      final ws = await pageWords(151);
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 151, engineOverride: engine, stopPlayback: false);
+      engine.recite(ayahOf(ws, 0));
+      await settle();
+      expect(service.heldWord.value, -1);
+      expect(service.statuses[0], WordStatus.correct);
+    });
+
+    test('the decision: a basmala, not yet, or something else', () {
+      final table = PhonemeCostTable();
+      int cut(String s) => MemorizationTestService.basmalaCut(s, table);
+      expect(cut('بِس'), 0, reason: 'too little');
+      expect(cut('بِسمِللَاا'), 0, reason: 'inside a basmala');
+      expect(cut('بِسَبَبِ'), -1, reason: 'starts alike, is another word');
+      expect(cut('ءَلَممممصَ'), -1, reason: 'the surah\'s own first word');
+      expect(cut(basmala), basmala.length);
+      // Slightly off (a dropped sound, a vowel at the end) still counts.
+      expect(cut('بِسمِللَاهِررَحمَاانِررَحِۦۦمِ'), greaterThan(0));
+      // With the next word glued on, the cut lands at the basmala's end.
+      final glued = cut('$basmala' 'كِتَاابُن');
+      expect(glued, inInclusiveRange(basmala.length - 1, basmala.length + 1));
+    });
+
+    test('in the middle of a page, between two surahs', () async {
+      final ws = await pageWords(106); // 4:175 then 5:1
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 106, engineOverride: engine, stopPlayback: false);
+      engine.recite(ayahOf(ws, 0));
+      await settle();
+      engine.recite([basmala]);
+      engine.recite(ayahOf(ws, 1).take(4));
+      await settle();
+      expect(service.heldWord.value, -1);
+      final first51 = ws.indexWhere((w) => w.ayah == 1);
+      expect(service.statuses[first51], WordStatus.correct);
+      expect(service.statuses[first51 + 3], WordStatus.correct);
+    });
+  });
+
+  test('an extra word between two words holds the word after it', () async {
+    final engine = _PhonemeEngine();
+    await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+    engine.recite(ayah(0));
+    final second = ayah(1); // الرحمن الرحيم
+    final after = firstWordOf(1) + 1;
+    engine.recite([second[0], 'قَدڇ', second[1]]); // «الرحمن قد الرحيم»
+    engine.recite(ayah(2).take(2));
+    await settle();
+
+    expect(service.heldWord.value, after,
+        reason: 'the word the extra was said before is held');
+    expect(service.statuses[after], WordStatus.mistake);
+    expect(service.feedback.value?.message, contains('زدت كلمة'));
+
+    // A tick later the old reading of that word must not lift the hold...
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(service.heldWord.value, after);
+    expect(service.statuses[after + 1], WordStatus.pending,
+        reason: 'nothing after the held word is uncovered');
+
+    // ...it is a notice: reading on a few words clears it, and the error
+    // stays in the journal.
+    engine.recite(ayah(2).skip(2).take(2));
+    await settle();
+    expect(service.heldWord.value, -1);
+    expect(service.statuses[after], WordStatus.correct);
+    expect(service.statuses[after + 1], WordStatus.correct);
+  });
+
+  test('nasal noise between two words is not an extra word', () async {
+    final engine = _PhonemeEngine();
+    await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+    engine.recite(ayah(0));
+    final second = ayah(1);
+    engine.recite([second[0], 'ںںں', second[1]]);
+    engine.recite(ayah(2).take(2));
+    await settle();
+    expect(service.heldWord.value, -1);
+  });
+
+  test('repeat ayah at the top of a continued page goes back a page', () async {
+    final engine = _PhonemeEngine();
+    await service.start(pageNumber: 2, engineOverride: engine, stopPlayback: false);
+    service.continuedFromForTest = 1;
+    final flips = <int>[];
+    void onFlip() => flips.add(service.pageAdvanced.value);
+    service.pageAdvanced.addListener(onFlip);
+    MemorizationTestService.engineFactoryForTest = _PhonemeEngine.new;
+    try {
+      service.repeatAyah();
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    } finally {
+      MemorizationTestService.engineFactoryForTest = null;
+      service.pageAdvanced.removeListener(onFlip);
+    }
+    expect(flips, contains(1), reason: 'the view was told to go back');
+    expect(service.activePage, 1);
+    expect(service.status.value, MemorizationTestStatus.listening);
+    // Only the last ayah of page 1 is under test; the rest is shown.
+    final last = firstWordOf(6);
+    expect(service.statuses[last - 1], WordStatus.correct);
+    expect(service.statuses[last], WordStatus.pending);
+  });
 }

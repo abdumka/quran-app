@@ -104,4 +104,35 @@ class PagePhonemeService {
   }
 
   static Future<PagePhonemes?> forPage(int page) async => (await loadAll())[page];
+
+  /// The mushaf spelling of a word heard as the phoneme string [phon] (a
+  /// lexicon form the judge matched), or null when no word of the mushaf is
+  /// pronounced that way. Built once from every word of every page; where
+  /// several spellings share a pronunciation the most frequent one wins.
+  static String? textFor(String phon) {
+    final cache = _cache;
+    if (cache == null) return null;
+    final map = _textByPhon ??= _buildTextMap(cache);
+    return map[collapseMadd(phon)];
+  }
+
+  static Map<String, String>? _textByPhon;
+
+  static Map<String, String> _buildTextMap(Map<int, PagePhonemes> pages) {
+    final counts = <String, Map<String, int>>{};
+    for (final page in pages.values) {
+      for (final w in page.words) {
+        final key = collapseMadd(w.phon);
+        final byText = counts[key] ??= {};
+        byText[w.text] = (byText[w.text] ?? 0) + 1;
+      }
+    }
+    return {
+      for (final e in counts.entries)
+        e.key: (e.value.entries.toList()
+              ..sort((a, b) => b.value.compareTo(a.value)))
+            .first
+            .key,
+    };
+  }
 }

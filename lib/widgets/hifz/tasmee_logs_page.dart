@@ -193,6 +193,16 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                       },
                     ),
                   ),
+                  if (!TasmeeUploadService.instance.isConfigured)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Text(
+                        'زر الرفع معطّل: هذه النسخة بُنيت بدون مفتاح الرفع '
+                        '(--dart-define-from-file=tools/r2_upload.json). '
+                        'يمكنك مشاركة السجلات بزر المشاركة.',
+                        style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.4),
+                      ),
+                    ),
                   Divider(color: p.border),
                   if (_sessions.isEmpty)
                     Padding(

@@ -94,12 +94,14 @@ class TasmeeReportTile extends StatelessWidget {
           ListTile(
             dense: true,
             title: Text(
-              '${e.kindLabel}: «${e.expected}»',
+              e.kind == 'extra' && e.heard.isNotEmpty
+                  ? '${e.kindLabel}: «${e.heard}» قبل «${e.expected}»'
+                  : '${e.kindLabel}: «${e.expected}»',
               style: TextStyle(color: p.text, fontSize: 15),
             ),
             subtitle: Text(
               'الآية ${e.ayah}، الكلمة ${e.wordInAyah}'
-              '${e.heard.isEmpty ? '' : ' — قرأت «${e.heard}»'}',
+              '${e.heard.isEmpty || e.kind == 'extra' ? '' : ' — قرأت «${e.heard}»'}',
               style: TextStyle(color: p.sub, fontSize: 12.5),
             ),
           ),

@@ -184,6 +184,24 @@ class MemorizationTestService {
   DateTime _lastVoiceAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _settleWaitWord = -1;
 
+  /// The page this session flowed into the active page from (null when the
+  /// user started on it): "repeat the ayah" at its top goes back there.
+  int? _continuedFrom;
+
+  /// The basmala as the recognizer hears it (madd runs collapsed). It is not
+  /// part of any surah's text in this mushaf (al-Fatiha starts at الحمد), so
+  /// a reciter who says it before a surah would land on that surah's first
+  /// word as a mistake. See [_basmalaFilter].
+  static const String _basmala = 'بِسمِللَااهِررَحمَاانِررَحِۦۦم';
+
+  /// Word indices that open a surah with a basmala on the active page.
+  List<int> _surahOpenings = const [];
+
+  /// Sounds held back while they still look like a basmala at a surah
+  /// opening; fed to the tracker if they turn out to be something else.
+  final List<HeardChar> _basmalaBuffer = [];
+  bool _basmalaArmed = false;
+
   /// Fires with the new 1-based page number when a finished page flows
   /// straight into the next one (the engine keeps listening; the page view
   /// only has to flip).
@@ -233,7 +251,10 @@ class MemorizationTestService {
     return out;
   }
 
-  void _noteError(int word, String kind, [String heard = '']) {
+  /// [heard] is what the report shows the user ("you read «...»"): a real
+  /// mushaf word, or nothing. [heardRaw] is the recognizer's phoneme string,
+  /// kept in the log only.
+  void _noteError(int word, String kind, [String heard = '', String heardRaw = '']) {
     final ayah = _ayahIndexOfWord(word);
     final page = _page;
     if (ayah < 0 || page == null || word >= _expectedWords.length) return;
@@ -248,7 +269,26 @@ class MemorizationTestService {
     );
     _errors.add(e);
     if (_drill != null) _drillMissed.add('${e.surah}:${e.ayah}:${e.wordInAyah}');
-    _recorder?.log('error', e.toJson());
+    _recorder?.log('error', {...e.toJson(), if (heardRaw.isNotEmpty) 'heardRaw': heardRaw});
+  }
+
+  /// What the report may quote as "you read «...»". Only a form the judge
+  /// matched to a real Quran word (another word, an extra word, the Hafs
+  /// reading) is shown, spelled as the mushaf spells it; a raw phoneme
+  /// string of a garbled reading is not, because rendered as letters it
+  /// looks like nonsense («مءهلكنامن») and alarms the reader.
+  static String readableHeard(String reason, String heardPhonemes) {
+    if (heardPhonemes.isEmpty) return '';
+    switch (reason) {
+      case 'word':
+      case 'extra':
+        return PagePhonemeService.textFor(heardPhonemes) ?? '';
+      case 'hafs':
+        return PagePhonemeService.textFor(heardPhonemes) ??
+            phonemesToArabic(heardPhonemes);
+      default:
+        return '';
+    }
   }
 
   /// Closes the page's journal into a saved report.
@@ -300,6 +340,17 @@ class MemorizationTestService {
   /// correctly, a help button resolves it, or the reciter has clearly gone
   /// on for a while ([_holdReleaseWords] committed words past it).
   int _holdWord = -1;
+
+  /// For a hold on the word AFTER an extra word: the heard buffer's length
+  /// when it was set. The held word's own reading was fine, so only a
+  /// reading that comes after this point (new audio) may release it.
+  int _holdNewAudioFrom = -1;
+
+  /// Correct words past the hold that release it: [_holdReleaseWords] for a
+  /// wrong word, fewer for an extra word, whose neighbours were read right
+  /// (the red mark is a notice there, not a stop).
+  int _holdReleaseAfter = _holdReleaseWords;
+  static const int _extraReleaseWords = 3;
   int _wordsPastHold = 0;
   static const int _holdReleaseWords = 12;
 
@@ -592,6 +643,10 @@ class MemorizationTestService {
       _drillStartPage = pageNumber;
       _drillStartAyahIndex = startAyahIndex;
       _drillMissed.clear();
+      _continuedFrom = null;
+      _surahOpenings = _openingsOf(page, starts);
+      _basmalaBuffer.clear();
+      _basmalaArmed = _surahOpenings.isNotEmpty;
       drillLabel.value = drill == null
           ? null
           : 'تقوية الحفظ ${drill.index} / ${drill.total}';
@@ -901,6 +956,14 @@ class MemorizationTestService {
     var ayah = currentAyahIndex;
     if (ayah < 0) ayah = _ayahWordStarts.length - 2;
     final started = aligner.cursor > _ayahWordStarts[ayah];
+    // At the top of a page the session flowed into, the ayah to repeat is
+    // the last one of the page before: go back there.
+    final from = _continuedFrom;
+    if (!started && ayah == 0 && from != null) {
+      _recorder?.log('control', {'action': 'repeatAyah', 'backTo': from});
+      unawaited(_repeatLastAyahOf(from));
+      return;
+    }
     if (!started && ayah > 0) ayah -= 1;
     _recorder?.log('control', {'action': 'repeatAyah', 'ayah': ayah});
     _releaseHold('control');
@@ -913,6 +976,35 @@ class MemorizationTestService {
     _setFeedback(RecitationFeedback(FeedbackKind.info, 'أعد الآية $number من أولها'));
     _lastAyahIndex = ayah;
     revision.value++;
+  }
+
+  /// Tests only: builds the engine a session started from inside the
+  /// service uses (a page-back restart), instead of the real microphone.
+  @visibleForTesting
+  static RecitationEngine Function()? engineFactoryForTest;
+
+  /// Tests only: pretends the active page was flowed into from [page].
+  @visibleForTesting
+  set continuedFromForTest(int? page) => _continuedFrom = page;
+
+  /// Restarts the session on [pageNumber] at its last ayah, the page view
+  /// following (the same way a drill restart does).
+  Future<void> _repeatLastAyahOf(int pageNumber) async {
+    final pages = await QuranJsonService.loadQuranPages();
+    QuranPageData? page;
+    for (final p in pages) {
+      if (p.page == pageNumber) page = p;
+    }
+    if (page == null || page.ayahs.isEmpty) return;
+    pageAdvanced.value = 0;
+    pageAdvanced.value = pageNumber;
+    final testEngine = engineFactoryForTest?.call();
+    await start(
+      pageNumber: pageNumber,
+      startAyahIndex: page.ayahs.length - 1,
+      engineOverride: testEngine,
+      stopPlayback: testEngine == null,
+    );
   }
 
   /// Skips the current ayah (marks its unresolved words as skipped) and
@@ -1011,6 +1103,109 @@ class MemorizationTestService {
   // Streaming phoneme path
   // ---------------------------------------------------------------------
 
+  /// First-word indices of the ayahs that open a surah recited with a
+  /// basmala (every surah but al-Fatiha, whose text starts after it, and
+  /// at-Tawba, which has none).
+  static List<int> _openingsOf(QuranPageData page, List<int> starts) => [
+        for (var i = 0; i < page.ayahs.length; i++)
+          if (page.ayahs[i].ayah == 1 &&
+              page.ayahs[i].surah != 1 &&
+              page.ayahs[i].surah != 9)
+            starts[i],
+      ];
+
+  /// Whether a basmala may come next: nothing heard yet on a page with a
+  /// surah opening (the reciter may start there), or the tracker is at the
+  /// end of one surah / the first word of the next.
+  bool _basmalaExpected(PhonemeTracker tracker) {
+    if (_surahOpenings.isEmpty) return false;
+    if (tracker.heard.isEmpty) return true;
+    final aligner = _aligner;
+    if (aligner == null) return false;
+    final c = tracker.cursorWord;
+    for (final o in _surahOpenings) {
+      if ((c == o || c == o - 1) &&
+          o < aligner.length &&
+          aligner.statuses[o] == WordStatus.pending) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Holds back sounds that look like a basmala at a surah opening and drops
+  /// them once the whole basmala has been heard; anything else is passed to
+  /// the tracker unchanged. Returns the chars to feed now.
+  List<HeardChar> _basmalaFilter(PhonemeTracker tracker, List<HeardChar> chars) {
+    if (_basmalaBuffer.isEmpty) {
+      if (!_basmalaArmed || !_basmalaExpected(tracker)) return chars;
+    }
+    _basmalaBuffer.addAll(chars);
+    final table = _reference?.table;
+    if (table == null) return _flushBasmala();
+    final s = _basmalaBuffer.map((c) => c.ch).join();
+    final cut = basmalaCut(s, table);
+    if (cut == 0) return const []; // cannot tell yet
+    if (cut < 0) return _flushBasmala();
+    final rest = _basmalaBuffer.sublist(cut);
+    _recorder?.log('basmalaSkipped', {'chars': s.substring(0, cut)});
+    _basmalaBuffer.clear();
+    _basmalaArmed = false; // one basmala per opening; re-armed later
+    _rearmBasmalaLater();
+    return rest;
+  }
+
+  /// What the sounds [s] heard so far at a surah opening are: 0 = too early
+  /// to tell (keep collecting), -1 = not a basmala (feed them all), k > 0 =
+  /// a basmala ends after k chars (drop them, feed the rest).
+  @visibleForTesting
+  static int basmalaCut(String s, PhonemeCostTable table) {
+    if (s.length < 4) return 0;
+    final n = _basmala.length;
+    // Divergence: what came so far is not the start of a basmala.
+    final head = s.length < n ? s : s.substring(0, n);
+    final dHead = normalizedDistance(
+      table.encode(head),
+      table.encode(_basmala.substring(0, head.length)),
+      table,
+    );
+    if (dHead > 0.35) return -1;
+    if (s.length < n - 2) return 0; // still inside it
+    // Complete (the batch may carry the next word's opening): cut at the
+    // best boundary.
+    var bestK = -1;
+    var bestD = 1.0;
+    for (var k = n - 3; k <= s.length && k <= n + 3; k++) {
+      final d = normalizedDistance(
+        table.encode(s.substring(0, k)),
+        table.encode(_basmala),
+        table,
+      );
+      if (d < bestD) {
+        bestD = d;
+        bestK = k;
+      }
+    }
+    if (bestD > 0.3) return s.length > n + 3 ? -1 : 0;
+    return bestK;
+  }
+
+  List<HeardChar> _flushBasmala() {
+    final out = List<HeardChar>.of(_basmalaBuffer);
+    _basmalaBuffer.clear();
+    _basmalaArmed = false;
+    _rearmBasmalaLater();
+    return out;
+  }
+
+  /// Arms the filter again a moment later, so a later surah on the same
+  /// page gets its own chance.
+  void _rearmBasmalaLater() {
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (_tracker != null && _surahOpenings.isNotEmpty) _basmalaArmed = true;
+    });
+  }
+
   /// Feeds newly emitted phoneme tokens to the tracker and applies what it
   /// can already judge. Verdicts that need the reciter to move on (dwell)
   /// or to pause (settle) arrive through [_tickTracker].
@@ -1030,7 +1225,8 @@ class MemorizationTestService {
         chars.add(HeardChar(String.fromCharCode(r), frame));
       }
     }
-    tracker.feed(chars);
+    final toFeed = _basmalaFilter(tracker, chars);
+    if (toFeed.isNotEmpty) tracker.feed(toFeed);
     if (feedback.value?.kind == FeedbackKind.silent) _setFeedback(null);
     _lastPhonemeAt = DateTime.now();
     _settledApplied = false;
@@ -1053,6 +1249,12 @@ class MemorizationTestService {
     }
     final settled =
         DateTime.now().difference(_lastPhonemeAt).inMilliseconds >= 1000;
+    if (settled && _basmalaBuffer.isNotEmpty) {
+      // A pause inside what looked like a basmala: it was not one.
+      final chars = _flushBasmala();
+      _tracker?.feed(chars);
+      _settledApplied = false;
+    }
     if (!settled || _settledApplied) return;
     _settledApplied = true;
     _applyTrackerVerdicts(settled: true);
@@ -1077,6 +1279,8 @@ class MemorizationTestService {
     final verdicts = tracer.verdicts(settled: settled);
     final updates = <int, WordStatus>{};
     final wrongVerdicts = <WordVerdict>[];
+    // Extra-word verdicts moved onto the word after the gap (see below).
+    final extras = <WordVerdict>[];
     // Half-said words whose pause verdict waits for the voice to stop.
     final waiting = <int>{};
     WordVerdict? repaired;
@@ -1092,8 +1296,10 @@ class MemorizationTestService {
           if (v.word == _holdWord) {
             // A held word is repaired by a clean or a near reading only: a
             // loose `unsure` match (فأخذناهم heard for فإذا) must not lift
-            // the hold.
-            if (v.state == VerdictState.ok || v.distance <= 0.3) {
+            // the hold. A hold set for an extra word before it needs a
+            // reading that came after the hold: its old reading was fine.
+            if ((v.state == VerdictState.ok || v.distance <= 0.3) &&
+                (_holdNewAudioFrom < 0 || v.spanFrom >= _holdNewAudioFrom)) {
               updates[v.word] = WordStatus.correct;
               repaired = v;
             }
@@ -1120,12 +1326,37 @@ class MemorizationTestService {
             break;
           }
           if (v.reason == 'hafs' || settled || v.word < cursorWord - 1) {
-            updates[v.word] = WordStatus.mistake;
-            wrongVerdicts.add(v);
+            final target = _mistakeTarget(v, aligner);
+            if (target == null) break;
+            if (target == v.word) {
+              updates[v.word] = WordStatus.mistake;
+              wrongVerdicts.add(v);
+            } else {
+              extras.add(WordVerdict(
+                word: target,
+                state: v.state,
+                distance: v.distance,
+                heardRatio: v.heardRatio,
+                margin: v.margin,
+                heard: v.heard,
+                spanFrom: v.spanFrom,
+                spanTo: v.spanTo,
+                reason: v.reason,
+              ));
+            }
           }
         case VerdictState.pending:
           break;
       }
+    }
+    // An extra word is judged on the word before the gap it sits in, and by
+    // then that word is usually accepted already, so the verdict used to be
+    // lost («قالوا قد وجدنا» passed). It now holds the word the extra was
+    // said before; applied after the loop so the ok verdict of that word,
+    // which comes in the same batch, does not overwrite it.
+    for (final v in extras) {
+      updates[v.word] = WordStatus.mistake;
+      wrongVerdicts.add(v);
     }
     if (waiting.isNotEmpty) {
       // Look again at the next tick: the voice stops, more of the word
@@ -1198,7 +1429,10 @@ class MemorizationTestService {
             .where((e) => e.key > _holdWord && e.value == WordStatus.correct)
             .length;
         if (past > 0) _wordsPastHold = math.max(_wordsPastHold, past);
-        if (_wordsPastHold >= _holdReleaseWords && !_holdHard) {
+        if (_wordsPastHold >= _holdReleaseAfter && !_holdHard) {
+          // The word held for an extra word before it was itself read
+          // right: it shows as such once the notice is over.
+          if (_holdNewAudioFrom >= 0) updates[_holdWord] = WordStatus.correct;
           _releaseHold('moved-on');
         } else {
           updates.removeWhere((w, st) => w > _holdWord);
@@ -1236,14 +1470,16 @@ class MemorizationTestService {
     if (_startResolved && _holdWord < 0) {
       var firstWrong = -1;
       for (final v in verdicts) {
-        if (v.state != VerdictState.wrong ||
-            v.word < 0 ||
-            v.word >= aligner.length ||
-            aligner.statuses[v.word] != WordStatus.pending ||
-            updates[v.word] == WordStatus.correct) {
+        if (v.state != VerdictState.wrong || v.word < 0 || v.word >= aligner.length) {
           continue;
         }
-        if (firstWrong < 0 || v.word < firstWrong) firstWrong = v.word;
+        final w = _mistakeTarget(v, aligner) ?? -1;
+        if (w < 0 ||
+            aligner.statuses[w] != WordStatus.pending ||
+            (w == v.word && updates[w] == WordStatus.correct)) {
+          continue;
+        }
+        if (firstWrong < 0 || w < firstWrong) firstWrong = w;
       }
       if (firstWrong >= 0) updates.removeWhere((w, st) => w > firstWrong);
     }
@@ -1361,34 +1597,41 @@ class MemorizationTestService {
         .fold<WordVerdict?>(null, (a, b) => a == null || b.word < a.word ? b : a);
     if (newMistake != null && (_holdWord < 0 || newMistake.word < _holdWord)) {
       _holdWord = newMistake.word;
+      _holdNewAudioFrom =
+          newMistake.reason == 'extra' ? (_tracker?.heard.length ?? -1) : -1;
+      _holdReleaseAfter =
+          newMistake.reason == 'extra' ? _extraReleaseWords : _holdReleaseWords;
       _wordsPastHold = 0;
       heldWord.value = _holdWord;
       // Say that there is a mistake and what was heard, but never the
       // expected word itself: the reciter is testing memory. The hint
       // button reveals it on request.
-      final heard = phonemesToArabic(newMistake.heard);
+      final heard = readableHeard(newMistake.reason, newMistake.heard);
+      final heardLog = phonemesToArabic(newMistake.heard);
       final ayah = _ayahIndexOfWord(newMistake.word);
       final position = ayah < 0 ? 0 : newMistake.word - _ayahWordStarts[ayah] + 1;
       final number = ayah < 0 ? null : _page?.ayahs[ayah].ayah;
       final where = number == null ? '' : ' (الآية $number، الكلمة $position)';
       _recorder?.log('hold', {'word': _holdWord, 'reason': newMistake.reason, 'heard': newMistake.heard});
-      _noteError(newMistake.word, newMistake.reason.isEmpty ? 'distance' : newMistake.reason, heard);
+      _noteError(newMistake.word, newMistake.reason.isEmpty ? 'distance' : newMistake.reason, heard, newMistake.heard);
       TasmeeAlert.fire();
       // The bar only says THAT there is a mistake (the held word carries
       // the red tint); what was heard and why go to the log and the report.
       _recorder?.log('note', {
         'message': switch (newMistake.reason) {
-          'hafs' => 'قرأت «$heard» بحفص$where',
-          'word' => 'قرأت «$heard» وهي ليست الكلمة المطلوبة$where',
-          'extra' => 'زدت «$heard» وليست في الآية$where',
+          'hafs' => 'قرأت «$heardLog» بحفص$where',
+          'word' => 'قرأت «$heardLog» وهي ليست الكلمة المطلوبة$where',
+          'extra' => 'زدت «$heardLog» وليست في الآية$where',
           'haraka' => 'حركة آخر الكلمة غير صحيحة$where',
-          _ => 'خطأ$where — سمعت «$heard»',
+          _ => 'خطأ$where — سمعت «$heardLog»',
         },
       });
       _setFeedback(
-        const RecitationFeedback(
+        RecitationFeedback(
           FeedbackKind.wrong,
-          'خطأ في الكلمة المظلَّلة — أعدها أو اضغط «كلمة»',
+          newMistake.reason == 'extra'
+              ? 'زدت كلمة قبل الكلمة المظلَّلة — أعدها من غيرها أو اضغط «كلمة»'
+              : 'خطأ في الكلمة المظلَّلة — أعدها أو اضغط «كلمة»',
         ),
         sticky: true,
         show: true,
@@ -1424,6 +1667,26 @@ class MemorizationTestService {
         now.difference(_lastPhonemeAt).inMilliseconds < 4000;
   }
 
+  /// The word a wrong verdict holds, or null when it is dropped. An extra
+  /// word (reason `extra`) is judged on the word before the gap it sits in;
+  /// when that word is accepted already the hold moves to the word after
+  /// the gap, if still pending. Nasal or vowel noise between two words
+  /// («ںںں», «ممممَ») is not an extra word: a word has two consonants.
+  int? _mistakeTarget(WordVerdict v, QuranWordAligner aligner) {
+    if (v.reason != 'extra') return v.word;
+    if (!_isWordLike(v.heard)) return null;
+    if (aligner.statuses[v.word] != WordStatus.correct) return v.word;
+    final next = v.word + 1;
+    if (next >= aligner.length || aligner.statuses[next] != WordStatus.pending) {
+      return null;
+    }
+    return next;
+  }
+
+  static final RegExp _nasalOrVowel = RegExp(r'[ںں۾نمَُِاۥۦ]');
+  static bool _isWordLike(String phon) =>
+      phon.replaceAll(_nasalOrVowel, '').runes.length >= 2;
+
   /// How many words right after [word] the pending verdicts call skipped
   /// (mistakes in between count along; 0 when none is skipped).
   int _skippedRunAfter(int word, Map<int, WordStatus> updates, QuranWordAligner aligner) {
@@ -1457,6 +1720,8 @@ class MemorizationTestService {
     if (feedback.value?.kind == FeedbackKind.wrong) _setFeedback(null);
     _tracker?.maxCell = null;
     _holdWord = -1;
+    _holdNewAudioFrom = -1;
+    _holdReleaseAfter = _holdReleaseWords;
     _holdHard = false;
     _wordsPastHold = 0;
     heldWord.value = -1;
@@ -1482,6 +1747,7 @@ class MemorizationTestService {
     _tracer = VerdictTracer(tracker, lexicon: _lexicon);
     _settledApplied = false;
     _startResolved = true;
+    _basmalaBuffer.clear();
     _recorder?.log('rewind', {'word': word, 'barrier': tracker.maxCell});
   }
 
@@ -1855,6 +2121,10 @@ class MemorizationTestService {
       _expectedWords = expectedWords;
       _ayahWordStarts = starts;
       _activePage = next;
+      _continuedFrom = donePage;
+      _surahOpenings = _openingsOf(page, starts);
+      _basmalaBuffer.clear();
+      _basmalaArmed = _surahOpenings.isNotEmpty;
       _lastAyahIndex = 0;
       _holdWord = -1;
       _holdHard = false;
@@ -1985,6 +2255,10 @@ class MemorizationTestService {
     heldWord.value = -1;
     _drill = null;
     drillLabel.value = null;
+    _continuedFrom = null;
+    _surahOpenings = const [];
+    _basmalaBuffer.clear();
+    _basmalaArmed = false;
     _regions = null;
     _wordBoxes = const [];
     _page = null;
