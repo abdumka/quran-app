@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/ayah_region_data.dart';
 import '../../models/word_region_data.dart';
@@ -118,12 +120,9 @@ class MemorizationTestOverlay extends StatelessWidget {
                 ),
                 // Live feedback + help buttons, floating near the bottom of
                 // the page area (over the page's lower margin).
-                Positioned(
-                  left: 6,
-                  right: 6,
-                  bottom: height * 0.006,
-                  child: Center(child: _SessionBar(service: service)),
-                ),
+                // The bar floats over the page; the reciter drags it (long
+                // press) wherever it is in the way least.
+                Positioned.fill(child: _SessionBar(service: service)),
               ],
             );
           },
@@ -374,6 +373,156 @@ class _SessionBar extends StatefulWidget {
 class _SessionBarState extends State<_SessionBar> {
   static bool _collapsed = false;
 
+  /// Where the bar sits, as fractions of the page box (top-left corner);
+  /// null = the default place, bottom centre. Kept across sessions.
+  static Offset? _pos;
+  static bool _posLoaded = false;
+  static const String _posPref = 'tasmee_bar_pos';
+
+  final GlobalKey _barKey = GlobalKey();
+  Offset? _dragOrigin; // bar top-left (px) when the drag started
+  Offset? _dragStart; // finger (global) when the drag started
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_posLoaded) {
+      _posLoaded = true;
+      SharedPreferences.getInstance().then((prefs) {
+        final v = prefs.getString(_posPref);
+        if (v == null) return;
+        final parts = v.split(',');
+        if (parts.length != 2) return;
+        final x = double.tryParse(parts[0]);
+        final y = double.tryParse(parts[1]);
+        if (x != null && y != null && mounted) setState(() => _pos = Offset(x, y));
+      });
+    }
+  }
+
+  static Future<void> _savePos() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final p = _pos;
+      if (p == null) {
+        await prefs.remove(_posPref);
+      } else {
+        await prefs.setString(_posPref, '${p.dx},${p.dy}');
+      }
+    } catch (_) {}
+  }
+
+  RenderBox? get _pageBox => context.findRenderObject() as RenderBox?;
+  RenderBox? get _barBox =>
+      _barKey.currentContext?.findRenderObject() as RenderBox?;
+
+  /// Pixel top-left of the bar right now, from its render box.
+  Offset? _currentTopLeft() {
+    final page = _pageBox;
+    final bar = _barBox;
+    if (page == null || bar == null || !page.hasSize || !bar.hasSize) return null;
+    return page.globalToLocal(bar.localToGlobal(Offset.zero));
+  }
+
+  /// Keeps the bar inside the page box; [center] puts it in the middle
+  /// horizontally when it would run off the right edge (the folded dot is
+  /// narrow and may sit where the unfolded bar cannot).
+  Offset _clamp(Offset topLeft, {bool center = false}) {
+    final page = _pageBox;
+    final bar = _barBox;
+    if (page == null || bar == null || !page.hasSize || !bar.hasSize) {
+      return topLeft;
+    }
+    final maxX = (page.size.width - bar.size.width).clamp(0.0, double.infinity);
+    final maxY = (page.size.height - bar.size.height).clamp(0.0, double.infinity);
+    var x = topLeft.dx;
+    if (center && x > maxX) x = maxX / 2;
+    return Offset(x.clamp(0.0, maxX), topLeft.dy.clamp(0.0, maxY));
+  }
+
+  void _setPosPx(Offset topLeft, {bool center = false}) {
+    final page = _pageBox;
+    if (page == null || !page.hasSize) return;
+    final c = _clamp(topLeft, center: center);
+    setState(() => _pos = Offset(c.dx / page.size.width, c.dy / page.size.height));
+  }
+
+  void _onDragStart(LongPressStartDetails d) {
+    final tl = _currentTopLeft();
+    if (tl == null) return;
+    _dragOrigin = tl;
+    _dragStart = d.globalPosition;
+    HapticFeedback.selectionClick();
+    service.logUi('barDragStart');
+  }
+
+  void _onDragMove(LongPressMoveUpdateDetails d) {
+    final origin = _dragOrigin;
+    final start = _dragStart;
+    if (origin == null || start == null) return;
+    _setPosPx(origin + (d.globalPosition - start));
+  }
+
+  void _onDragEnd(LongPressEndDetails d) {
+    _dragOrigin = null;
+    _dragStart = null;
+    _savePos();
+  }
+
+  /// After the bar unfolds it may be wider than the room to its right:
+  /// once laid out, pull it back onto the page (to the centre).
+  void _unfold() {
+    setState(() => _collapsed = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _pos == null) return;
+      final tl = _currentTopLeft();
+      if (tl == null) return;
+      final page = _pageBox;
+      final bar = _barBox;
+      if (page == null || bar == null) return;
+      if (tl.dx + bar.size.width > page.size.width + 0.5 ||
+          tl.dy + bar.size.height > page.size.height + 0.5) {
+        _setPosPx(tl, center: true);
+        _savePos();
+      }
+    });
+  }
+
+  /// Places [child] at the saved spot, or bottom centre by default.
+  Widget _place(Widget child) {
+    final page = _pageBox;
+    final p = _pos;
+    final movable = GestureDetector(
+      key: _barKey,
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: _onDragStart,
+      onLongPressMoveUpdate: _onDragMove,
+      onLongPressEnd: _onDragEnd,
+      child: child,
+    );
+    if (p == null || page == null || !page.hasSize) {
+      return Stack(
+        children: [
+          Positioned(
+            left: 6,
+            right: 6,
+            bottom: page != null && page.hasSize ? page.size.height * 0.006 : 6,
+            child: Center(child: movable),
+          ),
+        ],
+      );
+    }
+    return Stack(
+      children: [
+        Positioned(
+          left: p.dx * page.size.width,
+          top: p.dy * page.size.height,
+          child: movable,
+        ),
+      ],
+    );
+  }
+
   static const Color _gold = Color(0xFF8A6D2F);
   static const Color _good = Color(0xFF2E7D32);
   static const Color _wrong = Color(0xFFB3261E);
@@ -420,11 +569,10 @@ class _SessionBarState extends State<_SessionBar> {
         if (_collapsed) {
           // Folded: a dot that still shows the mic level and turns red on
           // a mistake; tap to unfold.
-          return Align(
-            alignment: AlignmentDirectional.bottomStart,
-            child: GestureDetector(
+          return _place(
+            GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => setState(() => _collapsed = false),
+              onTap: _unfold,
               child: Container(
                 margin: const EdgeInsets.fromLTRB(10, 12, 10, 2),
                 padding: const EdgeInsets.symmetric(
@@ -451,19 +599,20 @@ class _SessionBarState extends State<_SessionBar> {
         // The pad around the bar swallows the taps that just miss a button:
         // they used to fall through to the page and pull the app's menus up
         // over the bar.
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => service.logUi('barMiss'),
-          onLongPress: () {},
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
-            child: _bar(
-              context,
-              status,
-              message,
-              messageColor,
-              listening,
-              completed,
+        return _place(
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => service.logUi('barMiss'),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
+              child: _bar(
+                context,
+                status,
+                message,
+                messageColor,
+                listening,
+                completed,
+              ),
             ),
           ),
         );

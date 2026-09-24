@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/tasmee_report_store.dart';
 import 'hifz_palette.dart';
+import 'tasmee_guide_sheet.dart';
 
 /// «تقوية الحفظ» (the strengthening drills) is hidden for now: a drill can
 /// open on a fully covered page with nothing to start from. Mistakes are
@@ -126,6 +127,13 @@ Future<void> showHifzToolsSheet(
               ),
               const _AlertModeTile(),
               tile(
+                icon: Icons.help_outline_rounded,
+                title: 'شرح التسميع',
+                subtitle: 'كيف يعمل، وما يفعله كل زر في شريط التسميع.',
+                active: false,
+                onTap: () => showTasmeeGuide(context),
+              ),
+              tile(
                 icon: Icons.receipt_long_rounded,
                 title: 'سجلات التسميع',
                 subtitle: 'كل جلسة تُسجَّل تلقائيًا (الصوت وسجل القرارات). '
@@ -152,49 +160,74 @@ class _AlertModeTile extends StatefulWidget {
   State<_AlertModeTile> createState() => _AlertModeTileState();
 }
 
+/// «تنبيهات»: how a mistake and a correction are signalled, side by side,
+/// so the session can be followed without looking at the screen.
 class _AlertModeTileState extends State<_AlertModeTile> {
-  TasmeeAlertMode? _mode;
+  final Map<TasmeeAlertKind, TasmeeAlertMode> _modes = {};
 
   @override
   void initState() {
     super.initState();
-    TasmeeAlert.mode().then((m) {
-      if (mounted) setState(() => _mode = m);
-    });
+    for (final k in TasmeeAlertKind.values) {
+      TasmeeAlert.mode(kind: k).then((m) {
+        if (mounted) setState(() => _modes[k] = m);
+      });
+    }
+  }
+
+  Widget _choice(HifzPalette p, TasmeeAlertKind kind, String title) {
+    final mode = _modes[kind] ?? TasmeeAlertMode.vibrate;
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: TextStyle(color: p.sub, fontSize: 12.5)),
+          DropdownButton<TasmeeAlertMode>(
+            value: mode,
+            isExpanded: true,
+            dropdownColor: p.raised,
+            underline: const SizedBox.shrink(),
+            iconEnabledColor: p.title,
+            items: [
+              for (final m in TasmeeAlertMode.values)
+                DropdownMenuItem(
+                  value: m,
+                  child: Text(
+                    TasmeeAlert.label(m),
+                    style: TextStyle(color: p.text, fontSize: 13),
+                  ),
+                ),
+            ],
+            onChanged: (m) async {
+              if (m == null) return;
+              await TasmeeAlert.setMode(m, kind: kind);
+              if (mounted) setState(() => _modes[kind] = m);
+              TasmeeAlert.fire(kind: kind); // a taste of the choice
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final p = HifzPalette.of(context);
-    final mode = _mode ?? TasmeeAlertMode.vibrate;
     return ListTile(
       leading: Icon(Icons.vibration_rounded, color: p.title, size: 28),
       title: Text(
-        'تنبيه الخطأ في التسميع',
+        'تنبيهات',
         style: TextStyle(color: p.title, fontSize: 17, fontWeight: FontWeight.bold, fontFamily: 'Tajawal'),
       ),
-      subtitle: Text(
-        'الحالي: ${TasmeeAlert.label(mode)} — اضغط للتغيير',
-        style: TextStyle(color: p.sub, fontSize: 13),
-      ),
-      trailing: DropdownButton<TasmeeAlertMode>(
-        value: mode,
-        dropdownColor: p.raised,
-        underline: const SizedBox.shrink(),
-        iconEnabledColor: p.title,
-        items: [
-          for (final m in TasmeeAlertMode.values)
-            DropdownMenuItem(
-              value: m,
-              child: Text(TasmeeAlert.label(m), style: TextStyle(color: p.text, fontSize: 13)),
-            ),
-        ],
-        onChanged: (m) async {
-          if (m == null) return;
-          await TasmeeAlert.setMode(m);
-          if (mounted) setState(() => _mode = m);
-          TasmeeAlert.fire();
-        },
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            _choice(p, TasmeeAlertKind.mistake, 'عند الخطأ'),
+            const SizedBox(width: 12),
+            _choice(p, TasmeeAlertKind.corrected, 'عند التصويب'),
+          ],
+        ),
       ),
     );
   }

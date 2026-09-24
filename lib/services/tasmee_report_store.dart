@@ -28,7 +28,9 @@ class TasmeeError {
   final String heard;
 
   String get kindLabel => switch (kind) {
-        'hafs' => 'قراءة حفص بدل قالون',
+        // A reading of another riwaya: the user is told only that the word
+        // was not heard right (owner: never name another riwaya).
+        'hafs' => 'لم تُسمع صحيحة',
         'word' => 'كلمة أخرى',
         'extra' => 'كلمة زائدة',
         'skipped' => 'كلمة متروكة',
@@ -151,9 +153,20 @@ class TasmeeReportStore {
 /// How the app signals a mistake during Tasmee.
 enum TasmeeAlertMode { vibrateAndSound, vibrate, sound, none }
 
+/// What an alert is for: a mistake (a firm double buzz / the alert tone) or
+/// a mistake just put right (one soft pulse / a soft chime), so the session
+/// can be followed without looking at the screen.
+enum TasmeeAlertKind { mistake, corrected }
+
 class TasmeeAlert {
-  static const String _pref = 'tasmee_alert_mode';
-  static TasmeeAlertMode _mode = TasmeeAlertMode.vibrate;
+  static const Map<TasmeeAlertKind, String> _prefs = {
+    TasmeeAlertKind.mistake: 'tasmee_alert_mode',
+    TasmeeAlertKind.corrected: 'tasmee_alert_ok_mode',
+  };
+  static final Map<TasmeeAlertKind, TasmeeAlertMode> _modes = {
+    TasmeeAlertKind.mistake: TasmeeAlertMode.vibrate,
+    TasmeeAlertKind.corrected: TasmeeAlertMode.vibrate,
+  };
   static bool _loaded = false;
 
   static String label(TasmeeAlertMode m) => switch (m) {
@@ -163,26 +176,33 @@ class TasmeeAlert {
         TasmeeAlertMode.none => 'بلا تنبيه',
       };
 
-  static Future<TasmeeAlertMode> mode() async {
+  static Future<TasmeeAlertMode> mode({
+    TasmeeAlertKind kind = TasmeeAlertKind.mistake,
+  }) async {
     if (!_loaded) {
       try {
         final prefs = await SharedPreferences.getInstance();
-        final i = prefs.getInt(_pref);
-        if (i != null && i >= 0 && i < TasmeeAlertMode.values.length) {
-          _mode = TasmeeAlertMode.values[i];
+        for (final k in TasmeeAlertKind.values) {
+          final i = prefs.getInt(_prefs[k]!);
+          if (i != null && i >= 0 && i < TasmeeAlertMode.values.length) {
+            _modes[k] = TasmeeAlertMode.values[i];
+          }
         }
       } catch (_) {}
       _loaded = true;
     }
-    return _mode;
+    return _modes[kind]!;
   }
 
-  static Future<void> setMode(TasmeeAlertMode m) async {
-    _mode = m;
-    _loaded = true;
+  static Future<void> setMode(
+    TasmeeAlertMode m, {
+    TasmeeAlertKind kind = TasmeeAlertKind.mistake,
+  }) async {
+    await mode(); // load the other kind first, so it is not lost
+    _modes[kind] = m;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_pref, m.index);
+      await prefs.setInt(_prefs[kind]!, m.index);
     } catch (_) {}
   }
 
@@ -192,12 +212,17 @@ class TasmeeAlert {
   /// itself (not the system's touch-feedback setting, which many phones
   /// switch off) and a bundled tone on the media stream that neither takes
   /// audio focus nor stops the microphone.
-  static Future<void> fire() async {
-    final m = await mode();
+  static Future<void> fire({
+    TasmeeAlertKind kind = TasmeeAlertKind.mistake,
+  }) async {
+    final m = await mode(kind: kind);
+    final corrected = kind == TasmeeAlertKind.corrected;
     if (m == TasmeeAlertMode.vibrate || m == TasmeeAlertMode.vibrateAndSound) {
       try {
         if (await Vibration.hasVibrator()) {
-          await Vibration.vibrate(pattern: [0, 140, 90, 140]);
+          await Vibration.vibrate(
+            pattern: corrected ? [0, 60] : [0, 140, 90, 140],
+          );
         }
       } catch (e) {
         debugPrint('TasmeeAlert: vibrate failed: $e');
@@ -221,7 +246,10 @@ class TasmeeAlert {
           ),
         ));
         await player.stop();
-        await player.play(AssetSource('audio/tasmee_alert.wav'), volume: 1.0);
+        await player.play(
+          AssetSource(corrected ? 'audio/tasmee_ok.wav' : 'audio/tasmee_alert.wav'),
+          volume: corrected ? 0.6 : 1.0,
+        );
       } catch (e) {
         debugPrint('TasmeeAlert: tone failed: $e');
       }

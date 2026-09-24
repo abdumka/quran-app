@@ -61,6 +61,7 @@ import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
+import 'widgets/hifz/tasmee_guide_sheet.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
@@ -3609,6 +3610,11 @@ class _QuranPagesState extends State<QuranPages>
       if (!await AsrModelManager.instance.refresh()) return;
       if (!mounted) return;
     }
+
+    // The first time: what the feature does and what the bar's buttons do.
+    if (!mounted) return;
+    await showTasmeeGuideOnce(context);
+    if (!mounted) return;
 
     // Rotating to portrait and loading the recognition model take a second
     // or three with nothing to see: say so, and keep stray taps off the page.

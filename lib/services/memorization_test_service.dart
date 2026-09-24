@@ -284,8 +284,7 @@ class MemorizationTestService {
       case 'extra':
         return PagePhonemeService.textFor(heardPhonemes) ?? '';
       case 'hafs':
-        return PagePhonemeService.textFor(heardPhonemes) ??
-            phonemesToArabic(heardPhonemes);
+        return ''; // never name another riwaya to the user
       default:
         return '';
     }
@@ -729,6 +728,8 @@ class MemorizationTestService {
             'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
             'stubReason': stubReason.value.name,
             'alertMode': (await TasmeeAlert.mode()).name,
+            'alertOkMode':
+                (await TasmeeAlert.mode(kind: TasmeeAlertKind.corrected)).name,
             'ayahs': [
               for (final a in page.ayahs) '${a.surah}:${a.ayah}',
             ],
@@ -1717,6 +1718,9 @@ class MemorizationTestService {
   void _releaseHold(String how) {
     if (_holdWord < 0) return;
     _recorder?.log('holdReleased', {'word': _holdWord, 'how': how, 'hard': _holdHard});
+    // The reciter put the word right: a soft signal, so the session can be
+    // followed without looking.
+    if (how == 'repaired') TasmeeAlert.fire(kind: TasmeeAlertKind.corrected);
     if (feedback.value?.kind == FeedbackKind.wrong) _setFeedback(null);
     _tracker?.maxCell = null;
     _holdWord = -1;

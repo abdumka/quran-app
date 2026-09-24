@@ -76,6 +76,7 @@ flutter:
     - assets/data/page_phonemes.json
     - assets/data/phoneme_lexicon.json
     - assets/audio/tasmee_alert.wav
+    - assets/audio/tasmee_ok.wav
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
   
