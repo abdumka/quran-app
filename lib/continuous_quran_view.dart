@@ -10,6 +10,7 @@ import 'utils/responsive_helper.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
+import 'widgets/quran/selected_ayah_highlight.dart';
 
 class ContinuousQuranView extends StatefulWidget {
   const ContinuousQuranView({
@@ -680,6 +681,12 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                                           Theme.of(context).brightness ==
                                           Brightness.dark,
                                     ),
+                                  SelectedAyahHighlight(
+                                    pageNumber: index + 1,
+                                    dark:
+                                        Theme.of(context).brightness ==
+                                        Brightness.dark,
+                                  ),
                                 ],
                               ),
                             ),

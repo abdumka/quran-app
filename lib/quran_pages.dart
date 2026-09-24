@@ -21,6 +21,7 @@ import 'widgets/tv/tv_remote_guide.dart';
 import 'widgets/tv/tv_settings_page.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
+import 'widgets/quran/selected_ayah_highlight.dart';
 import 'services/memorization_test_service.dart';
 import 'services/asr_model_manager.dart';
 import 'continuous_quran_view.dart';
@@ -1391,7 +1392,12 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  Future<void> _showTafsirDialog(int pageIndex) async {
+  /// Opens the tafsir sheet on [pageIndex]; with [initialAyah] it starts on
+  /// that ayah's row instead of the top of the page.
+  Future<void> _showTafsirDialog(
+    int pageIndex, {
+    (int, int)? initialAyah,
+  }) async {
     if (!mounted) return;
 
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -1430,6 +1436,7 @@ class _QuranPagesState extends State<QuranPages>
       builder: (sheetContext) {
         return _TafsirSheetContent(
           initialPageIndex: pageIndex,
+          initialAyah: initialAyah,
           backgroundColor: backgroundColor,
           borderColor: borderColor,
           textColor: textColor,
@@ -1849,6 +1856,169 @@ class _QuranPagesState extends State<QuranPages>
       _showBookmarkNotice = false;
     });
     await _persistBookmarks();
+  }
+
+  /// A long press on a page. On an ayah it tints the ayah and offers a
+  /// bookmark there or its tafsir; anywhere else (margins, surah headers) it
+  /// drops a bookmark straight away, as it always did.
+  ///
+  /// [x]/[y] are in the long-pressed box of [sourceWidth]×[sourceHeight] (the
+  /// bookmark's coordinate space); [imageInset] is where the page image box
+  /// starts inside it, [imageSize] that box's size.
+  Future<void> _handlePageLongPress(
+    int page,
+    double x,
+    double y, {
+    required double sourceWidth,
+    required double sourceHeight,
+    Offset imageInset = Offset.zero,
+    Size? imageSize,
+  }) async {
+    final size = imageSize ?? Size(sourceWidth, sourceHeight);
+    final ratio = Offset(
+      (x - imageInset.dx) / size.width,
+      (y - imageInset.dy) / size.height,
+    );
+    final hit = await SelectedAyahHighlight.hitTest(
+      page + 1,
+      ratio,
+      marginView: _usesMarginImage(page),
+    );
+    if (!mounted) return;
+    if (hit == null) {
+      await _promptSaveBookmark(
+        page,
+        x,
+        y,
+        sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight,
+      );
+      return;
+    }
+    HapticFeedback.selectionClick();
+    SelectedAyahHighlight.selected.value = SelectedAyah(
+      pageNumber: page + 1,
+      surah: hit.$1,
+      ayah: hit.$2,
+    );
+    final action = await _showAyahActionsSheet(hit.$1, hit.$2);
+    if (!mounted) return;
+    switch (action) {
+      case _AyahAction.bookmark:
+        await _promptSaveBookmark(
+          page,
+          x,
+          y,
+          sourceWidth: sourceWidth,
+          sourceHeight: sourceHeight,
+        );
+      case _AyahAction.tafsir:
+        await _showTafsirDialog(page, initialAyah: hit);
+      case null:
+        break;
+    }
+    SelectedAyahHighlight.selected.value = null;
+  }
+
+  Future<_AyahAction?> _showAyahActionsSheet(int surah, int ayah) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDarkMode
+        ? const Color(0xFF19130A)
+        : const Color(0xFFF8F1DE);
+    final borderColor = isDarkMode
+        ? const Color(0xFFD6B35D).withValues(alpha: 0.55)
+        : const Color(0xFFE2D2A5);
+    final titleColor = isDarkMode
+        ? const Color(0xFFFFF4D6)
+        : const Color(0xFF35250E);
+    final accentColor = isDarkMode
+        ? const Color(0xFFD6B35D)
+        : const Color(0xFF8D6E3F);
+    final surahName = surahList
+        .firstWhere((s) => s['number'] == surah, orElse: () => const {})['name']
+        ?.toString();
+    return showModalBottomSheet<_AyahAction>(
+      context: context,
+      backgroundColor: backgroundColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        side: BorderSide(color: borderColor, width: 2),
+      ),
+      builder: (sheetContext) {
+        Widget option({
+          required Widget icon,
+          required String label,
+          required _AyahAction action,
+        }) {
+          return ListTile(
+            onTap: () => Navigator.of(sheetContext).pop(action),
+            leading: IconTheme(
+              data: IconThemeData(color: accentColor, size: 28),
+              child: icon,
+            ),
+            title: Text(
+              label,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: titleColor,
+              ),
+            ),
+          );
+        }
+
+        return SafeArea(
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: borderColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  surahName == null
+                      ? 'الآية $ayah'
+                      : 'سورة $surahName - الآية $ayah',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: titleColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                option(
+                  icon: const Icon(Icons.bookmark_add_rounded),
+                  label: 'إضافة علامة هنا',
+                  action: _AyahAction.bookmark,
+                ),
+                option(
+                  icon: Image.asset(
+                    'assets/images/tafsir_icon.png',
+                    width: 28,
+                    height: 28,
+                    color: accentColor,
+                    errorBuilder: (_, _, _) =>
+                        const Icon(Icons.menu_book_rounded),
+                  ),
+                  label: 'تفسير الآية',
+                  action: _AyahAction.tafsir,
+                ),
+                const SizedBox(height: 6),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _promptSaveBookmark(
@@ -4284,12 +4454,18 @@ class _QuranPagesState extends State<QuranPages>
                           final local = box.globalToLocal(
                             details.globalPosition,
                           );
-                          _promptSaveBookmark(
+                          // The image box sits inside the margin-safe inset.
+                          final inset = useMarginSafeInset
+                              ? const EdgeInsets.fromLTRB(4, 2, 4, 4)
+                              : EdgeInsets.zero;
+                          _handlePageLongPress(
                             pageIndex,
                             local.dx,
                             local.dy,
                             sourceWidth: box.size.width,
                             sourceHeight: box.size.height,
+                            imageInset: inset.topLeft,
+                            imageSize: inset.deflateSize(box.size),
                           );
                         }
                       },
@@ -4336,6 +4512,13 @@ class _QuranPagesState extends State<QuranPages>
                                     Theme.of(context).brightness ==
                                     Brightness.dark,
                               ),
+                            SelectedAyahHighlight(
+                              pageNumber: pageIndex + 1,
+                              marginView: _usesMarginImage(pageIndex),
+                              dark:
+                                  Theme.of(context).brightness ==
+                                  Brightness.dark,
+                            ),
                           ],
                         ),
                       ),
@@ -4409,7 +4592,7 @@ class _QuranPagesState extends State<QuranPages>
                       final box = context.findRenderObject() as RenderBox?;
                       if (box != null) {
                         final local = box.globalToLocal(details.globalPosition);
-                        _promptSaveBookmark(
+                        _handlePageLongPress(
                           pageIndex,
                           local.dx,
                           local.dy,
@@ -4448,6 +4631,12 @@ class _QuranPagesState extends State<QuranPages>
                             dark:
                                 Theme.of(context).brightness == Brightness.dark,
                           ),
+                        SelectedAyahHighlight(
+                          pageNumber: pageIndex + 1,
+                          marginView: _usesMarginImage(pageIndex),
+                          dark:
+                              Theme.of(context).brightness == Brightness.dark,
+                        ),
                       ],
                     ),
                   ),
@@ -4609,7 +4798,7 @@ class _QuranPagesState extends State<QuranPages>
                     _hideTopBarAfterNavigation();
                   },
                   onSaveBookmark: (page, x, y, width, height) {
-                    _promptSaveBookmark(
+                    _handlePageLongPress(
                       page,
                       x,
                       y,
@@ -8519,6 +8708,9 @@ class _MeasureSizeRenderObject extends RenderProxyBox {
 /// What a per-ayah copy action in the tafsir sheet puts on the clipboard.
 enum _TafsirCopyMode { ayah, tafsir, both }
 
+/// What the reader picked from the long-pressed ayah's menu.
+enum _AyahAction { bookmark, tafsir }
+
 /// Stateful Tafsir sheet with page navigation.
 class _TafsirSheetContent extends StatefulWidget {
   final int initialPageIndex;
@@ -8529,6 +8721,10 @@ class _TafsirSheetContent extends StatefulWidget {
   final Color accentColor;
   final ValueChanged<int> onPageChanged;
 
+  /// (surah, ayah) to open on, when the sheet was reached by long-pressing
+  /// an ayah; the page's other ayat stay above and below it.
+  final (int, int)? initialAyah;
+
   const _TafsirSheetContent({
     required this.initialPageIndex,
     required this.backgroundColor,
@@ -8537,6 +8733,7 @@ class _TafsirSheetContent extends StatefulWidget {
     required this.titleColor,
     required this.accentColor,
     required this.onPageChanged,
+    this.initialAyah,
   });
 
   @override
@@ -8548,13 +8745,42 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
   List<Map<String, dynamic>> _tafsirData = [];
   bool _isLoading = false;
 
+  /// Row the sheet still has to scroll to once it is laid out; consumed on
+  /// the first page load, so page turns start at the top as before.
+  (int, int)? _pendingAyah;
+  final GlobalKey _pendingAyahKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
     _currentPage = widget.initialPageIndex;
+    _pendingAyah = widget.initialAyah;
     // Switching tafsir edition from the header picker reloads the current page.
     TafsirEditionService.instance.selected.addListener(_onEditionChanged);
     _loadTafsir(_currentPage);
+  }
+
+  bool _isPendingAyah(Map<String, dynamic> data) {
+    final p = _pendingAyah;
+    return p != null && data['surah'] == p.$1 && data['ayahNumber'] == p.$2;
+  }
+
+  /// Brings the long-pressed ayah to the top of the list. The keyed row is
+  /// built eagerly (see `cacheExtent` on the list), so it has a context to
+  /// scroll to on the frame after the data lands.
+  void _scrollToPendingAyah() {
+    if (_pendingAyah == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _pendingAyahKey.currentContext;
+      _pendingAyah = null;
+      if (ctx == null || !mounted) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   @override
@@ -8667,6 +8893,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
       _tafsirData = data;
       _isLoading = false;
     });
+    _scrollToPendingAyah();
   }
 
   void _goToPage(int newPage) {
@@ -8975,12 +9202,21 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                               horizontal: 16,
                               vertical: 8,
                             ),
+                            // Opening on a given ayah scrolls to its row, which
+                            // must therefore exist: a page holds at most a few
+                            // dozen rows, so building them all up front is cheap.
+                            scrollCacheExtent: _pendingAyah == null
+                                ? null
+                                : const ScrollCacheExtent.pixels(1e6),
                             itemCount: _tafsirData.length,
                             separatorBuilder: (_, _) =>
                                 const Divider(height: 32),
                             itemBuilder: (context, index) {
                               final data = _tafsirData[index];
                               return Column(
+                                key: _isPendingAyah(data)
+                                    ? _pendingAyahKey
+                                    : null,
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Row(

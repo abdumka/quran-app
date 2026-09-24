@@ -154,6 +154,7 @@ class TafsirService {
       }
 
       tafsirList.add({
+        'surah': ayah.surah,
         'surahName': ayah.surahName,
         'ayahNumber': ayah.ayah,
         'ayahText': ayah.text,
@@ -217,6 +218,7 @@ class TafsirService {
             (text != null && text.trim().isNotEmpty) ? text : 'تفسير غير متوفر';
       }
       tafsirList.add({
+        'surah': ayah.surah,
         'surahName': ayah.surahName,
         'ayahNumber': ayah.ayah,
         'ayahText': ayah.text,

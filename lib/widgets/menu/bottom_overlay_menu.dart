@@ -153,12 +153,22 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
   }
 
   /// Android TV ([showSettingsItem]): main's bar exactly. Everywhere else
-  /// the memorization tools (التسميع، تقوية الحفظ، وضع الحفظ) come first.
+  /// the memorization tools (التسميع، تقوية الحفظ، وضع الحفظ) come first and
+  /// التفسير is not in the bar: a touch reader reaches it by long-pressing
+  /// an ayah (which a remote cannot do, so the TV keeps the item).
+  static const List<String> touchItemLabels = [
+    'أدوات الحفظ',
+    'البحث',
+    'التلاوة',
+    'العلامات',
+    'الفهرس',
+  ];
+
   List<String> get _itemLabels => widget.showSettingsItem
       ? BottomOverlayMenu.tvItemLabels
-      : ['أدوات الحفظ', ...BottomOverlayMenu.tvItemLabels.sublist(0, 5)];
+      : touchItemLabels;
 
-  /// Six items share the width off-TV; the TV bar keeps its own spacing.
+  /// Five items share the width off-TV; the TV bar keeps its own spacing.
   Widget _wrapForBar(Widget item) =>
       widget.showSettingsItem ? item : Expanded(child: item);
 
@@ -212,6 +222,7 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
                           isSelected: _selectedItem == _itemLabels[i],
                           isTvFocused: widget.tvFocusedIndex == i,
                           compact: isLandscape,
+                          spacious: !widget.showSettingsItem,
                           onTap: () => _handleTap(_itemLabels[i]),
                         ),
                       ),
@@ -236,6 +247,10 @@ class _NavItem extends StatelessWidget {
   final bool isSelected;
   final bool isTvFocused;
   final bool compact;
+
+  /// Five items share the touch bar, so each gets room for a bigger glyph
+  /// and label than the six-item TV bar.
+  final bool spacious;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -246,6 +261,7 @@ class _NavItem extends StatelessWidget {
     this.isSelected = false,
     this.isTvFocused = false,
     this.compact = false,
+    this.spacious = false,
   }) : assert(icon != null || imagePath != null);
 
   @override
@@ -256,9 +272,11 @@ class _NavItem extends StatelessWidget {
     final color = (isSelected || isTvFocused)
         ? const Color(0xFFD2B97E)
         : const Color(0xFF888888);
-    final double iconSize = compact ? 22 : 30;
-    final double gap = compact ? 2 : 6;
-    final double fontSize = compact ? 10 : 13;
+    // Sized so 32 + 4 + the 14pt label + 16 of padding stay inside the
+    // 75 dp portrait bar.
+    final double iconSize = compact ? (spacious ? 24 : 22) : (spacious ? 32 : 30);
+    final double gap = compact ? 2 : (spacious ? 4 : 6);
+    final double fontSize = compact ? (spacious ? 11 : 10) : (spacious ? 14 : 13);
 
     return InkWell(
       onTap: onTap,
