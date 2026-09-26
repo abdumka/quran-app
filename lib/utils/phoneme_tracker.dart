@@ -114,6 +114,7 @@ class TrackerConfig {
     this.jumpCost = 12,
     this.repeatCost = 10,
     this.ayahJumpCost = 14,
+    this.heldRepeatCost = 3,
     this.farJumpCost = 28,
     this.startAyahCost = 6,
     this.lexiconDistance = 0.12,
@@ -134,6 +135,15 @@ class TrackerConfig {
   /// Jumping to the first word of the next or the previous ayah: a reciter
   /// who blanks and moves on, or goes back an ayah to regain the flow.
   final double ayahJumpCost;
+
+  /// Cost of restarting at [PhonemeTracker.heldWord]. A repeat costs
+  /// [repeatCost] (or [ayahJumpCost] from the next ayah), and once the
+  /// reciter has moved a few words past a mistake, matching the repeat
+  /// FORWARD with cheap substitutions costs less than that, so six clean
+  /// repeats of «ملك يوم الدين» were absorbed as progress through «إياك
+  /// نعبد…» and never judged. While a word is held, a restart there is
+  /// cheap: anything that fits that ayah is read as the repair attempt.
+  final double heldRepeatCost;
 
   /// Any other jump (into the middle of an ayah, several ayahs away): only
   /// when the recitation has strayed for a long stretch. Keeps a phrase
@@ -459,6 +469,11 @@ class PhonemeTracker {
   /// further down the page cannot carry the cursor on.
   int? maxCell;
 
+  /// The word the session is holding for a mistake, or null: restarting the
+  /// path there costs [PhonemeTrackerConfig.heldRepeatCost] instead of a
+  /// repeat or a jump (see there).
+  int? heldWord;
+
   late Float32List column;
 
   /// For every DP cell, where the best path into it last restarted: the
@@ -523,13 +538,14 @@ class PhonemeTracker {
   /// ayah, a move to the first word of the next or previous ayah, or a far
   /// jump anywhere else. Before the first phoneme every ayah start is cheap.
   double _restartCost(int i, int cursorAyah, int cursorPos, double repeat,
-      double ayahJump, double jump) {
+      double ayahJump, double jump, double held) {
     final w = reference.words[i];
     final m = reference.wordStart[i];
     if (cursorAyah < 0) {
       if (!startAnywhere) return i == startWord ? repeat : double.infinity;
       return w.wordInAyah == 0 ? ayahJump : jump;
     }
+    if (i == heldWord && m <= cursorPos) return held;
     // Once under way the recitation never jumps FORWARD: where it starts is
     // the only free choice (the start options live on in the DP column).
     // A similar phrase further down the page is an error here, not a move.
@@ -565,6 +581,7 @@ class PhonemeTracker {
     final jump = colMin + (started ? cfg.farJumpCost : cfg.jumpCost);
     final ayahJump = colMin + (started ? cfg.ayahJumpCost : cfg.startAyahCost);
     final repeat = colMin + cfg.repeatCost;
+    final held = colMin + cfg.heldRepeatCost;
     final cursorAyah =
         cursorLocalWord < 0 ? -1 : reference.words[cursorLocalWord].ayah;
     final cursorPos = cursorCell;
@@ -584,7 +601,7 @@ class PhonemeTracker {
     nextOH[0] = prevOC[0] == 0 ? g + 1 : prevOH[0];
     nextOC[0] = prevOC[0];
     if (reference.wordStart[0] == 0) {
-      final r = _restartCost(0, cursorAyah, cursorPos, repeat, ayahJump, jump);
+      final r = _restartCost(0, cursorAyah, cursorPos, repeat, ayahJump, jump, held);
       if (r < next[0]) {
         next[0] = r;
         nextOH[0] = g;
@@ -613,7 +630,7 @@ class PhonemeTracker {
     }
     for (var i = 0; i < reference.n; i++) {
       final m = reference.wordStart[i];
-      final restart = _restartCost(i, cursorAyah, cursorPos, repeat, ayahJump, jump);
+      final restart = _restartCost(i, cursorAyah, cursorPos, repeat, ayahJump, jump, held);
       if (restart < next[m]) {
         next[m] = restart;
         nextOH[m] = g;

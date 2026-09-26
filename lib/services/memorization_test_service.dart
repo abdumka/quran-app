@@ -1566,6 +1566,7 @@ class MemorizationTestService {
           skipHold == _ayahWordStarts[ayah] &&
           skipHold + skipRun >= _ayahWordStarts[ayah + 1];
       _holdWord = skipHold;
+      _tracker?.heldWord = _holdWord;
       _holdHard = hard;
       _wordsPastHold = 0;
       heldWord.value = _holdWord;
@@ -1598,6 +1599,7 @@ class MemorizationTestService {
         .fold<WordVerdict?>(null, (a, b) => a == null || b.word < a.word ? b : a);
     if (newMistake != null && (_holdWord < 0 || newMistake.word < _holdWord)) {
       _holdWord = newMistake.word;
+      _tracker?.heldWord = _holdWord;
       _holdNewAudioFrom =
           newMistake.reason == 'extra' ? (_tracker?.heard.length ?? -1) : -1;
       _holdReleaseAfter =
@@ -1723,6 +1725,7 @@ class MemorizationTestService {
     if (how == 'repaired') TasmeeAlert.fire(kind: TasmeeAlertKind.corrected);
     if (feedback.value?.kind == FeedbackKind.wrong) _setFeedback(null);
     _tracker?.maxCell = null;
+    _tracker?.heldWord = null;
     _holdWord = -1;
     _holdNewAudioFrom = -1;
     _holdReleaseAfter = _holdReleaseWords;
@@ -1740,7 +1743,8 @@ class MemorizationTestService {
     if (reference == null || _tracker == null) return;
     if (word < 0 || word >= reference.n) return;
     final tracker =
-        PhonemeTracker(reference, startAnywhere: false, startWord: word);
+        PhonemeTracker(reference, startAnywhere: false, startWord: word)
+          ..heldWord = _holdWord >= 0 ? _holdWord : null;
     if (barrier) {
       final ayah = _ayahIndexOfWord(word);
       if (ayah >= 0) {

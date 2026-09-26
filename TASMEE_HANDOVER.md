@@ -67,6 +67,11 @@ session does not start and a snackbar says why (`StubReason` kept its name).
   distance ≤ 0.3), a help button, or 12 correct words further on. **Nothing after a word with a
   `wrong` verdict is uncovered**, even while that verdict is still deferred (owner request,
   2026-09-21; fixture `test/fixtures/tasmee_p132_wrong_word.json` fails on the old code).
+- **Repair after moving on** (2026-09-26): while a word is held, restarting the DP path at it costs
+  `heldRepeatCost` 3 instead of a repeat (10) / ayah jump (14) — `PhonemeTracker.heldWord`, mirrored as
+  `held_word`. Before this, once the reciter had gone a few words past a mistake, a clean repeat of the
+  ayah was absorbed as FORWARD progress with cheap substitutions (six repeats of «ملك يوم الدين» on p1
+  never judged; `bestCell` kept climbing). Verified on that session in Python (`zipformer/debug_repeat.py`).
 - **Skips**: one skipped word = soft hold; two or more, or a whole ayah = hard stop (tracker
   rebuilt at the held word behind a barrier). A mistake hold hardens when the words after it
   come back skipped.

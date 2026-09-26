@@ -429,6 +429,28 @@ void main() {
     expect(service.heldWord.value, -1);
   });
 
+  test('a mistake corrected after moving on is still accepted', () async {
+    // The owner's 2026-09-26 session: «مالك» for «ملك», then on to «إياك
+    // نعبد», then six clean repeats of «ملك يوم الدين» that were never
+    // judged, because matching them forward with substitutions was cheaper
+    // for the tracker than restarting at the held word.
+    final engine = _PhonemeEngine();
+    await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+    engine.recite(ayah(0));
+    engine.recite(ayah(1));
+    final third = ayah(2); // ملك يوم الدين
+    final malik = firstWordOf(2);
+    engine.recite(['مَاالِكِ', ...third.skip(1)]);
+    engine.recite(ayah(3).take(2)); // إياك نعبد
+    await settle();
+    expect(service.heldWord.value, malik, reason: 'the Hafs reading is held');
+
+    engine.recite(third); // the correction, three words after moving on
+    await settle();
+    expect(service.heldWord.value, -1, reason: 'the repeat repaired it');
+    expect(service.statuses[malik], WordStatus.correct);
+  });
+
   test('repeat ayah at the top of a continued page goes back a page', () async {
     final engine = _PhonemeEngine();
     await service.start(pageNumber: 2, engineOverride: engine, stopPlayback: false);
