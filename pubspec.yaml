@@ -15,7 +15,7 @@ publish_to: 'none'
 # (arm64-v8a) and 4102 (x86_64). Play refuses any versionCode it has seen before
 # on any track, so a LOWER build number here silently becomes an unuploadable
 # APK — e.g. +30 would produce 1030/2030/4030, beneath the 4102 already built.
-version: 1.5.0+103
+version: 1.5.1+104
 
 environment:
   sdk: ^3.11.1
