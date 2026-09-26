@@ -39,7 +39,8 @@ class TasmeeSessionRecorder {
   TasmeeSessionRecorder._(this._dir, this._stem);
 
   static const String _keepPref = 'tasmee_log_keep_sessions';
-  static const int defaultKeep = 50;
+  // 10 sessions ≈ 60 MB of audio; the owner raises it on test phones.
+  static const int defaultKeep = 10;
   static const List<int> keepChoices = [5, 10, 20, 50, 100];
   static const int _sampleRate = 16000;
 

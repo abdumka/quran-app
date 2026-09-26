@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -84,8 +85,12 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
     ));
   }
 
+  /// Store builds carry no upload key (the owner ships without it), and then
+  /// there is no button at all: users share a session themselves if they
+  /// want to. Only a build made with the key shows the button.
   Widget _uploadButton(List<TasmeeSessionFiles> sessions, {Color? color}) {
     final upload = TasmeeUploadService.instance;
+    if (!upload.isConfigured) return const SizedBox.shrink();
     return ValueListenableBuilder<bool>(
       valueListenable: upload.busy,
       builder: (context, busy, _) => IconButton(
@@ -193,7 +198,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                       },
                     ),
                   ),
-                  if (!TasmeeUploadService.instance.isConfigured)
+                  if (!TasmeeUploadService.instance.isConfigured && kDebugMode)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                       child: Text(
