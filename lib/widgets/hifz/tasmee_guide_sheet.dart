@@ -155,112 +155,121 @@ Future<void> showTasmeeGuide(BuildContext context) {
             ),
             // The guide is longer than most screens: a scrollbar that is
             // always visible says so, instead of leaving the end unseen.
-            child: RawScrollbar(
+            // A scrollbar alone does not say "there is more": when the text
+            // is only a little taller than the sheet its thumb is almost as
+            // long as the track and reads as a border. So: a fade at the
+            // bottom with a bouncing arrow until the end has been reached.
+            child: _MoreBelow(
               controller: scroll,
-              thumbVisibility: true,
-              trackVisibility: true,
-              thickness: 7,
-              radius: const Radius.circular(4),
-              thumbColor: p.title,
-              trackColor: p.title.withValues(alpha: 0.15),
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: SingleChildScrollView(
+              color: p.bg,
+              arrowColor: p.title,
+              child: RawScrollbar(
                 controller: scroll,
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'كيف يعمل التسميع',
-                      style: TextStyle(
-                        color: p.title,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Tajawal',
+                thumbVisibility: true,
+                trackVisibility: true,
+                thickness: 7,
+                radius: const Radius.circular(4),
+                thumbColor: p.title,
+                trackColor: p.title.withValues(alpha: 0.15),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: SingleChildScrollView(
+                  controller: scroll,
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'كيف يعمل التسميع',
+                        style: TextStyle(
+                          color: p.title,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Tajawal',
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    para(
-                      'تُغطَّى كلمات الصفحة، فتقرأ من حفظك بصوت واضح قريبًا من '
-                      'الميكروفون، وكل كلمة تُقرأ صحيحة تنكشف. يمكنك البدء من أي '
-                      'آية في الصفحة.',
-                    ),
-                    para(
-                      'عند الخطأ يتوقف الكشف عند الكلمة وتُظلَّل بالأحمر مع اهتزاز؛ '
-                      'أعدها حتى تُقبل، أو استعن بأزرار الشريط. وعند اكتمال الصفحة '
-                      'ينتقل التسميع إلى الصفحة التالية من نفسه.',
-                    ),
-                    Text(
-                      'شريط التسميع',
-                      style: TextStyle(
-                        color: p.title,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Tajawal',
+                      const SizedBox(height: 10),
+                      para(
+                        'تُغطَّى كلمات الصفحة، فتقرأ من حفظك بصوت واضح قريبًا من '
+                        'الميكروفون، وكل كلمة تُقرأ صحيحة تنكشف. يمكنك البدء من أي '
+                        'آية في الصفحة.',
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Center(child: barPicture()),
-                    const SizedBox(height: 12),
-                    for (var i = 0; i < _items.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            badge(i + 1),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: RichText(
-                                text: TextSpan(
-                                  style: TextStyle(
-                                    color: p.text,
-                                    fontSize: 14,
-                                    height: 1.5,
-                                  ),
-                                  children: [
-                                    TextSpan(
-                                      text: '${_items[i].label}: ',
-                                      style: TextStyle(
-                                        color: p.title,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                      para(
+                        'عند الخطأ يتوقف الكشف عند الكلمة وتُظلَّل بالأحمر مع اهتزاز؛ '
+                        'أعدها حتى تُقبل، أو استعن بأزرار الشريط. وعند اكتمال الصفحة '
+                        'ينتقل التسميع إلى الصفحة التالية من نفسه.',
+                      ),
+                      Text(
+                        'شريط التسميع',
+                        style: TextStyle(
+                          color: p.title,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Tajawal',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Center(child: barPicture()),
+                      const SizedBox(height: 12),
+                      for (var i = 0; i < _items.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              badge(i + 1),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: TextStyle(
+                                      color: p.text,
+                                      fontSize: 14,
+                                      height: 1.5,
                                     ),
-                                    TextSpan(text: _items[i].what),
-                                  ],
+                                    children: [
+                                      TextSpan(
+                                        text: '${_items[i].label}: ',
+                                        style: TextStyle(
+                                          color: p.title,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      TextSpan(text: _items[i].what),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                      const SizedBox(height: 6),
+                      para(
+                        'اضغط مطوّلًا على الشريط لتحريكه إلى حيث لا يحجب النص. '
+                        'وتجد التنبيهات (اهتزاز أو صوت عند الخطأ وعند التصويب) '
+                        'وتقارير الجلسات في «أدوات الحفظ».',
                       ),
-                    const SizedBox(height: 6),
-                    para(
-                      'اضغط مطوّلًا على الشريط لتحريكه إلى حيث لا يحجب النص. '
-                      'وتجد التنبيهات (اهتزاز أو صوت عند الخطأ وعند التصويب) '
-                      'وتقارير الجلسات في «أدوات الحفظ».',
-                    ),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: p.title,
-                          foregroundColor: p.onTitle,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        child: const Text(
-                          'فهمت',
-                          style: TextStyle(
-                            fontSize: 15.5,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Tajawal',
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: p.title,
+                            foregroundColor: p.onTitle,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          child: const Text(
+                            'فهمت',
+                            style: TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Tajawal',
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -269,4 +278,92 @@ Future<void> showTasmeeGuide(BuildContext context) {
       );
     },
   );
+}
+
+/// Fades the bottom of [child] and bounces an arrow there while the
+/// scroll view can still go further down; both vanish at the end.
+class _MoreBelow extends StatefulWidget {
+  const _MoreBelow({
+    required this.controller,
+    required this.color,
+    required this.arrowColor,
+    required this.child,
+  });
+
+  final ScrollController controller;
+  final Color color;
+  final Color arrowColor;
+  final Widget child;
+
+  @override
+  State<_MoreBelow> createState() => _MoreBelowState();
+}
+
+class _MoreBelowState extends State<_MoreBelow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _bounce = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+  bool _more = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_check);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_check);
+    _bounce.dispose();
+    super.dispose();
+  }
+
+  void _check() {
+    if (!mounted || !widget.controller.hasClients) return;
+    final pos = widget.controller.position;
+    final more = pos.maxScrollExtent - pos.pixels > 8;
+    if (more != _more) setState(() => _more = more);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        widget.child,
+        if (_more)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 64,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [widget.color.withValues(alpha: 0), widget.color],
+                  ),
+                ),
+                alignment: Alignment.bottomCenter,
+                child: AnimatedBuilder(
+                  animation: _bounce,
+                  builder: (context, _) => Transform.translate(
+                    offset: Offset(0, -6 + 6 * _bounce.value),
+                    child: Icon(
+                      Icons.keyboard_double_arrow_down_rounded,
+                      color: widget.arrowColor,
+                      size: 30,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
