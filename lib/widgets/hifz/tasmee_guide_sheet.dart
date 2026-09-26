@@ -155,11 +155,15 @@ Future<void> showTasmeeGuide(BuildContext context) {
             ),
             // The guide is longer than most screens: a scrollbar that is
             // always visible says so, instead of leaving the end unseen.
-            child: Scrollbar(
+            child: RawScrollbar(
               controller: scroll,
               thumbVisibility: true,
-              thickness: 5,
-              radius: const Radius.circular(3),
+              trackVisibility: true,
+              thickness: 7,
+              radius: const Radius.circular(4),
+              thumbColor: p.title,
+              trackColor: p.title.withValues(alpha: 0.15),
+              padding: const EdgeInsets.symmetric(vertical: 8),
               child: SingleChildScrollView(
                 controller: scroll,
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
