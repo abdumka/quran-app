@@ -90,6 +90,8 @@ class MemorizationTestOverlay extends StatelessWidget {
             final margin = marginView ? service.wordMarginRect : null;
             if (marginView && margin == null) return cover;
             final map = _RatioMapper(width, height, margin);
+            final paper =
+                service.paperColor(marginView: marginView) ?? _paperColor;
 
             final masks = <MaskPiece>[];
             final frames = <Rect>[];
@@ -102,6 +104,7 @@ class MemorizationTestOverlay extends StatelessWidget {
                 wordStatuses: service.wordStatusesOf(i),
                 masks: masks,
                 frames: frames,
+                paper: paper,
               );
             }
 
@@ -139,6 +142,7 @@ class MemorizationTestOverlay extends StatelessWidget {
     required List<WordStatus> wordStatuses,
     required List<MaskPiece> masks,
     required List<Rect> frames,
+    required Color paper,
   }) {
     if (state == AyahRevealState.revealed) return;
 
@@ -159,7 +163,7 @@ class MemorizationTestOverlay extends StatelessWidget {
           WordStatus.skipped => _skippedMask,
           WordStatus.unclear => _unclearMask,
           WordStatus.revealed => _flaggedWash,
-          _ => _paperColor,
+          _ => paper,
         };
         final parts = wordBoxes[w].parts.isEmpty
             ? [wordBoxes[w].bounds]
@@ -194,10 +198,10 @@ class MemorizationTestOverlay extends StatelessWidget {
         case AyahRevealState.flagged:
           masks.add(MaskPiece(rect, _flaggedWash, unit));
         case AyahRevealState.current:
-          masks.add(MaskPiece(rect, _paperColor, unit));
+          masks.add(MaskPiece(rect, paper, unit));
           frames.add(rect);
         default:
-          masks.add(MaskPiece(rect, _paperColor, unit));
+          masks.add(MaskPiece(rect, paper, unit));
       }
     }
   }
@@ -258,12 +262,20 @@ class MemorizationMaskPainter extends CustomPainter {
   /// are currently masked; a word counts once however many parts it has.
   int get maskedUnits => masks.map((m) => m.unit).toSet().length;
 
+  /// Mask edges are feathered: the paper beside the ink is a little darker
+  /// than the paper between the lines, so a flat block with a hard edge
+  /// shows as a pale streak however well its colour is matched. The rect is
+  /// grown by the blur's reach first, so the ink underneath stays covered.
+  static const double _feather = 1.2;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..style = PaintingStyle.fill;
+    final paint = Paint()
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, _feather);
     for (final m in masks) {
       paint.color = m.color;
-      canvas.drawRect(m.rect, paint);
+      canvas.drawRect(m.rect.inflate(_feather), paint);
     }
     if (frames.isNotEmpty) {
       final stroke = Paint()
@@ -311,6 +323,10 @@ class _NextPageCover extends StatelessWidget {
       builder: (context, snap) {
         final regions = snap.data?.$1;
         final margin = marginView ? snap.data?.$2?.marginRect : null;
+        final paper = (marginView
+                ? snap.data?.$2?.marginPaper
+                : snap.data?.$2?.paper) ??
+            MemorizationTestOverlay._paperColor;
         if (regions == null || (marginView && margin == null)) {
           if (snap.connectionState == ConnectionState.done) {
             return const SizedBox.shrink(); // no geometry for this page
@@ -321,9 +337,9 @@ class _NextPageCover extends StatelessWidget {
                 horizontal: width * 0.04,
                 vertical: height * 0.03,
               ),
-              child: const ColoredBox(
-                color: MemorizationTestOverlay._paperColor,
-                child: SizedBox.expand(),
+              child: ColoredBox(
+                color: paper,
+                child: const SizedBox.expand(),
               ),
             ),
           );
@@ -338,7 +354,7 @@ class _NextPageCover extends StatelessWidget {
                   Rect.fromLTWH(r.x, r.y, r.width, r.height),
                   slackX: 0.006,
                 ),
-                MemorizationTestOverlay._paperColor,
+                paper,
                 unit,
               ),
         ];

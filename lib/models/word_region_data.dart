@@ -1,4 +1,4 @@
-import 'dart:ui' show Rect;
+import 'dart:ui' show Color, Rect;
 
 /// Where one word of an ayah sits on a mushaf page image (page-relative
 /// 0..1 ratios, `BoxFit.fill` convention like `AyahHighlightRect`).
@@ -105,11 +105,30 @@ class WordRegionPageData {
   /// too). Null when unknown; then the margin view gets no word masks.
   final Rect? marginRect;
 
+  /// The paper colour of this page's scan inside the text area, and of its
+  /// margin-view scan (tools/sample_paper.py). The masks are painted with
+  /// it; the scans differ enough (blue 187-227) that one fixed colour shows
+  /// as pale blocks on some pages. Null when not measured.
+  final Color? paper;
+  final Color? marginPaper;
+
   const WordRegionPageData({
     required this.page,
     required this.ayahs,
     this.marginRect,
+    this.paper,
+    this.marginPaper,
   });
+
+  static Color? _color(Object? rgb) {
+    if (rgb is! List || rgb.length != 3) return null;
+    return Color.fromARGB(
+      255,
+      (rgb[0] as num).toInt(),
+      (rgb[1] as num).toInt(),
+      (rgb[2] as num).toInt(),
+    );
+  }
 
   /// Pixel size of the page images every box is measured on.
   static const double imageWidth = 720;
@@ -134,6 +153,8 @@ class WordRegionPageData {
               (hw[2] as num).toDouble(),
               (hw[3] as num).toDouble(),
             ),
+      paper: _color(json['paper']),
+      marginPaper: _color(json['hwPaper']),
     );
   }
 }

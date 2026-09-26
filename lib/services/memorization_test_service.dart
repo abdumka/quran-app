@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' show Rect;
+import 'dart:ui' show Color, Rect;
 import 'dart:math' as math;
 
 import 'dart:io' show Platform;
@@ -397,6 +397,13 @@ class MemorizationTestService {
   Rect? get wordMarginRect => _wordMarginRect;
   Rect? _wordMarginRect;
 
+  /// The measured paper colour of the active page for the view shown, or
+  /// null when unknown (the overlay then uses its default).
+  Color? paperColor({required bool marginView}) =>
+      marginView ? _marginPaper : _paper;
+  Color? _paper;
+  Color? _marginPaper;
+
   /// Word boxes of ayah [ayahIndex] in reading order, or null when the page
   /// has no usable word geometry for it.
   List<WordBox>? wordBoxesFor(int ayahIndex) =>
@@ -532,6 +539,8 @@ class MemorizationTestService {
       final regions = await AyahRegionService.forPage(pageNumber);
       final wordRegions = await WordRegionService.forPage(pageNumber);
       _wordMarginRect = wordRegions?.marginRect;
+      _paper = wordRegions?.paper;
+      _marginPaper = wordRegions?.marginPaper;
       final pages = await QuranJsonService.loadQuranPages();
       if (token != _startToken) return false;
 
@@ -2125,6 +2134,8 @@ class MemorizationTestService {
       _regions = regions;
       _wordBoxes = _usableWordBoxes(wordRegions, page);
       _wordMarginRect = wordRegions?.marginRect;
+      _paper = wordRegions?.paper;
+      _marginPaper = wordRegions?.marginPaper;
       _page = page;
       _expectedWords = expectedWords;
       _ayahWordStarts = starts;

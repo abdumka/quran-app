@@ -206,7 +206,12 @@ pages worse on any measure. What was wrong (all in the original data too):
   may hang under the upper word when at most half as far from it as from the lower.
 - Tried and removed: an app-side "keep the marker circle clear" rule (uncovered letters on
   467 pages). The overlay's painter is the original code.
-Remaining: page 600 scores 2,772 px of "text" but renders clean (border lines counted); p267's
+Mask colour and edges (2026-09-26): `tools/sample_paper.py` stores per page `paper` / `hwPaper` (median
+paper RGB inside the ayah rects of the plain scan / the هوامش scan; blue channel varies 213-235 across
+pages) in word_masks.json; the overlay paints masks with it and feathers the edges (blur 1.2 px on a rect
+grown by the same), which removed the pale blocks/streaks the owner saw on p1 in the margin view. The
+margin placement of pages 1, 69, 289 was refitted on the text block (`tools/refit_hawamesh.py`, corr
+0.76/0.80/0.85 -> 0.96/0.98/0.97); `hawamesh_transform.json` updated. Remaining: page 600 scores 2,772 px of "text" but renders clean (border lines counted); p267's
 «كن» touches the banner rule. Review site `https://review.mushaf-qaloon.com`
 (`collect_mask_reports.py`), 28 reports, 2 open.
 
