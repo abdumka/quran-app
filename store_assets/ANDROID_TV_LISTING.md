@@ -9,7 +9,23 @@ notes live in the `android-tv-support` memory and in `lib/widgets/tv/`.
 | Play Console field | File | Spec |
 | --- | --- | --- |
 | TV banner | `store_assets/tv_banner_1280x720.png` | 1280×720 PNG, required |
-| TV screenshots | `store_assets/tv_screenshots/*.png` | 1920×1080 PNG, 16:9, 1–8 required |
+| TV screenshots | `store_assets/screenshots/tv/*.png` | 1920×1080 PNG, 16:9, 1–8 required |
+
+Screenshots for the other form factors sit beside the TV ones, one folder and
+filename prefix each, so a file is never ambiguous about where it belongs:
+
+| Play slot | Folder | Size |
+| --- | --- | --- |
+| Phone | `store_assets/screenshots/phone/` | 1080×2160 (2:1, Play's aspect cap) |
+| 7-inch tablet | `store_assets/screenshots/tablet7/` | 1920×1200 landscape |
+| 10-inch tablet | `store_assets/screenshots/tablet10/` | 2560×1600 landscape |
+| Android TV | `store_assets/screenshots/tv/` | 1920×1080 |
+
+**`store_assets/screenshots/` and `tools/capture_store_screenshots.py` are
+gitignored.** This repo is public, the PNGs are ~30 MB of regenerable output,
+and they go stale as soon as the UI moves. They are on the machine that built
+them; regenerate rather than hunting through git history. The capture script's
+own docstring has the emulator recipe.
 
 The in-app launcher banner is a different asset and is already shipped:
 `android/app/src/main/res/drawable-xhdpi/tv_banner.png`, exactly 320×180.

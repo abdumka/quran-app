@@ -135,3 +135,11 @@ asr_model_upload/
 # R2 upload credentials for Tasmee session logs (build with --dart-define-from-file=tools/r2_upload.json)
 tools/r2_upload.json
 tool/tasmee_r2.txt
+
+# Play Store screenshots and the script that captures them. Kept on disk for
+# whoever is filling in the Console listing, but deliberately untracked: this
+# repo is public, they are ~30 MB of regenerable PNGs, and they go stale the
+# moment the UI changes. Regenerate from a booted emulator rather than pulling
+# an old set out of git history.
+store_assets/screenshots/
+tools/capture_store_screenshots.py
