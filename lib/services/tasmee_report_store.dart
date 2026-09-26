@@ -237,11 +237,16 @@ class TasmeeAlert {
             usageType: AndroidUsageType.media,
             audioFocus: AndroidAudioFocus.none,
           ),
+          // The same category and options the recorder set on the shared
+          // session (record's IosRecordConfig defaults plus mixWithOthers),
+          // so playing the tone does not re-route or interrupt the mic.
           iOS: AudioContextIOS(
             category: AVAudioSessionCategory.playAndRecord,
             options: const {
               AVAudioSessionOptions.mixWithOthers,
               AVAudioSessionOptions.defaultToSpeaker,
+              AVAudioSessionOptions.allowBluetooth,
+              AVAudioSessionOptions.allowBluetoothA2DP,
             },
           ),
         ));

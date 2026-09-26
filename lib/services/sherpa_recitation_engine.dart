@@ -148,6 +148,12 @@ class SherpaRecitationEngine extends RecitationEngine {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
+        // iOS mutes haptics and system sounds while an app records unless
+        // told otherwise, which silenced the mistake alerts (vibration and
+        // tone) there. Android ignores this.
+        iosConfig: IosRecordConfig(
+          allowHapticsAndSystemSoundsDuringRecording: true,
+        ),
       ),
     );
     _micStartedAt = DateTime.now();
