@@ -162,6 +162,22 @@ class QuranApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           scrollBehavior: _AppScrollBehavior(),
+          // Android TV: reserve the overscan margin app-wide by folding it
+          // into MediaQuery's padding, which every SafeArea already reads. A
+          // TV can crop the outer edge of the picture, and controls sitting
+          // flush against it are simply not there for the viewer.
+          builder: TvService.instance.isTv
+              ? (context, child) {
+                  final media = MediaQuery.of(context);
+                  return MediaQuery(
+                    data: media.copyWith(
+                      padding: media.padding + kTvOverscanInsets,
+                      viewPadding: media.viewPadding + kTvOverscanInsets,
+                    ),
+                    child: child ?? const SizedBox.shrink(),
+                  );
+                }
+              : null,
           // Android TV: stop Select/Enter from ALSO being delivered to whatever
           // widget holds Flutter focus. Every TV screen drives the D-pad
           // explicitly through a HardwareKeyboard handler, and returning true

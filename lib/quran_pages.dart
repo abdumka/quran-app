@@ -6007,13 +6007,19 @@ class _QuranPagesState extends State<QuranPages>
           // SafeArea keeps the app clear of the system bars when they are
           // visible. In full screen mode the bars are hidden and the insets
           // are disabled so the whole screen shows the page.
+          //
+          // On TV the insets stay on regardless: there are no system bars to
+          // dodge, but MediaQuery's padding also carries the overscan margin
+          // (see kTvOverscanInsets), and a TV that crops its edges would take
+          // the top bar and the bottom menu with them.
+          final bool inset = !_isFullScreenMode || TvService.instance.isTv;
           return Container(
             color: bgColor,
             child: SafeArea(
-              left: !_isFullScreenMode,
-              top: !_isFullScreenMode,
-              right: !_isFullScreenMode,
-              bottom: !_isFullScreenMode,
+              left: inset,
+              top: inset,
+              right: inset,
+              bottom: inset,
               child: Stack(
                 children: [
                   scaffold,

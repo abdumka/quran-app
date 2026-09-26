@@ -1,11 +1,28 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+
+/// Margin Android TV asks every app to keep clear of the panel edge, because
+/// a TV may still overscan: the outermost band of the signal is cropped by the
+/// display and simply never reaches the viewer. Google's figure is 5% of each
+/// dimension, which on the 960x540 logical viewport a 1080p TV reports comes
+/// to 48 logical pixels horizontally and 27 vertically.
+///
+/// Applied once, app-wide, by adding it to MediaQuery's padding in main() --
+/// every SafeArea in the app then honours it with no per-screen changes. Full
+/// screen mode is the one place that needs a nudge: it disables its SafeArea
+/// to let the page reach the edges, which must not also throw the overscan
+/// margin away on TV.
+const EdgeInsets kTvOverscanInsets = EdgeInsets.symmetric(
+  horizontal: 48,
+  vertical: 27,
+);
 
 /// Human-visible marker for sideloaded TV builds. Downloader and the CDN both
 /// cache by URL, so "I installed it but nothing changed" is otherwise
 /// impossible to diagnose. Bump this with every APK you publish, and publish
 /// under a matching filename.
-const String kTvBuildStamp = 'TV build 20 — 2026-09-18';
+const String kTvBuildStamp = 'TV build 21 — 2026-09-26';
 
 /// Whether this process is running on an Android TV (leanback) device.
 ///

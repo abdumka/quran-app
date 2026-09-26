@@ -93,8 +93,8 @@ class TvRemoteGuide extends StatelessWidget {
                     ),
                     _row(
                       Icons.menu_rounded,
-                      'الأسهم داخل القائمة',
-                      'التنقل بين أزرار القائمة',
+                      'الأسهم داخل القائمة والفهرس',
+                      'التنقل بين العناصر · في الفهرس: السهم الأعلى للتبويبات',
                       textColor,
                     ),
                     _row(
