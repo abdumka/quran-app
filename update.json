@@ -1,7 +1,7 @@
 {
   "_comment": "Publish this file to https://raw.githubusercontent.com/abdumka/quran-app/main/update.json (the repo must be public). The app reads it on startup and from Settings > التحقق من وجود تحديث, and compares 'version'/'build' against the installed app. Set them to the LATEST released version: users on an older build get the update prompt; users already on it do not. Edit 'changes' for the changelog. Set 'mandatory': true to force the update (hides the 'Later' button and shows it every launch until updated). Per-platform keys (android/ios) override the shared top-level values; omit them to use the shared ones.",
   "version": "1.5.0",
-  "build": 104,
+  "build": 103,
   "mandatory": false,
   "changes": [
     "جديد: «التسميع» في «أدوات الحفظ». تُغطّى كلمات الصفحة وتقرأ من حفظك، مع تنبيه عند الخطأ وتقرير لكل صفحة. يعمل على جهازك دون إنترنت بعد تنزيل النموذج مرة واحدة.",
