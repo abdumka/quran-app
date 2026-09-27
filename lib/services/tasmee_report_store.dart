@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart' as session;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:vibration/vibration.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -218,6 +220,27 @@ class TasmeeAlert {
     final m = await mode(kind: kind);
     final corrected = kind == TasmeeAlertKind.corrected;
     if (m == TasmeeAlertMode.vibrate || m == TasmeeAlertMode.vibrateAndSound) {
+      if (!kIsWeb && Platform.isIOS) {
+        // iOS keeps haptics silent while the app records unless this is set;
+        // the recorder sets it, and it is set again here in case the session
+        // was reconfigured since. Then Apple's own feedback generator, which
+        // is the most dependable haptic on an iPhone, alongside the plugin.
+        try {
+          await session.AVAudioSession()
+              .setAllowHapticsAndSystemSoundsDuringRecording(true);
+        } catch (_) {}
+        try {
+          if (corrected) {
+            await HapticFeedback.lightImpact();
+          } else {
+            await HapticFeedback.heavyImpact();
+            await Future<void>.delayed(const Duration(milliseconds: 180));
+            await HapticFeedback.heavyImpact();
+          }
+        } catch (e) {
+          debugPrint('TasmeeAlert: haptic failed: $e');
+        }
+      }
       try {
         if (await Vibration.hasVibrator()) {
           await Vibration.vibrate(

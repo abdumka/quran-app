@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:isolate';
 import 'dart:math' as math;
 
+import 'dart:io' show Platform;
+
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
@@ -106,6 +109,16 @@ class ZipformerRecitationEngine extends RecitationEngine {
       ),
     );
     _micStartedAt = DateTime.now();
+    if (!kIsWeb && Platform.isIOS) {
+      // Set once more after the mic is live: the alerts (haptics and tone)
+      // stay muted on iOS while recording unless the session allows them.
+      try {
+        await AVAudioSession()
+            .setAllowHapticsAndSystemSoundsDuringRecording(true);
+      } catch (e) {
+        debugPrint('recitation engine: haptics-during-recording: $e');
+      }
+    }
     _micSub = micStream.listen((chunk) {
       _workerPort?.send(chunk);
       if (_audioController.hasListener) _audioController.add(chunk);

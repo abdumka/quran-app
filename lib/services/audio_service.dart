@@ -77,6 +77,18 @@ class AudioService {
   List<QuranAyahData> _playlistAyahs = [];
   List<AudioClip> _currentAyahClips = [];
   bool _isChangingPage = false;
+
+  /// Ayat advanced past in a row because they had no clip to play. A reciter
+  /// who joins ayat legitimately yields a few (Doukali up to 14 in a row);
+  /// far more than that means nothing is playable at all (offline with
+  /// nothing downloaded) and the recitation must stop, not race through the
+  /// mushaf highlighting ayah after ayah.
+  int _emptyAdvances = 0;
+  static const int _maxEmptyAdvances = 20;
+
+  static const String _offlineNotice =
+      'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة '
+      'من الإعدادات للاستماع دون اتصال.';
   // Guards against acting twice on a single finished file — see the
   // playerStateStream listener in init() for why it arrives more than once.
   bool _didHandleCompletion = false;
@@ -826,8 +838,28 @@ class AudioService {
       );
     }
 
+    // Timed scheme, and the surah's timing file could not be fetched (offline,
+    // nothing downloaded): every ayah of the surah would look silent, and the
+    // player used to step through them all in seconds, page after page.
+    // Stop here and say so instead.
+    if (_currentAyahClips.isEmpty &&
+        ReciterService.instance.selected.value.scheme ==
+            AudioScheme.timedSurah &&
+        SurahTimingsService.instance.cached(
+              ReciterService.instance.selected.value,
+              ayah.surah,
+            ) ==
+            null) {
+      _haltPlayback(_offlineNotice);
+      return;
+    }
+
     // Check if it's a "silent" ayah in Qalon but needs audio from previous file
     if (_currentAyahClips.isEmpty) {
+      if (++_emptyAdvances > _maxEmptyAdvances) {
+        _haltPlayback(_offlineNotice);
+        return;
+      }
       if (isManualSelection) {
         if (ayah.surah == 23 && ayah.ayah == 46) {
           // Manual selection of 46: Play file 45 and seek to the split point.
@@ -856,6 +888,7 @@ class AudioService {
     final clip = _currentAyahClips[_currentFileIndexWithinAyah];
     final didStart = await _playClip(clip, autoPlay: autoPlay);
     if (!didStart) return;
+    _emptyAdvances = 0;
 
     // Set up split monitoring for UI updates
     _setupSplitMonitoring(ayah);
@@ -895,6 +928,7 @@ class AudioService {
     // Nothing to watch until the new source is armed below; a target left over
     // from the previous clip must never fire against this one.
     _clipEndTarget = null;
+    var streamed = kIsWeb; // the source is a remote URL, not a cached file
     try {
       final Uri uri;
       if (kIsWeb) {
@@ -912,6 +946,7 @@ class AudioService {
           return false;
         }
 
+        streamed = !hasLocalFile;
         uri = hasLocalFile
             ? Uri.file(localFile.path)
             : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
@@ -1015,9 +1050,12 @@ class AudioService {
     } catch (e) {
       debugPrint('Error playing audio: $e');
       if (e is SocketException) {
-        _showPlaybackNotice(
-          'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
-        );
+        _showPlaybackNotice(_offlineNotice);
+      } else if (!kIsWeb && streamed) {
+        // The player itself reports a failed fetch (ExoPlayer / AVPlayer),
+        // never as a SocketException: a streamed ayah that could not be
+        // loaded is almost always the phone being offline.
+        _showPlaybackNotice(_offlineNotice);
       } else if (kIsWeb) {
         // Every ayah is streamed on web and SocketException never fires there,
         // so without this branch a blocked or failed fetch (CORS, 404, a
@@ -1110,6 +1148,16 @@ class AudioService {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Stops advancing and leaves the bar where it is, with [message] shown:
+  /// what a listener should see when nothing can be played, instead of the
+  /// recitation racing on through ayat that never sound.
+  void _haltPlayback(String message) {
+    _emptyAdvances = 0;
+    _player.pause();
+    isPlaying.value = false;
+    _showPlaybackNotice(message);
   }
 
   void _showPlaybackNotice(String message) {
