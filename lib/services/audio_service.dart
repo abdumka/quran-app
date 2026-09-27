@@ -86,6 +86,13 @@ class AudioService {
   int _emptyAdvances = 0;
   static const int _maxEmptyAdvances = 20;
 
+  /// True after playback halted on an ayah it could not play (offline, not
+  /// downloaded). The player then holds NO source: with the previous surah's
+  /// file still loaded and sitting at its end, the play button "completed"
+  /// it at once and stepped to the next ayah, then replayed the old file.
+  /// Play now retries the ayah the halt happened on.
+  bool _halted = false;
+
   static const String _offlineNotice =
       'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة '
       'من الإعدادات للاستماع دون اتصال.';
@@ -799,6 +806,7 @@ class AudioService {
     bool isManualSelection = false,
     bool autoPlay = true,
   }) async {
+    _halted = false;
     if (_currentGlobalAyahIndex >= _playlistAyahs.length) {
       _goToNextPage();
       return;
@@ -940,9 +948,7 @@ class AudioService {
 
         final hasLocalFile = localFile.existsSync();
         if (!hasLocalFile && !await _hasInternetConnection()) {
-          _showPlaybackNotice(
-            'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة من الإعدادات للاستماع دون اتصال.',
-          );
+          _haltPlayback(_offlineNotice);
           return false;
         }
 
@@ -1049,6 +1055,7 @@ class AudioService {
       return true;
     } catch (e) {
       debugPrint('Error playing audio: $e');
+      _halted = true; // whatever is loaded is not trustworthy: play retries
       if (e is SocketException) {
         _showPlaybackNotice(_offlineNotice);
       } else if (!kIsWeb && streamed) {
@@ -1155,7 +1162,11 @@ class AudioService {
   /// recitation racing on through ayat that never sound.
   void _haltPlayback(String message) {
     _emptyAdvances = 0;
-    _player.pause();
+    _halted = true;
+    _cancelDeferredFlip();
+    _clipEndTarget = null;
+    _loadedSurahUri = null;
+    _player.stop(); // drop the stale source; the position is not kept
     isPlaying.value = false;
     _showPlaybackNotice(message);
   }
@@ -1971,6 +1982,12 @@ class AudioService {
   }
 
   void resume() {
+    if (_halted) {
+      // Nothing is loaded: try the ayah playback stopped on again (the
+      // phone may be online now, or the surah downloaded since).
+      _playCurrentAyah();
+      return;
+    }
     _player.play();
   }
 
@@ -1985,6 +2002,7 @@ class AudioService {
     _player.stop();
     _player.seek(Duration.zero);
     isPlaying.value = false;
+    _halted = false;
     currentAyah.value = null;
     currentAyahGroup.value = const [];
     isRecitationBarVisible.value = false;

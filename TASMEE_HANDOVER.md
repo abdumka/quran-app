@@ -115,6 +115,14 @@ session does not start and a snackbar says why (`StubReason` kept its name).
   right edge.
 - First-use guide `showTasmeeGuideOnce` (pref `tasmee_guide_seen`), also «شرح التسميع» in
   أدوات الحفظ: the bar drawn from the same icons with numbered callouts, all Arabic.
+- **iOS alerts** (2026-09-27): iOS mutes haptics and system sounds while an app records unless
+  `AVAudioSession.setAllowHapticsAndSystemSoundsDuringRecording(true)`. The `record` plugin sets it
+  (`IosRecordConfig(allowHapticsAndSystemSoundsDuringRecording: true)` in both engines), it is set
+  again through `audio_session` right after the mic opens and before every alert, and Apple's
+  `HapticFeedback.heavyImpact()` ×2 / `lightImpact()` fire alongside the `vibration` plugin (CoreHaptics).
+  The tone player's iOS session options match the recorder's (playAndRecord + defaultToSpeaker +
+  Bluetooth + mixWithOthers) so it cannot re-route the mic. Not verified on a device by Claude; if it still
+  fails, suspects are the silent switch and Bluetooth earphones.
 - Windows use `HifzPalette.of(context)` (light/dark like the Tilawah sheet).
 - Reports: only real mushaf words are quoted («قرأت «ءامنوا»» via
   `PagePhonemeService.textFor`), kinds word/extra; `distance` and `hafs` show «لم تُسمع صحيحة»
@@ -310,7 +318,15 @@ Test hooks: `engineFactoryForTest`, `continuedFromForTest`, `engineOverride`, `s
 7. Drills: opening prompt («سورة … من الآية N — بعد قوله تعالى: ﴿…﴾»), pass on 2-3 different
    days, refuse without the real engine, don't list the answers, keep the queue across a
    tablet spread. Then re-enable.
-8. Pausal forms at a mid-ayah waqf sign; surface the tracker's `lost` flag; a Worker in front
+8. **Tilawah offline (audio_service.dart, 2026-09-27, not Tasmee but found by the owner while shipping):**
+   timed-surah reciters resolved every ayah of an un-downloaded surah to "no clip" and the player ADVANCED
+   through them (highlighting ayah after ayah, page after page). Now: no timing file → `_haltPlayback`
+   with the offline notice; >20 clip-less ayat in a row → halt (a joined group is ≤14); a streamed clip
+   the player fails to load → notice. A halt drops the loaded source (`_player.stop()`) and sets
+   `_halted`, so the play button retries the halted ayah instead of "completing" the previous surah's
+   file and stepping on (that was the "play → next ayah, play again → old surah replays" report). The
+   owner's users are mostly offline: test every playback change with airplane mode on.
+9. Pausal forms at a mid-ayah waqf sign; surface the tracker's `lost` flag; a Worker in front
    of the upload key; NPL-1.2 notice in the app; iOS build of the feature; trim logging before
    production (50 sessions ≈ 300 MB).
 9. Duration-aware judging (would fix وَهْوَ→وَ and the final-madd class).
