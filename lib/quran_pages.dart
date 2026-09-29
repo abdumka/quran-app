@@ -73,6 +73,18 @@ import 'widgets/update_available_dialog.dart';
 import 'widgets/whats_new_dialog.dart';
 import 'search_page.dart';
 
+/// Whether the tint on a search result still belongs on screen once the
+/// reader has landed on [landedPageIndex] (0-based), for a result tinted on
+/// [tintPage] (1-based).
+///
+/// The immediate neighbour counts as the same place. The landscape spread
+/// reports its *first* page as the current one, so a result on the left half
+/// of a spread would otherwise clear itself the instant it appeared; portrait
+/// scroll mode likewise reports the next page while the tinted one is still
+/// half on screen.
+bool searchTintSurvivesPage(int tintPage, int landedPageIndex) =>
+    (landedPageIndex + 1 - tintPage).abs() <= 1;
+
 class QuranPages extends StatefulWidget {
   final int initialPage;
   final bool initialPortraitScrollMode;
@@ -505,6 +517,11 @@ class _QuranPagesState extends State<QuranPages>
   List<QuranPageData>? _allQuranPages;
   Timer? _hideControlsTimer;
 
+  // The ayah a search result pointed at, tinted on the page it landed on so
+  // the reader can spot it straight away. It stays until something else on the
+  // page takes over -- see [_clearSearchResultHighlight].
+  SelectedAyah? _searchResultHighlight;
+
   // Measured height of the recitation (audio playback) bar. The action bar is
   // anchored exactly this many pixels above the stack bottom so it sits flush
   // on top of the recitation bar in every screen state (full screen, standard,
@@ -538,6 +555,19 @@ class _QuranPagesState extends State<QuranPages>
       _cancelTopBarHideTimer();
     }
     // No setState needed — the recitation bar uses its own ValueListenableBuilder.
+  }
+
+  /// The recitation has an ayah of its own to tint, so a search result's tint
+  /// is done. `SelectedAyahHighlight` already stands down on a page the
+  /// recitation is tinting, but the marker itself has to go too, or it would
+  /// come back the moment the recitation bar closes.
+  void _handleRecitationTintChanged() {
+    if (!mounted) return;
+    final audio = AudioService.instance;
+    if (audio.currentAyah.value != null &&
+        audio.isRecitationBarVisible.value) {
+      _clearSearchResultHighlight();
+    }
   }
 
   void _handleAudioPlaybackNotice() {
@@ -761,6 +791,10 @@ class _QuranPagesState extends State<QuranPages>
       _handleAutoHideSettingChanged,
     );
     AudioService.instance.isPlaying.addListener(_handleAudioPlaybackChanged);
+    AudioService.instance.currentAyah.addListener(_handleRecitationTintChanged);
+    AudioService.instance.isRecitationBarVisible.addListener(
+      _handleRecitationTintChanged,
+    );
     AudioService.instance.playbackNotice.addListener(
       _handleAudioPlaybackNotice,
     );
@@ -825,6 +859,7 @@ class _QuranPagesState extends State<QuranPages>
     HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
     _recitationIdleTimer?.cancel();
+    _clearSearchResultHighlight();
     _hizbPopupTimer?.cancel();
     _sajdaPopupTimer?.cancel();
     _savePageTimer?.cancel();
@@ -845,6 +880,12 @@ class _QuranPagesState extends State<QuranPages>
       _handleAutoHideSettingChanged,
     );
     AudioService.instance.isPlaying.removeListener(_handleAudioPlaybackChanged);
+    AudioService.instance.currentAyah.removeListener(
+      _handleRecitationTintChanged,
+    );
+    AudioService.instance.isRecitationBarVisible.removeListener(
+      _handleRecitationTintChanged,
+    );
     AudioService.instance.playbackNotice.removeListener(
       _handleAudioPlaybackNotice,
     );
@@ -1196,6 +1237,15 @@ class _QuranPagesState extends State<QuranPages>
     bool showHizbPopup = false,
   }) {
     final safePage = page.clamp(0, pages.length - 1);
+    // A search result's tint belongs to the page it opened: once the reader
+    // has moved off that page it goes. The immediate neighbour still counts as
+    // being on it, so the landscape spread (which reports its first page) and
+    // scrolling within a page keep the tint.
+    final searchTint = _searchResultHighlight;
+    if (searchTint != null &&
+        !searchTintSurvivesPage(searchTint.pageNumber, safePage)) {
+      _clearSearchResultHighlight();
+    }
     // A new spread means the previous left/right choice no longer refers to
     // anything the user can see.
     _spreadSelectedOffset = 0;
@@ -1859,6 +1909,33 @@ class _QuranPagesState extends State<QuranPages>
     await _persistBookmarks();
   }
 
+  /// Tints the ayah a search result pointed at, once the reader has been taken
+  /// to its page. Reuses the long-press tint, so it shows in every reading
+  /// mode (paged, portrait scroll, the landscape spread and the margin view)
+  /// without any of them having to know about search.
+  ///
+  /// The tint stays on the page for as long as the reader is looking at it --
+  /// no countdown. What lifts it is the reader doing something else with the
+  /// page: leaving it, starting a recitation, long-pressing another ayah,
+  /// opening a Tasmee session, or picking another search result.
+  void _highlightSearchResult(int page, int surah, int ayah) {
+    final target = SelectedAyah(pageNumber: page, surah: surah, ayah: ayah);
+    _searchResultHighlight = target;
+    SelectedAyahHighlight.selected.value = target;
+  }
+
+  /// Lifts the search result's tint, if it is still the one on the page. The
+  /// identity check matters: a long press since then owns the tint, and its
+  /// own ayah must not be cleared out from under the action sheet.
+  void _clearSearchResultHighlight() {
+    final ours = _searchResultHighlight;
+    if (ours == null) return;
+    _searchResultHighlight = null;
+    if (SelectedAyahHighlight.selected.value == ours) {
+      SelectedAyahHighlight.selected.value = null;
+    }
+  }
+
   /// A long press on a page. On an ayah it tints the ayah and offers a
   /// bookmark there or its tafsir; anywhere else (margins, surah headers) it
   /// drops a bookmark straight away, as it always did.
@@ -1897,6 +1974,9 @@ class _QuranPagesState extends State<QuranPages>
       return;
     }
     HapticFeedback.selectionClick();
+    // The long press owns the tint from here; it clears its own when its
+    // sheet closes.
+    _searchResultHighlight = null;
     SelectedAyahHighlight.selected.value = SelectedAyah(
       pageNumber: page + 1,
       surah: hit.$1,
@@ -3539,6 +3619,8 @@ class _QuranPagesState extends State<QuranPages>
   /// scroll mode move the page continuously under the word masks. Both are
   /// put back by [_onTasmeeModeEnded].
   Future<void> _prepareForTasmeeMode() async {
+    // The page is about to be masked; the tint has no business under it.
+    _clearSearchResultHighlight();
     if (_showAutoScrollBar || _isAutoScrollEnabled) _closeAutoScrollBar();
     if (_isPortraitScrollMode) {
       _setPortraitScrollMode(false);
@@ -4201,8 +4283,11 @@ class _QuranPagesState extends State<QuranPages>
       context,
       MaterialPageRoute(
         builder: (_) => SearchPage(
-          onGoToPage: (page) {
+          onGoToPage: (page, {int? surah, int? ayah}) {
             _goToPage(page);
+            if (surah != null && ayah != null) {
+              _highlightSearchResult(page, surah, ayah);
+            }
           },
         ),
       ),

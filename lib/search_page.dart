@@ -8,7 +8,10 @@ import 'services/ayah_position_service.dart';
 import 'utils/copy_helper.dart';
 
 class SearchPage extends StatefulWidget {
-  final Function(int page) onGoToPage;
+  /// Opens [page] in the reader. [surah]/[ayah] name the ayah the tapped
+  /// result sits on, so the reader can tint it on arrival instead of leaving
+  /// the user to find it among the page's lines.
+  final Function(int page, {int? surah, int? ayah}) onGoToPage;
 
   const SearchPage({super.key, required this.onGoToPage});
 
@@ -696,7 +699,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _openResult(SearchResult ayah) {
-    widget.onGoToPage(ayah.page);
+    widget.onGoToPage(ayah.page, surah: ayah.surah, ayah: ayah.ayah);
     Navigator.pop(context);
   }
 

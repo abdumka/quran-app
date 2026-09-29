@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../services/audio_service.dart';
 import '../../services/ayah_region_service.dart';
 import '../../services/word_region_service.dart';
 import 'playing_ayah_highlight.dart';
@@ -18,9 +19,16 @@ class SelectedAyah {
   final int ayah;
 }
 
-/// Tints the ayah the reader long-pressed, the same way the playing ayah is
-/// tinted, for as long as [selected] holds it. Mounted in the same in-image
-/// box as `PlayingAyahHighlight` so the ratio rects land on the page.
+/// Tints the ayah the reader long-pressed -- or the one a search result
+/// pointed at -- the same way the playing ayah is tinted, for as long as
+/// [selected] holds it. Mounted in the same in-image box as
+/// `PlayingAyahHighlight` so the ratio rects land on the page.
+///
+/// Two ayat are never tinted at once: while the recitation is tinting an ayah
+/// of its own, this highlight stands down and lets it have the mushaf. The
+/// rule is not per page, because the landscape spread shows two pages side by
+/// side. It holds however [selected] was set, so no caller has to remember
+/// it.
 class SelectedAyahHighlight extends StatelessWidget {
   const SelectedAyahHighlight({
     super.key,
@@ -75,9 +83,18 @@ class SelectedAyahHighlight extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<SelectedAyah?>(
-      valueListenable: selected,
-      builder: (context, sel, _) {
+    final audio = AudioService.instance;
+    return ListenableBuilder(
+      // The recitation's own state is listened to as well: when it starts
+      // tinting this page, this tint has to come off it right away.
+      listenable: Listenable.merge([
+        selected,
+        audio.currentAyah,
+        audio.isRecitationBarVisible,
+        PlayingAyahHighlightSetting.enabled,
+      ]),
+      builder: (context, _) {
+        final sel = selected.value;
         if (sel == null || sel.pageNumber != pageNumber) {
           return const SizedBox.shrink();
         }
@@ -107,11 +124,22 @@ class SelectedAyahHighlight extends StatelessWidget {
         ? (await WordRegionService.forPage(sel.pageNumber))?.marginRect
         : null;
     final rects = <Rect>[
-      if (regions != null)
+      if (regions != null && !recitationIsTinting())
         for (final a in regions.ayahs)
           if (a.surah == sel.surah && a.ayah == sel.ayah)
             for (final r in a.rects) Rect.fromLTWH(r.x, r.y, r.width, r.height),
     ];
     return (rects, margin);
+  }
+
+  /// True when the recitation has a tint of its own up: the bar is showing an
+  /// ayah and the reader has that highlight switched on. The same three
+  /// conditions `PlayingAyahHighlight` paints under, so the two can never
+  /// both be on screen.
+  static bool recitationIsTinting() {
+    final audio = AudioService.instance;
+    return audio.currentAyah.value != null &&
+        audio.isRecitationBarVisible.value &&
+        PlayingAyahHighlightSetting.enabled.value;
   }
 }
