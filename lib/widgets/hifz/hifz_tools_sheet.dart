@@ -10,14 +10,17 @@ import 'tasmee_guide_sheet.dart';
 const bool kTasmeeDrillsEnabled = false;
 
 /// The "أدوات الحفظ" sheet opened from the bottom action bar: one place for
-/// the memorization tools -- the recitation test (التسميع) and the page
-/// concealment lens (وضع الحفظ).
+/// the memorization tools -- the recitation test (التسميع), the two tests
+/// (اختبار الحفظ by microphone, اختبار نصّي by reading) and the page
+/// concealment lens (وضع الحفظ). Settings sit behind the gear.
 Future<void> showHifzToolsSheet(
   BuildContext context, {
   required bool tasmeeActive,
   required bool hifzModeActive,
   required VoidCallback onTasmee,
   required VoidCallback onHifzMode,
+  required VoidCallback onTest,
+  required VoidCallback onTextTest,
   required VoidCallback onLogs,
   required VoidCallback onReports,
   required VoidCallback onWeakPoints,
@@ -34,38 +37,52 @@ Future<void> showHifzToolsSheet(
       Widget tile({
         required IconData icon,
         required String title,
-        required String subtitle,
-        required bool active,
+        String? subtitle,
+        bool active = false,
         required VoidCallback onTap,
       }) {
         return ListTile(
-          leading: Icon(icon, color: p.title, size: 28),
+          dense: true,
+          visualDensity: const VisualDensity(vertical: -1),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 18),
+          leading: Icon(icon, color: p.title, size: 25),
           title: Text(
             title,
             style: TextStyle(
               color: p.title,
-              fontSize: 17,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               fontFamily: 'Tajawal',
             ),
           ),
-          subtitle: Text(
-            subtitle,
-            style: TextStyle(
-              color: p.sub,
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
+          subtitle: subtitle == null
+              ? null
+              : Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: p.sub, fontSize: 12.5),
+                ),
           trailing: active
-              ? Icon(Icons.stop_circle_outlined, color: p.title)
-              : Icon(Icons.chevron_left_rounded, color: p.title),
+              ? Icon(Icons.stop_circle_outlined, color: p.title, size: 22)
+              : Icon(Icons.chevron_left_rounded, color: p.sub, size: 22),
           onTap: () {
             Navigator.of(sheetContext).pop();
             onTap();
           },
         );
       }
+
+      Widget link(String label, VoidCallback onTap) => TextButton(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onTap();
+            },
+            child: Text(
+              label,
+              style: TextStyle(color: p.title, fontSize: 13.5),
+            ),
+          );
 
       return SafeArea(
         child: Directionality(
@@ -77,73 +94,84 @@ Future<void> showHifzToolsSheet(
             ),
             child: SingleChildScrollView(
               child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
-                child: Text(
-                  'أدوات الحفظ',
-                  style: TextStyle(
-                    color: p.title,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Tajawal',
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 8, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'أدوات الحفظ',
+                            style: TextStyle(
+                              color: p.title,
+                              fontSize: 19,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Tajawal',
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'إعدادات التسميع',
+                          icon: Icon(Icons.settings_outlined, color: p.title),
+                          onPressed: () => showTasmeeSettingsSheet(sheetContext),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                  tile(
+                    icon: Icons.mic_rounded,
+                    title: tasmeeActive ? 'إنهاء التسميع' : 'التسميع',
+                    subtitle: tasmeeActive
+                        ? 'الجلسة جارية على هذه الصفحة'
+                        : 'اقرأ الصفحة من حفظك، وتنكشف كلماتها كلمةً كلمة',
+                    active: tasmeeActive,
+                    onTap: onTasmee,
+                  ),
+                  tile(
+                    icon: Icons.quiz_outlined,
+                    title: 'اختبار الحفظ',
+                    subtitle: 'أسئلة من أخطائك أو عشوائية، في النطاق الذي تختاره',
+                    onTap: onTest,
+                  ),
+                  tile(
+                    icon: Icons.short_text_rounded,
+                    title: 'اختبار نصّي',
+                    subtitle: 'تُعرض آية، واذكر التي بعدها (بلا ميكروفون)',
+                    onTap: onTextTest,
+                  ),
+                  tile(
+                    icon: Icons.blur_on_rounded,
+                    title: hifzModeActive ? 'إيقاف وضع الحفظ' : 'وضع الحفظ',
+                    subtitle: 'تُخفى الصفحة، واضغط مطوّلًا لكشف ما تحت إصبعك',
+                    active: hifzModeActive,
+                    onTap: onHifzMode,
+                  ),
+                  if (kTasmeeDrillsEnabled)
+                    tile(
+                      icon: Icons.fitness_center_rounded,
+                      title: 'تقوية الحفظ',
+                      subtitle: 'مراجعة مواضع أخطائك في التسميع',
+                      onTap: onWeakPoints,
+                    ),
+                  tile(
+                    icon: Icons.fact_check_rounded,
+                    title: 'تقارير التسميع',
+                    onTap: onReports,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        link('شرح التسميع', () => showTasmeeGuide(context)),
+                        Text('·', style: TextStyle(color: p.sub)),
+                        link('سجلات التسميع', onLogs),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              tile(
-                icon: Icons.mic_rounded,
-                title: tasmeeActive ? 'إنهاء التسميع' : 'التسميع',
-                subtitle: tasmeeActive
-                    ? 'الجلسة الحالية جارية على هذه الصفحة.'
-                    : 'تُغطّى آيات الصفحة الحالية، واقرأ من حفظك؛ تنكشف كل '
-                        'آية عند إتمامها، مع تنبيه عند الخطأ أو التجاوز.',
-                active: tasmeeActive,
-                onTap: onTasmee,
-              ),
-              tile(
-                icon: Icons.blur_on_rounded,
-                title: hifzModeActive ? 'إيقاف وضع الحفظ' : 'وضع الحفظ',
-                subtitle: 'تُخفى الصفحة كلها، واضغط مطوّلًا لكشف ما تحت '
-                    'إصبعك للمراجعة الذاتية.',
-                active: hifzModeActive,
-                onTap: onHifzMode,
-              ),
-              if (kTasmeeDrillsEnabled)
-                tile(
-                  icon: Icons.fitness_center_rounded,
-                  title: 'تقوية الحفظ',
-                  subtitle: 'مراجعة مواضع أخطائك في التسميع: تبدأ من آية أو '
-                      'آيتين قبل الخطأ، وما قرأته صحيحًا يُحذف من القائمة.',
-                  active: false,
-                  onTap: onWeakPoints,
-                ),
-              tile(
-                icon: Icons.fact_check_rounded,
-                title: 'تقارير التسميع',
-                subtitle: 'أخطاء كل صفحة سمّعتها: الكلمة، ونوع الخطأ، وما قرأته.',
-                active: false,
-                onTap: onReports,
-              ),
-              const _AlertModeTile(),
-              tile(
-                icon: Icons.help_outline_rounded,
-                title: 'شرح التسميع',
-                subtitle: 'كيف يعمل، وما يفعله كل زر في شريط التسميع.',
-                active: false,
-                onTap: () => showTasmeeGuide(context),
-              ),
-              tile(
-                icon: Icons.receipt_long_rounded,
-                title: 'سجلات التسميع',
-                subtitle: 'كل جلسة تُسجَّل تلقائيًا (الصوت وسجل القرارات). '
-                    'شارك السجلات للتحليل، أو احذفها، أو حدّد عدد الجلسات المحفوظة.',
-                active: false,
-                onTap: onLogs,
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
             ),
           ),
         ),
@@ -152,17 +180,59 @@ Future<void> showHifzToolsSheet(
   );
 }
 
-/// How a mistake is signalled during Tasmee: tap to cycle through the modes.
-class _AlertModeTile extends StatefulWidget {
-  const _AlertModeTile();
-
-  @override
-  State<_AlertModeTile> createState() => _AlertModeTileState();
+/// «إعدادات التسميع» (behind the gear): how a mistake and a correction are
+/// signalled. Both default to vibration only.
+Future<void> showTasmeeSettingsSheet(BuildContext context) {
+  final p = HifzPalette.of(context);
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: p.bg,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'إعدادات التسميع',
+                style: TextStyle(
+                  color: p.title,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Tajawal',
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'التنبيه أثناء التسميع، لتتابع الجلسة دون النظر إلى الشاشة.',
+                style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.4),
+              ),
+              const SizedBox(height: 8),
+              const _AlertModeRow(),
+              const SizedBox(height: 6),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
-/// «تنبيهات»: how a mistake and a correction are signalled, side by side,
-/// so the session can be followed without looking at the screen.
-class _AlertModeTileState extends State<_AlertModeTile> {
+/// The two alert dropdowns («عند الخطأ», «عند التصويب») on one row.
+class _AlertModeRow extends StatefulWidget {
+  const _AlertModeRow();
+
+  @override
+  State<_AlertModeRow> createState() => _AlertModeRowState();
+}
+
+class _AlertModeRowState extends State<_AlertModeRow> {
   final Map<TasmeeAlertKind, TasmeeAlertMode> _modes = {};
 
   @override
@@ -213,22 +283,14 @@ class _AlertModeTileState extends State<_AlertModeTile> {
   @override
   Widget build(BuildContext context) {
     final p = HifzPalette.of(context);
-    return ListTile(
-      leading: Icon(Icons.vibration_rounded, color: p.title, size: 28),
-      title: Text(
-        'تنبيهات',
-        style: TextStyle(color: p.title, fontSize: 17, fontWeight: FontWeight.bold, fontFamily: 'Tajawal'),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Row(
-          children: [
-            _choice(p, TasmeeAlertKind.mistake, 'عند الخطأ'),
-            const SizedBox(width: 12),
-            _choice(p, TasmeeAlertKind.corrected, 'عند التصويب'),
-          ],
-        ),
-      ),
+    return Row(
+      children: [
+        Icon(Icons.vibration_rounded, color: p.title, size: 24),
+        const SizedBox(width: 12),
+        _choice(p, TasmeeAlertKind.mistake, 'عند الخطأ'),
+        const SizedBox(width: 12),
+        _choice(p, TasmeeAlertKind.corrected, 'عند التصويب'),
+      ],
     );
   }
 }

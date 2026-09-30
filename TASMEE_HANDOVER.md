@@ -139,6 +139,32 @@ session does not start and a snackbar says why (`StubReason` kept its name).
   with nothing quoted; extra reads «كلمة زائدة: «قد» قبل «وجدنا»». Raw phonemes only in the log
   (`heardRaw`).
 
+### اختبار الحفظ / اختبار نصّي (tests, 2026-09-30)
+Two entries in أدوات الحفظ, both planned by `lib/services/hifz_test_plan.dart` (pure Dart,
+`test/hifz_test_plan_test.dart`): `QuranAyahIndex` flattens output.json into 6,214 `AyahRef`s
+(page, index on page, surah, ayah, text); `HifzRange` (all / surahs / hizbs / pages, hizb
+bounds from `thumnEntries`) becomes a span of flat indices; `HifzTestPlanner.plan` builds
+`HifzTestQuestion`s from the weak-point pool (grouped per ayah, most-missed first, run-up of
+`ayahsPerQuestion` ayahs ending at the target, never across a surah), at random (distinct starts,
+same surah), or both (half/half, shuffled, random fills a short pool). Setup sheet
+`showHifzTestSetup` (`hifz_test_sheets.dart`), last choice kept in prefs `hifz_test_config` /
+`hifz_text_test_config`.
+- **Microphone test**: a question is a `TasmeeDrill` (`toDrill`) with `title` «اختبار», `cue`, and an
+  explicit `startPage`/`startAyahIndex`; `_runNextTasmeeDrill` honours those and shows the loading
+  notice; `_hifzTest` (a `HifzTestRun`) in quran_pages.dart marks a test, so `_handleTasmeeDrillResult`
+  shows the per-question result then the score. **The blank-page problem is answered by the cue**:
+  `_OpeningCue` in the overlay draws «سورة X، من الآية N — ٣ آيات (N–M)» and «بعد قوله تعالى: ﴿… last
+  7 words of the ayah before﴾» at the top of the page (foldable per question). `TasmeeDrillResult`
+  now carries every `error` of the question (`_drillErrors`, kept across a page turn); `clean` =
+  no targets failed and no errors.
+- **Text test** (`hifz_text_test_page.dart`): one ayah per question; shows `before` (or «أول السورة»),
+  reveal, self-judge. A miss stores a weak point of kind `recall` («لم تُستذكر») at word 1.
+- **Weak points**: a pass no longer deletes the point; `notePassed` counts passes on different days
+  and retires it at `passesToClear` = 2 (`applyPass` is pure and tested); a new miss resets. Used by
+  `_checkDrillDone` for drills and tests alike.
+- Sheet compacted: one-line subtitles, alerts behind the gear (`showTasmeeSettingsSheet`), both
+  alert kinds default to vibration only.
+
 ### تقوية الحفظ (drills) — HIDDEN
 `kTasmeeDrillsEnabled = false` in `lib/widgets/hifz/hifz_tools_sheet.dart`. Weak points are still
 collected (`tasmee_weak_point_store.dart`, capped 2,000). Do not re-enable without an opening

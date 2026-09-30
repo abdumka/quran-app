@@ -62,8 +62,11 @@ import 'utils/copy_helper.dart';
 import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
+import 'widgets/hifz/hifz_test_sheets.dart';
+import 'widgets/hifz/hifz_text_test_page.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
 import 'widgets/hifz/tasmee_guide_sheet.dart';
+import 'services/hifz_test_plan.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
@@ -427,8 +430,12 @@ class _QuranPagesState extends State<QuranPages>
     await prefs.setBool(_rangeContinueAfterPrefKey, _rangeContinueAfterPref);
   }
 
-  /// Strengthening drills still to run in this round (تقوية الحفظ).
+  /// Strengthening drills still to run in this round (تقوية الحفظ), or
+  /// the questions of a microphone test (اختبار الحفظ) still to ask.
   final List<TasmeeDrill> _drillQueue = [];
+
+  /// The microphone test under way, when the queue holds its questions.
+  HifzTestRun? _hifzTest;
 
   /// What Tasmee switched off when it started, to put back when it ends:
   /// the phone is kept upright (the landscape reader scrolls continuously,
@@ -3386,6 +3393,8 @@ class _QuranPagesState extends State<QuranPages>
       hifzModeActive: _isHifzModeEnabled,
       onTasmee: () => _toggleMemorizationTest(!_isMemorizationTestEnabled),
       onHifzMode: () => _toggleHifzMode(!_isHifzModeEnabled),
+      onTest: _openHifzTest,
+      onTextTest: _openHifzTextTest,
       onLogs: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const TasmeeLogsPage()),
       ),
@@ -3393,6 +3402,96 @@ class _QuranPagesState extends State<QuranPages>
         MaterialPageRoute<void>(builder: (_) => const TasmeeReportsPage()),
       ),
       onWeakPoints: _openTasmeeWeakPoints,
+    );
+  }
+
+  // -------------------------------------------------------------------
+  // اختبار الحفظ / اختبار نصّي: questions from the mistakes Tasmee
+  // collected, or at random, inside a range the user chooses
+  // -------------------------------------------------------------------
+
+  /// Plans the questions of a test from what the setup sheet returned;
+  /// null (with a notice) when the range yields none.
+  Future<List<HifzTestQuestion>?> _planHifzTest(
+    HifzTestConfig config,
+    List<TasmeeWeakPoint> pool,
+  ) async {
+    final index = QuranAyahIndex.fromPages(
+      await QuranJsonService.loadQuranPages(),
+    );
+    final questions = HifzTestPlanner.plan(
+      index: index,
+      config: config,
+      pool: pool,
+    );
+    if (questions.isEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            config.source == HifzTestSource.mistakes
+                ? 'لا أخطاء مسجّلة في هذا النطاق. سمِّع فيه أولًا، أو اختر «عشوائي».'
+                : 'لا آيات في هذا النطاق.',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+    return questions.isEmpty ? null : questions;
+  }
+
+  /// The microphone test: each question goes to a place in the mushaf and
+  /// runs a Tasmee session from there to its last ayah, with the opening
+  /// shown on the page.
+  Future<void> _openHifzTest() async {
+    final pool = await TasmeeWeakPointStore.load();
+    if (!mounted) return;
+    final config = await showHifzTestSetup(
+      context,
+      textMode: false,
+      mistakesInPool: pool.length,
+    );
+    if (config == null || !mounted) return;
+    if (!await _ensureTasmeeReady()) return;
+    if (!mounted) return;
+    final questions = await _planHifzTest(config, pool);
+    if (questions == null || !mounted) return;
+    if (_isMemorizationTestEnabled) {
+      await MemorizationTestService.instance.stop();
+      if (!mounted) return;
+    }
+    _hifzTest = HifzTestRun(config, questions);
+    _drillQueue
+      ..clear()
+      ..addAll([
+        for (var i = 0; i < questions.length; i++)
+          questions[i].toDrill(i + 1, questions.length),
+      ]);
+    await _runNextTasmeeDrill();
+  }
+
+  /// The text test: one ayah shown, the next one recalled, no microphone.
+  Future<void> _openHifzTextTest() async {
+    final pool = await TasmeeWeakPointStore.load();
+    if (!mounted) return;
+    final config = await showHifzTestSetup(
+      context,
+      textMode: true,
+      mistakesInPool: pool.length,
+    );
+    if (config == null || !mounted) return;
+    final questions = await _planHifzTest(
+      config.copyWith(ayahsPerQuestion: 1),
+      pool,
+    );
+    if (questions == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HifzTextTestPage(
+          questions: questions,
+          config: config,
+          onGoToPage: (page) => _goToPage(page),
+        ),
+      ),
     );
   }
 
@@ -3430,27 +3529,35 @@ class _QuranPagesState extends State<QuranPages>
 
     var startPage = drill.page.clamp(1, pages.length).toInt();
     var startAyahIndex = 0;
-    var target = -1;
-    for (final p in data) {
-      if (p.page != startPage) continue;
-      target = p.ayahs.indexWhere(
-        (a) => a.surah == drill.surah && a.ayah == drill.ayah,
-      );
+    if (drill.startPage != null) {
+      // A test question: the planner already chose where it begins.
+      startPage = drill.startPage!.clamp(1, pages.length).toInt();
+      startAyahIndex = drill.startAyahIndex ?? 0;
+    } else {
+      var target = -1;
+      for (final p in data) {
+        if (p.page != startPage) continue;
+        target = p.ayahs.indexWhere(
+          (a) => a.surah == drill.surah && a.ayah == drill.ayah,
+        );
+      }
+      if (target > 0) {
+        startAyahIndex = target >= 2 ? target - 2 : 0;
+      } else if (target == 0 && startPage > 1) {
+        startPage -= 1;
+        final n = ayahCount(startPage);
+        startAyahIndex = n >= 2 ? n - 2 : 0;
+      }
     }
-    if (target > 0) {
-      startAyahIndex = target >= 2 ? target - 2 : 0;
-    } else if (target == 0 && startPage > 1) {
-      startPage -= 1;
-      final n = ayahCount(startPage);
-      startAyahIndex = n >= 2 ? n - 2 : 0;
-    }
-    if (!_isMemorizationTestEnabled) {
-      await _prepareForTasmeeMode();
-      if (!mounted) return;
-    }
+    final isTest = _hifzTest != null;
+    final closeLoading = _showTasmeeLoading();
     _memorizationTestMoving = true;
     bool started;
     try {
+      if (!_isMemorizationTestEnabled) {
+        await _prepareForTasmeeMode();
+        if (!mounted) return;
+      }
       setState(() {
         _isMemorizationTestEnabled = true;
         _memorizationTestPageIndex = startPage - 1;
@@ -3463,6 +3570,7 @@ class _QuranPagesState extends State<QuranPages>
       );
     } finally {
       _memorizationTestMoving = false;
+      closeLoading();
     }
     if (!mounted) return;
     if (!started) {
@@ -3472,8 +3580,18 @@ class _QuranPagesState extends State<QuranPages>
         _memorizationTestPageIndex = -1;
       });
       _onTasmeeModeEnded();
+      final service = MemorizationTestService.instance;
+      final message = switch (service.stubReason.value) {
+        StubReason.micPermissionDenied =>
+          'إذن الميكروفون مرفوض. فعّل الميكروفون من الإعدادات لبدء الاختبار.',
+        StubReason.modelNotInstalled =>
+          'لم يتم تثبيت نموذج التعرف على التلاوة بعد.',
+        _ => isTest
+            ? 'تعذّر بدء الاختبار على الصفحة $startPage'
+            : 'تعذّر بدء التقوية على هذه الصفحة',
+      };
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر بدء التقوية على هذه الصفحة')),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
       );
     } else {
       setState(() {});
@@ -3483,6 +3601,29 @@ class _QuranPagesState extends State<QuranPages>
   Future<void> _handleTasmeeDrillResult() async {
     final result = MemorizationTestService.instance.drillResult.value;
     if (result == null || !mounted) return;
+    final run = _hifzTest;
+    if (run != null) {
+      // A test question ended: its outcome, then the next question or the
+      // score.
+      run.results.add(result);
+      final hasNext = _drillQueue.isNotEmpty;
+      final next = await showHifzTestQuestionResult(
+        context,
+        result,
+        hasNext: hasNext,
+      );
+      if (!mounted) return;
+      if (next && hasNext) {
+        await _runNextTasmeeDrill();
+        return;
+      }
+      _hifzTest = null;
+      _drillQueue.clear();
+      await _toggleMemorizationTest(false);
+      if (!mounted) return;
+      await showHifzTestSummary(context, run);
+      return;
+    }
     final next = await showTasmeeDrillResult(
       context,
       result,
@@ -3495,6 +3636,22 @@ class _QuranPagesState extends State<QuranPages>
       _drillQueue.clear();
       await _toggleMemorizationTest(false);
     }
+  }
+
+  /// The microphone test needs the on-device recognition model (offered
+  /// for download once) and, the first time, shows the guide. False when
+  /// the model is still missing or the page went away.
+  Future<bool> _ensureTasmeeReady() async {
+    if (!await AsrModelManager.instance.refresh()) {
+      if (!mounted) return false;
+      await _promptAndDownloadAsrModel();
+      if (!mounted) return false;
+      if (!await AsrModelManager.instance.refresh()) return false;
+      if (!mounted) return false;
+    }
+    if (!mounted) return false;
+    await showTasmeeGuideOnce(context);
+    return mounted;
   }
 
   /// Tasmee needs the paged, upright reader: the landscape reader and the
@@ -3524,6 +3681,7 @@ class _QuranPagesState extends State<QuranPages>
 
   void _onTasmeeModeEnded() {
     _drillQueue.clear();
+    _hifzTest = null;
     if (_tasmeeLockedPortrait) {
       _tasmeeLockedPortrait = false;
       SystemChrome.setPreferredOrientations(const [
@@ -3566,19 +3724,8 @@ class _QuranPagesState extends State<QuranPages>
 
     // The mic check needs the on-device recognition model. If it isn't
     // installed yet, offer to download it once (from R2); without it there
-    // is nothing to start.
-    if (!await AsrModelManager.instance.refresh()) {
-      if (!mounted) return;
-      await _promptAndDownloadAsrModel();
-      if (!mounted) return;
-      if (!await AsrModelManager.instance.refresh()) return;
-      if (!mounted) return;
-    }
-
-    // The first time: what the feature does and what the bar's buttons do.
-    if (!mounted) return;
-    await showTasmeeGuideOnce(context);
-    if (!mounted) return;
+    // is nothing to start. The first time, also the guide.
+    if (!await _ensureTasmeeReady()) return;
 
     // Rotating to portrait and loading the recognition model take a second
     // or three with nothing to see: say so, and keep stray taps off the page.
@@ -3743,7 +3890,9 @@ class _QuranPagesState extends State<QuranPages>
   /// If the new page can't be started the mode switches off rather than
   /// leaving the mic icon claiming a session that isn't there.
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
+    // Turning the page by hand leaves a drill round or a test.
     _drillQueue.clear();
+    _hifzTest = null;
     _memorizationTestPageIndex = pageIndex;
     _memorizationTestMoving = true;
     bool started;

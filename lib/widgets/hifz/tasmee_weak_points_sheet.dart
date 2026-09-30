@@ -73,8 +73,8 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                   para(
                     'عند بدء التقوية ينقلك التطبيق إلى موضع الخطأ، ويبدأ بك من '
                     'آية أو آيتين قبله، فتقرأ من حفظك حتى تتم الآية التي وقع '
-                    'فيها الخطأ. إن قرأت موضع الخطأ صحيحًا حُذف من القائمة، '
-                    'وإلا بقي لتعود إليه لاحقًا.',
+                    'فيها الخطأ. إن قرأت موضع الخطأ صحيحًا في يومين مختلفين '
+                    'رُفع من القائمة، وإلا بقي لتعود إليه لاحقًا.',
                   ),
                   para(
                     'تبدأ التقوية بعد جمع ${TasmeeWeakPointStore.minToStart} '
@@ -243,7 +243,7 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                 const SizedBox(height: 10),
                 for (final p in result.passed)
                   Text(
-                    '✓ «${quranDisplayText(p.expected)}» — حُذفت من قائمة الأخطاء',
+                    '✓ «${quranDisplayText(p.expected)}» — أصبتها',
                     style: TextStyle(
                       color: c.good,
                       fontSize: 14,

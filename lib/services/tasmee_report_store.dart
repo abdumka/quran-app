@@ -39,6 +39,8 @@ class TasmeeError {
         'revealed' => 'كُشفت بطلب',
         'skippedAyah' => 'آية متخطّاة',
         'haraka' => 'خطأ في حركة آخر الكلمة',
+        // A text test: the ayah was not recalled (no recording involved).
+        'recall' => 'لم تُستذكر',
         _ => 'لم تُسمع صحيحة',
       };
 

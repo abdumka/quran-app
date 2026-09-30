@@ -19,6 +19,8 @@ class TasmeeWeakPoint {
     this.heard = '',
     this.count = 1,
     DateTime? lastAt,
+    this.passes = 0,
+    this.lastPassAt,
   }) : lastAt = lastAt ?? DateTime.now();
 
   final int surah;
@@ -39,6 +41,12 @@ class TasmeeWeakPoint {
   int count;
   DateTime lastAt;
 
+  /// Days on which the word was then recited correctly in a test (a pass
+  /// on the same day counts once); [TasmeeWeakPointStore.passesToClear]
+  /// of them retire the point. A new miss starts the count over.
+  int passes;
+  DateTime? lastPassAt;
+
   String get key => '$surah:$ayah:$word';
   String get ayahKey => '$page:$surah:$ayah';
 
@@ -52,6 +60,8 @@ class TasmeeWeakPoint {
         if (heard.isNotEmpty) 'heard': heard,
         'count': count,
         'lastAt': lastAt.toIso8601String(),
+        if (passes > 0) 'passes': passes,
+        if (lastPassAt != null) 'lastPassAt': lastPassAt!.toIso8601String(),
       };
 
   factory TasmeeWeakPoint.fromJson(Map<String, dynamic> j) => TasmeeWeakPoint(
@@ -64,11 +74,14 @@ class TasmeeWeakPoint {
         heard: j['heard'] as String? ?? '',
         count: j['count'] as int? ?? 1,
         lastAt: DateTime.tryParse(j['lastAt'] as String? ?? ''),
+        passes: j['passes'] as int? ?? 0,
+        lastPassAt: DateTime.tryParse(j['lastPassAt'] as String? ?? ''),
       );
 }
 
-/// One strengthening drill: recite from an ayah or two before [ayah] up to
-/// its end; [targets] are the weak words inside it.
+/// One strengthening drill or test question: recite from an ayah or two
+/// before [ayah] up to its end; [targets] are the weak words inside it
+/// (none for a random test question).
 class TasmeeDrill {
   TasmeeDrill({
     required this.page,
@@ -77,6 +90,10 @@ class TasmeeDrill {
     required this.targets,
     this.index = 1,
     this.total = 1,
+    this.title = 'تقوية الحفظ',
+    this.cue,
+    this.startPage,
+    this.startAyahIndex,
   });
 
   /// 1-based page holding the target ayah (where the drill ends).
@@ -88,19 +105,43 @@ class TasmeeDrill {
   /// Position of this drill in the run (for the "2 / 5" label).
   int index;
   int total;
+
+  /// What the bar calls it («تقوية الحفظ», «اختبار»).
+  final String title;
+
+  /// Shown on the page while the drill runs: where to start and the words
+  /// to continue from, for a start the covered page cannot show (a page's
+  /// first ayah). Null: nothing shown.
+  final String? cue;
+
+  /// Where the drill begins, when the planner decided it (page and ayah
+  /// index on that page); null: two ayahs before the target.
+  final int? startPage;
+  final int? startAyahIndex;
+
+  String get label => '$title $index / $total';
 }
 
-/// Outcome of a drill: the weak words recited correctly (now out of the
-/// pool) and the ones that still need work.
+/// Outcome of a drill: the weak words recited correctly and the ones that
+/// still need work, plus every error made along the way.
 class TasmeeDrillResult {
   const TasmeeDrillResult({
     required this.drill,
     required this.passed,
     required this.failed,
+    this.errors = const [],
   });
   final TasmeeDrill drill;
   final List<TasmeeWeakPoint> passed;
   final List<TasmeeWeakPoint> failed;
+
+  /// All errors noted between the drill's start and its end, on every page
+  /// it ran over.
+  final List<TasmeeError> errors;
+
+  /// A drill with nothing to point at (a random test question) is clean
+  /// when nothing at all went wrong.
+  bool get clean => failed.isEmpty && errors.isEmpty;
 }
 
 /// The pool of weak points, fed by every Tasmee report and drained by the
@@ -171,7 +212,9 @@ class TasmeeWeakPointStore {
             ..count += 1
             ..kind = e.kind
             ..heard = e.heard
-            ..lastAt = at;
+            ..lastAt = at
+            ..passes = 0
+            ..lastPassAt = null;
         } else {
           final p = TasmeeWeakPoint(
             surah: e.surah,
@@ -204,6 +247,49 @@ class TasmeeWeakPointStore {
       pool.removeWhere((p) => gone.contains(p.key));
       await _save(pool);
     });
+  }
+
+  /// Passes on different days that retire a weak point: one good reading
+  /// proves little, the same word right again another day proves it is
+  /// learnt.
+  static const int passesToClear = 2;
+
+  /// Records that the words [keys] were recited correctly in a test at
+  /// [at]; a point retires once [passesToClear] different days have passed
+  /// it.
+  static Future<void> notePassed(Iterable<String> keys, DateTime at) {
+    final passed = keys.toSet();
+    if (passed.isEmpty) return Future<void>.value();
+    return _locked(() async {
+      await _save(applyPass(await load(), passed, at));
+    });
+  }
+
+  /// The pool after the words [passed] were recited correctly at [at]
+  /// (pure; [notePassed] persists it).
+  static List<TasmeeWeakPoint> applyPass(
+    List<TasmeeWeakPoint> pool,
+    Set<String> passed,
+    DateTime at,
+  ) {
+    final out = <TasmeeWeakPoint>[];
+    for (final p in pool) {
+      if (!passed.contains(p.key)) {
+        out.add(p);
+        continue;
+      }
+      final last = p.lastPassAt;
+      final sameDay = last != null &&
+          last.year == at.year &&
+          last.month == at.month &&
+          last.day == at.day;
+      if (!sameDay) {
+        p.passes += 1;
+        p.lastPassAt = at;
+      }
+      if (p.passes < passesToClear) out.add(p);
+    }
+    return out;
   }
 
   static Future<void> clear() => _locked(() => _save([]));

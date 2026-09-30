@@ -267,6 +267,72 @@ void main() {
     expect(service.status.value, MemorizationTestStatus.completed);
   });
 
+  test('a test question with no targets reports every error made in it', () async {
+    final engine = _PhonemeEngine();
+    final question = TasmeeDrill(
+      page: 1,
+      surah: 1,
+      ayah: 4,
+      targets: const [],
+      index: 2,
+      total: 5,
+      title: 'اختبار',
+      cue: 'x',
+      startPage: 1,
+      startAyahIndex: 1,
+    );
+    await service.start(
+      pageNumber: 1,
+      engineOverride: engine,
+      stopPlayback: false,
+      startAyahIndex: 1,
+      drill: question,
+    );
+    expect(service.drill?.cue, 'x');
+    expect(service.drillLabel.value, 'اختبار 2 / 5');
+
+    engine.recite(ayah(1));
+    await settle();
+    service.skipCurrentAyah(); // ayah index 2 given up: an error
+    engine.recite(ayah(3));
+    engine.recite([ayah(4).first]);
+    await settle();
+
+    final result = service.drillResult.value;
+    expect(result, isNotNull);
+    expect(result!.passed, isEmpty);
+    expect(result.failed, isEmpty);
+    expect(result.errors.map((e) => e.kind), contains('skippedAyah'));
+    expect(result.clean, isFalse);
+  });
+
+  test('a clean test question is clean', () async {
+    final engine = _PhonemeEngine();
+    final question = TasmeeDrill(
+      page: 1,
+      surah: 1,
+      ayah: 2,
+      targets: const [],
+      title: 'اختبار',
+      startPage: 1,
+      startAyahIndex: 1,
+    );
+    await service.start(
+      pageNumber: 1,
+      engineOverride: engine,
+      stopPlayback: false,
+      startAyahIndex: 1,
+      drill: question,
+    );
+    engine.recite(ayah(1));
+    engine.recite([ayah(2).first]);
+    await settle();
+    final result = service.drillResult.value;
+    expect(result, isNotNull);
+    expect(result!.errors, isEmpty);
+    expect(result.clean, isTrue);
+  });
+
   test('restarting the page inside a drill restarts the drill', () async {
     final target = TasmeeWeakPoint(
       surah: 1,

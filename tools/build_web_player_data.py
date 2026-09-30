@@ -192,13 +192,25 @@ def load_output_json() -> dict[int, dict]:
     return per_surah
 
 
-# output.json is in the KFGQPC encoding, which stores the open (successive)
-# tanween as U+0657 / U+065E / U+0656. Only the KFGQPC mushaf font draws those
-# as tanween; browser/system fonts draw their real glyphs (an inverted damma
-# that looks like "6", a fatha-with-two-dots that looks like "%", a subscript
-# alef), so the displayed text gets standard tanween instead. Same mapping as
-# the app's lib/utils/quran_display_text.dart.
+# output.json is in the KFGQPC encoding, which only the KFGQPC mushaf font
+# draws as intended; browser/system fonts draw the real Unicode glyphs:
+# - open tanween U+0657 / U+065E / U+0656 look like "6", "%" and a stray alef;
+# - alef maqsura is stored as a dotted ya (عِيسَي، عَلَيٰ، هُديٗ);
+# - a real vowel-less ya is stored as the Urdu yeh barree "ے" (فِے، شَےْءٍ).
+# The displayed text gets the standard characters instead. Same rules as the
+# app's lib/utils/quran_display_text.dart (see there for the reasoning).
 DISPLAY_TANWEEN = str.maketrans({"\u0657": "\u064B", "\u065E": "\u064C", "\u0656": "\u064D"})
+_MAQSURA_MARKS = "\u0670\u0653\u064B\u0657\u06D6-\u06ED"
+_LETTER_OR_MARK = "\u0621-\u065F\u0670-\u06D3\u06D6-\u06ED\u06FA-\u06FF"
+_MAQSURA = re.compile(
+    f"(?:(?<=\u064E)|(?<=\u064E\u0651))\u064A(?=\u0670|[{_MAQSURA_MARKS}]*(?![{_LETTER_OR_MARK}]))"
+    f"|\u064A(?=[\u064B\u0657][{_MAQSURA_MARKS}]*(?![{_LETTER_OR_MARK}]))"
+)
+
+
+def display_text(text: str) -> str:
+    text = _MAQSURA.sub("\u0649", text.translate(DISPLAY_TANWEEN))
+    return text.replace("\u06D2\u0655", "\u064A\u0654").replace("\u06D2", "\u064A")
 
 
 def build_quran_text(per_surah: dict[int, dict]) -> dict[int, int]:
@@ -208,7 +220,7 @@ def build_quran_text(per_surah: dict[int, dict]) -> dict[int, int]:
         ayahs_map = per_surah[s]["ayahs"]
         max_a = max(ayahs_map)
         assert set(ayahs_map) == set(range(1, max_a + 1)), f"surah {s} has ayah gaps"
-        ordered = [ayahs_map[a].translate(DISPLAY_TANWEEN) for a in range(1, max_a + 1)]
+        ordered = [display_text(ayahs_map[a]) for a in range(1, max_a + 1)]
         surahs.append(
             {
                 "number": s,

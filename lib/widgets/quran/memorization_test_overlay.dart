@@ -7,6 +7,7 @@ import '../../models/ayah_region_data.dart';
 import '../../models/word_region_data.dart';
 import '../../services/ayah_region_service.dart';
 import '../../services/memorization_test_service.dart';
+import '../../services/tasmee_weak_point_store.dart';
 import '../../services/word_region_service.dart';
 import '../../utils/quran_word_aligner.dart';
 import '../../utils/quran_display_text.dart';
@@ -122,6 +123,17 @@ class MemorizationTestOverlay extends StatelessWidget {
                     ),
                   ),
                 ),
+                // A test question's opening: where to start and the words
+                // to continue from. The covered page cannot show that when
+                // the question opens at the page's first ayah, so it sits
+                // on the page itself, under the bar.
+                if (service.drill?.cue != null)
+                  Positioned(
+                    top: 4,
+                    left: 8,
+                    right: 8,
+                    child: Center(child: _OpeningCue(drill: service.drill!)),
+                  ),
                 // Live feedback + help buttons, floating near the bottom of
                 // the page area (over the page's lower margin).
                 // The bar floats over the page; the reciter drags it (long
@@ -378,6 +390,105 @@ class _NextPageCover extends StatelessWidget {
 /// current message above it only while there is one, and a handle that folds
 /// the whole bar into a small dot so the last line stays readable. What the
 /// recognizer heard is not shown (it stays in the logs).
+/// The opening of a test question, drawn at the top of the page: which
+/// surah and ayah to start from, how much to recite, and the end of the
+/// ayah before («بعد قوله تعالى: ﴿…﴾»). Folds to its title; a new question
+/// unfolds it again.
+class _OpeningCue extends StatefulWidget {
+  const _OpeningCue({required this.drill});
+
+  final TasmeeDrill drill;
+
+  @override
+  State<_OpeningCue> createState() => _OpeningCueState();
+}
+
+class _OpeningCueState extends State<_OpeningCue> {
+  /// The question the reciter folded (folding is per question, so the next
+  /// one opens unfolded).
+  static TasmeeDrill? _foldedDrill;
+
+  static const Color _gold = Color(0xFF8A6D2F);
+
+  bool get _folded => identical(_foldedDrill, widget.drill);
+
+  BoxDecoration get _decoration => BoxDecoration(
+    color: const Color(0xE6FFFDF3),
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(color: _gold.withValues(alpha: 0.4)),
+    boxShadow: const [
+      BoxShadow(color: Color(0x22000000), blurRadius: 5, offset: Offset(0, 2)),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final drill = widget.drill;
+    final cue = quranDisplayText(drill.cue ?? '');
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() {
+          _foldedDrill = _folded ? null : drill;
+          MemorizationTestService.instance.logUi(
+            'cue',
+            {'folded': _folded},
+          );
+        }),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+          decoration: _decoration,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                textDirection: TextDirection.rtl,
+                children: [
+                  Expanded(
+                    child: Text(
+                      drill.label,
+                      textDirection: TextDirection.rtl,
+                      style: const TextStyle(
+                        color: _gold,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _folded
+                        ? Icons.keyboard_arrow_down_rounded
+                        : Icons.keyboard_arrow_up_rounded,
+                    size: 18,
+                    color: _gold,
+                  ),
+                ],
+              ),
+              if (!_folded)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    cue,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      color: Color(0xFF35250E),
+                      fontSize: 14.5,
+                      height: 1.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SessionBar extends StatefulWidget {
   const _SessionBar({required this.service});
 

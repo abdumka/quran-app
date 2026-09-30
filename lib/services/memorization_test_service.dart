@@ -227,10 +227,17 @@ class MemorizationTestService {
   int _drillStartPage = 0;
   int? _drillStartAyahIndex;
   final Set<String> _drillMissed = {};
+
+  /// Every error since the drill began, across the pages it ran over (the
+  /// page journal [_errors] is closed at each page turn).
+  final List<TasmeeError> _drillErrors = [];
   final ValueNotifier<String?> drillLabel = ValueNotifier<String?>(null);
   final ValueNotifier<TasmeeDrillResult?> drillResult =
       ValueNotifier<TasmeeDrillResult?>(null);
   bool get drillActive => _drill != null;
+
+  /// The drill or test question under way (its cue is drawn on the page).
+  TasmeeDrill? get drill => _drill;
 
   /// The page's expected phonemes (kept so the tracker can be rebuilt at a
   /// word the reciter is sent back to).
@@ -279,7 +286,10 @@ class MemorizationTestService {
       heard: heard,
     );
     _errors.add(e);
-    if (_drill != null) _drillMissed.add('${e.surah}:${e.ayah}:${e.wordInAyah}');
+    if (_drill != null) {
+      _drillMissed.add('${e.surah}:${e.ayah}:${e.wordInAyah}');
+      _drillErrors.add(e);
+    }
     _recorder?.log('error', {...e.toJson(), if (heardRaw.isNotEmpty) 'heardRaw': heardRaw});
   }
 
@@ -662,13 +672,12 @@ class MemorizationTestService {
       _drillStartPage = pageNumber;
       _drillStartAyahIndex = startAyahIndex;
       _drillMissed.clear();
+      _drillErrors.clear();
       _continuedFrom = null;
       _surahOpenings = _openingsOf(page, starts);
       _basmalaBuffer.clear();
       _basmalaArmed = _surahOpenings.isNotEmpty;
-      drillLabel.value = drill == null
-          ? null
-          : 'تقوية الحفظ ${drill.index} / ${drill.total}';
+      drillLabel.value = drill?.label;
       if (startAyahIndex != null) {
         // The ayahs before the starting one are not under test: shown.
         final s = starts[startAyahIndex.clamp(0, starts.length - 2).toInt()];
@@ -763,6 +772,7 @@ class MemorizationTestService {
                 'targets': [for (final t in drill.targets) t.key],
                 'index': drill.index,
                 'total': drill.total,
+                'title': drill.title,
               },
           },
         );
@@ -1824,14 +1834,22 @@ class MemorizationTestService {
       for (final t in drill.targets)
         if (_drillMissed.contains(t.key)) t,
     ];
+    final errors = List<TasmeeError>.of(_drillErrors);
     _recorder?.log('drill', {
       'passed': [for (final t in passed) t.key],
       'failed': [for (final t in failed) t.key],
+      'errors': errors.length,
     });
     _saveReport(finished: false);
-    TasmeeWeakPointStore.resolve(passed.map((t) => t.key));
-    drillResult.value =
-        TasmeeDrillResult(drill: drill, passed: passed, failed: failed);
+    // A passed word is not forgotten at once: it retires after being read
+    // right on another day too (see TasmeeWeakPointStore.passesToClear).
+    TasmeeWeakPointStore.notePassed(passed.map((t) => t.key), DateTime.now());
+    drillResult.value = TasmeeDrillResult(
+      drill: drill,
+      passed: passed,
+      failed: failed,
+      errors: errors,
+    );
     status.value = MemorizationTestStatus.completed;
     _stopEngineOnly();
     return true;
@@ -2357,6 +2375,7 @@ class MemorizationTestService {
     _wordsPastHold = 0;
     heldWord.value = -1;
     _drill = null;
+    _drillErrors.clear();
     drillLabel.value = null;
     _continuedFrom = null;
     _cancelPendingFlip();

@@ -159,7 +159,7 @@ class TafsirService {
         'surahName': ayah.surahName,
         'ayahNumber': ayah.ayah,
         'ayahText': quranDisplayText(ayah.text),
-        'tafsir': quranDisplayText(tafsirText),
+        'tafsir': tafsirDisplayText(tafsirText),
       });
     }
     return tafsirList;
@@ -223,7 +223,7 @@ class TafsirService {
         'surahName': ayah.surahName,
         'ayahNumber': ayah.ayah,
         'ayahText': quranDisplayText(ayah.text),
-        'tafsir': quranDisplayText(tafsirText),
+        'tafsir': tafsirDisplayText(tafsirText),
       });
     }
     return tafsirList;
