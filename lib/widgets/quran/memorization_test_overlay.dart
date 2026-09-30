@@ -9,6 +9,7 @@ import '../../services/ayah_region_service.dart';
 import '../../services/memorization_test_service.dart';
 import '../../services/word_region_service.dart';
 import '../../utils/quran_word_aligner.dart';
+import '../../utils/quran_display_text.dart';
 
 /// The reveal layer of the memorization test: covers every not-yet-recited
 /// ayah with paper-colored boxes drawn directly on top of the page image, so
@@ -567,7 +568,7 @@ class _SessionBarState extends State<_SessionBar> {
         final fb = service.feedback.value;
         final listening = status == MemorizationTestStatus.listening;
         final completed = status == MemorizationTestStatus.completed;
-        final message =
+        final rawMessage =
             fb?.message ??
             service.drillLabel.value ??
             switch (status) {
@@ -575,6 +576,9 @@ class _SessionBarState extends State<_SessionBar> {
               MemorizationTestStatus.completed => 'اكتملت الصفحة',
               _ => null,
             };
+        // Messages quote mushaf words, which carry KFGQPC tanween marks.
+        final message =
+            rawMessage == null ? null : quranDisplayText(rawMessage);
         final messageColor = switch (fb?.kind) {
           FeedbackKind.good => _good,
           FeedbackKind.wrong => _wrong,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'hifz_palette.dart';
 import '../../services/tasmee_report_store.dart';
 import '../../services/tasmee_weak_point_store.dart';
+import '../../utils/quran_display_text.dart';
 
 String _kindLabel(String kind) => TasmeeError(
       surah: 0,
@@ -111,7 +112,7 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 3),
                         child: Text(
-                          '• «${p.expected}» — سورة ${p.surah}، الآية ${p.ayah}'
+                          '• «${quranDisplayText(p.expected)}» — سورة ${p.surah}، الآية ${p.ayah}'
                           ' (ص ${p.page}) — ${_kindLabel(p.kind)}'
                           '${p.count > 1 ? ' ×${p.count}' : ''}',
                           style: TextStyle(
@@ -242,7 +243,7 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                 const SizedBox(height: 10),
                 for (final p in result.passed)
                   Text(
-                    '✓ «${p.expected}» — حُذفت من قائمة الأخطاء',
+                    '✓ «${quranDisplayText(p.expected)}» — حُذفت من قائمة الأخطاء',
                     style: TextStyle(
                       color: c.good,
                       fontSize: 14,
@@ -251,7 +252,7 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                   ),
                 for (final p in result.failed)
                   Text(
-                    '✗ «${p.expected}» — بقيت في القائمة',
+                    '✗ «${quranDisplayText(p.expected)}» — بقيت في القائمة',
                     style: TextStyle(
                       color: c.bad,
                       fontSize: 14,

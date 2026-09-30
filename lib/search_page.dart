@@ -6,6 +6,7 @@ import 'services/quran_json_service.dart';
 import 'services/tv_service.dart';
 import 'services/ayah_position_service.dart';
 import 'utils/copy_helper.dart';
+import 'utils/quran_display_text.dart';
 
 class SearchPage extends StatefulWidget {
   /// Opens [page] in the reader. [surah]/[ayah] name the ayah the tapped
@@ -172,7 +173,9 @@ class _SearchPageState extends State<SearchPage> {
               surah: ayah.surah,
               surahName: ayah.surahName,
               ayah: ayah.ayah,
-              text: ayah.text,
+              // Display form (standard tanween); normalization strips both
+              // forms, so matching and highlight offsets are unaffected.
+              text: quranDisplayText(ayah.text),
               normalizedText: normalizedText,
               exactText: _normalizeText(ayah.text, exact: true),
               normalizedWords: normalizedText

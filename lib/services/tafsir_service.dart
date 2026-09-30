@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/quran_page_data.dart';
 import '../models/tafsir_edition.dart';
+import '../utils/quran_display_text.dart';
 import 'quran_json_service.dart';
 import 'tafsir_cache_service.dart';
 import 'tafsir_edition_service.dart';
@@ -157,8 +158,8 @@ class TafsirService {
         'surah': ayah.surah,
         'surahName': ayah.surahName,
         'ayahNumber': ayah.ayah,
-        'ayahText': ayah.text,
-        'tafsir': tafsirText,
+        'ayahText': quranDisplayText(ayah.text),
+        'tafsir': quranDisplayText(tafsirText),
       });
     }
     return tafsirList;
@@ -221,8 +222,8 @@ class TafsirService {
         'surah': ayah.surah,
         'surahName': ayah.surahName,
         'ayahNumber': ayah.ayah,
-        'ayahText': ayah.text,
-        'tafsir': tafsirText,
+        'ayahText': quranDisplayText(ayah.text),
+        'tafsir': quranDisplayText(tafsirText),
       });
     }
     return tafsirList;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'hifz_palette.dart';
 import '../../services/tasmee_report_store.dart';
+import '../../utils/quran_display_text.dart';
 
 /// Saved Tasmee reports: one row per recited page, newest first; tap a row
 /// for its errors.
@@ -94,14 +95,18 @@ class TasmeeReportTile extends StatelessWidget {
           ListTile(
             dense: true,
             title: Text(
-              e.kind == 'extra' && e.heard.isNotEmpty
-                  ? '${e.kindLabel}: «${e.heard}» قبل «${e.expected}»'
-                  : '${e.kindLabel}: «${e.expected}»',
+              quranDisplayText(
+                e.kind == 'extra' && e.heard.isNotEmpty
+                    ? '${e.kindLabel}: «${e.heard}» قبل «${e.expected}»'
+                    : '${e.kindLabel}: «${e.expected}»',
+              ),
               style: TextStyle(color: p.text, fontSize: 15),
             ),
             subtitle: Text(
-              'الآية ${e.ayah}، الكلمة ${e.wordInAyah}'
-              '${e.heard.isEmpty || e.kind == 'extra' ? '' : ' — قرأت «${e.heard}»'}',
+              quranDisplayText(
+                'الآية ${e.ayah}، الكلمة ${e.wordInAyah}'
+                '${e.heard.isEmpty || e.kind == 'extra' ? '' : ' — قرأت «${e.heard}»'}',
+              ),
               style: TextStyle(color: p.sub, fontSize: 12.5),
             ),
           ),
