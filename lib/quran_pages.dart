@@ -23,6 +23,7 @@ import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/page_image_crop.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
+import 'widgets/quran/spine_shadow.dart';
 import 'services/memorization_test_service.dart';
 import 'services/asr_model_manager.dart';
 import 'continuous_quran_view.dart';
@@ -34,6 +35,7 @@ import 'services/daily_page_service.dart';
 import 'services/kahf_reminder_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
+import 'services/spine_shadow_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
@@ -701,6 +703,7 @@ class _QuranPagesState extends State<QuranPages>
     _portraitController = PageController(initialPage: widget.initialPage);
     _pageZoomController.addListener(_handlePageZoomChanged);
     PageZoomService.instance.enabled.addListener(_handlePageZoomSettingChanged);
+    SpineShadowService.instance.enabled.addListener(_handleSpineShadowChanged);
     _marginImagesService.initialize();
     // Older versions downloaded the margin / high-fidelity packs to app
     // support; they are bundled now, so free that space once the reader is
@@ -875,6 +878,9 @@ class _QuranPagesState extends State<QuranPages>
     _pageZoomController.dispose();
     PageZoomService.instance.enabled.removeListener(
       _handlePageZoomSettingChanged,
+    );
+    SpineShadowService.instance.enabled.removeListener(
+      _handleSpineShadowChanged,
     );
     RecitationBarAutoHideService.instance.enabled.removeListener(
       _handleAutoHideSettingChanged,
@@ -4468,6 +4474,13 @@ class _QuranPagesState extends State<QuranPages>
                                     _pageQualityService.filterQuality,
                               ),
                             ),
+                            if (_showSpineShadow(context))
+                              SpineShadow(
+                                page: pageIndex + 1,
+                                dark:
+                                    Theme.of(context).brightness ==
+                                    Brightness.dark,
+                              ),
                             // On every page while the mode is on: the overlay
                             // itself follows the service's live page and
                             // pre-covers the page after it.
@@ -4595,6 +4608,12 @@ class _QuranPagesState extends State<QuranPages>
                             filterQuality: _pageQualityService.filterQuality,
                           ),
                         ),
+                        if (_showSpineShadow(context))
+                          SpineShadow(
+                            page: pageIndex + 1,
+                            dark:
+                                Theme.of(context).brightness == Brightness.dark,
+                          ),
                         if (_isMemorizationTestEnabled)
                           MemorizationTestOverlay(
                             pageNumber: pageIndex + 1,
@@ -4761,6 +4780,7 @@ class _QuranPagesState extends State<QuranPages>
                   pageImageProviderBuilder: (pageIndex) =>
                       _imageProviderForPage(pageIndex, pages[pageIndex]),
                   marginView: _isMarginImagesEnabled,
+                  spineShadow: _showSpineShadow(context),
                   initialPage: _currentPage,
                   viewportWidth: constraints.maxWidth,
                   pageAspectRatio: _activePageAspectRatio,
@@ -4836,6 +4856,18 @@ class _QuranPagesState extends State<QuranPages>
       _resetPageZoom();
     }
   }
+
+  void _handleSpineShadowChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// "ظلّ الكعب" shows only where it carries information: the cropped view
+  /// (the margin scan already shows which side a page is) and single-page
+  /// layouts (a two-page spread has both sides on screen).
+  bool _showSpineShadow(BuildContext context) =>
+      SpineShadowService.instance.enabled.value &&
+      !_isMarginImagesEnabled &&
+      !_useTwoPageView(context);
 
   /// Double-tap: zoom out to fit if already zoomed, otherwise zoom in to 2.5×
   /// centred on the tapped point (like a photo viewer). InteractiveViewer clamps

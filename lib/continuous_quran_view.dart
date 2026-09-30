@@ -12,6 +12,7 @@ import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/page_image_crop.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
+import 'widgets/quran/spine_shadow.dart';
 
 class ContinuousQuranView extends StatefulWidget {
   const ContinuousQuranView({
@@ -34,6 +35,7 @@ class ContinuousQuranView extends StatefulWidget {
     this.memorizationTestPageIndex = -1,
     this.filterQuality = FilterQuality.low,
     this.marginView = false,
+    this.spineShadow = false,
   });
 
   final List<String> pages;
@@ -69,6 +71,9 @@ class ContinuousQuranView extends StatefulWidget {
   /// interior (see [PageImageCrop]). The overlays map their coordinates
   /// accordingly.
   final bool marginView;
+
+  /// Draw "ظلّ الكعب" on each page (see [SpineShadow]).
+  final bool spineShadow;
 
   @override
   State<ContinuousQuranView> createState() => ContinuousQuranViewState();
@@ -674,6 +679,13 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                                       },
                                     ),
                                   ),
+                                  if (widget.spineShadow)
+                                    SpineShadow(
+                                      page: index + 1,
+                                      dark:
+                                          Theme.of(context).brightness ==
+                                          Brightness.dark,
+                                    ),
                                   if (widget.memorizationTestPageIndex >= 0)
                                     MemorizationTestOverlay(
                                       pageNumber: index + 1,

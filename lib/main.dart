@@ -11,6 +11,7 @@ import 'services/daily_page_service.dart';
 import 'services/kahf_reminder_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
+import 'services/spine_shadow_service.dart';
 import 'services/debug_log_service.dart';
 import 'services/reciter_service.dart';
 import 'services/tafsir_edition_service.dart';
@@ -106,6 +107,7 @@ Future<void> main() async {
     TvService.instance.initialize(),
     PageColorService.instance.load(),
     PageZoomService.instance.load(),
+    SpineShadowService.instance.load(),
     RecitationBarAutoHideService.instance.load(),
     RecitationBarOpacityService.instance.load(),
     SystemChrome.setPreferredOrientations([

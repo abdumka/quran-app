@@ -25,6 +25,7 @@ import '../../services/background_playback_service.dart';
 import '../../services/daily_page_service.dart';
 import '../../services/kahf_reminder_service.dart';
 import '../../services/page_zoom_service.dart';
+import '../../services/spine_shadow_service.dart';
 import '../../services/page_color_service.dart';
 import '../../services/keep_screen_awake_service.dart';
 import '../../services/margin_images_service.dart';
@@ -122,6 +123,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final BackgroundPlaybackService _backgroundPlaybackService =
       BackgroundPlaybackService.instance;
   final PageZoomService _pageZoomService = PageZoomService.instance;
+  final SpineShadowService _spineShadowService = SpineShadowService.instance;
   final PageColorService _pageColorService = PageColorService.instance;
   final KeepScreenAwakeService _keepScreenAwakeService =
       KeepScreenAwakeService.instance;
@@ -874,6 +876,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String get _systemScreenTimeoutInfoText =>
       'عند تفعيل هذا الخيار يلتزم التطبيق بإعدادات الهاتف لقفل وإطفاء الشاشة. عند إيقافه تبقى الشاشة مستيقظة أثناء القراءة داخل التطبيق.';
+
+  String get _spineShadowInfoText =>
+      'ظلّ خفيف على حافة الصفحة من جهة كعب المصحف، كما في المصحف المفتوح: يظهر على يسار الصفحة اليمنى وعلى يمين الصفحة اليسرى، فتعرف الجهة بنظرة. يعمل في العرض العادي فقط، ويمكن إيقافه من هنا.';
 
   String get _pageZoomInfoText =>
       'يتيح لك تكبير صفحة المصحف بتقريب أصابعك (Pinch) مثل الصور. عند إيقاف هذا الخيار لا يمكن تكبير الصفحة.';
@@ -1655,6 +1660,45 @@ class _SettingsPageState extends State<SettingsPage> {
                               );
                             },
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      // "ظلّ الكعب": tells a right page from a left page in
+                      // the normal view. Same title + switch shape as the
+                      // margin tile above it.
+                      SettingsCard(
+                        child: ValueListenableBuilder<bool>(
+                          valueListenable: _spineShadowService.enabled,
+                          builder: (context, enabled, _) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 5,
+                              ),
+                              child: Row(
+                                textDirection: TextDirection.rtl,
+                                children: [
+                                  Expanded(
+                                    child: SettingsTileHeader(
+                                      title: 'ظلّ الكعب (تمييز اليمنى واليسرى)',
+                                      onInfo: () => _showInfoNotice(
+                                        _spineShadowInfoText,
+                                      ),
+                                      scaleDownToFit: true,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Switch(
+                                    activeThumbColor: const Color(0xFF8B7355),
+                                    value: enabled,
+                                    onChanged: _spineShadowService.setEnabled,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(height: 6),
