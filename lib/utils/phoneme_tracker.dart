@@ -516,9 +516,11 @@ class PhonemeTracker {
       if (!startAnywhere) {
         column[m] = i == startWord ? 0 : double.infinity;
       } else {
-        column[m] = m == 0
-            ? 0
-            : (reference.words[i].wordInAyah == 0 ? cfg.startAyahCost : jump);
+        // Every ayah of the page is an equally likely place to start: the
+        // top used to be free while any other ayah cost startAyahCost, so a
+        // near-miss at the top («وَلَوْ») beat an exact match lower down
+        // («وَلِلَّهِ», 11:123 on p235) until the difference outgrew 6.
+        column[m] = reference.words[i].wordInAyah == 0 ? 0 : jump;
       }
       originCell[m] = m;
     }

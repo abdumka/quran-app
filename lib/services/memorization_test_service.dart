@@ -188,6 +188,17 @@ class MemorizationTestService {
   /// user started on it): "repeat the ayah" at its top goes back there.
   int? _continuedFrom;
 
+  /// The page is complete and the next one is ready; the view flips when
+  /// the reciter's next sound arrives, not before. A fluent reciter never
+  /// pauses, so the flip comes at the same moment as it used to; someone
+  /// who pressed «كلمة» on the last word keeps the page as long as they are
+  /// silent. Sounds that arrive while the next page is still loading wait
+  /// in [_pendingChars].
+  bool _pageDoneWaiting = false;
+  _NextPage? _nextPage;
+  bool _swapping = false;
+  final List<HeardChar> _pendingChars = [];
+
   /// The basmala as the recognizer hears it (madd runs collapsed). It is not
   /// part of any surah's text in this mushaf (al-Fatiha starts at الحمد), so
   /// a reciter who says it before a surah would land on that surah's first
@@ -1235,21 +1246,33 @@ class MemorizationTestService {
         chars.add(HeardChar(String.fromCharCode(r), frame));
       }
     }
-    final toFeed = _basmalaFilter(tracker, chars);
-    if (toFeed.isNotEmpty) tracker.feed(toFeed);
-    if (feedback.value?.kind == FeedbackKind.silent) _setFeedback(null);
-    _lastPhonemeAt = DateTime.now();
-    _settledApplied = false;
-    if (segment.lagMs >= 0) lastLagMs.value = segment.lagMs;
-    final shown = lastHeard.value + tokens.join();
-    lastHeard.value =
-        shown.length > 40 ? shown.substring(shown.length - 40) : shown;
     _recorder?.log('phonemes', {
       'tokens': tokens,
       'timesMs': times,
       'audioEndMs': segment.audioEndMs,
       'lagMs': segment.lagMs,
     });
+    if (_pageDoneWaiting) {
+      // The reciter went on: these sounds belong to the next page.
+      _pendingChars.addAll(chars);
+      unawaited(_resumeOnNextPage());
+      return;
+    }
+    _feedChars(tracker, chars, segment.lagMs);
+  }
+
+  /// Feeds [chars] (through the basmala filter) and applies what the judge
+  /// can already say.
+  void _feedChars(PhonemeTracker tracker, List<HeardChar> chars, int lagMs) {
+    final toFeed = _basmalaFilter(tracker, chars);
+    if (toFeed.isNotEmpty) tracker.feed(toFeed);
+    if (feedback.value?.kind == FeedbackKind.silent) _setFeedback(null);
+    _lastPhonemeAt = DateTime.now();
+    _settledApplied = false;
+    if (lagMs >= 0) lastLagMs.value = lagMs;
+    final shown = lastHeard.value + chars.map((c) => c.ch).join();
+    lastHeard.value =
+        shown.length > 40 ? shown.substring(shown.length - 40) : shown;
     _applyTrackerVerdicts(settled: false);
   }
 
@@ -1291,6 +1314,8 @@ class MemorizationTestService {
     final wrongVerdicts = <WordVerdict>[];
     // Extra-word verdicts moved onto the word after the gap (see below).
     final extras = <WordVerdict>[];
+    // Near-miss words heard before the start of the session is known.
+    final unsureBeforeStart = <int, WordVerdict>{};
     // Half-said words whose pause verdict waits for the voice to stop.
     final waiting = <int>{};
     WordVerdict? repaired;
@@ -1313,6 +1338,11 @@ class MemorizationTestService {
               updates[v.word] = WordStatus.correct;
               repaired = v;
             }
+          } else if (!_startResolved && v.state == VerdictState.unsure) {
+            // Where the session starts is decided by an exact word only: a
+            // near-miss («وَلِلَّهِ» heard as «وَلَوْ») must not fix it. Kept
+            // aside and applied once an exact word has fixed the start.
+            unsureBeforeStart[v.word] = v;
           } else {
             updates[v.word] = WordStatus.correct;
           }
@@ -1461,6 +1491,10 @@ class MemorizationTestService {
         _startResolved = true;
         final ayah = _ayahIndexOfWord(firstCorrect);
         final start = ayah > 0 ? _ayahWordStarts[ayah] : 0;
+        // The near-misses of the ayah now known to be the start count.
+        for (final e in unsureBeforeStart.entries) {
+          if (e.key >= start) updates[e.key] = WordStatus.correct;
+        }
         if (start > 0 && !aligner.statuses.sublist(0, start).contains(WordStatus.correct)) {
           for (var w = 0; w < start; w++) {
             updates[w] = WordStatus.correct;
@@ -1765,6 +1799,7 @@ class MemorizationTestService {
     _settledApplied = false;
     _startResolved = true;
     _basmalaBuffer.clear();
+    _cancelPendingFlip();
     _recorder?.log('rewind', {'word': word, 'barrier': tracker.maxCell});
   }
 
@@ -1967,6 +2002,7 @@ class MemorizationTestService {
 
   void _checkSilence() {
     if (status.value != MemorizationTestStatus.listening) return;
+    if (_pageDoneWaiting) return; // the page is done; silence is fine
     if (!usingRealEngine.value || _silenceWarned) return;
     if (DateTime.now().difference(_lastVoiceOrSegment).inSeconds >= 8) {
       _silenceWarned = true;
@@ -1988,15 +2024,84 @@ class MemorizationTestService {
     // The last word held for a mistake: the page waits for it like any other.
     if (_holdWord >= 0) return;
     // The phoneme engine flows into the next page without stopping: the
-    // reciter keeps reading and only the expected text changes under it.
+    // next page is made ready now, and the view flips at the reciter's next
+    // sound (see [_pageDoneWaiting]).
     if (_tracker != null &&
-        _recorder != null &&
         status.value == MemorizationTestStatus.listening &&
         (_activePage ?? 602) < 602) {
-      if (!_advancing) _continueToNextPage();
+      if (!_pageDoneWaiting && !_advancing) {
+        _pageDoneWaiting = true;
+        final (clean, flagged) = summary;
+        _setFeedback(
+          RecitationFeedback(
+            flagged == 0 ? FeedbackKind.good : FeedbackKind.info,
+            flagged == 0
+                ? 'الصفحة $_activePage ✓ — تابع'
+                : 'الصفحة $_activePage: $flagged آيات بملاحظات — تابع',
+          ),
+          sticky: true,
+          show: true,
+        );
+        unawaited(_prepareNextPage());
+      }
       return;
     }
     _finishPage();
+  }
+
+  void _cancelPendingFlip() {
+    _pageDoneWaiting = false;
+    _nextPage = null;
+    _pendingChars.clear();
+  }
+
+  /// Loads everything the next page needs, so the swap at the reciter's
+  /// next sound is instant. A page that cannot be used ends the run here.
+  Future<void> _prepareNextPage() async {
+    _advancing = true;
+    final token = _startToken;
+    final next = (_activePage ?? 0) + 1;
+    try {
+      final data = await _NextPage.load(next);
+      if (token != _startToken || !_pageDoneWaiting) return;
+      if (data == null || !_regionsMatchText(data.regions, data.page)) {
+        _cancelPendingFlip();
+        _finishPage();
+        return;
+      }
+      _nextPage = data;
+      if (_pendingChars.isNotEmpty) unawaited(_resumeOnNextPage());
+    } catch (e) {
+      debugPrint('MemorizationTestService: could not prepare page $next: $e');
+      if (token == _startToken) {
+        _cancelPendingFlip();
+        _finishPage();
+      }
+    } finally {
+      _advancing = false;
+    }
+  }
+
+  /// The reciter's next sound after a complete page: swap the session onto
+  /// the page made ready, flip the view, and feed what was heard — through
+  /// the basmala filter, since a surah often ends with the page and the
+  /// reciter says the basmala before the next one.
+  Future<void> _resumeOnNextPage() async {
+    final data = _nextPage;
+    if (data == null || _swapping || !_pageDoneWaiting) return;
+    _swapping = true;
+    final token = _startToken;
+    try {
+      await _continueToNextPage(data);
+      if (token != _startToken) return;
+      final tracker = _tracker;
+      if (tracker == null) return;
+      final chars = List<HeardChar>.of(_pendingChars);
+      _pendingChars.clear();
+      if (chars.isNotEmpty) _feedChars(tracker, chars, -1);
+    } finally {
+      _swapping = false;
+    }
   }
 
   /// Ends the page for good: summary line, engine stopped, result left on
@@ -2030,50 +2135,26 @@ class MemorizationTestService {
   /// word (about a second of speech by the time that word is confirmed) is
   /// replayed into the new page's tracker, this page's log is closed and a
   /// new one opened, and [pageAdvanced] tells the page view to flip.
-  Future<void> _continueToNextPage() async {
+  Future<void> _continueToNextPage(_NextPage data) async {
     _advancing = true;
     final token = _startToken;
     final donePage = _activePage!;
-    final next = donePage + 1;
+    final next = data.number;
     try {
-      final regions = await AyahRegionService.forPage(next);
-      final wordRegions = await WordRegionService.forPage(next);
-      final pages = await QuranJsonService.loadQuranPages();
-      final phonemes = await PagePhonemeService.forPage(next);
-      QuranPageData? page;
-      for (final p in pages) {
-        if (p.page == next) {
-          page = p;
-          break;
-        }
-      }
-      final expectedWords = <String>[];
-      final starts = <int>[];
-      if (page != null) {
-        for (final ayah in page.ayahs) {
-          starts.add(expectedWords.length);
-          expectedWords.addAll(
-            ayah.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty),
-          );
-        }
-        starts.add(expectedWords.length);
-      }
-      final usable = regions != null &&
-          page != null &&
-          phonemes != null &&
-          expectedWords.isNotEmpty &&
-          phonemes.words.length == expectedWords.length &&
-          _regionsMatchText(regions, page);
+      final regions = data.regions;
+      final wordRegions = data.wordRegions;
+      final page = data.page;
+      final phonemes = data.phonemes;
+      final expectedWords = data.expectedWords;
+      final starts = data.starts;
       if (token != _startToken ||
           status.value != MemorizationTestStatus.listening) {
         return;
       }
-      if (!usable) {
-        _finishPage();
-        return;
-      }
 
-      // Speech already heard beyond this page's last word.
+      // Speech already heard beyond this page's last word (the tail of the
+      // batch that finished it) goes to the next page too, in front of what
+      // came after; it is fed through the basmala filter with that.
       final oldTracker = _tracker!;
       final oldAligner = _aligner!;
       var from = oldTracker.heard.length;
@@ -2082,6 +2163,7 @@ class MemorizationTestService {
       }
       final carry =
           oldTracker.heard.sublist(math.min(from, oldTracker.heard.length));
+      _pendingChars.insertAll(0, carry);
 
       final (clean, flagged) = summary;
       _saveReport(finished: true);
@@ -2093,16 +2175,20 @@ class MemorizationTestService {
         'statuses': [for (final st in statuses) st.name],
       });
       final oldRecorder = _recorder;
-      final newRecorder = await TasmeeSessionRecorder.begin(
-        page: next,
-        installId: _installId,
-        info: {
-          ..._recorderInfo,
-          'continuedFrom': donePage,
-          'ayahs': [for (final a in page.ayahs) '${a.surah}:${a.ayah}'],
-          'words': expectedWords.length,
-        },
-      );
+      // A page session is logged only when the run is (tests inject an
+      // engine and have no recorder; the flow itself no longer depends on it).
+      final newRecorder = oldRecorder == null
+          ? null
+          : await TasmeeSessionRecorder.begin(
+              page: next,
+              installId: _installId,
+              info: {
+                ..._recorderInfo,
+                'continuedFrom': donePage,
+                'ayahs': [for (final a in page.ayahs) '${a.surah}:${a.ayah}'],
+                'words': expectedWords.length,
+              },
+            );
       if (token != _startToken ||
           status.value != MemorizationTestStatus.listening) {
         await newRecorder?.finish();
@@ -2151,25 +2237,23 @@ class MemorizationTestService {
       heldWord.value = -1;
       _settledApplied = false;
       _startResolved = true; // a continued page starts at its first word
+      _pageDoneWaiting = false;
+      _nextPage = null;
       _recorder?.log('listening', {'carriedChars': carry.length});
-      if (carry.isNotEmpty) tracker.feed(carry);
       _lastPhonemeAt = DateTime.now();
-      _setFeedback(RecitationFeedback(
-        flagged == 0 ? FeedbackKind.good : FeedbackKind.info,
-        flagged == 0
-            ? 'الصفحة $donePage ✓ — تابع'
-            : 'الصفحة $donePage: $flagged آيات بملاحظات — تابع',
-      ));
+      _setFeedback(null); // the "page done" line has served its purpose
       // A ValueNotifier is silent when its value does not change, and the
       // same page can be flowed into twice in one run of the app (p130 ->
       // p131, back, and again): pulse through 0 so every advance fires.
       pageAdvanced.value = 0;
       pageAdvanced.value = next;
       revision.value++;
-      _applyTrackerVerdicts(settled: false);
     } catch (e) {
       debugPrint('MemorizationTestService: could not continue to page $next: $e');
-      if (token == _startToken) _finishPage();
+      if (token == _startToken) {
+        _cancelPendingFlip();
+        _finishPage();
+      }
     } finally {
       _advancing = false;
     }
@@ -2275,6 +2359,7 @@ class MemorizationTestService {
     _drill = null;
     drillLabel.value = null;
     _continuedFrom = null;
+    _cancelPendingFlip();
     _surahOpenings = const [];
     _basmalaBuffer.clear();
     _basmalaArmed = false;
@@ -2291,5 +2376,64 @@ class MemorizationTestService {
       status.value = MemorizationTestStatus.idle;
       revision.value++;
     }
+  }
+}
+
+/// Everything a page needs before the session can flow onto it, loaded
+/// while the reciter still holds the finished page.
+class _NextPage {
+  const _NextPage({
+    required this.number,
+    required this.regions,
+    required this.wordRegions,
+    required this.page,
+    required this.phonemes,
+    required this.expectedWords,
+    required this.starts,
+  });
+
+  final int number;
+  final AyahRegionPageData regions;
+  final WordRegionPageData? wordRegions;
+  final QuranPageData page;
+  final PagePhonemes phonemes;
+  final List<String> expectedWords;
+  final List<int> starts;
+
+  /// Null when the page has no usable data.
+  static Future<_NextPage?> load(int number) async {
+    final regions = await AyahRegionService.forPage(number);
+    final wordRegions = await WordRegionService.forPage(number);
+    final pages = await QuranJsonService.loadQuranPages();
+    final phonemes = await PagePhonemeService.forPage(number);
+    QuranPageData? page;
+    for (final p in pages) {
+      if (p.page == number) {
+        page = p;
+        break;
+      }
+    }
+    if (regions == null || page == null || phonemes == null) return null;
+    final expectedWords = <String>[];
+    final starts = <int>[];
+    for (final ayah in page.ayahs) {
+      starts.add(expectedWords.length);
+      expectedWords.addAll(
+        ayah.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty),
+      );
+    }
+    starts.add(expectedWords.length);
+    if (expectedWords.isEmpty || phonemes.words.length != expectedWords.length) {
+      return null;
+    }
+    return _NextPage(
+      number: number,
+      regions: regions,
+      wordRegions: wordRegions,
+      page: page,
+      phonemes: phonemes,
+      expectedWords: expectedWords,
+      starts: starts,
+    );
   }
 }

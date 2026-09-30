@@ -451,6 +451,125 @@ void main() {
     expect(service.statuses[malik], WordStatus.correct);
   });
 
+  group('page flow', () {
+    Future<List<PhonemeWord>> pageWords(int page) async =>
+        (await PagePhonemeService.forPage(page))!.words;
+    List<String> ayahOf(List<PhonemeWord> ws, int index) => [
+          for (final w in ws)
+            if (w.ayah == index) collapseMadd(w.phon),
+        ];
+    Future<void> tick() =>
+        Future<void>.delayed(const Duration(milliseconds: 400));
+
+    test('a finished page flips when the reciter speaks again, not before', () async {
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+      final flips = <int>[];
+      void onFlip() => flips.add(service.pageAdvanced.value);
+      service.pageAdvanced.addListener(onFlip);
+      try {
+        for (var a = 0; a < 7; a++) {
+          engine.recite(ayah(a));
+        }
+        await settle();
+        expect(service.activePage, 1, reason: 'silent: the page stays');
+        expect(flips, isEmpty);
+        expect(service.status.value, MemorizationTestStatus.listening);
+        expect(service.feedback.value?.message, contains('تابع'));
+
+        final p2 = await pageWords(2);
+        engine.recite(ayahOf(p2, 0));
+        await tick();
+        expect(flips, contains(2), reason: 'the first sound flips the view');
+        expect(service.activePage, 2);
+        await settle();
+        expect(service.statuses[0], WordStatus.correct);
+        expect(service.heldWord.value, -1);
+      } finally {
+        service.pageAdvanced.removeListener(onFlip);
+      }
+    });
+
+    test('a revealed last word stays on screen until the reciter goes on', () async {
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 1, engineOverride: engine, stopPlayback: false);
+      for (var a = 0; a < 6; a++) {
+        engine.recite(ayah(a));
+      }
+      final last = ayah(6);
+      engine.recite(last.take(last.length - 1));
+      await settle();
+      service.showHint(); // reveals the last word: the page is complete
+      await tick();
+      expect(service.activePage, 1, reason: 'no flip while nothing is said');
+      expect(service.statuses.last, WordStatus.revealed);
+      final p2 = await pageWords(2);
+      engine.recite(ayahOf(p2, 0));
+      await settle();
+      expect(service.activePage, 2);
+    });
+
+    test('a basmala said between two surahs across a page turn is not a mistake', () async {
+      // Page 150 ends surah 6; surah 7 opens page 151.
+      final p150 = await pageWords(150);
+      final p151 = await pageWords(151);
+      final lastAyah = p150.last.ayah;
+      final engine = _PhonemeEngine();
+      await service.start(
+        pageNumber: 150,
+        engineOverride: engine,
+        stopPlayback: false,
+        startAyahIndex: lastAyah,
+      );
+      engine.recite(ayahOf(p150, lastAyah));
+      await settle();
+      expect(service.activePage, 150);
+      const basmala = 'بِسمِللَااهِررَحمَاانِررَحِۦۦم';
+      engine.recite([basmala.substring(0, 10), basmala.substring(10)]);
+      engine.recite(ayahOf(p151, 0));
+      await settle();
+      expect(service.activePage, 151);
+      expect(service.heldWord.value, -1, reason: 'the basmala was swallowed');
+      expect(service.statuses[0], WordStatus.correct);
+      expect(service.statuses[2], WordStatus.correct);
+    });
+
+    test('the same words without a basmala flow the same way', () async {
+      final p150 = await pageWords(150);
+      final p151 = await pageWords(151);
+      final lastAyah = p150.last.ayah;
+      final engine = _PhonemeEngine();
+      await service.start(
+        pageNumber: 150,
+        engineOverride: engine,
+        stopPlayback: false,
+        startAyahIndex: lastAyah,
+      );
+      engine.recite(ayahOf(p150, lastAyah));
+      await settle();
+      engine.recite(ayahOf(p151, 0));
+      await settle();
+      expect(service.activePage, 151);
+      expect(service.heldWord.value, -1);
+      expect(service.statuses[0], WordStatus.correct);
+    });
+
+    test('starting on a later ayah whose first word nearly matches the top', () async {
+      // The owner's p235 session: «وَلِلَّهِ غيب السماوات» (11:123, the 5th
+      // ayah) was taken for «وَلَوْ» at the top and the rest called skipped.
+      final ws = await pageWords(235);
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 235, engineOverride: engine, stopPlayback: false);
+      engine.recite(ayahOf(ws, 4).take(5));
+      await settle();
+      expect(service.heldWord.value, -1);
+      final first = ws.indexWhere((w) => w.ayah == 4);
+      expect(service.statuses[first], WordStatus.correct);
+      expect(service.statuses[first + 3], WordStatus.correct);
+      expect(service.statuses[0], WordStatus.correct, reason: 'ayahs before the start are shown');
+    });
+  });
+
   test('repeat ayah at the top of a continued page goes back a page', () async {
     final engine = _PhonemeEngine();
     await service.start(pageNumber: 2, engineOverride: engine, stopPlayback: false);

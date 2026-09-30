@@ -97,10 +97,20 @@ session does not start and a snackbar says why (`StubReason` kept its name).
   أكثر الناس). Tightening was measured and rejected (§6).
 - Short words (≤3 letters) skipped with both neighbours heard are absorbed as correct (model
   drops them). Known blind spot: a dropped قل/من/ما/إن is never caught.
-- Page complete → engine keeps running, text swaps to the next page (`pageAdvanced` pulses
-  through 0 because a `ValueNotifier` is silent on an equal value). Only when a recorder
-  exists. **«أعد الآية» at the top of a page the session flowed into restarts on the previous
-  page at its last ayah** (`_continuedFrom`, `_repeatLastAyahOf`).
+- **Page complete → the view flips at the reciter's NEXT SOUND, not at once** (2026-09-30, owner's
+  choice "A"): `_pageDoneWaiting` shows «الصفحة N ✓ — تابع», `_prepareNextPage` loads the next page's
+  data meanwhile (`_NextPage`), and the first phonemes after completion go to `_pendingChars`, trigger
+  `_resumeOnNextPage` → `_continueToNextPage(data)` (swap + `pageAdvanced` pulse through 0) and are then
+  fed THROUGH THE BASMALA FILTER together with the old tracker's tail. A fluent reciter sees no delay; a
+  «كلمة» on the last word stays visible while they are silent; the silence warning is off while waiting;
+  a rewind (repeat ayah, hint after a hard stop) cancels the pending flip. The flow no longer needs a
+  recorder (tests cover it). **«أعد الآية» at the top of a page the session flowed into restarts on the
+  previous page at its last ayah** (`_continuedFrom`, `_repeatLastAyahOf`).
+- **Where the session starts** (2026-09-30): every ayah start of the page costs the same in the DP
+  (the top used to be free and any other ayah 6, so «وَلِلَّهِ» 11:122 on p235 was taken for «وَلَوْ» at
+  the top and 53 words called skipped), mirrored in `eval_session.py` (p130 parity fixture regenerated:
+  only `cursorCost` changed, by exactly 6). And only an `ok` word may fix the start; `unsure` words heard
+  before that are kept aside and applied once the start is known.
 - Help buttons: كلمة, الآية, أعد الآية, تخطَّ, الصفحة (restart; inside a drill restarts the
   drill), إنهاء, إخفاء. The bar shows only silence / mistake / skip / not-on-page / engine
   error / page complete / drill label; everything else goes to the log (`feedback shown:false`).
