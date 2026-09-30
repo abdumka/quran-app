@@ -28,7 +28,6 @@ import '../../services/page_zoom_service.dart';
 import '../../services/page_color_service.dart';
 import '../../services/keep_screen_awake_service.dart';
 import '../../services/margin_images_service.dart';
-import '../../services/high_quality_images_service.dart';
 import '../../services/page_quality_service.dart';
 import '../../services/reciter_service.dart';
 import '../../services/tafsir_edition_service.dart';
@@ -127,8 +126,6 @@ class _SettingsPageState extends State<SettingsPage> {
   final KeepScreenAwakeService _keepScreenAwakeService =
       KeepScreenAwakeService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
-  final HighQualityImagesService _highQualityImagesService =
-      HighQualityImagesService.instance;
   final TafsirEditionService _tafsirEditionService =
       TafsirEditionService.instance;
   final TafsirCacheService _tafsirCacheService = TafsirCacheService.instance;
@@ -185,7 +182,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _audioDownloadService.initialize();
     _keepScreenAwakeService.load();
     _marginImagesService.initialize();
-    _highQualityImagesService.initialize();
     _tafsirEditionService.load();
     _tafsirCacheService.initialize();
     _pageQualityService.load();
@@ -645,77 +641,6 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  Future<bool> _confirmDownload({
-    required String title,
-    required String body,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title, textDirection: TextDirection.rtl),
-        content: Text(body, textDirection: TextDirection.rtl),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('تحميل'),
-          ),
-        ],
-      ),
-    );
-
-    return result ?? false;
-  }
-
-  Future<void> _handleMarginImagesDownload() async {
-    final shouldContinue = await _confirmDownload(
-      title: 'تحميل عرض الهوامش',
-      body:
-          'سيتم تنزيل ملف عرض الهوامش بحجم تقريبي ${_marginImagesService.state.value.packageSizeLabel}. بعد اكتمال التحميل يمكنك التبديل بين العرض العادي وعرض الهوامش. هل تريد المتابعة؟',
-    );
-    if (!shouldContinue || !mounted) return;
-
-    try {
-      await _marginImagesService.downloadAndEnable();
-    } catch (error) {
-      if (!mounted) return;
-      _showSettingsNotice(_describeMarginImagesError(error));
-    }
-  }
-
-  String _describeMarginImagesError(Object error) {
-    final text = error.toString();
-
-    if (text.contains('SHA-256 mismatch')) {
-      return 'تم تنزيل الملف لكن التحقق فشل. الملف المرفوع لا يطابق البصمة الحالية.';
-    }
-
-    if (text.contains('Extracted pages are incomplete')) {
-      return 'ملف عرض الهوامش ناقص. يجب أن يحتوي على جميع الصفحات من 1 إلى 602.';
-    }
-
-    if (text.contains('status 404')) {
-      return 'رابط ملف عرض الهوامش غير صحيح أو أن الملف غير موجود في GitHub Release.';
-    }
-
-    if (text.contains('status 403')) {
-      return 'تم رفض الوصول إلى ملف عرض الهوامش. تحقق من أن الملف مرفوع بشكل عام.';
-    }
-
-    if (text.contains('SocketException')) {
-      return 'تعذر الاتصال بالإنترنت أثناء تحميل عرض الهوامش.';
-    }
-
-    if (text.contains('HttpException')) {
-      return 'تعذر تنزيل ملف عرض الهوامش من الرابط الحالي.';
-    }
-
-    return 'تعذر تحميل صور الهوامش. حاول مرة أخرى، وإذا تكرر الخطأ فالغالب أن الملف المرفوع فيه مشكلة.';
-  }
-
   void _openFullscreenMenuPage({required String title, required Widget child}) {
     Navigator.push(
       context,
@@ -810,7 +735,6 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (_) => DownloadsManagementPage(
           audioDownloadService: _audioDownloadService,
           marginImagesService: _marginImagesService,
-          highQualityImagesService: _highQualityImagesService,
           tafsirCacheService: _tafsirCacheService,
         ),
       ),
@@ -829,9 +753,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   String get _marginImagesInfoText =>
-      _marginImagesService.state.value.isAvailable
-      ? 'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.'
-      : 'نزّل حزمة صور الهوامش أولًا، ثم اختر لاحقًا تفعيل عرض الهوامش أو إيقافه.';
+      'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.';
 
   String get _audioDownloadInfoText {
     final audioState = _audioDownloadService.state.value;
@@ -1716,13 +1638,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      // Margin images (هوامش): on Android/iOS these come from a
-                      // downloadable zip extracted to device storage. The web
-                      // has no filesystem for that, so there the pages stream
-                      // per-page from R2 and the service reports isAvailable
-                      // immediately — which makes this tile render as a plain
-                      // title + switch (the download/progress/pause controls
-                      // are all gated behind isDownloading/isPaused).
+                      // Margin images (هوامش) ship inside the app; this is a
+                      // plain title + switch.
                       Container(
                         key: _marginImagesCardKey,
                         child: SettingsCard(
@@ -1731,11 +1648,6 @@ class _SettingsPageState extends State<SettingsPage> {
                             builder: (context, marginState, _) {
                               return MarginImagesTile(
                                 state: marginState,
-                                onDownload: _handleMarginImagesDownload,
-                                onCancelDownload:
-                                    _marginImagesService.cancelDownload,
-                                onPauseDownload:
-                                    _marginImagesService.pauseDownload,
                                 onToggleEnabled:
                                     _marginImagesService.setEnabled,
                                 onInfo: () =>

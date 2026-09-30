@@ -18,7 +18,7 @@ tools/measure_page_span_pauses.py does, by timing where each of the app's
 reciters pauses; this script prefers that where they agree, and falls back to
 an estimate from the printed run and the ayah's letter count where they do not.
 
-Needs Pillow and assets/images/. Run from the repo root:
+Needs Pillow and image_sets/high_fidelity/. Run from the repo root:
 
     python tools/build_page_spans.py              # reuses the measurement cache
     python tools/build_page_spans.py --remeasure  # rescans the page images
@@ -37,7 +37,7 @@ from collections import deque
 from PIL import Image, ImageChops, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IMAGES = os.path.join(ROOT, 'assets', 'images', 'page_%d.webp')
+IMAGES = os.path.join(ROOT, 'image_sets', 'high_fidelity', 'page_%d.webp')
 OUTPUT_JSON = os.path.join(ROOT, 'assets', 'data', 'output.json')
 DART_OUT = os.path.join(ROOT, 'lib', 'page_span_data.dart')
 CACHE = os.path.join(ROOT, 'tools', 'page_span_measure.json')

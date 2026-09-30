@@ -229,7 +229,7 @@ def ink_boxes(mask, rect_px, spans):
 
 
 def process_page(page, regions, text):
-    img = cv2.imread(os.path.join(ROOT, 'assets/images/page_%d.webp' % page), cv2.IMREAD_COLOR)
+    img = cv2.imread(os.path.join(ROOT, 'image_sets/high_fidelity/page_%d.webp' % page), cv2.IMREAD_COLOR)
     H, Wd = img.shape[:2]
     mask = ink_mask(img)
     ayahs_out = []

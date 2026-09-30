@@ -9,6 +9,7 @@ import 'services/debug_log_service.dart';
 import 'utils/responsive_helper.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
+import 'widgets/quran/page_image_crop.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
 
@@ -32,7 +33,7 @@ class ContinuousQuranView extends StatefulWidget {
     this.hifzModeEnabled = false,
     this.memorizationTestPageIndex = -1,
     this.filterQuality = FilterQuality.low,
-    this.diskBackedImages = false,
+    this.marginView = false,
   });
 
   final List<String> pages;
@@ -64,10 +65,10 @@ class ContinuousQuranView extends StatefulWidget {
   /// concealing (-1 when no session), so that page gets the reveal overlay.
   final int memorizationTestPageIndex;
 
-  /// When true, page images are read from disk (`FileImage`) instead of bundled
-  /// assets. Disk images decode slower, so the auto-scroll look-ahead is
-  /// widened to avoid blank pages while a page is still decoding.
-  final bool diskBackedImages;
+  /// True to show the full هوامش scan; false crops each page to its frame
+  /// interior (see [PageImageCrop]). The overlays map their coordinates
+  /// accordingly.
+  final bool marginView;
 
   @override
   State<ContinuousQuranView> createState() => ContinuousQuranViewState();
@@ -81,13 +82,10 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   // During auto-scroll the viewport keeps moving forward, so we look further
   // *ahead* (in the scroll direction) to keep decoded pages queued up before
   // they reach the screen. Without this, fast auto-scroll can outrun the
-  // decoder and briefly show the blank cream page background. Disk-backed
-  // images (margin view / HQ pack) decode slower, so they get a deeper queue.
-  static const int _autoScrollLookahead = 4;
-  static const int _autoScrollLookaheadDisk = 8;
-
-  int get _lookahead =>
-      widget.diskBackedImages ? _autoScrollLookaheadDisk : _autoScrollLookahead;
+  // decoder and briefly show the blank cream page background. Pages are the
+  // full ~1390x1925 scans (whichever view is on), which decode slowly enough
+  // to need this depth; main() sizes the image cache to hold the window.
+  static const int _lookahead = 8;
 
 
   late final ScrollController _controller;
@@ -590,11 +588,10 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
         // page's image has already started (and usually finished) decoding before
         // it scrolls into view — otherwise the reader briefly shows the blank
         // cream background while a fresh image decodes. Memory stays bounded:
-        // pages decode at native size — 720x1640 (~4.7 MB) for the bundled/HQ
-        // sets, 1178x1878 (~8.8 MB) in margin view — so the ~3-4 pages held
-        // here fit within the 150 MB image cache configured in main(). The old
-        // 250px value was a workaround for un-resized "raw huge images", which
-        // no longer exist.
+        // pages decode at native size (~1390x1925, ~10 MB), so the ~3-4 pages
+        // held here fit within the 150 MB image cache configured in main().
+        // The old 250px value was a workaround for un-resized "raw huge
+        // images", which no longer exist.
         scrollCacheExtent: ScrollCacheExtent.pixels(_pageHeight),
         itemExtent: _pageHeight,
         itemCount: widget.pages.length,
@@ -645,44 +642,54 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                               child: Stack(
                                 fit: StackFit.expand,
                                 children: [
-                                  Image(
-                                    image:
-                                        widget.pageImageProviderBuilder(index),
-                                    fit: BoxFit.fill,
-                                    alignment: Alignment.center,
-                                    gaplessPlayback: true,
-                                    filterQuality: widget.filterQuality,
-                                    frameBuilder: (
-                                      context,
-                                      child,
-                                      frame,
-                                      wasSynchronouslyLoaded,
-                                    ) {
-                                      if (!_loggedRenderedPages
-                                              .contains(index) &&
-                                          (wasSynchronouslyLoaded ||
-                                              frame != null)) {
-                                        _loggedRenderedPages.add(index);
-                                        _debugEvent('imageFirstFrame', {
-                                          'page': index,
-                                          'frame': frame,
-                                          'sync': wasSynchronouslyLoaded,
-                                        });
-                                      }
-                                      return child;
-                                    },
+                                  PageImageCrop(
+                                    page: index + 1,
+                                    enabled: !widget.marginView,
+                                    child: Image(
+                                      image: widget.pageImageProviderBuilder(
+                                        index,
+                                      ),
+                                      fit: BoxFit.fill,
+                                      alignment: Alignment.center,
+                                      gaplessPlayback: true,
+                                      filterQuality: widget.filterQuality,
+                                      frameBuilder: (
+                                        context,
+                                        child,
+                                        frame,
+                                        wasSynchronouslyLoaded,
+                                      ) {
+                                        if (!_loggedRenderedPages
+                                                .contains(index) &&
+                                            (wasSynchronouslyLoaded ||
+                                                frame != null)) {
+                                          _loggedRenderedPages.add(index);
+                                          _debugEvent('imageFirstFrame', {
+                                            'page': index,
+                                            'frame': frame,
+                                            'sync': wasSynchronouslyLoaded,
+                                          });
+                                        }
+                                        return child;
+                                      },
+                                    ),
                                   ),
                                   if (widget.memorizationTestPageIndex >= 0)
-                                    MemorizationTestOverlay(pageNumber: index + 1)
+                                    MemorizationTestOverlay(
+                                      pageNumber: index + 1,
+                                      marginView: widget.marginView,
+                                    )
                                   else
                                     PlayingAyahHighlight(
                                       pageNumber: index + 1,
+                                      marginView: widget.marginView,
                                       dark:
                                           Theme.of(context).brightness ==
                                           Brightness.dark,
                                     ),
                                   SelectedAyahHighlight(
                                     pageNumber: index + 1,
+                                    marginView: widget.marginView,
                                     dark:
                                         Theme.of(context).brightness ==
                                         Brightness.dark,

@@ -18,7 +18,7 @@ _T = {}
 
 def _templates():
     if not _T:
-        g = cv2.imread(os.path.join(ROOT, "assets/images/page_267.webp"), cv2.IMREAD_GRAYSCALE)
+        g = cv2.imread(os.path.join(ROOT, "image_sets/high_fidelity/page_267.webp"), cv2.IMREAD_GRAYSCALE)
         _T["rosette"] = g[655:860, 590:715].copy()   # right corner ornament of a banner
         _T["basmala"] = g[885:962, 95:630].copy()
     return _T
@@ -40,7 +40,7 @@ def zones(page, gray=None):
     if page <= 2:          # the two illuminated opening pages have their own layout
         return []
     g = gray if gray is not None else cv2.imread(
-        os.path.join(ROOT, f"assets/images/page_{page}.webp"), cv2.IMREAD_GRAYSCALE)
+        os.path.join(ROOT, f"image_sets/high_fidelity/page_{page}.webp"), cv2.IMREAD_GRAYSCALE)
     if g.shape != (H, W):
         g = cv2.resize(g, (W, H))
     t = _templates()

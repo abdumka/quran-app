@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import '../../config/image_config.dart';
 import '../../models/reciter.dart';
 import '../../models/tafsir_edition.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/tafsir_cache_service.dart';
 import '../../services/margin_images_service.dart';
-import '../../services/high_quality_images_service.dart';
 import '../../services/page_color_service.dart';
+import '../quran/page_image_crop.dart';
 import '../../surah_data.dart';
 
 class PremiumIconWrapper extends StatelessWidget {
@@ -1445,300 +1444,6 @@ class _TafsirDownloadTileState extends State<TafsirDownloadTile> {
   }
 }
 
-/// Lets the user pick one of three page-image quality levels (numbered so they
-/// can be referred to plainly later) and download the optional high-fidelity
-/// pack used by level 3. All sources are 720px, so the levels differ by render
-/// smoothness and encoding fidelity, not resolution.
-class PageQualityTile extends StatelessWidget {
-  final int level;
-  final HighQualityImagesState hqState;
-  final ValueChanged<int> onSelectLevel;
-  final Future<void> Function() onDownloadHq;
-  final Future<void> Function() onCancelHqDownload;
-  final Future<void> Function() onPauseHqDownload;
-  final VoidCallback? onInfo;
-
-  const PageQualityTile({
-    super.key,
-    required this.level,
-    required this.hqState,
-    required this.onSelectLevel,
-    required this.onDownloadHq,
-    required this.onCancelHqDownload,
-    required this.onPauseHqDownload,
-    this.onInfo,
-  });
-
-  static const Color _gold = Color(0xFF8B7355);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          SettingsTileHeader(title: 'جودة عرض الصفحات', onInfo: onInfo),
-          const SizedBox(height: 10),
-          _option(
-            number: '1',
-            name: 'قياسي',
-            hint: 'الوضع الحالي — الأخف والأسرع.',
-            value: 1,
-          ),
-          _option(
-            number: '2',
-            name: 'محسّن',
-            hint: 'عرض أنعم للصفحة، بدون أي تنزيل أو زيادة في حجم التطبيق.',
-            value: 2,
-          ),
-          _option(
-            number: '3',
-            name: 'فائق الجودة',
-            hint: kBundleHighFidelityImages
-                ? 'صور أنقى وأقل ضغطًا (نفس الأبعاد)، مدمجة في التطبيق.'
-                : 'حزمة صور أنقى وأقل ضغطًا (نفس الأبعاد). تتطلب تنزيلًا لمرة واحدة.',
-            value: 3,
-            footer: _hqFooter(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _option({
-    required String number,
-    required String name,
-    required String hint,
-    required int value,
-    Widget? footer,
-  }) {
-    final bool selected = level == value;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFFF6EFE2) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: selected ? _gold : const Color(0xFFE8DCC8),
-          width: selected ? 1.2 : 0.5,
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => onSelectLevel(value),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                textDirection: TextDirection.rtl,
-                children: [
-                  Container(
-                    width: 26,
-                    height: 26,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: selected ? _gold : const Color(0xFFEDE4D3),
-                    ),
-                    child: Text(
-                      number,
-                      style: TextStyle(
-                        color: selected ? Colors.white : _gold,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          name,
-                          textDirection: TextDirection.rtl,
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF2C2C2C),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          hint,
-                          textDirection: TextDirection.rtl,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF888888),
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    selected
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                    color: selected ? _gold : const Color(0xFFBBB1A0),
-                    size: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (footer != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-              child: footer,
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _hqFooter() {
-    // When the high-fidelity pack ships inside the app there is nothing to
-    // download — just confirm it is built in.
-    if (kBundleHighFidelityImages) {
-      return const Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        textDirection: TextDirection.rtl,
-        children: [
-          Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF4B7F3A)),
-          SizedBox(width: 6),
-          Text(
-            'مدمجة في التطبيق — لا تحتاج تنزيلاً',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF4B7F3A),
-            ),
-          ),
-        ],
-      );
-    }
-
-    if (hqState.isDownloading) {
-      return Column(
-        children: [
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.cancel_rounded,
-                  color: Colors.red,
-                  size: 22,
-                ),
-                onPressed: onCancelHqDownload,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                icon: const Icon(
-                  Icons.pause_circle_filled_rounded,
-                  color: _gold,
-                ),
-                onPressed: onPauseHqDownload,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    minHeight: 8,
-                    value: hqState.totalBytes > 0 ? hqState.progress : null,
-                    backgroundColor: const Color(0xFFE8DCC8),
-                    valueColor: const AlwaysStoppedAnimation<Color>(_gold),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            textDirection: TextDirection.rtl,
-            children: [
-              Text(
-                hqState.progressLabel,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF888888)),
-              ),
-              Text(
-                hqState.percentLabel,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: _gold,
-                ),
-              ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    if (hqState.isPaused) {
-      return OutlinedButton.icon(
-        onPressed: onDownloadHq,
-        icon: const Icon(Icons.play_arrow_rounded, color: _gold, size: 18),
-        label: Text(
-          'استئناف التنزيل (${hqState.progressLabel})',
-          style: const TextStyle(color: _gold, fontSize: 13),
-        ),
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: _gold),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        ),
-      );
-    }
-
-    if (hqState.isAvailable) {
-      return const Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        textDirection: TextDirection.rtl,
-        children: [
-          Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF4B7F3A)),
-          SizedBox(width: 6),
-          Text(
-            'الحزمة محمّلة وجاهزة',
-            textDirection: TextDirection.rtl,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF4B7F3A),
-            ),
-          ),
-        ],
-      );
-    }
-
-    return OutlinedButton.icon(
-      onPressed: onDownloadHq,
-      icon: const Icon(Icons.download_rounded, color: _gold, size: 18),
-      label: Text(
-        'تنزيل حزمة الجودة الفائقة (${hqState.packageSizeLabel})',
-        style: const TextStyle(color: _gold, fontSize: 13),
-      ),
-      style: OutlinedButton.styleFrom(
-        side: const BorderSide(color: _gold),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      ),
-    );
-  }
-}
-
 class PageColorTile extends StatelessWidget {
   const PageColorTile({
     super.key,
@@ -1888,19 +1593,41 @@ class PageColorSamplePreview extends StatelessWidget {
   final PageColorTheme theme;
   final double? croppedHeight;
 
-  static const String _sampleAsset = 'assets/images/page_3.webp';
+  static const int _samplePage = 3;
+  static const String _sampleAsset = 'assets/images/page_$_samplePage.webp';
   static const double _pageAspectRatio = 720 / 1640;
 
   @override
   Widget build(BuildContext context) {
-    final filtered = ColorFiltered(
-      colorFilter: theme.lightModeFilter,
+    // The bundled scan carries its margins; show the frame interior at the
+    // reader's page aspect, as the reader does with the margin view off.
+    final page = PageImageCrop(
+      page: _samplePage,
+      enabled: true,
       child: Image.asset(
         _sampleAsset,
-        fit: croppedHeight != null ? BoxFit.cover : BoxFit.contain,
-        alignment: Alignment.topCenter,
+        fit: BoxFit.fill,
         gaplessPlayback: true,
       ),
+    );
+    final filtered = ColorFiltered(
+      colorFilter: theme.lightModeFilter,
+      child: croppedHeight != null
+          // Top of the page at full width, trimmed to the requested height.
+          ? ClipRect(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final fullHeight = constraints.maxWidth / _pageAspectRatio;
+                  return OverflowBox(
+                    alignment: Alignment.topCenter,
+                    minHeight: fullHeight,
+                    maxHeight: fullHeight,
+                    child: page,
+                  );
+                },
+              ),
+            )
+          : page,
     );
 
     return Container(
@@ -2171,220 +1898,39 @@ class RecitationBarOpacityTile extends StatelessWidget {
 
 class MarginImagesTile extends StatelessWidget {
   final MarginImagesState state;
-  final Future<void> Function() onDownload;
-  final Future<void> Function() onCancelDownload;
-  final Future<void> Function() onPauseDownload;
   final Future<void> Function(bool value) onToggleEnabled;
   final VoidCallback? onInfo;
 
   const MarginImagesTile({
     super.key,
     required this.state,
-    required this.onDownload,
-    required this.onCancelDownload,
-    required this.onPauseDownload,
     required this.onToggleEnabled,
     this.onInfo,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bool showInlineAction =
-        !state.isAvailable && !state.isDownloading && !state.isPaused;
-
+    // The margin pages ship inside the app, so this is a plain title + switch
+    // with the same tight padding as the other inline toggle settings.
     return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: 12,
-        // Once the pack is available the tile is just a title + switch, so it
-        // uses the same tight padding as the other inline toggle settings.
-        vertical: state.isAvailable ? 5 : 10,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      child: Row(
+        textDirection: TextDirection.rtl,
         children: [
-          Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              Expanded(
-                child: SettingsTileHeader(
-                  title: 'عرض الهوامش (يمين ويسار الصفحة)',
-                  onInfo: onInfo,
-                  scaleDownToFit: true,
-                ),
-              ),
-              if (state.isAvailable) ...[
-                const SizedBox(width: 4),
-                Switch(
-                  activeThumbColor: const Color(0xFF8B7355),
-                  value: state.isEnabled,
-                  onChanged: onToggleEnabled,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ],
-              if (showInlineAction) const SizedBox(width: 8),
-              if (showInlineAction)
-                OutlinedButton.icon(
-                  onPressed: onDownload,
-                  icon: const Icon(
-                    Icons.download_rounded,
-                    color: Color(0xFF8B7355),
-                    size: 16,
-                  ),
-                  label: const Text(
-                    'تحميل',
-                    style: TextStyle(color: Color(0xFF8B7355), fontSize: 12.5),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF8B7355)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-            ],
+          Expanded(
+            child: SettingsTileHeader(
+              title: 'عرض الهوامش (يمين ويسار الصفحة)',
+              onInfo: onInfo,
+              scaleDownToFit: true,
+            ),
           ),
-          if (showInlineAction) const SizedBox(height: 2),
-          if (state.isPaused && !state.isDownloading) ...[
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.cancel_rounded,
-                    color: Colors.red,
-                    size: 22,
-                  ),
-                  onPressed: onCancelDownload,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      minHeight: 8,
-                      value: state.totalBytes > 0 ? state.progress : null,
-                      backgroundColor: const Color(
-                        0xFFE8DCC8,
-                      ).withValues(alpha: 0.3),
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFFB0956E),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              textDirection: TextDirection.rtl,
-              children: [
-                Text(
-                  state.progressLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF888888),
-                  ),
-                ),
-                Text(
-                  state.percentLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF8B7355),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: onDownload,
-              icon: const Icon(
-                Icons.play_arrow_rounded,
-                color: Color(0xFF8B7355),
-                size: 18,
-              ),
-              label: const Text(
-                'استئناف التحميل',
-                style: TextStyle(color: Color(0xFF8B7355), fontSize: 13),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF8B7355)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-              ),
-            ),
-          ],
-          if (state.isDownloading) ...[
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.cancel_rounded, color: Colors.red),
-                  onPressed: onCancelDownload,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 4),
-                IconButton(
-                  icon: const Icon(
-                    Icons.pause_circle_filled_rounded,
-                    color: Color(0xFF8B7355),
-                  ),
-                  onPressed: onPauseDownload,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      minHeight: 8,
-                      value: state.totalBytes > 0 ? state.progress : null,
-                      backgroundColor: const Color(
-                        0xFFE8DCC8,
-                      ).withValues(alpha: 0.3),
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFF8B7355),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              textDirection: TextDirection.rtl,
-              children: [
-                Text(
-                  state.progressLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF888888),
-                  ),
-                ),
-                Text(
-                  state.percentLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF8B7355),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          const SizedBox(width: 4),
+          Switch(
+            activeThumbColor: const Color(0xFF8B7355),
+            value: state.isEnabled,
+            onChanged: onToggleEnabled,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ],
       ),
     );
@@ -2723,7 +2269,14 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
       builder: (context, surahState, _) {
         return ListView.separated(
           controller: controller,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          // The sheet reaches the screen's bottom edge, so the last surah
+          // needs room to clear the navigation bar.
+          padding: EdgeInsets.fromLTRB(
+            12,
+            8,
+            12,
+            8 + MediaQuery.paddingOf(context).bottom,
+          ),
           itemCount: items.length,
           separatorBuilder: (_, _) => const SizedBox(height: 6),
           itemBuilder: (context, i) => _surahRow(items[i], surahState),

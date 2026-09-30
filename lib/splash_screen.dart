@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'quran_pages.dart';
 import 'services/daily_page_service.dart';
+import 'services/margin_images_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -59,8 +60,13 @@ class _SplashScreenState extends State<SplashScreen> {
     final pageNum = lastPage + 1; // pages are 1-indexed in assets
     await Future.wait([
       minimumDisplay,
+      // Same provider the reader uses (native decode of the full scan), so
+      // the first page is a cache hit rather than a second decode.
       if (pageNum >= 1 && pageNum <= 602)
-        precacheImage(ResizeImage(AssetImage('assets/images/page_$pageNum.webp'), width: 720), context),
+        precacheImage(AssetImage('assets/images/page_$pageNum.webp'), context),
+      // Just a SharedPreferences read; having it done before the reader
+      // builds means the first frame is already in the user's chosen view.
+      MarginImagesService.instance.initialize(),
     ]);
     if (!mounted) return;
 

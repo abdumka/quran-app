@@ -46,7 +46,7 @@ def main():
         page = m["page"]
         rects = [(int(r["x"] * 720), int(r["y"] * 1640), int((r["x"] + r["width"]) * 720), int((r["y"] + r["height"]) * 1640))
                  for a in regions[page]["ayahs"] for r in a["rects"]]
-        img = cv2.imread(os.path.join(ROOT, "assets", "images", f"page_{page}.webp"))
+        img = cv2.imread(os.path.join(ROOT, "image_sets", "high_fidelity", f"page_{page}.webp"))
         if img is not None:
             if img.shape[:2] != (1640, 720):
                 img = cv2.resize(img, (720, 1640))

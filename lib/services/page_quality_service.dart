@@ -2,15 +2,11 @@ import 'package:flutter/widgets.dart';
 
 /// User-selected quality for the rendered Qur'an page images.
 ///
-/// All available image sets are 720x1640, so the levels differ by *rendering*
-/// and *encoding fidelity*, not by resolution:
-///   1 = Standard      — bundled images, ResizeImage(720) + FilterQuality.low
-///                       (the original, lightest behaviour).
-///   2 = Enhanced      — bundled images, native decode + FilterQuality.high
-///                       (smoother upscaling; free, no download, no size change).
-///   3 = HighFidelity  — the less-compressed downloaded pack (same 720px, fewer
-///                       artifacts) + FilterQuality.high. Falls back to level 2
-///                       rendering until the pack has been downloaded.
+/// Historical levels (the picker is retired; only [highFidelity] is used):
+///   1 = Standard      — ResizeImage(720) + FilterQuality.low.
+///   2 = Enhanced      — native decode + FilterQuality.high.
+///   3 = HighFidelity  — native decode of the bundled full-resolution scans +
+///                       FilterQuality.high.
 class PageQualityService {
   PageQualityService._();
   static final PageQualityService instance = PageQualityService._();

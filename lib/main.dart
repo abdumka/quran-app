@@ -45,16 +45,16 @@ Future<void> main() async {
     }
   }
 
-  // Raise the image cache above Flutter's 100 MB default so high-quality /
-  // margin pages aren't constantly evicted while scrolling in Continuous mode.
+  // Raise the image cache above Flutter's 100 MB default so pages aren't
+  // constantly evicted while scrolling in Continuous mode.
   //
-  // Sized against the worst case: margin-view auto-scroll precaches 11 pages
-  // (centerPage-2 .. centerPage+8), and margin images decode at 1178x1878 =
-  // ~8.8 MB each, so the precache window alone needs ~97 MB. Precached pages
-  // have no listeners yet, so they count against this cap — going much below
-  // ~120 MB makes the cache evict its own precache and shows the blank page
-  // background mid-scroll. 150 MB covers the window plus ~6 pages of real
-  // scrollback. Standard pages are 720x1640 (~4.7 MB), so ~32 pages there.
+  // Sized against the worst case: auto-scroll precaches 11 pages
+  // (centerPage-2 .. centerPage+8), and every page is the full هوامش scan,
+  // median 1390x1925 = ~10.7 MB decoded, so the precache window alone needs
+  // ~118 MB. Precached pages have no listeners yet, so they count against
+  // this cap — going below the window makes the cache evict its own precache
+  // and shows the blank page background mid-scroll. 150 MB covers the window
+  // plus ~3 pages of real scrollback.
   //
   // Note this bounds retention only: pages currently on screen are tracked
   // separately as live images and are not charged against it. The cache is

@@ -20,6 +20,7 @@ import 'widgets/tv/tv_focus_scope.dart';
 import 'widgets/tv/tv_remote_guide.dart';
 import 'widgets/tv/tv_settings_page.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
+import 'widgets/quran/page_image_crop.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
 import 'services/memorization_test_service.dart';
@@ -36,7 +37,6 @@ import 'services/page_zoom_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
-import 'services/high_quality_images_service.dart';
 import 'services/page_quality_service.dart';
 import 'services/recitation_bar_auto_hide_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
@@ -354,8 +354,6 @@ class _QuranPagesState extends State<QuranPages>
   final KeepScreenAwakeService _keepScreenAwakeService =
       KeepScreenAwakeService.instance;
   final MarginImagesService _marginImagesService = MarginImagesService.instance;
-  final HighQualityImagesService _highQualityImagesService =
-      HighQualityImagesService.instance;
   final PageQualityService _pageQualityService = PageQualityService.instance;
   final PageColorService _pageColorService = PageColorService.instance;
 
@@ -693,9 +691,6 @@ class _QuranPagesState extends State<QuranPages>
     MemorizationTestService.instance.drillResult
         .addListener(_handleTasmeeDrillResult);
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
-    _highQualityImagesService.state.addListener(
-      _handleHighQualityImagesChanged,
-    );
     _pageQualityService.level.addListener(_handlePageQualityChanged);
     _pageColorService.selected.addListener(_handlePageColorChanged);
     // Use the page passed from SplashScreen so we never flash Al-Fatiha
@@ -707,7 +702,15 @@ class _QuranPagesState extends State<QuranPages>
     _pageZoomController.addListener(_handlePageZoomChanged);
     PageZoomService.instance.enabled.addListener(_handlePageZoomSettingChanged);
     _marginImagesService.initialize();
-    _highQualityImagesService.initialize();
+    // Older versions downloaded the margin / high-fidelity packs to app
+    // support; they are bundled now, so free that space once the reader is
+    // up. Off the launch path on purpose.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(
+        const Duration(seconds: 5),
+        MarginImagesService.deleteLegacyDownloads,
+      );
+    });
     _pageQualityService.load();
     _pageColorService.load();
 
@@ -898,9 +901,6 @@ class _QuranPagesState extends State<QuranPages>
     );
     _setReadingMode(false);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
-    _highQualityImagesService.state.removeListener(
-      _handleHighQualityImagesChanged,
-    );
     _pageQualityService.level.removeListener(_handlePageQualityChanged);
     _pageColorService.selected.removeListener(_handlePageColorChanged);
     _readingCoordinator.removeListener(_handleReadingCoordinatorChanged);
@@ -933,10 +933,8 @@ class _QuranPagesState extends State<QuranPages>
       _stopMemorizationTestIfActive();
       // Stop auto-scroll timer to save battery in background.
       _stopPortraitAutoScroll();
-      // Pause any active downloads so they can resume later
-      _marginImagesService.pauseDownload();
       // Decoded page bitmaps are by far the largest allocation in the app
-      // (~4.7 MB each, ~8.8 MB in margin view; up to 150 MB retained). Holding
+      // (~10 MB each; up to 150 MB retained). Holding
       // them while backgrounded — which happens for long stretches whenever
       // background recitation is on — makes the app a prime target for
       // Android's low-memory killer and iOS jetsam, and being killed mid-
@@ -951,10 +949,6 @@ class _QuranPagesState extends State<QuranPages>
       // Resume auto-scroll if it was enabled.
       if (_isAutoScrollEnabled && _portraitAutoScrollViewportHeight != null) {
         _syncPortraitAutoScroll(_portraitAutoScrollViewportHeight!);
-      }
-      // Auto-resume paused downloads when app returns to foreground
-      if (_marginImagesService.state.value.isPaused) {
-        _marginImagesService.downloadAndEnable();
       }
       // Keeps the "صفحة اليوم" queue a full horizon deep. Returns immediately
       // once it has run for the day, so this is cheap on every other resume.
@@ -1041,22 +1035,13 @@ class _QuranPagesState extends State<QuranPages>
     setState(() {});
   }
 
-  // Track previous state to avoid unnecessary rebuilds during downloads.
   bool _prevMarginEnabled = false;
-  String? _prevMarginDir;
 
   void _handleMarginImagesChanged() {
     if (!mounted) return;
-    final s = _marginImagesService.state.value;
-    if (s.isEnabled == _prevMarginEnabled &&
-        s.imagesDirectoryPath == _prevMarginDir) {
-      return; // Only download progress changed — skip rebuild.
-    }
-    _prevMarginEnabled = s.isEnabled;
-    _prevMarginDir = s.imagesDirectoryPath;
-    _downloadedPageFileCache.clear();
-    _cachedDirectories.clear();
-    final isEnabled = s.isEnabled;
+    final isEnabled = _marginImagesService.state.value.isEnabled;
+    if (isEnabled == _prevMarginEnabled) return;
+    _prevMarginEnabled = isEnabled;
     setState(() {
       if (isEnabled) {
         _showHizbPopup = false;
@@ -1085,69 +1070,10 @@ class _QuranPagesState extends State<QuranPages>
     return _pageColorService.selected.value.lightModeFilter;
   }
 
-  bool _prevHqEnabled = false;
-  String? _prevHqDir;
-
-  void _handleHighQualityImagesChanged() {
-    if (!mounted) return;
-    final s = _highQualityImagesService.state.value;
-    if (s.isEnabled == _prevHqEnabled && s.imagesDirectoryPath == _prevHqDir) {
-      return; // Only download progress changed — skip rebuild.
-    }
-    _prevHqEnabled = s.isEnabled;
-    _prevHqDir = s.imagesDirectoryPath;
-    _downloadedPageFileCache.clear();
-    _cachedDirectories.clear();
-    setState(() {});
-  }
-
   bool get _isMarginImagesEnabled => _marginImagesService.state.value.isEnabled;
-
-  /// True when the reader is serving page images from disk (`FileImage`) rather
-  /// than bundled assets — i.e. margin view, or the level-3 high-fidelity pack.
-  /// Disk-backed images decode noticeably slower, so the continuous view widens
-  /// its auto-scroll look-ahead to keep them decoded before they scroll in.
-  bool get _isServingDiskBackedPages {
-    if (_isMarginImagesEnabled) return true;
-    final hqState = _highQualityImagesService.state.value;
-    return _pageQualityService.level.value >= PageQualityService.highFidelity &&
-        hqState.isEnabled &&
-        hqState.imagesDirectoryPath != null;
-  }
 
   double get _activePageAspectRatio =>
       _isMarginImagesEnabled ? _marginPageAspectRatio : _defaultPageAspectRatio;
-
-  final Map<String, File> _downloadedPageFileCache = {};
-  final Set<String> _cachedDirectories = {};
-
-  File? _downloadedPageFileForIndex(String directoryPath, int pageNumber) {
-    if (!_cachedDirectories.contains(directoryPath)) {
-      try {
-        final dir = Directory(directoryPath);
-        if (dir.existsSync()) {
-          for (final entity in dir.listSync()) {
-            if (entity is File) {
-              _downloadedPageFileCache[entity.path] = entity;
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('Error populating dir cache: $e');
-      }
-      _cachedDirectories.add(directoryPath);
-    }
-
-    // Zero disk I/O memory lookup for all supported extensions
-    for (final ext in const ['webp', 'jpg', 'jpeg', 'png']) {
-      final path =
-          '$directoryPath${Platform.pathSeparator}page_$pageNumber.$ext';
-      if (_downloadedPageFileCache.containsKey(path)) {
-        return _downloadedPageFileCache[path];
-      }
-    }
-    return null;
-  }
 
   Widget _buildBookmarkBadge(int slot) {
     return Container(
@@ -1164,62 +1090,12 @@ class _QuranPagesState extends State<QuranPages>
     );
   }
 
-  /// Whether [_imageProviderForPage] will show the margin-view image for
-  /// this page (mirrors its first branch), so overlays can map coordinates.
-  bool _usesMarginImage(int pageIndex) {
-    final marginState = _marginImagesService.state.value;
-    if (!marginState.isEnabled) return false;
-    if (kIsWeb) return true;
-    final dir = marginState.imagesDirectoryPath;
-    return dir != null && _downloadedPageFileForIndex(dir, pageIndex + 1) != null;
-  }
-
+  /// The bundled image is the full هوامش scan in both views; it decodes once
+  /// at native size (~1390x1925, ~10 MB) and the same cache entry serves the
+  /// margin view and the cropped view, so toggling between them is instant.
+  /// The crop itself is applied by [PageImageCrop] around the `Image` widget.
   ImageProvider _imageProviderForPage(int pageIndex, String assetPath) {
-    // Levels 2 & 3 decode at native size (all sources are 720px wide, so this
-    // is the same memory as the old ResizeImage(720)) and pair with a high
-    // filterQuality for smoother upscaling. Level 1 keeps the original resize.
-    final int level = _pageQualityService.level.value;
-    final bool nativeDecode = level != PageQualityService.standard;
-
-    ImageProvider wrap(ImageProvider provider) =>
-        nativeDecode ? provider : ResizeImage(provider, width: 720);
-
-    // Margin display, when enabled, overrides the source image.
-    final marginState = _marginImagesService.state.value;
-    if (marginState.isEnabled) {
-      if (kIsWeb) {
-        // No local pack on web — stream the page from the R2 mirror.
-        return wrap(
-          NetworkImage(MarginImagesService.webPageUrl(pageIndex + 1)),
-        );
-      }
-      if (marginState.imagesDirectoryPath != null) {
-        final file = _downloadedPageFileForIndex(
-          marginState.imagesDirectoryPath!,
-          pageIndex + 1,
-        );
-        if (file != null) {
-          return wrap(FileImage(file));
-        }
-      }
-    }
-
-    // Level 3: use the downloaded high-fidelity pack when it is ready, else
-    // fall through to the bundled asset (rendered with level-2 smoothing).
-    if (level >= PageQualityService.highFidelity) {
-      final hqState = _highQualityImagesService.state.value;
-      if (hqState.isEnabled && hqState.imagesDirectoryPath != null) {
-        final file = _downloadedPageFileForIndex(
-          hqState.imagesDirectoryPath!,
-          pageIndex + 1,
-        );
-        if (file != null) {
-          return wrap(FileImage(file));
-        }
-      }
-    }
-
-    return wrap(AssetImage(assetPath));
+    return AssetImage(assetPath);
   }
 
   void _recreatePortraitController({required int initialPage}) {
@@ -1960,7 +1836,7 @@ class _QuranPagesState extends State<QuranPages>
     final hit = await SelectedAyahHighlight.hitTest(
       page + 1,
       ratio,
-      marginView: _usesMarginImage(page),
+      marginView: _isMarginImagesEnabled,
     );
     if (!mounted) return;
     if (hit == null) {
@@ -4576,16 +4452,21 @@ class _QuranPagesState extends State<QuranPages>
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            Image(
-                              image: _imageProviderForPage(
-                                pageIndex,
-                                imagePath,
+                            PageImageCrop(
+                              page: pageIndex + 1,
+                              enabled: !_isMarginImagesEnabled,
+                              child: Image(
+                                image: _imageProviderForPage(
+                                  pageIndex,
+                                  imagePath,
+                                ),
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.fill,
+                                gaplessPlayback: true,
+                                filterQuality:
+                                    _pageQualityService.filterQuality,
                               ),
-                              width: double.infinity,
-                              height: double.infinity,
-                              fit: BoxFit.fill,
-                              gaplessPlayback: true,
-                              filterQuality: _pageQualityService.filterQuality,
                             ),
                             // On every page while the mode is on: the overlay
                             // itself follows the service's live page and
@@ -4593,19 +4474,19 @@ class _QuranPagesState extends State<QuranPages>
                             if (_isMemorizationTestEnabled)
                               MemorizationTestOverlay(
                                 pageNumber: pageIndex + 1,
-                                marginView: _usesMarginImage(pageIndex),
+                                marginView: _isMarginImagesEnabled,
                               )
                             else
                               PlayingAyahHighlight(
                                 pageNumber: pageIndex + 1,
-                                marginView: _usesMarginImage(pageIndex),
+                                marginView: _isMarginImagesEnabled,
                                 dark:
                                     Theme.of(context).brightness ==
                                     Brightness.dark,
                               ),
                             SelectedAyahHighlight(
                               pageNumber: pageIndex + 1,
-                              marginView: _usesMarginImage(pageIndex),
+                              marginView: _isMarginImagesEnabled,
                               dark:
                                   Theme.of(context).brightness ==
                                   Brightness.dark,
@@ -4702,29 +4583,33 @@ class _QuranPagesState extends State<QuranPages>
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image(
-                          image: _imageProviderForPage(pageIndex, imagePath),
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.fill,
-                          gaplessPlayback: true,
-                          filterQuality: _pageQualityService.filterQuality,
+                        PageImageCrop(
+                          page: pageIndex + 1,
+                          enabled: !_isMarginImagesEnabled,
+                          child: Image(
+                            image: _imageProviderForPage(pageIndex, imagePath),
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.fill,
+                            gaplessPlayback: true,
+                            filterQuality: _pageQualityService.filterQuality,
+                          ),
                         ),
                         if (_isMemorizationTestEnabled)
                           MemorizationTestOverlay(
                             pageNumber: pageIndex + 1,
-                            marginView: _usesMarginImage(pageIndex),
+                            marginView: _isMarginImagesEnabled,
                           )
                         else
                           PlayingAyahHighlight(
                             pageNumber: pageIndex + 1,
-                            marginView: _usesMarginImage(pageIndex),
+                            marginView: _isMarginImagesEnabled,
                             dark:
                                 Theme.of(context).brightness == Brightness.dark,
                           ),
                         SelectedAyahHighlight(
                           pageNumber: pageIndex + 1,
-                          marginView: _usesMarginImage(pageIndex),
+                          marginView: _isMarginImagesEnabled,
                           dark:
                               Theme.of(context).brightness == Brightness.dark,
                         ),
@@ -4875,7 +4760,7 @@ class _QuranPagesState extends State<QuranPages>
                   filterQuality: _pageQualityService.filterQuality,
                   pageImageProviderBuilder: (pageIndex) =>
                       _imageProviderForPage(pageIndex, pages[pageIndex]),
-                  diskBackedImages: _isServingDiskBackedPages,
+                  marginView: _isMarginImagesEnabled,
                   initialPage: _currentPage,
                   viewportWidth: constraints.maxWidth,
                   pageAspectRatio: _activePageAspectRatio,
@@ -9295,9 +9180,13 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                           thumbColor: widget.accentColor.withValues(alpha: 0.5),
                           child: ListView.separated(
                             controller: scrollController,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
+                            // The sheet reaches the screen's bottom edge, so
+                            // the last ayah needs room to clear the nav bar.
+                            padding: EdgeInsets.fromLTRB(
+                              16,
+                              8,
+                              16,
+                              8 + MediaQuery.paddingOf(context).bottom,
                             ),
                             // Opening on a given ayah scrolls to its row, which
                             // must therefore exist: a page holds at most a few

@@ -129,7 +129,7 @@ def below_marks_expected(word):
 class Page:
     def __init__(self, page, regions, text, hw):
         self.page = page
-        self.img = cv2.imread(os.path.join(ROOT, f"assets/images/page_{page}.webp"), cv2.IMREAD_COLOR)
+        self.img = cv2.imread(os.path.join(ROOT, f"image_sets/high_fidelity/page_{page}.webp"), cv2.IMREAD_COLOR)
         self.H, self.W = self.img.shape[:2]
         self.ink = G.ink_mask(self.img)
         self.regions, self.text, self.hw = regions, text, hw

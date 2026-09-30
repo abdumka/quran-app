@@ -36,7 +36,7 @@ def yellow(bgr):
     return np.clip(r - b, 0, 255).astype(np.uint8)
 
 def _crop(page, cx, cy, size=46):
-    bgr = cv2.imread(os.path.join(root, 'assets/images/page_%d.webp' % page))
+    bgr = cv2.imread(os.path.join(root, 'image_sets/high_fidelity/page_%d.webp' % page))
     y = yellow(bgr)
     return y[cy - size // 2: cy + size // 2, cx - size // 2: cx + size // 2]
 
@@ -104,7 +104,7 @@ MANUAL_MARKERS = {
 }
 
 def analyse(page):
-    full = cv2.imread(os.path.join(root, 'assets/images/page_%d.webp' % page), cv2.IMREAD_COLOR)
+    full = cv2.imread(os.path.join(root, 'image_sets/high_fidelity/page_%d.webp' % page), cv2.IMREAD_COLOR)
     if page in CROP:
         an = _analyse_image(full[CROP[page][1]:CROP[page][3], CROP[page][0]:CROP[page][2]].copy(), SMALL_TEMPLATES)
         ox, oy = CROP[page][0], CROP[page][1]

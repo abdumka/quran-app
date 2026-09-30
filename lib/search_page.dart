@@ -1016,7 +1016,14 @@ class _SearchPageState extends State<SearchPage> {
         ),
         Expanded(
           child: ListView.separated(
-            padding: EdgeInsets.fromLTRB(12, 0, 12, compactLandscape ? 8 : 12),
+            // The body leaves the bottom inset to this list, so results scroll
+            // under the navigation bar yet the last one can still clear it.
+            padding: EdgeInsets.fromLTRB(
+              12,
+              0,
+              12,
+              (compactLandscape ? 8 : 12) + MediaQuery.paddingOf(context).bottom,
+            ),
             itemCount: rows.length,
             separatorBuilder: (context, index) {
               // No gap directly above a section header (it carries its own top

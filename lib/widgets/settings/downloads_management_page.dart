@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
-import '../../config/image_config.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
-import '../../services/high_quality_images_service.dart';
 import '../../services/tafsir_cache_service.dart';
 import '../../models/tafsir_edition.dart';
 class DownloadsManagementPage extends StatefulWidget {
   final AudioDownloadService audioDownloadService;
   final MarginImagesService marginImagesService;
-  final HighQualityImagesService highQualityImagesService;
   final TafsirCacheService tafsirCacheService;
 
   const DownloadsManagementPage({super.key,
     required this.audioDownloadService,
     required this.marginImagesService,
-    required this.highQualityImagesService,
     required this.tafsirCacheService,
   });
 
@@ -66,24 +62,6 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
     await widget.audioDownloadService.deleteDownloads();
   }
 
-  Future<void> _deleteMarginImages() async {
-    final confirmed = await _confirmDelete(
-      title: 'حذف عرض الهوامش',
-      body: 'سيتم حذف ملفات عرض الهوامش من الجهاز وإيقاف هذا العرض حتى تعيد تنزيله لاحقًا. هل تريد المتابعة؟',
-    );
-    if (!confirmed) return;
-    await widget.marginImagesService.deleteDownloadedImages();
-  }
-
-  Future<void> _deleteHighQualityImages() async {
-    final confirmed = await _confirmDelete(
-      title: 'حذف حزمة الجودة الفائقة',
-      body: 'سيتم حذف صور الجودة الفائقة من الجهاز، وسيعود العرض إلى الصور الأساسية. يمكنك إعادة تنزيلها لاحقًا. هل تريد المتابعة؟',
-    );
-    if (!confirmed) return;
-    await widget.highQualityImagesService.deleteDownloadedImages();
-  }
-
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<AudioDownloadState>(
@@ -92,16 +70,11 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
         return ValueListenableBuilder<MarginImagesState>(
           valueListenable: widget.marginImagesService.state,
           builder: (context, marginState, _) {
-            return ValueListenableBuilder<HighQualityImagesState>(
-              valueListenable: widget.highQualityImagesService.state,
-              builder: (context, hqState, _) {
             return ValueListenableBuilder<TafsirCacheState>(
               valueListenable: widget.tafsirCacheService.state,
               builder: (context, tafsirState, _) {
-            final totalBytes = audioState.installedBytes +
-                marginState.installedBytes +
-                hqState.installedBytes +
-                tafsirState.installedBytes;
+            final totalBytes =
+                audioState.installedBytes + tafsirState.installedBytes;
 
             return Scaffold(
               backgroundColor: const Color(0xFFF6F1E5),
@@ -119,7 +92,14 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                 ),
               ),
               body: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 16),
+                // An explicit padding turns off the list's own bottom inset,
+                // so the navigation bar's height is added back here.
+                padding: EdgeInsets.fromLTRB(
+                  14,
+                  10,
+                  14,
+                  16 + MediaQuery.paddingOf(context).bottom,
+                ),
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -206,56 +186,21 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                         : null,
                   ),
                   const SizedBox(height: 10),
+                  // The margin pages ship inside the app now, so the card
+                  // keeps its familiar wording but has nothing to delete.
                   DownloadedPackageCard(
                     title: 'عرض الهوامش',
-                    subtitle: marginState.isAvailable
-                        ? (marginState.isEnabled
-                              ? 'محمل ومفعّل الآن.'
-                              : 'محمل على الجهاز ويمكن تفعيله من الإعدادات.')
-                        : 'غير محمل حاليًا.',
-                    sizeLabel: marginState.isAvailable
-                        ? marginState.installedSizeLabel
-                        : '0 MB',
-                    statusLabel: marginState.isAvailable
-                        ? (marginState.isEnabled ? 'مفعّل' : 'محمل')
-                        : 'غير محمل',
+                    subtitle: marginState.isEnabled
+                        ? 'محمل ومفعّل الآن.'
+                        : 'محمل على الجهاز ويمكن تفعيله من الإعدادات.',
+                    sizeLabel: 'ضمن التطبيق',
+                    statusLabel: marginState.isEnabled ? 'مفعّل' : 'محمل',
                     icon: Icons.photo_size_select_large_rounded,
-                    actionLabel: marginState.isAvailable ? 'حذف' : null,
-                    onAction:
-                        marginState.isAvailable && !marginState.isDownloading
-                            ? _deleteMarginImages
-                            : null,
                   ),
-                  // When the HQ pack is bundled in the app it is not a managed
-                  // download, so hide the card — unless a stale download from a
-                  // previous version still sits on the device, in which case we
-                  // show it so the user can delete it to free space.
-                  if (!kBundleHighFidelityImages || hqState.isAvailable) ...[
-                    const SizedBox(height: 10),
-                    DownloadedPackageCard(
-                      title: 'حزمة الجودة الفائقة',
-                      subtitle: kBundleHighFidelityImages
-                          ? 'مدمجة في التطبيق. هذه نسخة قديمة محمّلة يمكن حذفها لتوفير مساحة.'
-                          : (hqState.isAvailable
-                              ? 'محمّلة على الجهاز وتُستخدم عند اختيار الجودة الفائقة.'
-                              : 'غير محمّلة حاليًا.'),
-                      sizeLabel: hqState.isAvailable
-                          ? hqState.installedSizeLabel
-                          : '0 MB',
-                      statusLabel: hqState.isAvailable ? 'محمّلة' : 'غير محمّلة',
-                      icon: Icons.hd_rounded,
-                      actionLabel: hqState.isAvailable ? 'حذف' : null,
-                      onAction: hqState.isAvailable && !hqState.isDownloading
-                          ? _deleteHighQualityImages
-                          : null,
-                    ),
-                  ],
                   const SizedBox(height: 10),
                   TafsirDownloadsSection(service: widget.tafsirCacheService),
                 ],
               ),
-            );
-              },
             );
               },
             );
