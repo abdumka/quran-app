@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -594,36 +595,41 @@ class _SetupSheetState extends State<_SetupSheet> {
                 _section(
                   p,
                   'عدد الأسئلة',
-                  _chips<int>(
-                    p,
-                    const [3, 5, 10, 20],
-                    _config.questions,
-                    (v) => '$v',
-                    (v) => setState(() => _config = _config.copyWith(questions: v)),
+                  _Stepper(
+                    value: _config.questions.clamp(1, HifzTestConfig.maxQuestions),
+                    min: 1,
+                    max: HifzTestConfig.maxQuestions,
+                    label: (v) => switch (v) {
+                      1 => 'سؤال واحد',
+                      2 => 'سؤالان',
+                      <= 10 => '$v أسئلة',
+                      _ => '$v سؤالًا',
+                    },
+                    onChanged: (v) =>
+                        setState(() => _config = _config.copyWith(questions: v)),
                   ),
                 ),
                 _section(
                   p,
-                  'طول كل سؤال',
-                  _chips<int>(
-                    p,
-                    const [1, 3, 5, 0],
-                    _config.ayahsPerQuestion,
-                    (v) => switch (v) {
-                      0 => 'بلا حد',
+                  'آيات كل سؤال',
+                  _Stepper(
+                    value: _config.ayahsPerQuestion
+                        .clamp(1, HifzTestConfig.maxAyahsPerQuestion),
+                    min: 1,
+                    max: HifzTestConfig.maxAyahsPerQuestion,
+                    label: (v) => switch (v) {
                       1 => 'آية واحدة',
-                      _ => '$v آيات',
+                      2 => 'آيتان',
+                      <= 10 => '$v آيات',
+                      _ => '$v آية',
                     },
-                    (v) => setState(
+                    onChanged: (v) => setState(
                       () => _config = _config.copyWith(ayahsPerQuestion: v),
                     ),
                   ),
-                  note: _config.openEnded
-                      ? 'بلا حد: تقرأ ما شئت حتى آخر ${widget.silentMode ? 'الصفحة' : 'السورة'}، '
-                          'وزر «سؤال جديد» في الشريط ينقلك متى شئت.'
-                      : widget.silentMode
-                          ? 'السؤال لا يتجاوز نهاية الصفحة التي يبدأ فيها.'
-                          : null,
+                  note: widget.silentMode
+                      ? 'السؤال لا يتجاوز نهاية الصفحة التي يبدأ فيها.'
+                      : 'السؤال لا يتجاوز نهاية السورة.',
                 ),
                 const SizedBox(height: 18),
                 Row(
@@ -662,6 +668,96 @@ class _SetupSheetState extends State<_SetupSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A number with − and + beside it: tap to step, hold to run.
+class _Stepper extends StatefulWidget {
+  const _Stepper({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int min;
+  final int max;
+  final String Function(int) label;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_Stepper> createState() => _StepperState();
+}
+
+class _StepperState extends State<_Stepper> {
+  Timer? _repeat;
+
+  @override
+  void dispose() {
+    _repeat?.cancel();
+    super.dispose();
+  }
+
+  void _step(int by) {
+    final next = (widget.value + by).clamp(widget.min, widget.max);
+    if (next != widget.value) widget.onChanged(next);
+  }
+
+  void _startRepeat(int by) {
+    _repeat?.cancel();
+    _repeat = Timer.periodic(const Duration(milliseconds: 120), (_) => _step(by));
+  }
+
+  void _stopRepeat() {
+    _repeat?.cancel();
+    _repeat = null;
+  }
+
+  Widget _button(HifzPalette p, IconData icon, int by, bool enabled) =>
+      GestureDetector(
+        onLongPressStart: enabled ? (_) => _startRepeat(by) : null,
+        onLongPressEnd: (_) => _stopRepeat(),
+        onLongPressCancel: _stopRepeat,
+        child: IconButton(
+          onPressed: enabled ? () => _step(by) : null,
+          icon: Icon(icon),
+          color: p.title,
+          iconSize: 24,
+          constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final p = HifzPalette.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: p.raised,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: p.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _button(p, Icons.add_rounded, 1, widget.value < widget.max),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 96),
+            child: Text(
+              widget.label(widget.value),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: p.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          _button(p, Icons.remove_rounded, -1, widget.value > widget.min),
+        ],
       ),
     );
   }

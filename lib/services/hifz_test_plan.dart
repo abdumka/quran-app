@@ -140,6 +140,9 @@ class HifzTestConfig {
   /// unless the reciter moves on sooner).
   final int ayahsPerQuestion;
 
+  static const int maxQuestions = 50;
+  static const int maxAyahsPerQuestion = 50;
+
   bool get openEnded => ayahsPerQuestion <= 0;
 
   HifzTestConfig copyWith({
@@ -170,8 +173,12 @@ class HifzTestConfig {
         range: j['range'] is Map<String, dynamic>
             ? HifzRange.fromJson(j['range'] as Map<String, dynamic>)
             : const HifzRange.all(),
-        questions: (j['questions'] as int? ?? 5).clamp(1, 50),
-        ayahsPerQuestion: (j['ayahsPerQuestion'] as int? ?? 3).clamp(0, 10),
+        questions: (j['questions'] as int? ?? 5).clamp(1, maxQuestions),
+        // 0 (open-ended) from an earlier build reads as the default.
+        ayahsPerQuestion: () {
+          final n = j['ayahsPerQuestion'] as int? ?? 3;
+          return n <= 0 ? 3 : n.clamp(1, maxAyahsPerQuestion);
+        }(),
       );
 }
 
@@ -433,9 +440,9 @@ class HifzTestPlanner {
     // 0 = open-ended: as far as the surah (or page) goes.
     final n = config.ayahsPerQuestion <= 0
         ? _unbounded
-        : config.ayahsPerQuestion.clamp(1, 10);
+        : config.ayahsPerQuestion.clamp(1, HifzTestConfig.maxAyahsPerQuestion);
     final open = config.openEnded;
-    final want = config.questions.clamp(1, 50);
+    final want = config.questions.clamp(1, HifzTestConfig.maxQuestions);
     final rng = random ?? Random();
 
     final out = <HifzTestQuestion>[];
