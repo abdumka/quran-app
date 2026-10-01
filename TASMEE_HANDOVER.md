@@ -139,31 +139,63 @@ session does not start and a snackbar says why (`StubReason` kept its name).
   with nothing quoted; extra reads «كلمة زائدة: «قد» قبل «وجدنا»». Raw phonemes only in the log
   (`heardRaw`).
 
-### اختبار الحفظ / اختبار نصّي (tests, 2026-09-30)
+### اختبار الحفظ / اختبار ذاتي (tests, 2026-09-30)
 Two entries in أدوات الحفظ, both planned by `lib/services/hifz_test_plan.dart` (pure Dart,
 `test/hifz_test_plan_test.dart`): `QuranAyahIndex` flattens output.json into 6,214 `AyahRef`s
-(page, index on page, surah, ayah, text); `HifzRange` (all / surahs / hizbs / pages, hizb
-bounds from `thumnEntries`) becomes a span of flat indices; `HifzTestPlanner.plan` builds
-`HifzTestQuestion`s from the weak-point pool (grouped per ayah, most-missed first, run-up of
-`ayahsPerQuestion` ayahs ending at the target, never across a surah), at random (distinct starts,
-same surah), or both (half/half, shuffled, random fills a short pool). Setup sheet
-`showHifzTestSetup` (`hifz_test_sheets.dart`), last choice kept in prefs `hifz_test_config` /
-`hifz_text_test_config`.
-- **Microphone test**: a question is a `TasmeeDrill` (`toDrill`) with `title` «اختبار», `cue`, and an
-  explicit `startPage`/`startAyahIndex`; `_runNextTasmeeDrill` honours those and shows the loading
-  notice; `_hifzTest` (a `HifzTestRun`) in quran_pages.dart marks a test, so `_handleTasmeeDrillResult`
-  shows the per-question result then the score. **The blank-page problem is answered by the cue**:
-  `_OpeningCue` in the overlay draws «سورة X، من الآية N — ٣ آيات (N–M)» and «بعد قوله تعالى: ﴿… last
-  7 words of the ayah before﴾» at the top of the page (foldable per question). `TasmeeDrillResult`
-  now carries every `error` of the question (`_drillErrors`, kept across a page turn); `clean` =
-  no targets failed and no errors.
-- **Text test** (`hifz_text_test_page.dart`): one ayah per question; shows `before` (or «أول السورة»),
-  reveal, self-judge. A miss stores a weak point of kind `recall` («لم تُستذكر») at word 1.
+(page, index on page, surah, ayah, text); `HifzRange` (all / surahs / hizbs / athman / pages; hizb
+and thumn bounds from `thumnEntries`, 8 athman per hizb) becomes a span of flat indices;
+`HifzTestPlanner.plan` builds `HifzTestQuestion`s from the weak-point pool (grouped per ayah,
+most-missed first, run-up of `ayahsPerQuestion` ayahs ending at the target, never across a surah),
+at random (distinct starts, same surah), or both (half/half, shuffled, random fills a short pool).
+Setup sheet `showHifzTestSetup` (`hifz_test_sheets.dart`): source and range kind as chips, surah /
+hizb dropdowns («12. قال رجلان — المائدة»: number, name, surah), athman as hizb + thumn-in-hizb
+dropdowns («3. إن الله لا يستحيي…»), page fields; last choice kept in prefs `hifz_test_config` /
+`hifz_text_test_config`. The owner is fine with this sheet being tall.
+- **Both tests run as `TasmeeDrill`s** (`toDrill`) with `title` «اختبار», `cue`, and an explicit
+  `startPage`/`startAyahIndex`; `_runNextTasmeeDrill` honours those and shows the loading notice;
+  `_hifzTest` (a `HifzTestRun`) in quran_pages.dart marks a test, so `_handleTasmeeDrillResult` shows
+  the per-question outcome then the score. **The blank-page / which-surah problem is answered by the
+  cue**: `_OpeningCue` in the overlay draws «سورة X، من الآية N — ٣ آيات (N–M)» and «بعد قوله تعالى:
+  ﴿… last 7 words of the ayah before﴾» at the top of the page (foldable per question).
+  `TasmeeDrillResult` carries every `error` of the question (`_drillErrors`, kept across a page
+  turn); `clean` = no targets failed and no errors.
+- **Microphone test** («اختبار الحفظ»): a normal Tasmee session per question; result sheet lists the
+  errors; mistakes feed the pool through the page report as usual.
+- **Self-test** («اختبار ذاتي», `MemorizationTestService.start(silent: true)`): `SilentRecitationEngine`
+  (no mic, no model, no recorder, no page report — `_saveReport` returns at once). The bar shows
+  كلمة / الآية / أعد الآية / الصفحة / إنهاء / إخفاء with an eye instead of the mic dot. «كلمة» leaves
+  the word amber (a word they needed) but notes NO error; «الآية» marks the ayah `correct` (plain).
+  The question ends when the target ayah is uncovered; `showHifzSelfJudge` asks «هل قرأتها صحيحة؟»
+  (أصبتُ / أخطأتُ → straight to the next question). `_recordSelfJudgement`: a miss stores a weak
+  point of kind `recall` («لم تُستذكر») at the question's first ayah, word 1; a hit on a question
+  built from mistakes calls `notePassed`. Questions are planned with `singlePage: true` because a
+  silent session cannot follow a page turn (no tracker).
 - **Weak points**: a pass no longer deletes the point; `notePassed` counts passes on different days
-  and retires it at `passesToClear` = 2 (`applyPass` is pure and tested); a new miss resets. Used by
-  `_checkDrillDone` for drills and tests alike.
+  and retires it at `passesToClear` = 2 (`applyPass` is pure and tested); a new miss resets.
 - Sheet compacted: one-line subtitles, alerts behind the gear (`showTasmeeSettingsSheet`), both
   alert kinds default to vibration only.
+
+**Round 2 (same day, owner feedback on the first build):**
+- Cue card: shown ONLY when the question starts at index 0 of the active page and the page's
+  first ayah is still hidden/current (`_cueWanted`); sits at 56% of the page height; goes once
+  the top ayah shows. Mid-page starts show the ayahs before, so no card.
+- Spine shade (`SpineShadow`) is now painted ABOVE the Tasmee overlay / playing highlight in both
+  page stacks of quran_pages.dart (masks used to cover it).
+- Setup sheet: «إلى» can never precede «من» (dropdown lists start at the «من» value; a bound moved
+  past the other drags it along; page fields normalise on leaving the field and on «ابدأ»);
+  every field is named («السورة» / «الحزب» / «الثمن» / «الصفحة») inside a «من» box and an «إلى»
+  box; the chosen range's label is echoed above the fields.
+- Self-test judgement is per ayah (`_SelfJudgeSheet`: each ayah of the question with صحيح/خطأ, all
+  right by default); `HifzSelfJudgement.missed` lists the ayahs marked wrong; each becomes a
+  `recall` weak point; `HifzTestRun.missedAyahs` counts them. `HifzTestQuestion.ayahs` holds the
+  question's ayahs.
+- Statistics: `HifzTestStatsStore` (`hifz_tests.json`, `HifzTestRecord.ofRun`, saved by
+  `_finishHifzTest` at the end of a test, from the bar's «إنهاء» via `_onTasmeeModeEnded`, and on a
+  hand page turn). `TasmeeReport` gained `holds` (stops at a word) and `repairs` (holds released by
+  `repaired`), counted per page in the service. Page «الإحصاءات» (`hifz_stats_page.dart`, tile in
+  أدوات الحفظ): pages recited / this week, total time, average per finished page, projected per
+  hizb (× 602/60) and per juz, errors and per page, stops / repairs, top error kinds; tests count,
+  overall and last-5 score, list of the last 15.
 
 ### تقوية الحفظ (drills) — HIDDEN
 `kTasmeeDrillsEnabled = false` in `lib/widgets/hifz/hifz_tools_sheet.dart`. Weak points are still

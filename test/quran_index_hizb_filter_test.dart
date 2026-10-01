@@ -108,6 +108,18 @@ void main() {
     expect(find.text('لا توجد نتيجة'), findsOneWidget);
   });
 
+  testWidgets('a hizb card names the surah and page it starts on', (
+    tester,
+  ) async {
+    await pumpIndex(tester);
+    expect(find.text('•  سورة الفاتحة  •  صفحة 1'), findsOneWidget);
+
+    // Hizb 14 starts in al-An'am (6:37) on page 132; pumpIndex only knows
+    // al-Fatihah's name, so the card falls back to the page alone.
+    await search(tester, 'حزب 14');
+    expect(find.text('•  صفحة 132'), findsOneWidget);
+  });
+
   testWidgets('clearing the query restores the full list', (tester) async {
     await pumpIndex(tester);
     await search(tester, 'حزب 14');

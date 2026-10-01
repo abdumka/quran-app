@@ -11,18 +11,22 @@ const bool kTasmeeDrillsEnabled = false;
 
 /// The "أدوات الحفظ" sheet opened from the bottom action bar: one place for
 /// the memorization tools -- the recitation test (التسميع), the two tests
-/// (اختبار الحفظ by microphone, اختبار نصّي by reading) and the page
-/// concealment lens (وضع الحفظ). Settings sit behind the gear.
+/// (اختبار الحفظ by microphone, اختبار ذاتي on the covered page without one)
+/// and the page concealment lens (وضع الحفظ). Settings sit behind the gear.
 Future<void> showHifzToolsSheet(
   BuildContext context, {
   required bool tasmeeActive,
   required bool hifzModeActive,
   required VoidCallback onTasmee,
   required VoidCallback onHifzMode,
-  required VoidCallback onTest,
-  required VoidCallback onTextTest,
+
+  /// The tests are given a closer for this menu: they call it once a test
+  /// really starts, so backing out of the setup sheet lands here again.
+  required void Function(VoidCallback closeMenu) onTest,
+  required void Function(VoidCallback closeMenu) onTextTest,
   required VoidCallback onLogs,
   required VoidCallback onReports,
+  required VoidCallback onStats,
   required VoidCallback onWeakPoints,
 }) {
   final p = HifzPalette.of(context);
@@ -34,11 +38,21 @@ Future<void> showHifzToolsSheet(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (sheetContext) {
+      // Entries that open another sheet or page leave this menu underneath
+      // (keepOpen), so the back button returns here rather than to the
+      // mushaf; entries that switch a mode on close it.
+      void closeMenu() {
+        if (sheetContext.mounted && Navigator.of(sheetContext).canPop()) {
+          Navigator.of(sheetContext).pop();
+        }
+      }
+
       Widget tile({
         required IconData icon,
         required String title,
         String? subtitle,
         bool active = false,
+        bool keepOpen = false,
         required VoidCallback onTap,
       }) {
         return ListTile(
@@ -67,17 +81,14 @@ Future<void> showHifzToolsSheet(
               ? Icon(Icons.stop_circle_outlined, color: p.title, size: 22)
               : Icon(Icons.chevron_left_rounded, color: p.sub, size: 22),
           onTap: () {
-            Navigator.of(sheetContext).pop();
+            if (!keepOpen) closeMenu();
             onTap();
           },
         );
       }
 
       Widget link(String label, VoidCallback onTap) => TextButton(
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              onTap();
-            },
+            onPressed: onTap,
             child: Text(
               label,
               style: TextStyle(color: p.title, fontSize: 13.5),
@@ -131,14 +142,16 @@ Future<void> showHifzToolsSheet(
                   tile(
                     icon: Icons.quiz_outlined,
                     title: 'اختبار الحفظ',
-                    subtitle: 'أسئلة من أخطائك أو عشوائية، في النطاق الذي تختاره',
-                    onTap: onTest,
+                    subtitle: 'بالميكروفون: أسئلة من أخطائك أو عشوائية في نطاق تختاره',
+                    keepOpen: true,
+                    onTap: () => onTest(closeMenu),
                   ),
                   tile(
-                    icon: Icons.short_text_rounded,
-                    title: 'اختبار نصّي',
-                    subtitle: 'تُعرض آية، واذكر التي بعدها (بلا ميكروفون)',
-                    onTap: onTextTest,
+                    icon: Icons.visibility_off_rounded,
+                    title: 'اختبار ذاتي',
+                    subtitle: 'بلا ميكروفون: الآيات مخفية، اقرأ في نفسك واكشف كلمةً أو آية',
+                    keepOpen: true,
+                    onTap: () => onTextTest(closeMenu),
                   ),
                   tile(
                     icon: Icons.blur_on_rounded,
@@ -157,14 +170,22 @@ Future<void> showHifzToolsSheet(
                   tile(
                     icon: Icons.fact_check_rounded,
                     title: 'تقارير التسميع',
+                    keepOpen: true,
                     onTap: onReports,
+                  ),
+                  tile(
+                    icon: Icons.insights_rounded,
+                    title: 'الإحصاءات',
+                    subtitle: 'زمن الصفحة والحزب، الأخطاء والتصويبات، ونتائج الاختبارات',
+                    keepOpen: true,
+                    onTap: onStats,
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        link('شرح التسميع', () => showTasmeeGuide(context)),
+                        link('شرح التسميع', () => showTasmeeGuide(sheetContext)),
                         Text('·', style: TextStyle(color: p.sub)),
                         link('سجلات التسميع', onLogs),
                       ],

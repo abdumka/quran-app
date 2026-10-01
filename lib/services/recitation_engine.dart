@@ -95,3 +95,19 @@ abstract class RecitationEngine {
   /// restarted after [stop]; create a new instance instead.
   Future<void> stop();
 }
+
+/// No microphone at all: the self-test (اختبار ذاتي) covers the page and
+/// the reader uncovers it by hand with the bar's buttons, so nothing is ever
+/// recognized. Exists so the session code runs unchanged.
+class SilentRecitationEngine extends RecitationEngine {
+  final _controller = StreamController<RecognizedSegment>.broadcast();
+
+  @override
+  Stream<RecognizedSegment> get segments => _controller.stream;
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<void> stop() => _controller.close();
+}

@@ -94,7 +94,12 @@ class TasmeeDrill {
     this.cue,
     this.startPage,
     this.startAyahIndex,
+    this.open = false,
   });
+
+  /// An open-ended test question: it runs on until the reciter moves on
+  /// (the bar offers «سؤال جديد»), or until [ayah] at the latest.
+  final bool open;
 
   /// 1-based page holding the target ayah (where the drill ends).
   final int page;

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../quran_constants.dart';
 import '../../services/hifz_test_plan.dart';
 import '../../services/tasmee_report_store.dart';
 import '../../services/tasmee_weak_point_store.dart';
@@ -18,15 +17,23 @@ String _sourceLabel(HifzTestSource s) => switch (s) {
       HifzTestSource.both => 'كلاهما',
     };
 
+String _kindLabel(HifzRangeKind k) => switch (k) {
+      HifzRangeKind.all => 'المصحف كله',
+      HifzRangeKind.surahs => 'سور',
+      HifzRangeKind.hizbs => 'أحزاب',
+      HifzRangeKind.athman => 'أثمان',
+      HifzRangeKind.pages => 'صفحات',
+    };
+
 /// The setup of a test: where its questions come from, what part of the
-/// mushaf, how many, and (microphone test only) how long each one is.
-/// Returns null when dismissed. The last choice is remembered per test.
+/// mushaf, how many, and how long each one is. Returns null when
+/// dismissed. The last choice is remembered per test.
 Future<HifzTestConfig?> showHifzTestSetup(
   BuildContext context, {
-  required bool textMode,
+  required bool silentMode,
   required int mistakesInPool,
 }) async {
-  final prefKey = textMode ? 'hifz_text_test_config' : 'hifz_test_config';
+  final prefKey = silentMode ? 'hifz_text_test_config' : 'hifz_test_config';
   var initial = const HifzTestConfig();
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -48,7 +55,7 @@ Future<HifzTestConfig?> showHifzTestSetup(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (sheetContext) => _SetupSheet(
-      textMode: textMode,
+      silentMode: silentMode,
       mistakesInPool: mistakesInPool,
       initial: initial,
     ),
@@ -64,12 +71,12 @@ Future<HifzTestConfig?> showHifzTestSetup(
 
 class _SetupSheet extends StatefulWidget {
   const _SetupSheet({
-    required this.textMode,
+    required this.silentMode,
     required this.mistakesInPool,
     required this.initial,
   });
 
-  final bool textMode;
+  final bool silentMode;
   final int mistakesInPool;
   final HifzTestConfig initial;
 
@@ -82,10 +89,15 @@ class _SetupSheetState extends State<_SetupSheet> {
   late final TextEditingController _pageFrom;
   late final TextEditingController _pageTo;
 
+  /// The bounds last chosen for each kind, so switching kinds and back
+  /// keeps what was picked.
+  final Map<HifzRangeKind, (int, int)> _bounds = {};
+
   @override
   void initState() {
     super.initState();
     final r = _config.range;
+    _bounds[r.kind] = (r.from, r.to);
     final pages = r.kind == HifzRangeKind.pages;
     _pageFrom = TextEditingController(text: pages ? '${r.from}' : '1');
     _pageTo = TextEditingController(text: pages ? '${r.to}' : '1');
@@ -100,21 +112,27 @@ class _SetupSheetState extends State<_SetupSheet> {
 
   HifzRange get _range => _config.range;
 
+  /// «إلى» can never be before «من»: moving one past the other drags the
+  /// other along.
   void _setRange(HifzRangeKind kind, {int? from, int? to}) {
-    final current = _range.kind == kind ? _range : HifzRange(kind);
+    final have = _bounds[kind] ?? (1, 1);
+    var a = from ?? have.$1;
+    var b = to ?? have.$2;
+    if (from != null && b < a) b = a;
+    if (to != null && b < a) a = b;
+    _bounds[kind] = (a, b);
+    if (kind == HifzRangeKind.pages) {
+      if (_pageFrom.text != '$a') _pageFrom.text = '$a';
+      if (_pageTo.text != '$b') _pageTo.text = '$b';
+    }
     setState(() {
-      _config = _config.copyWith(
-        range: HifzRange(
-          kind,
-          from: from ?? current.from,
-          to: to ?? current.to,
-        ),
-      );
+      _config = _config.copyWith(range: HifzRange(kind, from: a, to: b));
     });
   }
 
-  Widget _section(HifzPalette p, String title, Widget child) => Padding(
-        padding: const EdgeInsets.only(top: 12),
+  Widget _section(HifzPalette p, String title, Widget child, {String? note}) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -122,26 +140,72 @@ class _SetupSheetState extends State<_SetupSheet> {
               title,
               style: TextStyle(
                 color: p.title,
-                fontSize: 13.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (note != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 2),
+                child: Text(
+                  note,
+                  style: TextStyle(color: p.sub, fontSize: 11.5, height: 1.4),
+                ),
+              ),
             const SizedBox(height: 6),
             child,
           ],
         ),
       );
 
-  ButtonStyle _segmentStyle(HifzPalette p) => ButtonStyle(
-        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-        textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12.5)),
-        foregroundColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? p.onTitle : p.text,
+  Widget _chip(
+    HifzPalette p,
+    String label, {
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) =>
+      ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        showCheckmark: false,
+        visualDensity: const VisualDensity(horizontal: -1, vertical: -1),
+        selectedColor: p.title,
+        backgroundColor: p.raised,
+        disabledColor: p.raised.withValues(alpha: 0.5),
+        side: BorderSide(color: p.border),
+        labelStyle: TextStyle(
+          color: !enabled
+              ? p.sub.withValues(alpha: 0.5)
+              : selected
+                  ? p.onTitle
+                  : p.text,
+          fontSize: 13,
         ),
-        backgroundColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? p.title : p.raised,
-        ),
-        side: WidgetStatePropertyAll(BorderSide(color: p.border)),
+        onSelected: enabled ? (_) => onTap() : null,
+      );
+
+  Widget _chips<T>(
+    HifzPalette p,
+    List<T> values,
+    T selected,
+    String Function(T) label,
+    ValueChanged<T> onPick, {
+    bool Function(T)? enabled,
+  }) =>
+      Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        children: [
+          for (final v in values)
+            _chip(
+              p,
+              label(v),
+              selected: v == selected,
+              enabled: enabled?.call(v) ?? true,
+              onTap: () => onPick(v),
+            ),
+        ],
       );
 
   Widget _dropdown<T>({
@@ -170,17 +234,119 @@ class _SetupSheetState extends State<_SetupSheet> {
         ),
       );
 
-  Widget _fromTo(HifzPalette p, Widget from, Widget to) => Row(
-        children: [
-          Text('من', style: TextStyle(color: p.sub, fontSize: 12.5)),
-          const SizedBox(width: 6),
-          Expanded(child: from),
-          const SizedBox(width: 10),
-          Text('إلى', style: TextStyle(color: p.sub, fontSize: 12.5)),
-          const SizedBox(width: 6),
-          Expanded(child: to),
-        ],
+  /// A field with its name beside it («الحزب», «الثمن», «السورة»).
+  Widget _named(HifzPalette p, String name, Widget field) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 52,
+              child: Text(name, style: TextStyle(color: p.sub, fontSize: 12.5)),
+            ),
+            Expanded(child: field),
+          ],
+        ),
       );
+
+  /// One bound of the range («من» or «إلى») with its fields under it.
+  Widget _bound(HifzPalette p, String title, List<Widget> fields) => Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: p.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: p.title,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            ...fields,
+          ],
+        ),
+      );
+
+  List<DropdownMenuItem<int>> _surahItems({int min = 1}) => [
+        for (final s in surahList)
+          if ((s['number'] as int) >= min)
+            DropdownMenuItem(
+              value: s['number'] as int,
+              child: Text('${s['number']}. ${s['name']}'),
+            ),
+      ];
+
+  /// «١٢. قال رجلان — المائدة»: the hizb's number, name and surah.
+  List<DropdownMenuItem<int>> _hizbItems({int min = 1}) => [
+        for (var h = min; h <= 60; h++)
+          DropdownMenuItem(
+            value: h,
+            child: Text(
+              HifzRange.hizbLabel(h),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ];
+
+  /// The athman of hizb [h] from the [min]th on, by their opening words.
+  List<DropdownMenuItem<int>> _thumnItems(int h, {int min = 1}) => [
+        for (var k = min; k <= HifzRange.athmanPerHizb; k++)
+          DropdownMenuItem(
+            value: k,
+            child: Text(
+              HifzRange.thumnLabel(HifzRange.thumnNumber(h, k)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ];
+
+  /// The fields of a thumn bound: its hizb, then its place inside the hizb.
+  /// [notBefore] keeps the «إلى» bound at or after the «من» one.
+  List<Widget> _thumnFields(
+    HifzPalette p,
+    int thumn,
+    ValueChanged<int> onPick, {
+    int notBefore = 1,
+  }) {
+    final h = HifzRange.hizbOfThumn(thumn);
+    final k = HifzRange.thumnInHizb(thumn);
+    final minHizb = HifzRange.hizbOfThumn(notBefore);
+    final minK = h == minHizb ? HifzRange.thumnInHizb(notBefore) : 1;
+    return [
+      _named(
+        p,
+        'الحزب',
+        _dropdown<int>(
+          p: p,
+          value: h,
+          items: _hizbItems(min: minHizb),
+          onChanged: (v) {
+            if (v != null) onPick(HifzRange.thumnNumber(v, k));
+          },
+        ),
+      ),
+      _named(
+        p,
+        'الثمن',
+        _dropdown<int>(
+          p: p,
+          value: k.clamp(minK, HifzRange.athmanPerHizb),
+          items: _thumnItems(h, min: minK),
+          onChanged: (v) {
+            if (v != null) onPick(HifzRange.thumnNumber(h, v));
+          },
+        ),
+      ),
+    ];
+  }
 
   Widget _rangeDetail(HifzPalette p) {
     final r = _range;
@@ -188,54 +354,88 @@ class _SetupSheetState extends State<_SetupSheet> {
       case HifzRangeKind.all:
         return const SizedBox.shrink();
       case HifzRangeKind.surahs:
-        List<DropdownMenuItem<int>> items() => [
-              for (final s in surahList)
-                DropdownMenuItem(
-                  value: s['number'] as int,
-                  child: Text('${s['number']}. ${s['name']}'),
+        final from = r.from.clamp(1, 114);
+        final to = r.to.clamp(from, 114);
+        return Column(
+          children: [
+            _bound(p, 'من', [
+              _named(
+                p,
+                'السورة',
+                _dropdown<int>(
+                  p: p,
+                  value: from,
+                  items: _surahItems(),
+                  onChanged: (v) => _setRange(HifzRangeKind.surahs, from: v),
                 ),
-            ];
-        return _fromTo(
-          p,
-          _dropdown<int>(
-            p: p,
-            value: r.from.clamp(1, 114),
-            items: items(),
-            onChanged: (v) => _setRange(HifzRangeKind.surahs, from: v),
-          ),
-          _dropdown<int>(
-            p: p,
-            value: r.to.clamp(1, 114),
-            items: items(),
-            onChanged: (v) => _setRange(HifzRangeKind.surahs, to: v),
-          ),
+              ),
+            ]),
+            _bound(p, 'إلى', [
+              _named(
+                p,
+                'السورة',
+                _dropdown<int>(
+                  p: p,
+                  value: to,
+                  items: _surahItems(min: from),
+                  onChanged: (v) => _setRange(HifzRangeKind.surahs, to: v),
+                ),
+              ),
+            ]),
+          ],
         );
       case HifzRangeKind.hizbs:
-        List<DropdownMenuItem<int>> items() => [
-              for (var h = 1; h <= 60; h++)
-                DropdownMenuItem(
-                  value: h,
-                  child: Text(
-                    '$h. ${h - 1 < hizbTitles.length ? hizbTitles[h - 1] : ''}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+        final from = r.from.clamp(1, 60);
+        final to = r.to.clamp(from, 60);
+        return Column(
+          children: [
+            _bound(p, 'من', [
+              _named(
+                p,
+                'الحزب',
+                _dropdown<int>(
+                  p: p,
+                  value: from,
+                  items: _hizbItems(),
+                  onChanged: (v) => _setRange(HifzRangeKind.hizbs, from: v),
                 ),
-            ];
-        return _fromTo(
-          p,
-          _dropdown<int>(
-            p: p,
-            value: r.from.clamp(1, 60),
-            items: items(),
-            onChanged: (v) => _setRange(HifzRangeKind.hizbs, from: v),
-          ),
-          _dropdown<int>(
-            p: p,
-            value: r.to.clamp(1, 60),
-            items: items(),
-            onChanged: (v) => _setRange(HifzRangeKind.hizbs, to: v),
-          ),
+              ),
+            ]),
+            _bound(p, 'إلى', [
+              _named(
+                p,
+                'الحزب',
+                _dropdown<int>(
+                  p: p,
+                  value: to,
+                  items: _hizbItems(min: from),
+                  onChanged: (v) => _setRange(HifzRangeKind.hizbs, to: v),
+                ),
+              ),
+            ]),
+          ],
+        );
+      case HifzRangeKind.athman:
+        final from = r.from.clamp(1, 480);
+        final to = r.to.clamp(from, 480);
+        return Column(
+          children: [
+            _bound(
+              p,
+              'من',
+              _thumnFields(p, from, (v) => _setRange(HifzRangeKind.athman, from: v)),
+            ),
+            _bound(
+              p,
+              'إلى',
+              _thumnFields(
+                p,
+                to,
+                (v) => _setRange(HifzRangeKind.athman, to: v),
+                notBefore: from,
+              ),
+            ),
+          ],
         );
       case HifzRangeKind.pages:
         Widget field(TextEditingController c, void Function(int) onValue) =>
@@ -252,6 +452,7 @@ class _SetupSheetState extends State<_SetupSheet> {
                 isDense: true,
                 filled: true,
                 fillColor: p.raised,
+                hintText: '1 – 602',
                 contentPadding: const EdgeInsets.symmetric(vertical: 8),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -262,46 +463,49 @@ class _SetupSheetState extends State<_SetupSheet> {
                   borderSide: BorderSide(color: p.border),
                 ),
               ),
-              onChanged: (t) {
-                final v = int.tryParse(t);
-                if (v != null) onValue(v);
+              // Bounds are put in order when the field is left, so typing
+              // "12" as the start while the end still says "3" is allowed.
+              onEditingComplete: () {
+                final v = int.tryParse(c.text);
+                if (v != null) onValue(v.clamp(1, 602));
+                FocusScope.of(context).unfocus();
+              },
+              onTapOutside: (_) {
+                final v = int.tryParse(c.text);
+                if (v != null) onValue(v.clamp(1, 602));
               },
             );
-        return _fromTo(
-          p,
-          field(_pageFrom, (v) => _setRange(HifzRangeKind.pages, from: v)),
-          field(_pageTo, (v) => _setRange(HifzRangeKind.pages, to: v)),
+        return Column(
+          children: [
+            _bound(p, 'من', [
+              _named(
+                p,
+                'الصفحة',
+                field(_pageFrom, (v) => _setRange(HifzRangeKind.pages, from: v)),
+              ),
+            ]),
+            _bound(p, 'إلى', [
+              _named(
+                p,
+                'الصفحة',
+                field(_pageTo, (v) => _setRange(HifzRangeKind.pages, to: v)),
+              ),
+            ]),
+          ],
         );
     }
   }
 
-  Widget _chips(
-    HifzPalette p,
-    List<int> values,
-    int selected,
-    String Function(int) label,
-    ValueChanged<int> onPick,
-  ) =>
-      Wrap(
-        spacing: 6,
-        children: [
-          for (final v in values)
-            ChoiceChip(
-              label: Text(label(v)),
-              selected: v == selected,
-              showCheckmark: false,
-              visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-              selectedColor: p.title,
-              backgroundColor: p.raised,
-              side: BorderSide(color: p.border),
-              labelStyle: TextStyle(
-                color: v == selected ? p.onTitle : p.text,
-                fontSize: 12.5,
-              ),
-              onSelected: (_) => onPick(v),
-            ),
-        ],
-      );
+  /// The range the sheet will return: typed page numbers are read once
+  /// more here, since a field may not have been left yet.
+  HifzRange _finalRange() {
+    if (_range.kind == HifzRangeKind.pages) {
+      final a = int.tryParse(_pageFrom.text) ?? _range.from;
+      final b = int.tryParse(_pageTo.text) ?? _range.to;
+      return HifzRange(HifzRangeKind.pages, from: a, to: b).normalized();
+    }
+    return _range.normalized();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -312,7 +516,7 @@ class _SetupSheetState extends State<_SetupSheet> {
         textDirection: TextDirection.rtl,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.9,
+            maxHeight: MediaQuery.of(context).size.height * 0.92,
           ),
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
@@ -326,7 +530,7 @@ class _SetupSheetState extends State<_SetupSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.textMode ? 'اختبار نصّي' : 'اختبار الحفظ',
+                  widget.silentMode ? 'اختبار ذاتي' : 'اختبار الحفظ',
                   style: TextStyle(
                     color: p.title,
                     fontSize: 19,
@@ -336,104 +540,61 @@ class _SetupSheetState extends State<_SetupSheet> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  widget.textMode
-                      ? 'تُعرض عليك آية، فتذكر التي بعدها من حفظك ثم تكشفها وتحكم على نفسك.'
+                  widget.silentMode
+                      ? 'تُخفى آيات الصفحة، ويظهر لك موضع البداية. اقرأ في نفسك، '
+                          'واكشف كلمةً أو آيةً للتحقق، ثم احكم على نفسك في كل سؤال.'
                       : 'ينقلك كل سؤال إلى موضع في المصحف تقرأ منه من حفظك عبر الميكروفون.',
-                  style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.4),
+                  style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.45),
                 ),
                 _section(
                   p,
                   'مصدر الأسئلة',
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: SegmentedButton<HifzTestSource>(
-                          style: _segmentStyle(p),
-                          showSelectedIcon: false,
-                          segments: [
-                            for (final s in HifzTestSource.values)
-                              ButtonSegment(
-                                value: s,
-                                label: Text(_sourceLabel(s)),
-                                enabled: !noMistakes || s == HifzTestSource.random,
-                              ),
-                          ],
-                          selected: {_config.source},
-                          onSelectionChanged: (s) => setState(
-                            () => _config = _config.copyWith(source: s.first),
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          noMistakes
-                              ? 'لم تُسجَّل أخطاء بعد؛ سمِّع أولًا لتُختبر فيها.'
-                              : 'أخطاؤك المسجّلة في التسميع: ${widget.mistakesInPool} موضعًا.',
-                          style: TextStyle(color: p.sub, fontSize: 11.5),
-                        ),
-                      ),
-                    ],
+                  _chips<HifzTestSource>(
+                    p,
+                    HifzTestSource.values,
+                    _config.source,
+                    _sourceLabel,
+                    (s) => setState(() => _config = _config.copyWith(source: s)),
+                    enabled: (s) => !noMistakes || s == HifzTestSource.random,
                   ),
+                  note: noMistakes
+                      ? 'لم تُسجَّل أخطاء بعد؛ سمِّع أولًا لتُختبر فيها.'
+                      : 'أخطاؤك المسجّلة: ${widget.mistakesInPool} موضعًا.',
                 ),
                 _section(
                   p,
                   'النطاق',
                   Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: SegmentedButton<HifzRangeKind>(
-                          style: _segmentStyle(p),
-                          showSelectedIcon: false,
-                          segments: const [
-                            ButtonSegment(
-                              value: HifzRangeKind.all,
-                              label: Text('المصحف كله'),
-                            ),
-                            ButtonSegment(
-                              value: HifzRangeKind.surahs,
-                              label: Text('سور'),
-                            ),
-                            ButtonSegment(
-                              value: HifzRangeKind.hizbs,
-                              label: Text('أحزاب'),
-                            ),
-                            ButtonSegment(
-                              value: HifzRangeKind.pages,
-                              label: Text('صفحات'),
-                            ),
-                          ],
-                          selected: {_range.kind},
-                          onSelectionChanged: (s) {
-                            final kind = s.first;
-                            if (kind == HifzRangeKind.pages) {
-                              _setRange(
-                                kind,
-                                from: int.tryParse(_pageFrom.text) ?? 1,
-                                to: int.tryParse(_pageTo.text) ?? 1,
-                              );
-                            } else {
-                              _setRange(kind);
-                            }
-                          },
-                        ),
+                      _chips<HifzRangeKind>(
+                        p,
+                        HifzRangeKind.values,
+                        _range.kind,
+                        _kindLabel,
+                        (kind) => _setRange(kind),
                       ),
-                      if (_range.kind != HifzRangeKind.all)
+                      if (_range.kind != HifzRangeKind.all) ...[
                         Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: _rangeDetail(p),
+                          padding: const EdgeInsets.only(top: 8, bottom: 6),
+                          child: Text(
+                            _range.normalized().label,
+                            style: TextStyle(
+                              color: p.text,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
+                        _rangeDetail(p),
+                      ],
                     ],
                   ),
                 ),
                 _section(
                   p,
                   'عدد الأسئلة',
-                  _chips(
+                  _chips<int>(
                     p,
                     const [3, 5, 10, 20],
                     _config.questions,
@@ -441,24 +602,30 @@ class _SetupSheetState extends State<_SetupSheet> {
                     (v) => setState(() => _config = _config.copyWith(questions: v)),
                   ),
                 ),
-                if (!widget.textMode)
-                  _section(
+                _section(
+                  p,
+                  'طول كل سؤال',
+                  _chips<int>(
                     p,
-                    'طول كل سؤال',
-                    _chips(
-                      p,
-                      const [1, 3, 5],
-                      _config.ayahsPerQuestion,
-                      (v) => switch (v) {
-                        1 => 'آية واحدة',
-                        _ => '$v آيات',
-                      },
-                      (v) => setState(
-                        () => _config = _config.copyWith(ayahsPerQuestion: v),
-                      ),
+                    const [1, 3, 5, 0],
+                    _config.ayahsPerQuestion,
+                    (v) => switch (v) {
+                      0 => 'بلا حد',
+                      1 => 'آية واحدة',
+                      _ => '$v آيات',
+                    },
+                    (v) => setState(
+                      () => _config = _config.copyWith(ayahsPerQuestion: v),
                     ),
                   ),
-                const SizedBox(height: 16),
+                  note: _config.openEnded
+                      ? 'بلا حد: تقرأ ما شئت حتى آخر ${widget.silentMode ? 'الصفحة' : 'السورة'}، '
+                          'وزر «سؤال جديد» في الشريط ينقلك متى شئت.'
+                      : widget.silentMode
+                          ? 'السؤال لا يتجاوز نهاية الصفحة التي يبدأ فيها.'
+                          : null,
+                ),
+                const SizedBox(height: 18),
                 Row(
                   children: [
                     Expanded(
@@ -469,7 +636,7 @@ class _SetupSheetState extends State<_SetupSheet> {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: () => Navigator.of(context).pop(
-                          _config.copyWith(range: _range.normalized()),
+                          _config.copyWith(range: _finalRange()),
                         ),
                         child: const Text(
                           'ابدأ',
@@ -513,6 +680,24 @@ Widget hifzErrorLine(HifzPalette p, TasmeeError e) => Padding(
         style: TextStyle(color: p.text, fontSize: 13.5, height: 1.5),
       ),
     );
+
+ButtonStyle _filled(HifzPalette p, [Color? color]) => FilledButton.styleFrom(
+      backgroundColor: color ?? p.title,
+      foregroundColor: p.onTitle,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+    );
+
+ButtonStyle _outlined(HifzPalette p, [Color? color]) => OutlinedButton.styleFrom(
+      foregroundColor: color ?? p.title,
+      side: BorderSide(color: color ?? p.title),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+    );
+
+const TextStyle _buttonText = TextStyle(
+  fontSize: 15.5,
+  fontWeight: FontWeight.bold,
+  fontFamily: 'Tajawal',
+);
 
 /// After one question of the microphone test: clean, or its errors. Returns
 /// true to go on to the next question.
@@ -592,38 +777,19 @@ Future<bool> showHifzTestQuestionResult(
                       if (hasNext)
                         Expanded(
                           child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: p.title,
-                              foregroundColor: p.onTitle,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
+                            style: _filled(p),
                             onPressed: () => Navigator.of(sheetContext).pop(true),
-                            child: const Text(
-                              'السؤال التالي',
-                              style: TextStyle(
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Tajawal',
-                              ),
-                            ),
+                            child: const Text('السؤال التالي', style: _buttonText),
                           ),
                         ),
                       if (hasNext) const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: p.title,
-                            side: BorderSide(color: p.title),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
+                          style: _outlined(p),
                           onPressed: () => Navigator.of(sheetContext).pop(false),
                           child: Text(
                             hasNext ? 'إنهاء الاختبار' : 'النتيجة',
-                            style: const TextStyle(
-                              fontSize: 15.5,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'Tajawal',
-                            ),
+                            style: _buttonText,
                           ),
                         ),
                       ),
@@ -640,7 +806,213 @@ Future<bool> showHifzTestQuestionResult(
   return choice ?? false;
 }
 
-/// The end of a microphone test: the score and every question's outcome.
+/// What the reader said of a self-test question, and whether to go on.
+class HifzSelfJudgement {
+  const HifzSelfJudgement({
+    required this.correct,
+    required this.next,
+    this.missed = const [],
+  });
+
+  /// Null when the reader ended the test without judging the question.
+  final bool? correct;
+
+  /// The ayahs of the question marked wrong.
+  final List<AyahRef> missed;
+  final bool next;
+}
+
+/// After one question of the self-test: every ayah of it with a right /
+/// wrong mark (all right to begin with). Going on records the marks; a
+/// small link ends the test instead.
+Future<HifzSelfJudgement> showHifzSelfJudge(
+  BuildContext context, {
+  required HifzTestQuestion question,
+  required String label,
+  required bool hasNext,
+}) async {
+  final p = HifzPalette.of(context);
+  final choice = await showModalBottomSheet<HifzSelfJudgement>(
+    context: context,
+    isDismissible: false,
+    enableDrag: false,
+    isScrollControlled: true,
+    backgroundColor: p.bg,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) => _SelfJudgeSheet(
+      question: question,
+      label: label,
+      hasNext: hasNext,
+    ),
+  );
+  return choice ?? const HifzSelfJudgement(correct: null, next: false);
+}
+
+class _SelfJudgeSheet extends StatefulWidget {
+  const _SelfJudgeSheet({
+    required this.question,
+    required this.label,
+    required this.hasNext,
+  });
+
+  final HifzTestQuestion question;
+  final String label;
+  final bool hasNext;
+
+  @override
+  State<_SelfJudgeSheet> createState() => _SelfJudgeSheetState();
+}
+
+class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
+  final Set<int> _wrong = {};
+
+  List<AyahRef> get _ayahs => widget.question.ayahs.isEmpty
+      ? [widget.question.start]
+      : widget.question.ayahs;
+
+  Widget _mark(HifzPalette p, int i) {
+    final wrong = _wrong.contains(i);
+    Widget button(bool asWrong) {
+      final on = wrong == asWrong;
+      final color = asWrong ? p.bad : p.good;
+      return InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => setState(() => asWrong ? _wrong.add(i) : _wrong.remove(i)),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: on ? color : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: on ? color : p.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                asWrong ? Icons.close_rounded : Icons.check_rounded,
+                size: 18,
+                color: on ? Colors.white : color,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                asWrong ? 'خطأ' : 'صحيح',
+                style: TextStyle(
+                  color: on ? Colors.white : p.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [button(false), const SizedBox(width: 6), button(true)],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = HifzPalette.of(context);
+    final ayahs = _ayahs;
+    return SafeArea(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'كيف قرأتها؟',
+                        style: TextStyle(
+                          color: p.title,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Tajawal',
+                        ),
+                      ),
+                    ),
+                    Text(widget.label, style: TextStyle(color: p.sub, fontSize: 13)),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'سورة ${widget.question.start.surahName} — علّم كل آية',
+                  style: TextStyle(color: p.sub, fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                for (var i = 0; i < ayahs.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'الآية ${ayahs[i].ayah}',
+                            style: TextStyle(
+                              color: _wrong.contains(i) ? p.bad : p.text,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        _mark(p, i),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: _filled(p),
+                    onPressed: () => Navigator.of(context).pop(
+                      HifzSelfJudgement(
+                        correct: _wrong.isEmpty,
+                        missed: [for (final i in _wrong) ayahs[i]],
+                        next: widget.hasNext,
+                      ),
+                    ),
+                    child: Text(
+                      widget.hasNext ? 'السؤال التالي' : 'النتيجة',
+                      style: _buttonText,
+                    ),
+                  ),
+                ),
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(
+                      const HifzSelfJudgement(correct: null, next: false),
+                    ),
+                    child: Text(
+                      widget.hasNext ? 'إنهاء الاختبار دون حكم' : 'إغلاق دون حكم',
+                      style: TextStyle(color: p.sub, fontSize: 13.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The end of a test: the score and every question's outcome.
 Future<void> showHifzTestSummary(BuildContext context, HifzTestRun run) {
   final p = HifzPalette.of(context);
   return showModalBottomSheet<void>(
@@ -674,28 +1046,30 @@ Future<void> showHifzTestSummary(BuildContext context, HifzTestRun run) {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${run.config.range.label} · ${_sourceLabel(run.config.source)}',
+                  '${run.config.range.label} · ${_sourceLabel(run.config.source)}'
+                  '${run.silent ? ' · اختبار ذاتي' : ''}'
+                  ' · ${DateTime.now().difference(run.startedAt).inMinutes} د',
                   style: TextStyle(color: p.sub, fontSize: 12.5),
                 ),
                 const SizedBox(height: 10),
-                for (var i = 0; i < run.results.length; i++)
+                for (var i = 0; i < run.answered; i++)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          run.results[i].clean
+                          run.isCorrect(i)
                               ? Icons.check_circle_rounded
                               : Icons.cancel_rounded,
                           size: 20,
-                          color: run.results[i].clean ? p.good : p.bad,
+                          color: run.isCorrect(i) ? p.good : p.bad,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             '${i + 1}. ${run.questions[i].title}'
-                            '${run.results[i].clean ? '' : ' — ${run.results[i].errors.length} ملاحظات'}',
+                            '${!run.silent && !run.isCorrect(i) ? ' — ${run.results[i].errors.length} ملاحظات' : ''}',
                             style: TextStyle(color: p.text, fontSize: 14, height: 1.5),
                           ),
                         ),
@@ -712,27 +1086,17 @@ Future<void> showHifzTestSummary(BuildContext context, HifzTestRun run) {
                   ),
                 const SizedBox(height: 6),
                 Text(
-                  'الأخطاء تُحفظ لتُختبر فيها لاحقًا، ويُرفع الموضع من القائمة بعد إصابته في يومين مختلفين.',
+                  'تُحفظ النتيجة في «الإحصاءات»، والأخطاء تُحفظ لتُختبر فيها لاحقًا، '
+                  'ويُرفع الموضع من القائمة بعد إصابته في يومين مختلفين.',
                   style: TextStyle(color: p.sub, fontSize: 12, height: 1.4),
                 ),
                 const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: p.title,
-                      foregroundColor: p.onTitle,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
+                    style: _filled(p),
                     onPressed: () => Navigator.of(sheetContext).pop(),
-                    child: const Text(
-                      'إغلاق',
-                      style: TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Tajawal',
-                      ),
-                    ),
+                    child: const Text('إغلاق', style: _buttonText),
                   ),
                 ),
               ],

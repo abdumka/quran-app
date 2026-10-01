@@ -1208,6 +1208,29 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     return result;
   }
 
+  /// The thumn a hizb opens with — its exact starting surah, ayah and page.
+  ThumnEntry? _hizbStart(int hizb) {
+    for (final e in thumnEntries) {
+      if (e.hizb == hizb) return e;
+    }
+    return null;
+  }
+
+  /// "•  سورة البقرة  •  صفحة 11" beside a hizb's number.
+  String _hizbStartLabel(ThumnEntry start) {
+    var surahName = '';
+    for (final surah in widget.surahs) {
+      if ((surah['number'] as num?)?.toInt() == start.startSurah) {
+        surahName = (surah['name'] ?? '').toString();
+        break;
+      }
+    }
+    return [
+      if (surahName.isNotEmpty) 'سورة $surahName',
+      'صفحة ${start.page}',
+    ].map((part) => '•  $part').join('  ');
+  }
+
   String _surahNameForPage(int page) {
     String name = '';
     for (final surah in widget.surahs) {
@@ -1663,6 +1686,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         ? hizbTitles[hizbNumber - 1]
         : '';
     final athman = _athmanFor(hizbNumber, model);
+    // Where the hizb begins: its first thumn, taken from the full list since
+    // a search may have filtered [athman].
+    final start = _hizbStart(hizbNumber);
     // The card header is the row at tvBaseIndex and its thumns follow it, in
     // the order _tvHizbRows flattened them.
     final bool headerFocused = tvBaseIndex != null && _tvFocused(tvBaseIndex);
@@ -1751,14 +1777,33 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'الحزب $hizbNumber',
-                                textDirection: TextDirection.rtl,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF2F2418),
-                                ),
+                              // "الحزب 2  •  سورة البقرة  •  صفحة 11". A Wrap,
+                              // so on a narrow screen the details drop to a
+                              // second line instead of losing the page number.
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                children: [
+                                  Text(
+                                    'الحزب $hizbNumber',
+                                    textDirection: TextDirection.rtl,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFF2F2418),
+                                    ),
+                                  ),
+                                  if (start != null)
+                                    Text(
+                                      _hizbStartLabel(start),
+                                      textDirection: TextDirection.rtl,
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF8A7757),
+                                      ),
+                                    ),
+                                ],
                               ),
                               if (hizbTitle.isNotEmpty) ...[
                                 const SizedBox(height: 2),

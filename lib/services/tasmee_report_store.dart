@@ -73,6 +73,8 @@ class TasmeeReport {
     required this.correct,
     required this.errors,
     required this.finished,
+    this.holds = 0,
+    this.repairs = 0,
   });
 
   final int page;
@@ -85,6 +87,11 @@ class TasmeeReport {
   /// Whether the whole page was recited (false: the session was ended early).
   final bool finished;
 
+  /// Times the session stopped at a word (wrong or skipped), and how many of
+  /// those the reciter put right by saying the word again.
+  final int holds;
+  final int repairs;
+
   Map<String, Object?> toJson() => {
         'page': page,
         'at': at.toIso8601String(),
@@ -93,6 +100,8 @@ class TasmeeReport {
         'correct': correct,
         'finished': finished,
         'errors': [for (final e in errors) e.toJson()],
+        'holds': holds,
+        'repairs': repairs,
       };
 
   factory TasmeeReport.fromJson(Map<String, dynamic> j) => TasmeeReport(
@@ -106,6 +115,8 @@ class TasmeeReport {
           for (final e in (j['errors'] as List<dynamic>? ?? const []))
             TasmeeError.fromJson(e as Map<String, dynamic>),
         ],
+        holds: j['holds'] as int? ?? 0,
+        repairs: j['repairs'] as int? ?? 0,
       );
 }
 

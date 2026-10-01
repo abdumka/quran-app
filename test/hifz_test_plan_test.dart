@@ -2,7 +2,9 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/services/hifz_test_plan.dart';
+import 'package:islamic_dawah_mushaf/services/hifz_test_stats_store.dart';
 import 'package:islamic_dawah_mushaf/services/quran_json_service.dart';
+import 'package:islamic_dawah_mushaf/services/tasmee_report_store.dart';
 import 'package:islamic_dawah_mushaf/services/tasmee_weak_point_store.dart';
 import 'package:islamic_dawah_mushaf/thumn_data.dart';
 
@@ -76,6 +78,39 @@ void main() {
       );
     });
 
+    test('spans: athman, and hizbs agree with their athman', () {
+      // Thumn 1 runs up to the ayah before thumn 2.
+      final t1 = index.spanOf(const HifzRange(HifzRangeKind.athman, from: 1, to: 1))!;
+      expect(t1.$1, 0);
+      expect(t1.$2, index.indexOf(thumnEntries[1].startSurah, thumnEntries[1].startAyah)! - 1);
+      // The last thumn reaches the end of the mushaf.
+      final t480 = index.spanOf(const HifzRange(HifzRangeKind.athman, from: 480, to: 480))!;
+      expect(t480.$2, 6213);
+      // Hizb 12 = its eight athman.
+      expect(
+        index.spanOf(const HifzRange(HifzRangeKind.hizbs, from: 12, to: 12)),
+        index.spanOf(const HifzRange(HifzRangeKind.athman, from: 89, to: 96)),
+      );
+      expect(HifzRange.hizbOfThumn(89), 12);
+      expect(HifzRange.thumnInHizb(96), 8);
+      expect(HifzRange.thumnNumber(12, 3), 91);
+      expect(HifzRange.hizbStart(12).number, 89);
+      expect(HifzRange.hizbStart(12).hizb, 12);
+    });
+
+    test('hizb and thumn labels carry number, name and surah', () {
+      expect(HifzRange.hizbLabel(1), '1. الفاتحة — الفاتحة');
+      expect(HifzRange.hizbLabel(12), startsWith('12. قال رجلان — '));
+      expect(HifzRange.hizbLabel(12), endsWith(HifzRange.surahName(HifzRange.hizbStart(12).startSurah)));
+      expect(HifzRange.thumnLabel(1), '1. الحمد لله رب العالمين');
+      expect(HifzRange.thumnLabel(2), startsWith('2. '));
+      expect(HifzRange.thumnLabel(2), endsWith('…'));
+      expect(
+        const HifzRange(HifzRangeKind.athman, from: 91, to: 91).label,
+        'الثمن 3 من الحزب 12',
+      );
+    });
+
     test('range labels and json round trip', () {
       expect(const HifzRange.all().label, 'المصحف كله');
       expect(const HifzRange(HifzRangeKind.surahs, from: 2, to: 2).label, 'سورة البقرة');
@@ -127,6 +162,96 @@ void main() {
           expect(q.cue, contains('بعد قوله تعالى'));
         }
       }
+    });
+
+    test('single-page questions never run past the page they start on', () {
+      const config = HifzTestConfig(
+        source: HifzTestSource.random,
+        range: HifzRange.all(),
+        questions: 40,
+        ayahsPerQuestion: 5,
+      );
+      final qs = HifzTestPlanner.plan(
+        index: index,
+        config: config,
+        pool: const [],
+        random: Random(11),
+        singlePage: true,
+      );
+      expect(qs.length, 40);
+      for (final q in qs) {
+        expect(q.end.page, q.start.page, reason: q.title);
+      }
+      // ...and a mistake at the top of a page gets no run-up from the page
+      // before, but still has its cue ayah.
+      final topOfPage2 = index.ayahs.firstWhere((a) => a.page == 2);
+      final m = HifzTestPlanner.plan(
+        index: index,
+        config: const HifzTestConfig(
+          source: HifzTestSource.mistakes,
+          range: HifzRange.all(),
+          questions: 1,
+          ayahsPerQuestion: 3,
+        ),
+        pool: [_point(3, 10, 1)],
+        singlePage: true,
+      ).single;
+      expect(m.end.key, '3:10');
+      expect(m.start.page, m.end.page);
+      expect(m.before, isNotNull);
+      expect(topOfPage2.surah, 2); // sanity: page 2 opens with al-Baqarah
+    });
+
+    test('a question lists every ayah from its start to its end', () {
+      final pool = [_point(2, 5, 2)];
+      const config = HifzTestConfig(
+        source: HifzTestSource.mistakes,
+        range: HifzRange.all(),
+        questions: 1,
+        ayahsPerQuestion: 3,
+      );
+      final q = HifzTestPlanner.plan(index: index, config: config, pool: pool).single;
+      expect(q.ayahs.map((a) => a.ayah), [3, 4, 5]);
+      expect(q.ayahs.first, same(q.start));
+      expect(q.ayahs.last, same(q.end));
+    });
+
+    test('open-ended questions run to the end of the surah (or page)', () {
+      const config = HifzTestConfig(
+        source: HifzTestSource.random,
+        range: HifzRange(HifzRangeKind.surahs, from: 2, to: 2),
+        questions: 5,
+        ayahsPerQuestion: 0,
+      );
+      expect(config.openEnded, isTrue);
+      final last = index.ayahs.lastWhere((a) => a.surah == 2);
+      final qs = HifzTestPlanner.plan(index: index, config: config, pool: const [], random: Random(1));
+      for (final q in qs) {
+        expect(q.open, isTrue);
+        expect(q.end.key, last.key);
+        expect(q.toDrill(1, 1).open, isTrue);
+        expect(q.extent, contains('${last.ayah}'));
+      }
+      final onPage = HifzTestPlanner.plan(
+        index: index,
+        config: config,
+        pool: const [],
+        random: Random(1),
+        singlePage: true,
+      );
+      for (final q in onPage) {
+        expect(q.end.page, q.start.page);
+        expect(index.ayahs[index.indexOf(q.end.surah, q.end.ayah)! + 1].page, q.end.page + 1);
+      }
+      // From a mistake: a two-ayah run-up, then open.
+      final m = HifzTestPlanner.plan(
+        index: index,
+        config: config.copyWith(source: HifzTestSource.mistakes),
+        pool: [_point(2, 10, 1)],
+      ).single;
+      expect(m.start.key, '2:8');
+      expect(m.end.key, last.key);
+      expect(m.targets, isNotEmpty);
     });
 
     test('a short surah cannot give more distinct questions than ayahs', () {
@@ -258,6 +383,51 @@ void main() {
       final quoted = q.cueTail.substring(2).split(' ');
       expect(quoted.length, HifzTestQuestion.cueWords);
       expect(q.before!.text.trim(), endsWith(quoted.join(' ')));
+    });
+  });
+
+  group('reports and records', () {
+    test('a report keeps its stops and repairs; old reports read as zero', () {
+      final r = TasmeeReport(
+        page: 3,
+        at: DateTime(2026, 9, 30),
+        seconds: 90,
+        words: 100,
+        correct: 97,
+        errors: const [],
+        finished: true,
+        holds: 4,
+        repairs: 3,
+      );
+      final back = TasmeeReport.fromJson(Map<String, dynamic>.from(r.toJson()));
+      expect(back.holds, 4);
+      expect(back.repairs, 3);
+      final old = TasmeeReport.fromJson({'page': 1, 'seconds': 5});
+      expect(old.holds, 0);
+      expect(old.repairs, 0);
+    });
+
+    test('a test record is made of a run and survives json', () {
+      const config = HifzTestConfig(
+        source: HifzTestSource.random,
+        range: HifzRange(HifzRangeKind.surahs, from: 2, to: 2),
+        questions: 3,
+      );
+      final qs = HifzTestPlanner.plan(index: index, config: config, pool: const []);
+      final run = HifzTestRun(config, qs, silent: true)
+        ..judgements.addAll([true, false])
+        ..missedAyahs = 2;
+      final rec = HifzTestRecord.ofRun(run, run.startedAt.add(const Duration(seconds: 70)));
+      expect(rec.answered, 2);
+      expect(rec.correct, 1);
+      expect(rec.mistakes, 2);
+      expect(rec.seconds, 70);
+      expect(rec.percent, 50);
+      expect(rec.range, 'سورة البقرة');
+      final back = HifzTestRecord.fromJson(Map<String, dynamic>.from(rec.toJson()));
+      expect(back.silent, isTrue);
+      expect(back.questions, 3);
+      expect(back.correct, 1);
     });
   });
 

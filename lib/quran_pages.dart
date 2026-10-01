@@ -62,14 +62,16 @@ import 'utils/copy_helper.dart';
 import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
+import 'widgets/hifz/hifz_stats_page.dart';
 import 'widgets/hifz/hifz_test_sheets.dart';
-import 'widgets/hifz/hifz_text_test_page.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
+import 'services/hifz_test_stats_store.dart';
 import 'widgets/hifz/tasmee_guide_sheet.dart';
 import 'services/hifz_test_plan.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
+import 'services/tasmee_report_store.dart' show TasmeeError;
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
@@ -3393,13 +3395,16 @@ class _QuranPagesState extends State<QuranPages>
       hifzModeActive: _isHifzModeEnabled,
       onTasmee: () => _toggleMemorizationTest(!_isMemorizationTestEnabled),
       onHifzMode: () => _toggleHifzMode(!_isHifzModeEnabled),
-      onTest: _openHifzTest,
-      onTextTest: _openHifzTextTest,
+      onTest: (closeMenu) => _openHifzTest(closeMenu),
+      onTextTest: (closeMenu) => _openHifzSilentTest(closeMenu),
       onLogs: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const TasmeeLogsPage()),
       ),
       onReports: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const TasmeeReportsPage()),
+      ),
+      onStats: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const HifzStatsPage()),
       ),
       onWeakPoints: _openTasmeeWeakPoints,
     );
@@ -3414,8 +3419,9 @@ class _QuranPagesState extends State<QuranPages>
   /// null (with a notice) when the range yields none.
   Future<List<HifzTestQuestion>?> _planHifzTest(
     HifzTestConfig config,
-    List<TasmeeWeakPoint> pool,
-  ) async {
+    List<TasmeeWeakPoint> pool, {
+    bool singlePage = false,
+  }) async {
     final index = QuranAyahIndex.fromPages(
       await QuranJsonService.loadQuranPages(),
     );
@@ -3423,6 +3429,7 @@ class _QuranPagesState extends State<QuranPages>
       index: index,
       config: config,
       pool: pool,
+      singlePage: singlePage,
     );
     if (questions.isEmpty && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3442,57 +3449,92 @@ class _QuranPagesState extends State<QuranPages>
   /// The microphone test: each question goes to a place in the mushaf and
   /// runs a Tasmee session from there to its last ayah, with the opening
   /// shown on the page.
-  Future<void> _openHifzTest() async {
+  Future<void> _openHifzTest([VoidCallback? closeMenu]) async {
     final pool = await TasmeeWeakPointStore.load();
     if (!mounted) return;
     final config = await showHifzTestSetup(
       context,
-      textMode: false,
+      silentMode: false,
       mistakesInPool: pool.length,
     );
     if (config == null || !mounted) return;
+    closeMenu?.call();
     if (!await _ensureTasmeeReady()) return;
     if (!mounted) return;
     final questions = await _planHifzTest(config, pool);
     if (questions == null || !mounted) return;
-    if (_isMemorizationTestEnabled) {
-      await MemorizationTestService.instance.stop();
-      if (!mounted) return;
-    }
-    _hifzTest = HifzTestRun(config, questions);
-    _drillQueue
-      ..clear()
-      ..addAll([
-        for (var i = 0; i < questions.length; i++)
-          questions[i].toDrill(i + 1, questions.length),
-      ]);
-    await _runNextTasmeeDrill();
+    await _startHifzTest(HifzTestRun(config, questions));
   }
 
-  /// The text test: one ayah shown, the next one recalled, no microphone.
-  Future<void> _openHifzTextTest() async {
+  /// The self-test (اختبار ذاتي): the same questions on the covered page,
+  /// but no microphone -- the reader uncovers words and ayahs by hand and
+  /// says after each question whether they had it right.
+  Future<void> _openHifzSilentTest([VoidCallback? closeMenu]) async {
     final pool = await TasmeeWeakPointStore.load();
     if (!mounted) return;
     final config = await showHifzTestSetup(
       context,
-      textMode: true,
+      silentMode: true,
       mistakesInPool: pool.length,
     );
     if (config == null || !mounted) return;
-    final questions = await _planHifzTest(
-      config.copyWith(ayahsPerQuestion: 1),
-      pool,
-    );
+    closeMenu?.call();
+    // A silent session cannot follow a page turn: questions stay on the
+    // page they start on.
+    final questions = await _planHifzTest(config, pool, singlePage: true);
     if (questions == null || !mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => HifzTextTestPage(
-          questions: questions,
-          config: config,
-          onGoToPage: (page) => _goToPage(page),
-        ),
-      ),
-    );
+    await _startHifzTest(HifzTestRun(config, questions, silent: true));
+  }
+
+  Future<void> _startHifzTest(HifzTestRun run) async {
+    if (_isMemorizationTestEnabled) {
+      await MemorizationTestService.instance.stop();
+      if (!mounted) return;
+    }
+    _hifzTest = run;
+    _drillQueue
+      ..clear()
+      ..addAll([
+        for (var i = 0; i < run.questions.length; i++)
+          run.questions[i].toDrill(i + 1, run.questions.length),
+      ]);
+    await _runNextTasmeeDrill();
+  }
+
+  /// Keeps the mistake pool in step with what the reader said of a
+  /// self-test question: every ayah marked wrong is kept (kind «recall», at
+  /// its first word) so later tests come back to it; a question built from
+  /// a kept mistake and read right counts towards retiring it.
+  void _recordSelfJudgement(HifzTestQuestion q, List<AyahRef> missed) {
+    final now = DateTime.now();
+    if (missed.isEmpty) {
+      if (q.fromMistakes) {
+        TasmeeWeakPointStore.notePassed(q.targets.map((t) => t.key), now);
+      }
+      return;
+    }
+    final byPage = <int, List<TasmeeError>>{};
+    for (final a in missed) {
+      final firstWord = a.text
+          .split(RegExp(r'\s+'))
+          .firstWhere((w) => w.isNotEmpty, orElse: () => '');
+      (byPage[a.page] ??= []).add(TasmeeError(
+        surah: a.surah,
+        ayah: a.ayah,
+        wordInAyah: 1,
+        expected: firstWord,
+        kind: 'recall',
+      ));
+    }
+    for (final e in byPage.entries) {
+      TasmeeWeakPointStore.addErrors(e.key, e.value, now);
+    }
+  }
+
+  /// Closes a test: its record goes to the statistics.
+  void _finishHifzTest(HifzTestRun run) {
+    if (run.answered == 0) return;
+    HifzTestStatsStore.add(HifzTestRecord.ofRun(run, DateTime.now()));
   }
 
   // -------------------------------------------------------------------
@@ -3567,6 +3609,7 @@ class _QuranPagesState extends State<QuranPages>
         pageNumber: startPage,
         startAyahIndex: startAyahIndex,
         drill: drill,
+        silent: _hifzTest?.silent ?? false,
       );
     } finally {
       _memorizationTestMoving = false;
@@ -3607,11 +3650,30 @@ class _QuranPagesState extends State<QuranPages>
       // score.
       run.results.add(result);
       final hasNext = _drillQueue.isNotEmpty;
-      final next = await showHifzTestQuestionResult(
-        context,
-        result,
-        hasNext: hasNext,
-      );
+      final bool next;
+      if (run.silent) {
+        // Nothing was judged: the reader says how it went.
+        final question = run.questions[run.results.length - 1];
+        final j = await showHifzSelfJudge(
+          context,
+          question: question,
+          label: result.drill.label,
+          hasNext: hasNext,
+        );
+        if (!mounted) return;
+        if (j.correct != null) {
+          run.judgements.add(j.correct!);
+          run.missedAyahs += j.missed.length;
+          _recordSelfJudgement(question, j.missed);
+        }
+        next = j.next;
+      } else {
+        next = await showHifzTestQuestionResult(
+          context,
+          result,
+          hasNext: hasNext,
+        );
+      }
       if (!mounted) return;
       if (next && hasNext) {
         await _runNextTasmeeDrill();
@@ -3619,6 +3681,7 @@ class _QuranPagesState extends State<QuranPages>
       }
       _hifzTest = null;
       _drillQueue.clear();
+      _finishHifzTest(run);
       await _toggleMemorizationTest(false);
       if (!mounted) return;
       await showHifzTestSummary(context, run);
@@ -3681,7 +3744,11 @@ class _QuranPagesState extends State<QuranPages>
 
   void _onTasmeeModeEnded() {
     _drillQueue.clear();
+    // A test ended from the bar (or by turning the page): what was answered
+    // still counts.
+    final run = _hifzTest;
     _hifzTest = null;
+    if (run != null) _finishHifzTest(run);
     if (_tasmeeLockedPortrait) {
       _tasmeeLockedPortrait = false;
       SystemChrome.setPreferredOrientations(const [
@@ -3892,7 +3959,9 @@ class _QuranPagesState extends State<QuranPages>
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
     // Turning the page by hand leaves a drill round or a test.
     _drillQueue.clear();
+    final run = _hifzTest;
     _hifzTest = null;
+    if (run != null) _finishHifzTest(run);
     _memorizationTestPageIndex = pageIndex;
     _memorizationTestMoving = true;
     bool started;
@@ -4623,13 +4692,6 @@ class _QuranPagesState extends State<QuranPages>
                                     _pageQualityService.filterQuality,
                               ),
                             ),
-                            if (_showSpineShadow(context))
-                              SpineShadow(
-                                page: pageIndex + 1,
-                                dark:
-                                    Theme.of(context).brightness ==
-                                    Brightness.dark,
-                              ),
                             // On every page while the mode is on: the overlay
                             // itself follows the service's live page and
                             // pre-covers the page after it.
@@ -4642,6 +4704,15 @@ class _QuranPagesState extends State<QuranPages>
                               PlayingAyahHighlight(
                                 pageNumber: pageIndex + 1,
                                 marginView: _isMarginImagesEnabled,
+                                dark:
+                                    Theme.of(context).brightness ==
+                                    Brightness.dark,
+                              ),
+                            // Above the Tasmee masks, so the covered page
+                            // keeps its spine side like the open one.
+                            if (_showSpineShadow(context))
+                              SpineShadow(
+                                page: pageIndex + 1,
                                 dark:
                                     Theme.of(context).brightness ==
                                     Brightness.dark,
@@ -4757,12 +4828,6 @@ class _QuranPagesState extends State<QuranPages>
                             filterQuality: _pageQualityService.filterQuality,
                           ),
                         ),
-                        if (_showSpineShadow(context))
-                          SpineShadow(
-                            page: pageIndex + 1,
-                            dark:
-                                Theme.of(context).brightness == Brightness.dark,
-                          ),
                         if (_isMemorizationTestEnabled)
                           MemorizationTestOverlay(
                             pageNumber: pageIndex + 1,
@@ -4772,6 +4837,14 @@ class _QuranPagesState extends State<QuranPages>
                           PlayingAyahHighlight(
                             pageNumber: pageIndex + 1,
                             marginView: _isMarginImagesEnabled,
+                            dark:
+                                Theme.of(context).brightness == Brightness.dark,
+                          ),
+                        // Above the Tasmee masks, so the covered page keeps
+                        // its spine side like the open one.
+                        if (_showSpineShadow(context))
+                          SpineShadow(
+                            page: pageIndex + 1,
                             dark:
                                 Theme.of(context).brightness == Brightness.dark,
                           ),

@@ -239,6 +239,11 @@ class MemorizationTestService {
   /// The drill or test question under way (its cue is drawn on the page).
   TasmeeDrill? get drill => _drill;
 
+  /// True for a self-test session (اختبار ذاتي): no microphone, the reader
+  /// uncovers words and ayahs by hand, nothing is judged or reported.
+  bool _silent = false;
+  bool get silent => _silent;
+
   /// The page's expected phonemes (kept so the tracker can be rebuilt at a
   /// word the reciter is sent back to).
   PhonemeReference? _reference;
@@ -261,6 +266,11 @@ class MemorizationTestService {
   final Set<String> _errorKeys = {};
   final List<TasmeeReport> _runReports = [];
   DateTime _pageStartedAt = DateTime.now();
+
+  /// Stops on this page (holds at a wrong or skipped word), and how many of
+  /// them the reciter put right by saying the word again.
+  int _pageHolds = 0;
+  int _pageRepairs = 0;
 
   /// Reports of the run that just ended; clears them.
   List<TasmeeReport> takeRunReports() {
@@ -311,8 +321,10 @@ class MemorizationTestService {
     }
   }
 
-  /// Closes the page's journal into a saved report.
+  /// Closes the page's journal into a saved report. A self-test judges
+  /// nothing, so it leaves no report behind.
   void _saveReport({required bool finished}) {
+    if (_silent) return;
     final aligner = _aligner;
     final pageNumber = _activePage;
     if (aligner == null || pageNumber == null) return;
@@ -326,6 +338,8 @@ class MemorizationTestService {
       correct: correct,
       errors: List.of(_errors),
       finished: finished,
+      holds: _pageHolds,
+      repairs: _pageRepairs,
     );
     _recorder?.log('report', report.toJson());
     _runReports.add(report);
@@ -333,6 +347,8 @@ class MemorizationTestService {
     TasmeeWeakPointStore.addErrors(report.page, report.errors, report.at);
     _errors.clear();
     _errorKeys.clear();
+    _pageHolds = 0;
+    _pageRepairs = 0;
   }
   bool _advancing = false;
   Map<String, Object?> _recorderInfo = const {};
@@ -543,10 +559,12 @@ class MemorizationTestService {
     bool stopPlayback = true,
     int? startAyahIndex,
     TasmeeDrill? drill,
+    bool silent = false,
   }) async {
     final token = ++_startToken;
     await stop();
     if (token != _startToken) return false;
+    _silent = silent;
     drillResult.value = null;
     status.value = MemorizationTestStatus.preparing;
 
@@ -609,6 +627,11 @@ class MemorizationTestService {
         engine = engineOverride;
         usingRealEngine.value = false;
         stubReason.value = StubReason.none;
+      } else if (silent) {
+        // A self-test: no microphone, no model, nothing to recognize.
+        engine = SilentRecitationEngine();
+        usingRealEngine.value = false;
+        stubReason.value = StubReason.none;
       } else {
         final real = await _tryBuildRealEngine();
         if (token != _startToken) {
@@ -662,6 +685,8 @@ class MemorizationTestService {
       _startResolved = startAyahIndex != null;
       _errors.clear();
       _errorKeys.clear();
+      _pageHolds = 0;
+      _pageRepairs = 0;
       _pageStartedAt = DateTime.now();
       _lastPhonemeAt = DateTime.now();
       _holdWord = -1;
@@ -727,8 +752,8 @@ class MemorizationTestService {
       );
 
       // Keep a shareable copy of every session (decisions, plus audio when
-      // the real mic engine is running).
-      if (engineOverride == null) {
+      // the real mic engine is running). A self-test has nothing to log.
+      if (engineOverride == null && !silent) {
         final installId = await InstallId.get();
         String appVersion = '';
         try {
@@ -833,12 +858,14 @@ class MemorizationTestService {
         stopPlayback: stopPlayback,
         startAyahIndex: _drillStartAyahIndex,
         drill: drill,
+        silent: _silent,
       );
     }
     return start(
       pageNumber: page,
       engineOverride: engineOverride,
       stopPlayback: stopPlayback,
+      silent: _silent,
     );
   }
 
@@ -961,7 +988,9 @@ class MemorizationTestService {
     final wasHard = _holdHard && _holdWord == word;
     if (_holdWord == word) _releaseHold('control');
     aligner.forceResolveRange(word, word + 1, WordStatus.revealed);
-    _noteError(word, 'revealed');
+    // In a self-test uncovering a word is how the reader checks themself
+    // (it stays amber as a word they needed), not a flaw to report.
+    if (!_silent) _noteError(word, 'revealed');
     // After a hard stop the tracker waits at the held word: move it on to
     // the word after the one just shown.
     if (wasHard) _rewindTracker(word + 1);
@@ -974,8 +1003,13 @@ class MemorizationTestService {
   }
 
   /// Reveals the current ayah on the page (its unresolved words show with
-  /// the amber wash and count as flaws) and moves on to the next one.
-  void revealCurrentAyah() => _resolveCurrentAyah('reveal', WordStatus.revealed);
+  /// the amber wash and count as flaws) and moves on to the next one. In a
+  /// self-test the ayah simply shows (plain, no flaw): the reader has said
+  /// it in their mind and is checking.
+  void revealCurrentAyah() => _resolveCurrentAyah(
+        'reveal',
+        _silent ? WordStatus.correct : WordStatus.revealed,
+      );
 
   /// Covers an ayah again and expects it from its first word: the current
   /// ayah when part of it has been recited, otherwise the one before it.
@@ -1054,10 +1088,12 @@ class MemorizationTestService {
     }
     _recorder?.log('control', {'action': action, 'ayah': ayah});
     _releaseHold('control');
-    for (var w = _ayahWordStarts[ayah]; w < _ayahWordStarts[ayah + 1]; w++) {
-      if (aligner.statuses[w] != WordStatus.correct) {
-        _noteError(w, action == 'skip' ? 'skippedAyah' : 'revealed');
-        if (action == 'skip') break;
+    if (!_silent) {
+      for (var w = _ayahWordStarts[ayah]; w < _ayahWordStarts[ayah + 1]; w++) {
+        if (aligner.statuses[w] != WordStatus.correct) {
+          _noteError(w, action == 'skip' ? 'skippedAyah' : 'revealed');
+          if (action == 'skip') break;
+        }
       }
     }
     aligner.forceResolveRange(
@@ -1622,6 +1658,7 @@ class MemorizationTestService {
       _tracker?.heldWord = _holdWord;
       _holdHard = hard;
       _wordsPastHold = 0;
+      _pageHolds++;
       heldWord.value = _holdWord;
       _recorder?.log('hold', {
         'word': _holdWord,
@@ -1668,6 +1705,7 @@ class MemorizationTestService {
       final position = ayah < 0 ? 0 : newMistake.word - _ayahWordStarts[ayah] + 1;
       final number = ayah < 0 ? null : _page?.ayahs[ayah].ayah;
       final where = number == null ? '' : ' (الآية $number، الكلمة $position)';
+      _pageHolds++;
       _recorder?.log('hold', {'word': _holdWord, 'reason': newMistake.reason, 'heard': newMistake.heard});
       _noteError(newMistake.word, newMistake.reason.isEmpty ? 'distance' : newMistake.reason, heard, newMistake.heard);
       TasmeeAlert.fire();
@@ -1775,7 +1813,10 @@ class MemorizationTestService {
     _recorder?.log('holdReleased', {'word': _holdWord, 'how': how, 'hard': _holdHard});
     // The reciter put the word right: a soft signal, so the session can be
     // followed without looking.
-    if (how == 'repaired') TasmeeAlert.fire(kind: TasmeeAlertKind.corrected);
+    if (how == 'repaired') {
+      _pageRepairs++;
+      TasmeeAlert.fire(kind: TasmeeAlertKind.corrected);
+    }
     if (feedback.value?.kind == FeedbackKind.wrong) _setFeedback(null);
     _tracker?.maxCell = null;
     _tracker?.heldWord = null;
@@ -1826,6 +1867,22 @@ class MemorizationTestService {
       (a) => a.surah == drill.surah && a.ayah == drill.ayah,
     );
     if (idx < 0 || aligner.cursor < _ayahWordStarts[idx + 1]) return false;
+    return _endDrill(drill);
+  }
+
+  /// Ends an open-ended test question now (the reciter chose to move on):
+  /// what was recited so far is its outcome.
+  bool finishDrillNow() {
+    final drill = _drill;
+    if (drill == null || status.value != MemorizationTestStatus.listening) {
+      return false;
+    }
+    _recorder?.log('control', {'action': 'finishDrill'});
+    _releaseHold('control');
+    return _endDrill(drill);
+  }
+
+  bool _endDrill(TasmeeDrill drill) {
     final passed = [
       for (final t in drill.targets)
         if (!_drillMissed.contains(t.key)) t,
@@ -1843,7 +1900,11 @@ class MemorizationTestService {
     _saveReport(finished: false);
     // A passed word is not forgotten at once: it retires after being read
     // right on another day too (see TasmeeWeakPointStore.passesToClear).
-    TasmeeWeakPointStore.notePassed(passed.map((t) => t.key), DateTime.now());
+    // In a self-test nothing was judged here: the reader's own verdict,
+    // taken by the UI afterwards, decides.
+    if (!_silent) {
+      TasmeeWeakPointStore.notePassed(passed.map((t) => t.key), DateTime.now());
+    }
     drillResult.value = TasmeeDrillResult(
       drill: drill,
       passed: passed,
@@ -2376,6 +2437,7 @@ class MemorizationTestService {
     heldWord.value = -1;
     _drill = null;
     _drillErrors.clear();
+    _silent = false;
     drillLabel.value = null;
     _continuedFrom = null;
     _cancelPendingFlip();

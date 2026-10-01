@@ -306,6 +306,93 @@ void main() {
     expect(result.clean, isFalse);
   });
 
+  test('a silent self-test question is uncovered by hand and judged by no one', () async {
+    final question = TasmeeDrill(
+      page: 1,
+      surah: 1,
+      ayah: 3,
+      targets: [
+        TasmeeWeakPoint(surah: 1, ayah: 3, word: 1, page: 1, expected: 'x', kind: 'word'),
+      ],
+      title: 'اختبار',
+      cue: 'c',
+      startPage: 1,
+      startAyahIndex: 1,
+    );
+    service.takeRunReports(); // reports of the tests above
+    expect(
+      await service.start(
+        pageNumber: 1,
+        stopPlayback: false,
+        startAyahIndex: 1,
+        drill: question,
+        silent: true,
+      ),
+      isTrue,
+      reason: 'no microphone or model is needed',
+    );
+    expect(service.silent, isTrue);
+    expect(service.usingRealEngine.value, isFalse);
+    expect(service.status.value, MemorizationTestStatus.listening);
+    expect(service.drill?.cue, 'c');
+    expect(service.statuses[0], WordStatus.correct, reason: 'ayah before the start is shown');
+
+    // A word uncovered by hand stays amber but is not an error...
+    final first = firstWordOf(1);
+    service.showHint();
+    expect(service.statuses[first], WordStatus.revealed);
+    // ...and a whole ayah uncovered shows plain.
+    service.revealCurrentAyah();
+    for (var w = first + 1; w < firstWordOf(2); w++) {
+      expect(service.statuses[w], WordStatus.correct);
+    }
+    expect(service.statuses[firstWordOf(2)], WordStatus.pending);
+
+    // Uncovering the target ayah ends the question with nothing judged.
+    service.revealCurrentAyah();
+    final result = service.drillResult.value;
+    expect(result, isNotNull);
+    expect(result!.errors, isEmpty);
+    expect(result.failed, isEmpty);
+    expect(result.passed.map((t) => t.key), ['1:3:1']);
+    expect(service.status.value, MemorizationTestStatus.completed);
+    // Nothing goes to the Tasmee reports.
+    await service.stop();
+    expect(service.takeRunReports(), isEmpty);
+    expect(service.silent, isFalse);
+  });
+
+  test('an open-ended question ends when the reciter moves on', () async {
+    final engine = _PhonemeEngine();
+    final question = TasmeeDrill(
+      page: 1,
+      surah: 1,
+      ayah: 7,
+      targets: const [],
+      title: 'اختبار',
+      startPage: 1,
+      startAyahIndex: 0,
+      open: true,
+    );
+    await service.start(
+      pageNumber: 1,
+      engineOverride: engine,
+      stopPlayback: false,
+      startAyahIndex: 0,
+      drill: question,
+    );
+    engine.recite(ayah(0));
+    engine.recite(ayah(1));
+    await settle();
+    expect(service.drillResult.value, isNull);
+    expect(service.finishDrillNow(), isTrue);
+    final result = service.drillResult.value;
+    expect(result, isNotNull);
+    expect(result!.clean, isTrue);
+    expect(service.status.value, MemorizationTestStatus.completed);
+    expect(service.finishDrillNow(), isFalse, reason: 'nothing left to end');
+  });
+
   test('a clean test question is clean', () async {
     final engine = _PhonemeEngine();
     final question = TasmeeDrill(

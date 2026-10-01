@@ -124,14 +124,16 @@ class MemorizationTestOverlay extends StatelessWidget {
                   ),
                 ),
                 // A test question's opening: where to start and the words
-                // to continue from. The covered page cannot show that when
-                // the question opens at the page's first ayah, so it sits
-                // on the page itself, under the bar.
-                if (service.drill?.cue != null)
+                // to continue from. Only a question that opens at the top
+                // of a fully covered page needs it (anywhere else the ayahs
+                // before the start are visible), and it goes once the first
+                // ayah of the page shows. It sits in the lower half, clear
+                // of the first lines the reader is about to uncover.
+                if (_cueWanted(service, states))
                   Positioned(
-                    top: 4,
                     left: 8,
                     right: 8,
+                    top: height * 0.56,
                     child: Center(child: _OpeningCue(drill: service.drill!)),
                   ),
                 // Live feedback + help buttons, floating near the bottom of
@@ -145,6 +147,21 @@ class MemorizationTestOverlay extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// The cue is for a question that starts at the top of this page while
+  /// the page's first ayah is still covered.
+  static bool _cueWanted(
+    MemorizationTestService service,
+    List<AyahRevealState> states,
+  ) {
+    final drill = service.drill;
+    if (drill == null || drill.cue == null) return false;
+    if (drill.startPage != service.activePage) return false;
+    if ((drill.startAyahIndex ?? 0) != 0) return false;
+    if (states.isEmpty) return false;
+    final first = states.first;
+    return first == AyahRevealState.hidden || first == AyahRevealState.current;
   }
 
   void _collectAyah(
@@ -810,12 +827,22 @@ class _SessionBarState extends State<_SessionBar> {
                       'أعد الآية',
                       service.repeatAyah,
                     ),
-                    _action(
-                      Icons.skip_next_rounded,
-                      'تخطَّ',
-                      service.skipCurrentAyah,
-                    ),
+                    // A self-test has nothing to skip past: the reader
+                    // uncovers the page at their own pace.
+                    if (!service.silent)
+                      _action(
+                        Icons.skip_next_rounded,
+                        'تخطَّ',
+                        service.skipCurrentAyah,
+                      ),
                   ],
+                  // An open-ended question ends when the reciter says so.
+                  if (listening && (service.drill?.open ?? false))
+                    _action(
+                      Icons.done_all_rounded,
+                      'سؤال جديد',
+                      service.finishDrillNow,
+                    ),
                   if (listening || completed)
                     _action(
                       Icons.restart_alt_rounded,
@@ -881,6 +908,14 @@ class _SessionBarState extends State<_SessionBar> {
   }
 
   Widget _statusDot(MemorizationTestStatus status, bool alarm) {
+    // A self-test has no microphone: an eye instead of the listening dot.
+    if (service.silent) {
+      return const SizedBox(
+        width: 20,
+        height: 20,
+        child: Icon(Icons.visibility_off_rounded, size: 16, color: _gold),
+      );
+    }
     final level = service.audioLevel.value;
     final color = alarm
         ? _wrong
