@@ -1172,7 +1172,24 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
-  void _openQuranIndexPage({QuranIndexTab initialTab = QuranIndexTab.surahs}) {
+  /// Opens الفهرس from the reader chrome (the bottom menu's الفهرس, or the
+  /// page / surah areas of the top bar): the chrome slides away first, then
+  /// the index opens on [tab] — or, when null, on the last-used tab.
+  Future<void> _openIndexFromChrome([QuranIndexTab? tab]) async {
+    setState(() {
+      _showIndex = false;
+      _showSurahs = false;
+      _isSearching = false;
+    });
+    _updateSystemUI();
+
+    await Future.delayed(const Duration(milliseconds: 260));
+    if (!mounted) return;
+
+    _openQuranIndexPage(initialTab: tab);
+  }
+
+  void _openQuranIndexPage({QuranIndexTab? initialTab}) {
     if (_isAutoScrollEnabled) {
       _setAutoScrollEnabled(false);
     }
@@ -6305,6 +6322,10 @@ class _QuranPagesState extends State<QuranPages>
                         onToggleHideBar: _toggleHideBar,
                         isFullScreenMode: _isFullScreenMode,
                         onToggleFullScreenMode: _toggleFullScreenMode,
+                        onPageAreaPressed: () =>
+                            _openIndexFromChrome(QuranIndexTab.pages),
+                        onSurahAreaPressed: () =>
+                            _openIndexFromChrome(QuranIndexTab.surahs),
                       ),
                     ),
                   ),
@@ -6344,19 +6365,7 @@ class _QuranPagesState extends State<QuranPages>
                       bottomOffset: isRecitationVisible
                           ? _recitationBarHeight
                           : 0,
-                      onToggleSurahs: () async {
-                        setState(() {
-                          _showIndex = false;
-                          _showSurahs = false;
-                          _isSearching = false;
-                        });
-                        _updateSystemUI();
-
-                        await Future.delayed(const Duration(milliseconds: 260));
-                        if (!mounted) return;
-
-                        _openQuranIndexPage();
-                      },
+                      onToggleSurahs: _openIndexFromChrome,
                       onGoToPage: _goToPage,
                       onGoToBookmark: _goToBookmark,
                       onOpenTafsir: () => _showTafsirDialog(_topBarCurrentPage),

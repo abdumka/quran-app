@@ -17,7 +17,11 @@ class QuranIndexPage extends StatefulWidget {
   final int currentSurahNumber;
   final int currentPage;
   final ValueChanged<int> onSelectSurah;
-  final QuranIndexTab initialTab;
+
+  /// The tab to open on. Null reopens the tab the last selection came from
+  /// (surahs the first time); the top bar's page and surah areas ask for a
+  /// specific one.
+  final QuranIndexTab? initialTab;
 
   const QuranIndexPage({
     super.key,
@@ -26,7 +30,7 @@ class QuranIndexPage extends StatefulWidget {
     required this.currentSurahNumber,
     required this.currentPage,
     required this.onSelectSurah,
-    this.initialTab = QuranIndexTab.surahs,
+    this.initialTab,
   });
 
   @override
@@ -107,7 +111,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   @override
   void initState() {
     super.initState();
-    _selectedTab = _lastSelectedTab ?? widget.initialTab;
+    _selectedTab =
+        widget.initialTab ?? _lastSelectedTab ?? QuranIndexTab.surahs;
     if (TvService.instance.isTv) {
       HardwareKeyboard.instance.addHandler(_onTvKey);
       // Once the user leaves the field, shut it out of the focus tree again.
