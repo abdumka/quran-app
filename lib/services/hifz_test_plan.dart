@@ -320,9 +320,9 @@ class HifzTestQuestion {
 
   int get ayahCount => end.ayah - start.ayah + 1;
 
-  /// Words the cue quotes from the end of [before] (a long ayah is not
-  /// quoted whole).
-  static const int cueWords = 7;
+  /// The cue quotes the whole ayah before the start unless it is longer
+  /// than this (about two lines on a phone); then only its end.
+  static const int cueWords = 18;
 
   /// The end of the ayah before the start, as a teacher would say it:
   /// «... وَإِيَّاكَ نَسْتَعِينُ». Empty when the question opens a surah.

@@ -16,9 +16,17 @@ class SpineShadowService {
 
   bool _loaded = false;
 
+  /// The setting is hidden from users for now (the shade is simply on);
+  /// a saved "off" from an earlier build is ignored while this is false.
+  static const bool userSettable = false;
+
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
+    if (!userSettable) {
+      enabled.value = true;
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     enabled.value = prefs.getBool(_prefKey) ?? true;
   }

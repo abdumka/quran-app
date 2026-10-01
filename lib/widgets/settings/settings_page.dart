@@ -1662,10 +1662,13 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 6),
                       // "ظلّ الكعب": tells a right page from a left page in
                       // the normal view. Same title + switch shape as the
-                      // margin tile above it.
+                      // margin tile above it. Hidden for now: the shade is
+                      // simply on (SpineShadowService.userSettable).
+                      if (SpineShadowService.userSettable)
+                      const SizedBox(height: 6),
+                      if (SpineShadowService.userSettable)
                       SettingsCard(
                         child: ValueListenableBuilder<bool>(
                           valueListenable: _spineShadowService.enabled,
