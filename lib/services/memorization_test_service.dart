@@ -244,6 +244,15 @@ class MemorizationTestService {
   bool _silent = false;
   bool get silent => _silent;
 
+  /// Set by a microphone test: when a question ends, the recognizer is kept
+  /// running (parked) instead of being torn down, so the next question
+  /// starts at once instead of loading the model again (1-3 s).
+  bool keepEngineWarm = false;
+
+  /// The engine kept between two questions (see [keepEngineWarm]).
+  RecitationEngine? _parkedEngine;
+  bool get hasWarmEngine => _parkedEngine != null;
+
   /// The page's expected phonemes (kept so the tracker can be rebuilt at a
   /// word the reciter is sent back to).
   PhonemeReference? _reference;
@@ -562,8 +571,19 @@ class MemorizationTestService {
     bool silent = false,
   }) async {
     final token = ++_startToken;
+    // A recognizer parked by the previous question survives the stop and
+    // is reused below; anything else about the old session goes.
+    var parked = _parkedEngine;
+    _parkedEngine = null;
     await stop();
-    if (token != _startToken) return false;
+    if (token != _startToken) {
+      await parked?.stop();
+      return false;
+    }
+    if (parked != null && (engineOverride != null || silent)) {
+      await parked.stop();
+      parked = null;
+    }
     _silent = silent;
     drillResult.value = null;
     status.value = MemorizationTestStatus.preparing;
@@ -594,10 +614,12 @@ class MemorizationTestService {
         debugPrint(
           'MemorizationTestService: no data for page $pageNumber',
         );
+        await parked?.stop();
         status.value = MemorizationTestStatus.failed;
         return false;
       }
       if (!_regionsMatchText(regions, page)) {
+        await parked?.stop();
         status.value = MemorizationTestStatus.failed;
         return false;
       }
@@ -612,6 +634,7 @@ class MemorizationTestService {
       }
       starts.add(expectedWords.length);
       if (expectedWords.isEmpty) {
+        await parked?.stop();
         status.value = MemorizationTestStatus.failed;
         return false;
       }
@@ -623,6 +646,8 @@ class MemorizationTestService {
       // mic/ASR engine. When that can't run (mic denied, model missing) the
       // session does not start; [stubReason] tells the UI why.
       final RecitationEngine engine;
+      // True when the recognizer is already live from the last question.
+      final reused = parked != null;
       if (engineOverride != null) {
         engine = engineOverride;
         usingRealEngine.value = false;
@@ -631,6 +656,10 @@ class MemorizationTestService {
         // A self-test: no microphone, no model, nothing to recognize.
         engine = SilentRecitationEngine();
         usingRealEngine.value = false;
+        stubReason.value = StubReason.none;
+      } else if (parked != null) {
+        engine = parked;
+        usingRealEngine.value = true;
         stubReason.value = StubReason.none;
       } else {
         final real = await _tryBuildRealEngine();
@@ -807,10 +836,10 @@ class MemorizationTestService {
         }
       }
 
-      await engine.start();
+      if (!reused) await engine.start();
       if (token != _startToken) return false;
       status.value = MemorizationTestStatus.listening;
-      _recorder?.log('listening');
+      _recorder?.log('listening', {if (reused) 'engine': 'reused'});
       _lastVoiceOrSegment = DateTime.now();
       _silenceWarned = false;
       _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -1912,7 +1941,8 @@ class MemorizationTestService {
       errors: errors,
     );
     status.value = MemorizationTestStatus.completed;
-    _stopEngineOnly();
+    // In a test the recognizer stays live for the next question.
+    _stopEngineOnly(park: keepEngineWarm && !_silent && usingRealEngine.value);
     return true;
   }
 
@@ -2375,7 +2405,10 @@ class MemorizationTestService {
     }
   }
 
-  Future<void> _stopEngineOnly() async {
+  /// Detaches the session from its engine. With [park] the engine keeps
+  /// running (microphone open, model loaded) for the next [start] to pick
+  /// up; otherwise it is stopped.
+  Future<void> _stopEngineOnly({bool park = false}) async {
     _silenceTimer?.cancel();
     _silenceTimer = null;
     _trackerTimer?.cancel();
@@ -2393,7 +2426,12 @@ class MemorizationTestService {
       if (_decodeListener != null) {
         engine.lastDecodeMs.removeListener(_decodeListener!);
       }
-      await engine.stop();
+      if (park) {
+        await _parkedEngine?.stop();
+        _parkedEngine = engine;
+      } else {
+        await engine.stop();
+      }
     }
     _levelListener = null;
     _busyListener = null;
@@ -2422,6 +2460,11 @@ class MemorizationTestService {
       });
     }
     await _stopEngineOnly();
+    // A parked recognizer dies with the session (a new start() takes it
+    // out of here before calling stop()).
+    final parked = _parkedEngine;
+    _parkedEngine = null;
+    await parked?.stop();
     _feedbackTimer?.cancel();
     _feedbackTimer = null;
     feedback.value = null;

@@ -124,9 +124,17 @@ class TasmeeReport {
 class TasmeeReportStore {
   static const int _keep = 300;
 
+  /// Tests only: where the reports go instead of the app's support
+  /// directory (which has no platform channel under `flutter test`).
+  @visibleForTesting
+  static Directory? directoryOverride;
+
   static Future<Directory> _dir() async {
-    final base = await getApplicationSupportDirectory();
-    final dir = Directory('${base.path}${Platform.pathSeparator}tasmee_reports');
+    final dir = directoryOverride ??
+        Directory(
+          '${(await getApplicationSupportDirectory()).path}'
+          '${Platform.pathSeparator}tasmee_reports',
+        );
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
   }
@@ -135,10 +143,13 @@ class TasmeeReportStore {
     try {
       final dir = await _dir();
       final stamp = report.at.toIso8601String().replaceAll(':', '-').split('.').first;
-      File('${dir.path}${Platform.pathSeparator}report_${stamp}_p${report.page}.json')
-          .writeAsStringSync(json.encode(report.toJson()));
-      final files = dir.listSync().whereType<File>().toList()
-        ..sort((a, b) => b.path.compareTo(a.path));
+      final path =
+          '${dir.path}${Platform.pathSeparator}report_${stamp}_p${report.page}.json';
+      // Written beside and renamed into place, so a process killed mid-write
+      // (an install over the running app, a crash) leaves no empty report.
+      final tmp = File('$path.tmp')..writeAsStringSync(json.encode(report.toJson()));
+      tmp.renameSync(path);
+      final files = _reportFiles(dir);
       for (final f in files.skip(_keep)) {
         f.deleteSync();
       }
@@ -147,17 +158,30 @@ class TasmeeReportStore {
     }
   }
 
+  static List<File> _reportFiles(Directory dir) =>
+      dir.listSync().whereType<File>().where((f) => f.path.endsWith('.json')).toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+
+  /// Every readable report, newest first. A report that cannot be read
+  /// (an empty file from an interrupted write) is dropped, and an empty
+  /// one deleted, instead of hiding all the others.
   static Future<List<TasmeeReport>> loadAll() async {
     try {
       final dir = await _dir();
-      final files = dir.listSync().whereType<File>().toList()
-        ..sort((a, b) => b.path.compareTo(a.path));
-      return [
-        for (final f in files)
-          TasmeeReport.fromJson(
-            json.decode(f.readAsStringSync()) as Map<String, dynamic>,
-          ),
-      ];
+      final out = <TasmeeReport>[];
+      for (final f in _reportFiles(dir)) {
+        try {
+          final raw = f.readAsStringSync();
+          if (raw.trim().isEmpty) {
+            f.deleteSync();
+            continue;
+          }
+          out.add(TasmeeReport.fromJson(json.decode(raw) as Map<String, dynamic>));
+        } catch (e) {
+          debugPrint('TasmeeReportStore: skipping ${f.path}: $e');
+        }
+      }
+      return out;
     } catch (e) {
       debugPrint('TasmeeReportStore: load failed: $e');
       return const [];

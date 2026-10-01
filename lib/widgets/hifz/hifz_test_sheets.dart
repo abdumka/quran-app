@@ -131,30 +131,26 @@ class _SetupSheetState extends State<_SetupSheet> {
     });
   }
 
+  TextStyle _titleStyle(HifzPalette p) =>
+      TextStyle(color: p.title, fontSize: 13.5, fontWeight: FontWeight.w700);
+
+  TextStyle _noteStyle(HifzPalette p) =>
+      TextStyle(color: p.sub, fontSize: 11.5, height: 1.4);
+
   Widget _section(HifzPalette p, String title, Widget child, {String? note}) =>
       Padding(
-        padding: const EdgeInsets.only(top: 14),
+        padding: const EdgeInsets.only(top: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: p.title,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            Text(title, style: _titleStyle(p)),
+            const SizedBox(height: 5),
+            child,
             if (note != null)
               Padding(
-                padding: const EdgeInsets.only(top: 2, bottom: 2),
-                child: Text(
-                  note,
-                  style: TextStyle(color: p.sub, fontSize: 11.5, height: 1.4),
-                ),
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(note, style: _noteStyle(p)),
               ),
-            const SizedBox(height: 6),
-            child,
           ],
         ),
       );
@@ -170,7 +166,8 @@ class _SetupSheetState extends State<_SetupSheet> {
         label: Text(label),
         selected: selected,
         showCheckmark: false,
-        visualDensity: const VisualDensity(horizontal: -1, vertical: -1),
+        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         selectedColor: p.title,
         backgroundColor: p.raised,
         disabledColor: p.raised.withValues(alpha: 0.5),
@@ -216,7 +213,7 @@ class _SetupSheetState extends State<_SetupSheet> {
     required ValueChanged<T?> onChanged,
   }) =>
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: p.raised,
           borderRadius: BorderRadius.circular(10),
@@ -229,49 +226,31 @@ class _SetupSheetState extends State<_SetupSheet> {
           dropdownColor: p.raised,
           underline: const SizedBox.shrink(),
           iconEnabledColor: p.title,
-          style: TextStyle(color: p.text, fontSize: 13.5),
+          style: TextStyle(color: p.text, fontSize: 13),
           items: items,
           onChanged: onChanged,
         ),
       );
 
-  /// A field with its name beside it («الحزب», «الثمن», «السورة»).
-  Widget _named(HifzPalette p, String name, Widget field) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 52,
-              child: Text(name, style: TextStyle(color: p.sub, fontSize: 12.5)),
-            ),
-            Expanded(child: field),
-          ],
-        ),
+  /// A field with its name beside it («من», «إلى», «الحزب», «الثمن»).
+  Widget _named(HifzPalette p, String name, Widget field, {double width = 30}) =>
+      Row(
+        children: [
+          SizedBox(
+            width: width,
+            child: Text(name, style: TextStyle(color: p.sub, fontSize: 12.5)),
+          ),
+          Expanded(child: field),
+        ],
       );
 
-  /// One bound of the range («من» or «إلى») with its fields under it.
-  Widget _bound(HifzPalette p, String title, List<Widget> fields) => Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: p.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: p.title,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            ...fields,
-          ],
-        ),
+  /// «من … إلى …» on one line.
+  Widget _fromTo(HifzPalette p, Widget from, Widget to) => Row(
+        children: [
+          Expanded(child: _named(p, 'من', from)),
+          const SizedBox(width: 10),
+          Expanded(child: _named(p, 'إلى', to)),
+        ],
       );
 
   List<DropdownMenuItem<int>> _surahItems({int min = 1}) => [
@@ -279,7 +258,11 @@ class _SetupSheetState extends State<_SetupSheet> {
           if ((s['number'] as int) >= min)
             DropdownMenuItem(
               value: s['number'] as int,
-              child: Text('${s['number']}. ${s['name']}'),
+              child: Text(
+                '${s['number']}. ${s['name']}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
       ];
 
@@ -309,10 +292,11 @@ class _SetupSheetState extends State<_SetupSheet> {
           ),
       ];
 
-  /// The fields of a thumn bound: its hizb, then its place inside the hizb.
-  /// [notBefore] keeps the «إلى» bound at or after the «من» one.
-  List<Widget> _thumnFields(
+  /// One bound of an athman range as a column: its heading, then the hizb
+  /// and the thumn inside it. [notBefore] keeps «إلى» at or after «من».
+  Widget _thumnColumn(
     HifzPalette p,
+    String title,
     int thumn,
     ValueChanged<int> onPick, {
     int notBefore = 1,
@@ -321,33 +305,83 @@ class _SetupSheetState extends State<_SetupSheet> {
     final k = HifzRange.thumnInHizb(thumn);
     final minHizb = HifzRange.hizbOfThumn(notBefore);
     final minK = h == minHizb ? HifzRange.thumnInHizb(notBefore) : 1;
-    return [
-      _named(
-        p,
-        'الحزب',
-        _dropdown<int>(
-          p: p,
-          value: h,
-          items: _hizbItems(min: minHizb),
-          onChanged: (v) {
-            if (v != null) onPick(HifzRange.thumnNumber(v, k));
-          },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: _titleStyle(p)),
+        const SizedBox(height: 4),
+        _named(
+          p,
+          'الحزب',
+          _dropdown<int>(
+            p: p,
+            value: h,
+            items: _hizbItems(min: minHizb),
+            onChanged: (v) {
+              if (v != null) onPick(HifzRange.thumnNumber(v, k));
+            },
+          ),
+          width: 40,
         ),
-      ),
-      _named(
-        p,
-        'الثمن',
-        _dropdown<int>(
-          p: p,
-          value: k.clamp(minK, HifzRange.athmanPerHizb),
-          items: _thumnItems(h, min: minK),
-          onChanged: (v) {
-            if (v != null) onPick(HifzRange.thumnNumber(h, v));
-          },
+        const SizedBox(height: 6),
+        _named(
+          p,
+          'الثمن',
+          _dropdown<int>(
+            p: p,
+            value: k.clamp(minK, HifzRange.athmanPerHizb),
+            items: _thumnItems(h, min: minK),
+            onChanged: (v) {
+              if (v != null) onPick(HifzRange.thumnNumber(h, v));
+            },
+          ),
+          width: 40,
         ),
-      ),
-    ];
+      ],
+    );
   }
+
+  Widget _pageField(
+    HifzPalette p,
+    TextEditingController c,
+    void Function(int) onValue,
+  ) =>
+      TextField(
+        controller: c,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(3),
+        ],
+        textAlign: TextAlign.center,
+        style: TextStyle(color: p.text, fontSize: 14),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: p.raised,
+          hintText: '1 – 602',
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: p.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: p.border),
+          ),
+        ),
+        // Bounds are put in order when the field is left, so typing "12"
+        // as the start while the end still says "3" is allowed.
+        onEditingComplete: () {
+          final v = int.tryParse(c.text);
+          if (v != null) onValue(v.clamp(1, 602));
+          FocusScope.of(context).unfocus();
+        },
+        onTapOutside: (_) {
+          final v = int.tryParse(c.text);
+          if (v != null) onValue(v.clamp(1, 602));
+        },
+      );
 
   Widget _rangeDetail(HifzPalette p) {
     final r = _range;
@@ -357,80 +391,58 @@ class _SetupSheetState extends State<_SetupSheet> {
       case HifzRangeKind.surahs:
         final from = r.from.clamp(1, 114);
         final to = r.to.clamp(from, 114);
-        return Column(
-          children: [
-            _bound(p, 'من', [
-              _named(
-                p,
-                'السورة',
-                _dropdown<int>(
-                  p: p,
-                  value: from,
-                  items: _surahItems(),
-                  onChanged: (v) => _setRange(HifzRangeKind.surahs, from: v),
-                ),
-              ),
-            ]),
-            _bound(p, 'إلى', [
-              _named(
-                p,
-                'السورة',
-                _dropdown<int>(
-                  p: p,
-                  value: to,
-                  items: _surahItems(min: from),
-                  onChanged: (v) => _setRange(HifzRangeKind.surahs, to: v),
-                ),
-              ),
-            ]),
-          ],
+        return _fromTo(
+          p,
+          _dropdown<int>(
+            p: p,
+            value: from,
+            items: _surahItems(),
+            onChanged: (v) => _setRange(HifzRangeKind.surahs, from: v),
+          ),
+          _dropdown<int>(
+            p: p,
+            value: to,
+            items: _surahItems(min: from),
+            onChanged: (v) => _setRange(HifzRangeKind.surahs, to: v),
+          ),
         );
       case HifzRangeKind.hizbs:
         final from = r.from.clamp(1, 60);
         final to = r.to.clamp(from, 60);
-        return Column(
-          children: [
-            _bound(p, 'من', [
-              _named(
-                p,
-                'الحزب',
-                _dropdown<int>(
-                  p: p,
-                  value: from,
-                  items: _hizbItems(),
-                  onChanged: (v) => _setRange(HifzRangeKind.hizbs, from: v),
-                ),
-              ),
-            ]),
-            _bound(p, 'إلى', [
-              _named(
-                p,
-                'الحزب',
-                _dropdown<int>(
-                  p: p,
-                  value: to,
-                  items: _hizbItems(min: from),
-                  onChanged: (v) => _setRange(HifzRangeKind.hizbs, to: v),
-                ),
-              ),
-            ]),
-          ],
+        return _fromTo(
+          p,
+          _dropdown<int>(
+            p: p,
+            value: from,
+            items: _hizbItems(),
+            onChanged: (v) => _setRange(HifzRangeKind.hizbs, from: v),
+          ),
+          _dropdown<int>(
+            p: p,
+            value: to,
+            items: _hizbItems(min: from),
+            onChanged: (v) => _setRange(HifzRangeKind.hizbs, to: v),
+          ),
         );
       case HifzRangeKind.athman:
         final from = r.from.clamp(1, 480);
         final to = r.to.clamp(from, 480);
-        return Column(
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _bound(
-              p,
-              'من',
-              _thumnFields(p, from, (v) => _setRange(HifzRangeKind.athman, from: v)),
-            ),
-            _bound(
-              p,
-              'إلى',
-              _thumnFields(
+            Expanded(
+              child: _thumnColumn(
                 p,
+                'من',
+                from,
+                (v) => _setRange(HifzRangeKind.athman, from: v),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _thumnColumn(
+                p,
+                'إلى',
                 to,
                 (v) => _setRange(HifzRangeKind.athman, to: v),
                 notBefore: from,
@@ -439,60 +451,10 @@ class _SetupSheetState extends State<_SetupSheet> {
           ],
         );
       case HifzRangeKind.pages:
-        Widget field(TextEditingController c, void Function(int) onValue) =>
-            TextField(
-              controller: c,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(3),
-              ],
-              textAlign: TextAlign.center,
-              style: TextStyle(color: p.text, fontSize: 14),
-              decoration: InputDecoration(
-                isDense: true,
-                filled: true,
-                fillColor: p.raised,
-                hintText: '1 – 602',
-                contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: p.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: p.border),
-                ),
-              ),
-              // Bounds are put in order when the field is left, so typing
-              // "12" as the start while the end still says "3" is allowed.
-              onEditingComplete: () {
-                final v = int.tryParse(c.text);
-                if (v != null) onValue(v.clamp(1, 602));
-                FocusScope.of(context).unfocus();
-              },
-              onTapOutside: (_) {
-                final v = int.tryParse(c.text);
-                if (v != null) onValue(v.clamp(1, 602));
-              },
-            );
-        return Column(
-          children: [
-            _bound(p, 'من', [
-              _named(
-                p,
-                'الصفحة',
-                field(_pageFrom, (v) => _setRange(HifzRangeKind.pages, from: v)),
-              ),
-            ]),
-            _bound(p, 'إلى', [
-              _named(
-                p,
-                'الصفحة',
-                field(_pageTo, (v) => _setRange(HifzRangeKind.pages, to: v)),
-              ),
-            ]),
-          ],
+        return _fromTo(
+          p,
+          _pageField(p, _pageFrom, (v) => _setRange(HifzRangeKind.pages, from: v)),
+          _pageField(p, _pageTo, (v) => _setRange(HifzRangeKind.pages, to: v)),
         );
     }
   }
@@ -508,10 +470,40 @@ class _SetupSheetState extends State<_SetupSheet> {
     return _range.normalized();
   }
 
+  /// A stepper with its name on the same line.
+  Widget _counter(
+    HifzPalette p,
+    String title,
+    Widget stepper, {
+    String? note,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(title, style: _titleStyle(p))),
+                stepper,
+              ],
+            ),
+            if (note != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(note, style: _noteStyle(p)),
+              ),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final p = HifzPalette.of(context);
     final noMistakes = widget.mistakesInPool == 0;
+    final rangeTitle = _range.kind == HifzRangeKind.all
+        ? 'النطاق'
+        : 'النطاق: ${_range.normalized().label}';
     return SafeArea(
       child: Directionality(
         textDirection: TextDirection.rtl,
@@ -519,119 +511,127 @@ class _SetupSheetState extends State<_SetupSheet> {
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(context).size.height * 0.92,
           ),
-          child: SingleChildScrollView(
+          child: Padding(
             padding: EdgeInsets.fromLTRB(
               18,
-              14,
+              12,
               18,
-              12 + MediaQuery.viewInsetsOf(context).bottom,
+              10 + MediaQuery.viewInsetsOf(context).bottom,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  widget.silentMode ? 'اختبار ذاتي' : 'اختبار الحفظ',
-                  style: TextStyle(
-                    color: p.title,
-                    fontSize: 19,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Tajawal',
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.silentMode
-                      ? 'تُخفى آيات الصفحة، ويظهر لك موضع البداية. اقرأ في نفسك، '
-                          'واكشف كلمةً أو آيةً للتحقق، ثم احكم على نفسك في كل سؤال.'
-                      : 'ينقلك كل سؤال إلى موضع في المصحف تقرأ منه من حفظك عبر الميكروفون.',
-                  style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.45),
-                ),
-                _section(
-                  p,
-                  'مصدر الأسئلة',
-                  _chips<HifzTestSource>(
-                    p,
-                    HifzTestSource.values,
-                    _config.source,
-                    _sourceLabel,
-                    (s) => setState(() => _config = _config.copyWith(source: s)),
-                    enabled: (s) => !noMistakes || s == HifzTestSource.random,
-                  ),
-                  note: noMistakes
-                      ? 'لم تُسجَّل أخطاء بعد؛ سمِّع أولًا لتُختبر فيها.'
-                      : 'أخطاؤك المسجّلة: ${widget.mistakesInPool} موضعًا.',
-                ),
-                _section(
-                  p,
-                  'النطاق',
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _chips<HifzRangeKind>(
-                        p,
-                        HifzRangeKind.values,
-                        _range.kind,
-                        _kindLabel,
-                        (kind) => _setRange(kind),
-                      ),
-                      if (_range.kind != HifzRangeKind.all) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8, bottom: 6),
-                          child: Text(
-                            _range.normalized().label,
-                            style: TextStyle(
-                              color: p.text,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                // The choices scroll if they must; «ابدأ» never leaves
+                // the screen.
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.silentMode ? 'اختبار ذاتي' : 'اختبار الحفظ',
+                          style: TextStyle(
+                            color: p.title,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Tajawal',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.silentMode
+                              ? 'الآيات مخفية: اقرأ في نفسك، واكشف كلمةً أو آية، ثم احكم على نفسك.'
+                              : 'كل سؤال موضع في المصحف تقرأ منه من حفظك عبر الميكروفون.',
+                          style: _noteStyle(p),
+                        ),
+                        _section(
+                          p,
+                          'مصدر الأسئلة',
+                          _chips<HifzTestSource>(
+                            p,
+                            HifzTestSource.values,
+                            _config.source,
+                            _sourceLabel,
+                            (s) => setState(
+                              () => _config = _config.copyWith(source: s),
+                            ),
+                            enabled: (s) =>
+                                !noMistakes || s == HifzTestSource.random,
+                          ),
+                          note: noMistakes
+                              ? 'لم تُسجَّل أخطاء بعد؛ سمِّع أولًا لتُختبر فيها.'
+                              : 'أخطاؤك المسجّلة: ${widget.mistakesInPool} موضعًا.',
+                        ),
+                        _section(
+                          p,
+                          rangeTitle,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _chips<HifzRangeKind>(
+                                p,
+                                HifzRangeKind.values,
+                                _range.kind,
+                                _kindLabel,
+                                (kind) => _setRange(kind),
+                              ),
+                              if (_range.kind != HifzRangeKind.all)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: _rangeDetail(p),
+                                ),
+                            ],
+                          ),
+                        ),
+                        _counter(
+                          p,
+                          'عدد الأسئلة',
+                          _Stepper(
+                            value: _config.questions
+                                .clamp(1, HifzTestConfig.maxQuestions),
+                            min: 1,
+                            max: HifzTestConfig.maxQuestions,
+                            label: (v) => switch (v) {
+                              1 => 'سؤال واحد',
+                              2 => 'سؤالان',
+                              <= 10 => '$v أسئلة',
+                              _ => '$v سؤالًا',
+                            },
+                            onChanged: (v) => setState(
+                              () => _config = _config.copyWith(questions: v),
                             ),
                           ),
                         ),
-                        _rangeDetail(p),
+                        _counter(
+                          p,
+                          'آيات كل سؤال',
+                          _Stepper(
+                            value: _config.ayahsPerQuestion
+                                .clamp(1, HifzTestConfig.maxAyahsPerQuestion),
+                            min: 1,
+                            max: HifzTestConfig.maxAyahsPerQuestion,
+                            label: (v) => switch (v) {
+                              1 => 'آية واحدة',
+                              2 => 'آيتان',
+                              <= 10 => '$v آيات',
+                              _ => '$v آية',
+                            },
+                            onChanged: (v) => setState(
+                              () => _config =
+                                  _config.copyWith(ayahsPerQuestion: v),
+                            ),
+                          ),
+                          note: widget.silentMode
+                              ? 'السؤال لا يتجاوز نهاية الصفحة التي يبدأ فيها.'
+                              : 'السؤال لا يتجاوز نهاية السورة.',
+                        ),
                       ],
-                    ],
-                  ),
-                ),
-                _section(
-                  p,
-                  'عدد الأسئلة',
-                  _Stepper(
-                    value: _config.questions.clamp(1, HifzTestConfig.maxQuestions),
-                    min: 1,
-                    max: HifzTestConfig.maxQuestions,
-                    label: (v) => switch (v) {
-                      1 => 'سؤال واحد',
-                      2 => 'سؤالان',
-                      <= 10 => '$v أسئلة',
-                      _ => '$v سؤالًا',
-                    },
-                    onChanged: (v) =>
-                        setState(() => _config = _config.copyWith(questions: v)),
-                  ),
-                ),
-                _section(
-                  p,
-                  'آيات كل سؤال',
-                  _Stepper(
-                    value: _config.ayahsPerQuestion
-                        .clamp(1, HifzTestConfig.maxAyahsPerQuestion),
-                    min: 1,
-                    max: HifzTestConfig.maxAyahsPerQuestion,
-                    label: (v) => switch (v) {
-                      1 => 'آية واحدة',
-                      2 => 'آيتان',
-                      <= 10 => '$v آيات',
-                      _ => '$v آية',
-                    },
-                    onChanged: (v) => setState(
-                      () => _config = _config.copyWith(ayahsPerQuestion: v),
                     ),
                   ),
-                  note: widget.silentMode
-                      ? 'السؤال لا يتجاوز نهاية الصفحة التي يبدأ فيها.'
-                      : 'السؤال لا يتجاوز نهاية السورة.',
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
@@ -672,6 +672,7 @@ class _SetupSheetState extends State<_SetupSheet> {
     );
   }
 }
+
 
 /// A number with − and + beside it: tap to step, hold to run.
 class _Stepper extends StatefulWidget {

@@ -1,0 +1,31 @@
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// User preference: how الفهرس lays out السور — the grid of name chips
+/// (default) or a list with one surah per line (مكية/مدنية, ayah count, page).
+class SurahIndexViewService {
+  SurahIndexViewService._();
+  static final SurahIndexViewService instance = SurahIndexViewService._();
+
+  static const String _prefKey = 'surahIndexGridView';
+
+  /// True for the grid. Loaded with the other prefs at startup so the index
+  /// opens straight in the saved layout.
+  final ValueNotifier<bool> grid = ValueNotifier<bool>(true);
+
+  bool _loaded = false;
+
+  Future<void> load() async {
+    if (_loaded) return;
+    _loaded = true;
+    final prefs = await SharedPreferences.getInstance();
+    grid.value = prefs.getBool(_prefKey) ?? true;
+  }
+
+  Future<void> setGrid(bool value) async {
+    if (grid.value == value) return;
+    grid.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefKey, value);
+  }
+}

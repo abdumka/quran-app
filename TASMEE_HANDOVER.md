@@ -197,6 +197,29 @@ dropdowns («3. إن الله لا يستحيي…»), page fields; last choice 
   hizb (× 602/60) and per juz, errors and per page, stops / repairs, top error kinds; tests count,
   overall and last-5 score, list of the last 15.
 
+- **Warm engine between questions** (2026-09-30 evening): `MemorizationTestService.keepEngineWarm`
+  (set by `_startHifzTest` for the microphone test, cleared in `_onTasmeeModeEnded` and on a hand page
+  turn). `_endDrill` then parks the live engine (`_stopEngineOnly(park: true)` -> `_parkedEngine`,
+  mic stays open, subscriptions cancelled) and the next `start()` reuses it (`reused`, no
+  `engine.start()`, log `listening {engine: reused}`); `stop()` kills a parked engine, `start()` lifts
+  it out before calling `stop()`. `_runNextTasmeeDrill` skips the loading notice when
+  `hasWarmEngine`. Injected/silent engines never park. Setup sheet: Start row pinned under a
+  Flexible scroll, from/to on one line (athman: two columns), stepper beside its title.
+
+- **Validated on the Pixel 7 emulator (2026-09-30 night, debug x64 build):** tools menu, gear sheet,
+  setup sheet (surahs / hizbs / athman layouts fit one screen, steppers, إلى ≥ من), self-test loop
+  (masks, silent bar, per-ayah judgement, page flips between questions, summary), cue card only for a
+  question starting at index 0 of a page (al-Fatiha run: 1 of 7), spine shade above the masks
+  (edge brightness 141 → 243 over 125 px inside a mask), microphone test with the real engine (4
+  questions, ONE recorder session from first start to final summary = warm engine reused; next
+  question live 0.4 s after «السؤال التالي»), statistics page with real data, back from every
+  sub-sheet lands on the menu. `test/hifz_test_sheets_test.dart` (9 widget tests) and
+  `test/tasmee_report_store_test.dart` cover the sheets and the hardened report loader.
+- **Report store hardening:** `TasmeeReportStore.save` writes `.tmp` then renames; `loadAll` skips an
+  unreadable report and deletes an empty one (two 0-byte reports from an install over the running app
+  had been hiding ALL reports from the stats and reports pages). `directoryOverride` for tests.
+- Ending a test from the bar's «إنهاء» now shows the test summary (not the page-report summary).
+
 ### تقوية الحفظ (drills) — HIDDEN
 `kTasmeeDrillsEnabled = false` in `lib/widgets/hifz/hifz_tools_sheet.dart`. Weak points are still
 collected (`tasmee_weak_point_store.dart`, capped 2,000). Do not re-enable without an opening

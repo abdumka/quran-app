@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'quran_constants.dart';
+import 'services/surah_index_view_service.dart';
 import 'services/tv_service.dart';
 import 'thumn_data.dart';
 import 'utils/responsive_helper.dart';
@@ -68,6 +69,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   // scrolled to where the user is (no visible jump).
   ScrollController? _pagesScrollController;
   ScrollController? _surahsScrollController;
+  ScrollController? _surahsListScrollController;
   ScrollController? _hizbScrollController;
   final GlobalKey _currentHizbKey = GlobalKey();
   bool _hizbEnsuredVisible = false;
@@ -111,6 +113,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   @override
   void initState() {
     super.initState();
+    SurahIndexViewService.instance.grid.addListener(_onSurahLayoutChanged);
     _selectedTab =
         widget.initialTab ?? _lastSelectedTab ?? QuranIndexTab.surahs;
     if (TvService.instance.isTv) {
@@ -125,8 +128,13 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     setState(() => _hizbSearchActive = false);
   }
 
+  void _onSurahLayoutChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    SurahIndexViewService.instance.grid.removeListener(_onSurahLayoutChanged);
     if (TvService.instance.isTv) {
       HardwareKeyboard.instance.removeHandler(_onTvKey);
       _hizbSearchFocus.removeListener(_onHizbSearchFocusChanged);
@@ -136,6 +144,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     _hizbSearchFocus.dispose();
     _pagesScrollController?.dispose();
     _surahsScrollController?.dispose();
+    _surahsListScrollController?.dispose();
     _hizbScrollController?.dispose();
     super.dispose();
   }
@@ -465,7 +474,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
     // الأجزاء and السجدات fit on one screen and never scroll.
     final ScrollController? c = switch (_selectedTab) {
-      QuranIndexTab.surahs => _surahsScrollController,
+      QuranIndexTab.surahs =>
+        _surahGrid ? _surahsScrollController : _surahsListScrollController,
       QuranIndexTab.pages => _pagesScrollController,
       _ => null,
     };
@@ -861,53 +871,95 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
+  bool get _surahGrid => SurahIndexViewService.instance.grid.value;
+
+  /// The السور layout switch: a small grid symbol, lit (gold) while the grid
+  /// is on, dimmed when the one-per-line list is showing. No text — the
+  /// symbol itself says what it does.
+  Widget _buildSurahLayoutToggle() {
+    final grid = _surahGrid;
+    return Semantics(
+      button: true,
+      toggled: grid,
+      label: 'عرض السور شبكة',
+      child: InkResponse(
+        onTap: () => SurahIndexViewService.instance.setGrid(!grid),
+        radius: 24,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(
+            Icons.apps_rounded,
+            size: 26,
+            color: grid
+                ? const Color(0xFF8D6E3F)
+                : const Color(0xFF8D6E3F).withValues(alpha: 0.32),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSearchField() {
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 0, 12, isLandscape ? 8 : 10),
-      child: TextField(
-        controller: _searchController,
-        onChanged: (_) => setState(() {}),
-        textAlign: TextAlign.right,
-        decoration: InputDecoration(
-          hintText: 'ابحث عن سورة',
-          prefixIcon: const Icon(Icons.search_rounded),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() {});
-                  },
-                  icon: const Icon(Icons.close_rounded),
-                )
-              : IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back_rounded),
-                ),
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.96),
-          contentPadding: EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: isLandscape ? 10 : 12,
+      child: Row(
+        children: [
+          Expanded(child: _buildSurahSearchTextField(isLandscape)),
+          // The remote can't reach this, so TV keeps whichever layout is set.
+          if (!TvService.instance.isTv) ...[
+            const SizedBox(width: 6),
+            _buildSurahLayoutToggle(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSurahSearchTextField(bool isLandscape) {
+    return TextField(
+      controller: _searchController,
+      onChanged: (_) => setState(() {}),
+      textAlign: TextAlign.right,
+      decoration: InputDecoration(
+        hintText: 'ابحث عن سورة',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() {});
+                },
+                icon: const Icon(Icons.close_rounded),
+              )
+            : IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.96),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: isLandscape ? 10 : 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(
-              color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
-            ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(
-              color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xFF8D6E3F), width: 1.2),
-          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF8D6E3F), width: 1.2),
         ),
       ),
     );
@@ -971,6 +1023,180 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// "7 آيات" for 3-10, "285 آية" otherwise.
+  static String _ayahCountLabel(int n) =>
+      (n >= 3 && n <= 10) ? '$n آيات' : '$n آية';
+
+  static const TextStyle _surahDetailStyle = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    color: Color(0xFF8A7757),
+    // Equal-width digits, so 7 and 285 take predictable room.
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  ({double type, double ayahs, double page})? _detailWidths;
+  TextScaler? _detailWidthsScaler;
+
+  /// Width of each details column: its widest entry across all surahs, at
+  /// the current text scale. Measured once per scale.
+  ({double type, double ayahs, double page}) _surahDetailWidths(
+    TextScaler scaler,
+  ) {
+    final cached = _detailWidths;
+    if (cached != null && _detailWidthsScaler == scaler) return cached;
+    double widest(Iterable<String> texts) {
+      var max = 0.0;
+      for (final t in texts.toSet()) {
+        final painter = TextPainter(
+          text: TextSpan(text: t, style: _surahDetailStyle),
+          textDirection: TextDirection.rtl,
+          textScaler: scaler,
+          maxLines: 1,
+        )..layout();
+        if (painter.width > max) max = painter.width;
+        painter.dispose();
+      }
+      return max.ceilToDouble() + 2;
+    }
+
+    final surahs = widget.surahs;
+    final widths = (
+      type: widest(surahs.map((s) => (s['type'] ?? '').toString())),
+      ayahs: widest(
+        surahs.map((s) {
+          final n = (s['ayahs'] as num?)?.toInt();
+          return n == null ? '' : _ayahCountLabel(n);
+        }),
+      ),
+      page: widest(surahs.map((s) => 'صفحة ${s['page']}')),
+    );
+    _detailWidths = widths;
+    _detailWidthsScaler = scaler;
+    return widths;
+  }
+
+  Widget _surahDetailCell(String text, double width) => SizedBox(
+    width: width,
+    child: Text(
+      text,
+      maxLines: 1,
+      // Start-aligned: the labels (صفحة, آية) line up like a table column.
+      textAlign: TextAlign.start,
+      style: _surahDetailStyle,
+    ),
+  );
+
+  Widget _surahDetailDot() => const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 5),
+    child: Text('•', style: _surahDetailStyle),
+  );
+
+  /// One surah per line: number, name, then مكية/مدنية • ayah count • page.
+  Widget _buildSurahRow(Map<String, dynamic> surah, int index) {
+    final number = surah['number'] as int;
+    final name = (surah['name'] ?? '').toString();
+    final page = surah['page'] as int;
+    final type = (surah['type'] ?? '').toString();
+    final ayahs = (surah['ayahs'] as num?)?.toInt();
+    final isCurrent = number == widget.currentSurahNumber;
+    final bool tvFocused =
+        TvService.instance.isTv && !_tvOnTabs && index == _tvIndex;
+    final widths = _surahDetailWidths(MediaQuery.textScalerOf(context));
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          widget.onSelectSurah(number);
+          _goToPageAndClose(
+            page,
+            yOffsetRatio: (surah['yOffsetRatio'] as num?)?.toDouble() ?? 0.0,
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: tvFocused
+                ? const Color(0xFFD2B97E)
+                : (isCurrent ? const Color(0xFFE7D7AF) : Colors.white),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: tvFocused
+                  ? const Color(0xFF5A4520)
+                  : (isCurrent
+                        ? const Color(0xFF8D6E3F)
+                        : const Color(0xFF8D6E3F).withValues(alpha: 0.10)),
+              width: tvFocused ? 3 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+                ),
+                child: Text(
+                  '$number',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF6A5330),
+                    height: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Name and details split the rest of the line, the details
+              // flush to its end. On a narrow screen (or a large system font)
+              // they shrink a little rather than lose the page number.
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2F2418),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerEnd,
+                  // Three fixed-width columns, so مكية/مدنية, the ayah
+                  // count and the page line up down the whole list.
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _surahDetailCell(type, widths.type),
+                      _surahDetailDot(),
+                      _surahDetailCell(
+                        ayahs == null ? '' : _ayahCountLabel(ayahs),
+                        widths.ayahs,
+                      ),
+                      _surahDetailDot(),
+                      _surahDetailCell('صفحة $page', widths.page),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1140,49 +1366,66 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       );
     }
 
-    final crossAxisCount = _crossAxisCount();
-    final aspectRatio = _surahAspectRatio();
+    final grid = _surahGrid;
+    final currentIndex = surahs.indexWhere(
+      (s) => (s['number'] as int?) == widget.currentSurahNumber,
+    );
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        _surahsScrollController ??= ScrollController(
+        // The list is the same grid with one column of fixed-height rows,
+        // so the scroll seeding and the remote's stepping below work from
+        // the same numbers in both layouts.
+        final crossAxisCount = grid ? _crossAxisCount() : 1;
+        final double spacing = grid ? 10 : 8;
+        final aspectRatio = grid
+            ? _surahAspectRatio()
+            : (constraints.maxWidth - 24) / (isLandscape ? 48 : 56);
+        ScrollController seeded() => ScrollController(
           initialScrollOffset: _gridScrollOffset(
             maxWidth: constraints.maxWidth,
             maxHeight: constraints.maxHeight,
             crossAxisCount: crossAxisCount,
             childAspectRatio: aspectRatio,
-            spacing: 10,
+            spacing: spacing,
             topPadding: 0,
             horizontalPadding: 12,
-            targetIndex: surahs.indexWhere(
-              (s) => (s['number'] as int?) == widget.currentSurahNumber,
-            ),
+            targetIndex: currentIndex,
           ),
         );
+        // One controller per layout, each seeded from its own geometry, so
+        // switching opens the new layout at the current surah too.
+        final controller = grid
+            ? (_surahsScrollController ??= seeded())
+            : (_surahsListScrollController ??= seeded());
         _publishTvGrid(
           crossAxisCount,
           _tileStride(
             maxWidth: constraints.maxWidth,
             crossAxisCount: crossAxisCount,
             childAspectRatio: aspectRatio,
-            spacing: 10,
+            spacing: spacing,
             horizontalPadding: 12,
           ),
         );
         return Directionality(
           textDirection: TextDirection.rtl,
           child: GridView.builder(
-            controller: _surahsScrollController,
+            key: ValueKey(grid),
+            controller: controller,
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: crossAxisCount,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
+              mainAxisSpacing: spacing,
+              crossAxisSpacing: spacing,
               childAspectRatio: aspectRatio,
             ),
             itemCount: surahs.length,
-            itemBuilder: (context, index) =>
-                _buildSurahChip(surahs[index], index),
+            itemBuilder: (context, index) => grid
+                ? _buildSurahChip(surahs[index], index)
+                : _buildSurahRow(surahs[index], index),
           ),
         );
       },
@@ -2027,6 +2270,15 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
           'الفهرس',
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
+        actions: [
+          if (_selectedTab == QuranIndexTab.surahs &&
+              !TvService.instance.isTv &&
+              MediaQuery.of(context).orientation == Orientation.landscape)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: _buildSurahLayoutToggle(),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(

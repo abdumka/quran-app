@@ -3374,8 +3374,16 @@ class _QuranPagesState extends State<QuranPages>
           _isMemorizationTestEnabled = false;
           _memorizationTestPageIndex = -1;
         });
+        // A test ended from the bar's «إنهاء»: its score is the summary
+        // that matters (the page reports are saved all the same).
+        final run = _hifzTest;
         _onTasmeeModeEnded();
-        _showTasmeeRunSummary();
+        if (run != null) {
+          MemorizationTestService.instance.takeRunReports();
+          if (run.answered > 0) showHifzTestSummary(context, run);
+        } else {
+          _showTasmeeRunSummary();
+        }
       });
     }
     // A finished page flows into the next one: after a short pause to read
@@ -3509,6 +3517,9 @@ class _QuranPagesState extends State<QuranPages>
       if (!mounted) return;
     }
     _hifzTest = run;
+    // Between the questions of a microphone test the recognizer stays
+    // live, so the next question starts without the loading notice.
+    MemorizationTestService.instance.keepEngineWarm = !run.silent;
     _drillQueue
       ..clear()
       ..addAll([
@@ -3609,7 +3620,11 @@ class _QuranPagesState extends State<QuranPages>
       }
     }
     final isTest = _hifzTest != null;
-    final closeLoading = _showTasmeeLoading();
+    // The notice covers the model load; with the recognizer still live from
+    // the last question there is nothing to wait for.
+    final closeLoading = MemorizationTestService.instance.hasWarmEngine
+        ? () {}
+        : _showTasmeeLoading();
     _memorizationTestMoving = true;
     bool started;
     try {
@@ -3765,6 +3780,7 @@ class _QuranPagesState extends State<QuranPages>
     // still counts.
     final run = _hifzTest;
     _hifzTest = null;
+    MemorizationTestService.instance.keepEngineWarm = false;
     if (run != null) _finishHifzTest(run);
     if (_tasmeeLockedPortrait) {
       _tasmeeLockedPortrait = false;
@@ -3978,6 +3994,7 @@ class _QuranPagesState extends State<QuranPages>
     _drillQueue.clear();
     final run = _hifzTest;
     _hifzTest = null;
+    MemorizationTestService.instance.keepEngineWarm = false;
     if (run != null) _finishHifzTest(run);
     _memorizationTestPageIndex = pageIndex;
     _memorizationTestMoving = true;
