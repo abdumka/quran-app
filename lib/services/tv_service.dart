@@ -1,28 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
-
-/// Margin Android TV asks every app to keep clear of the panel edge, because
-/// a TV may still overscan: the outermost band of the signal is cropped by the
-/// display and simply never reaches the viewer. Google's figure is 5% of each
-/// dimension, which on the 960x540 logical viewport a 1080p TV reports comes
-/// to 48 logical pixels horizontally and 27 vertically.
-///
-/// Applied once, app-wide, by adding it to MediaQuery's padding in main() --
-/// every SafeArea in the app then honours it with no per-screen changes. Full
-/// screen mode is the one place that needs a nudge: it disables its SafeArea
-/// to let the page reach the edges, which must not also throw the overscan
-/// margin away on TV.
-const EdgeInsets kTvOverscanInsets = EdgeInsets.symmetric(
-  horizontal: 48,
-  vertical: 27,
-);
 
 /// Human-visible marker for sideloaded TV builds. Downloader and the CDN both
 /// cache by URL, so "I installed it but nothing changed" is otherwise
 /// impossible to diagnose. Bump this with every APK you publish, and publish
 /// under a matching filename.
-const String kTvBuildStamp = 'TV build 21 — 2026-09-26';
+const String kTvBuildStamp = 'TV build 22 — 2026-10-02';
 
 /// Whether this process is running on an Android TV (leanback) device.
 ///
@@ -48,6 +31,13 @@ class TvService {
 
   /// True only on Android TV. Safe to read before [initialize] (returns false).
   bool get isTv => _isTv;
+
+  /// Lets a test pretend to be a TV. Every TV behaviour is gated on [isTv],
+  /// so without this seam none of it is reachable from a widget test — the
+  /// remote navigation in particular, which is the part most worth testing
+  /// and the part that cannot be checked by reading the code.
+  @visibleForTesting
+  set debugIsTv(bool value) => _isTv = value;
 
   /// Asks the platform once whether this is a TV. Never throws: any failure
   /// leaves [isTv] false, which is the phone/tablet behaviour the app already

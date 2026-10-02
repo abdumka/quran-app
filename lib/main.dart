@@ -64,7 +64,7 @@ Future<void> main() async {
   // is what keeps us off the LMK/jetsam radar during background recitation.
   PaintingBinding.instance.imageCache.maximumSize = 60;
   PaintingBinding.instance.imageCache.maximumSizeBytes = 150 * 1024 * 1024;
-  
+
   try {
     await DebugLogService.instance.initialize();
   } catch (error, stack) {
@@ -94,7 +94,8 @@ Future<void> main() async {
     ReciterService.instance.load(),
     TafsirEditionService.instance.load(),
     AppUpdateService.instance.load(),
-    BackgroundPlaybackService.instance.load(),
+    // NOTE: BackgroundPlaybackService.load() is deliberately NOT in this
+    // batch -- its default depends on TvService, which is resolved by it.
     // Prefs-only, like the rest of this batch: the notification plugin and the
     // timezone database stay untouched until the reader tops the reminder
     // queue up after its first frame (see QuranPages).
@@ -119,6 +120,10 @@ Future<void> main() async {
       DeviceOrientation.landscapeRight,
     ]),
   ]);
+  // After the batch, not inside it: its default is "off on TV, on everywhere
+  // else", so it has to see the resolved TvService. Prefs are warm by now, so
+  // it costs nothing to run it on its own.
+  await BackgroundPlaybackService.instance.load();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -166,22 +171,6 @@ class QuranApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           scrollBehavior: _AppScrollBehavior(),
-          // Android TV: reserve the overscan margin app-wide by folding it
-          // into MediaQuery's padding, which every SafeArea already reads. A
-          // TV can crop the outer edge of the picture, and controls sitting
-          // flush against it are simply not there for the viewer.
-          builder: TvService.instance.isTv
-              ? (context, child) {
-                  final media = MediaQuery.of(context);
-                  return MediaQuery(
-                    data: media.copyWith(
-                      padding: media.padding + kTvOverscanInsets,
-                      viewPadding: media.viewPadding + kTvOverscanInsets,
-                    ),
-                    child: child ?? const SizedBox.shrink(),
-                  );
-                }
-              : null,
           // Android TV: stop Select/Enter from ALSO being delivered to whatever
           // widget holds Flutter focus. Every TV screen drives the D-pad
           // explicitly through a HardwareKeyboard handler, and returning true

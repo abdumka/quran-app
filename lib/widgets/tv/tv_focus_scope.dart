@@ -38,10 +38,12 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   static final List<_TvFocusScopeState> _stack = [];
 
   SemanticsHandle? _semantics;
+
   /// The target is remembered by POSITION, not by semantics node id: ids are
   /// recycled whenever the tree updates, so an id-based target silently reset
   /// to the first item (the back arrow) and Select then closed the page.
   Rect? _anchor;
+
   /// Global coordinates. The ring lives in the ROOT overlay, not in this
   /// subtree: a dialog or sheet paints above the wrapped page, so a ring drawn
   /// inside the page is hidden behind it -- the margins confirm dialog was
@@ -122,6 +124,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
         return true;
       });
     }
+
     findScope(root, Matrix4.identity());
     // Mid-transition (a menu opening or closing) there is briefly no route
     // scope at all. Treat that frame as "nothing to target" rather than as a
@@ -140,7 +143,8 @@ class _TvFocusScopeState extends State<TvFocusScope> {
       final data = n.getSemanticsData();
       final bool hidden = data.flagsCollection.isHidden;
       final bool tappable = data.hasAction(SemanticsAction.tap);
-      final bool adjustable = data.hasAction(SemanticsAction.increase) ||
+      final bool adjustable =
+          data.hasAction(SemanticsAction.increase) ||
           data.hasAction(SemanticsAction.decrease);
       final flags = data.flagsCollection;
       // isSelected is a Tristate in this Flutter version.
@@ -158,6 +162,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
         return true;
       });
     }
+
     walk(scope, Matrix4.identity());
 
     // Reading order: top to bottom, then right to left (the UI is RTL).
@@ -204,11 +209,9 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     if (current == null || dir == null) {
       // Fresh target set (a chooser just opened): start on the current value
       // if one is marked, otherwise the first entry.
-      next = current ??
-          targets.firstWhere(
-            (t) => t.selected,
-            orElse: () => targets.first,
-          );
+      next =
+          current ??
+          targets.firstWhere((t) => t.selected, orElse: () => targets.first);
     } else {
       next = _nearest(targets, current, dir) ?? current;
     }
@@ -264,10 +267,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFFD2B97E),
-                    width: 3,
-                  ),
+                  border: Border.all(color: const Color(0xFFD2B97E), width: 3),
                   color: const Color(0xFFD2B97E).withValues(alpha: 0.14),
                 ),
               ),
@@ -347,18 +347,28 @@ class _TvFocusScopeState extends State<TvFocusScope> {
         final target = _resolve(_targets());
         if (target != null && target.adjustable) {
           context.findRenderObject()?.owner?.semanticsOwner?.performAction(
-                target.id,
-                dir == TraversalDirection.left
-                    ? SemanticsAction.increase
-                    : SemanticsAction.decrease,
-              );
+            target.id,
+            dir == TraversalDirection.left
+                ? SemanticsAction.increase
+                : SemanticsAction.decrease,
+          );
           WidgetsBinding.instance.addPostFrameCallback((_) => _retarget(null));
           return true;
         }
       }
-      final moved = _retarget(dir);
       final vertical =
           dir == TraversalDirection.up || dir == TraversalDirection.down;
+      // Scroll rather than step out of the list the highlight is in, while
+      // that list still has somewhere to go. See _stepLeavesScrollable.
+      if (vertical && _stepLeavesScrollable(dir) && _scrollPage(dir)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _retarget(dir);
+          _ensureVisible();
+        });
+        return true;
+      }
+      final moved = _retarget(dir);
       if (!moved && vertical && _scrollPage(dir)) {
         // Long lists (the 114-surah picker in تكرار مقطع) only build the rows
         // that are on screen, so the last visible row looked like the end of
@@ -385,11 +395,10 @@ class _TvFocusScopeState extends State<TvFocusScope> {
         // a dropdown so its selected row sits under the button, so keeping the
         // anchor is what makes a chooser open on the current value.
 
-        context
-            .findRenderObject()
-            ?.owner
-            ?.semanticsOwner
-            ?.performAction(target.id, SemanticsAction.tap);
+        context.findRenderObject()?.owner?.semanticsOwner?.performAction(
+          target.id,
+          SemanticsAction.tap,
+        );
         // The tap may expand a section or open a menu. The new subtree's
         // semantics are not built on the very next frame, so retry briefly --
         // otherwise a dropdown opens with no highlight at all.
@@ -446,14 +455,46 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   /// Scrolls the list holding the current target by half a viewport in
   /// [dir]. Returns false when there is no such list or it is already at that
   /// end — i.e. the highlight really is on the last entry.
+  /// Whether one vertical step would take the highlight out of the scrollable
+  /// it is currently in, while that scrollable can still scroll that way.
+  ///
+  /// Vertical movement walks the sorted target list, and that list only holds
+  /// semantics nodes that EXIST. A lazy list does not build the rows scrolled
+  /// off above it, so from the topmost built row of إعدادات the previous entry
+  /// in reading order was the app bar's back arrow: pressing Up jumped
+  /// straight out of the list and the rows above it could not be reached by
+  /// remote at all. Scrolling first puts those rows in the tree, and the step
+  /// then lands where the user expects.
+  ///
+  /// Returns false once the list is at its end in that direction, so the
+  /// highlight can still leave for the app bar (or whatever is below) the
+  /// moment there is genuinely nothing more to scroll to.
+  bool _stepLeavesScrollable(TraversalDirection dir) {
+    final targets = _targets();
+    if (targets.isEmpty) return false;
+    final current = _resolve(targets);
+    if (current == null) return false;
+    final hit = _scrollableContaining(current.rect);
+    if (hit == null) return false;
+    final (pos, viewport) = hit;
+    final atEnd = dir == TraversalDirection.down
+        ? pos.pixels >= pos.maxScrollExtent - 1
+        : pos.pixels <= pos.minScrollExtent + 1;
+    if (atEnd) return false;
+    final next = _nearest(targets, current, dir);
+    // No next target at all is the other caller's case (scroll, then retry).
+    if (next == null) return false;
+    return !viewport.contains(next.rect.center);
+  }
+
   bool _scrollPage(TraversalDirection dir) {
     final rect = _highlight;
     if (rect == null) return false;
     final hit = _scrollableContaining(rect);
     if (hit == null) return false;
     final (pos, viewport) = hit;
-    final step = viewport.height * 0.5 *
-        (dir == TraversalDirection.down ? 1 : -1);
+    final step =
+        viewport.height * 0.5 * (dir == TraversalDirection.down ? 1 : -1);
     final target = (pos.pixels + step).clamp(
       pos.minScrollExtent,
       pos.maxScrollExtent,

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/reciter.dart';
 import '../../models/tafsir_edition.dart';
 import '../../services/audio_download_service.dart';
+import '../../services/background_playback_service.dart';
 import '../../services/reciter_service.dart';
 import '../../services/recitation_bar_auto_hide_service.dart';
 import '../../services/tafsir_edition_service.dart';
@@ -114,6 +115,20 @@ class _TvSettingsPageState extends State<TvSettingsPage> {
           ? 'بعد ${RecitationBarAutoHideService.instance.delaySeconds.value} ثانية من عدم الاستخدام'
           : 'مُعطَّل',
       onSelect: _openAutoHidePicker,
+    ),
+    _Row(
+      icon: Icons.exit_to_app_rounded,
+      title: 'متابعة التلاوة بعد الخروج',
+      // Off by default on TV, unlike phones -- see BackgroundPlaybackService.
+      subtitle: BackgroundPlaybackService.instance.enabled.value
+          ? 'تستمر التلاوة بعد الخروج من التطبيق'
+          : 'تتوقف التلاوة عند الخروج من التطبيق',
+      onSelect: () async {
+        await BackgroundPlaybackService.instance.setEnabled(
+          !BackgroundPlaybackService.instance.enabled.value,
+        );
+        if (mounted) setState(() {});
+      },
     ),
     _Row(
       icon: Icons.auto_stories_rounded,

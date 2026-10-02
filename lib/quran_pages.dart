@@ -2896,6 +2896,13 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   Future<void> _maybeShowFullScreenGuide() async {
+    // Not on TV. Its buttons and its "don't show again" checkbox are reachable
+    // only through Flutter's focus system, which a remote cannot drive, so the
+    // dialog sat there unanswerable until the user pressed Back -- and its
+    // advice ("swipe in from the edge of the screen") is meaningless on a
+    // television anyway. Same reasoning as the three dialogs skipped in
+    // _checkForUpdate.
+    if (TvService.instance.isTv) return;
     final prefs = await SharedPreferences.getInstance();
     final dismissed = prefs.getBool(_fullScreenGuideDismissedPrefKey) ?? false;
     if (!dismissed && mounted) _showFullScreenGuide();
@@ -6265,19 +6272,13 @@ class _QuranPagesState extends State<QuranPages>
           // SafeArea keeps the app clear of the system bars when they are
           // visible. In full screen mode the bars are hidden and the insets
           // are disabled so the whole screen shows the page.
-          //
-          // On TV the insets stay on regardless: there are no system bars to
-          // dodge, but MediaQuery's padding also carries the overscan margin
-          // (see kTvOverscanInsets), and a TV that crops its edges would take
-          // the top bar and the bottom menu with them.
-          final bool inset = !_isFullScreenMode || TvService.instance.isTv;
           return Container(
             color: bgColor,
             child: SafeArea(
-              left: inset,
-              top: inset,
-              right: inset,
-              bottom: inset,
+              left: !_isFullScreenMode,
+              top: !_isFullScreenMode,
+              right: !_isFullScreenMode,
+              bottom: !_isFullScreenMode,
               child: Stack(
                 children: [
                   scaffold,
