@@ -416,7 +416,8 @@ class _QuranPagesState extends State<QuranPages>
   bool _rangeContinueAfterPref = true;
   static const String _rangeCountPrefKey = 'range_repeat_count';
   static const String _rangeAyahRepeatPrefKey = 'range_repeat_each_ayah';
-  static const String _rangeContinueAfterPrefKey = 'range_repeat_continue_after';
+  static const String _rangeContinueAfterPrefKey =
+      'range_repeat_continue_after';
 
   Future<void> _loadRangeRepeatPrefs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -573,8 +574,7 @@ class _QuranPagesState extends State<QuranPages>
   void _handleRecitationTintChanged() {
     if (!mounted) return;
     final audio = AudioService.instance;
-    if (audio.currentAyah.value != null &&
-        audio.isRecitationBarVisible.value) {
+    if (audio.currentAyah.value != null && audio.isRecitationBarVisible.value) {
       _clearSearchResultHighlight();
     }
   }
@@ -704,12 +704,15 @@ class _QuranPagesState extends State<QuranPages>
     // Animation is started only when the bookmark guide is shown (see below)
     _readingCoordinator = QuranReadingCoordinator(pageCount: pages.length);
     _readingCoordinator.addListener(_handleReadingCoordinatorChanged);
-    MemorizationTestService.instance.status
-        .addListener(_handleMemorizationTestStatus);
-    MemorizationTestService.instance.pageAdvanced
-        .addListener(_handleMemorizationTestPageAdvanced);
-    MemorizationTestService.instance.drillResult
-        .addListener(_handleTasmeeDrillResult);
+    MemorizationTestService.instance.status.addListener(
+      _handleMemorizationTestStatus,
+    );
+    MemorizationTestService.instance.pageAdvanced.addListener(
+      _handleMemorizationTestPageAdvanced,
+    );
+    MemorizationTestService.instance.drillResult.addListener(
+      _handleTasmeeDrillResult,
+    );
     _marginImagesService.state.addListener(_handleMarginImagesChanged);
     _pageQualityService.level.addListener(_handlePageQualityChanged);
     _pageColorService.selected.addListener(_handlePageColorChanged);
@@ -873,12 +876,15 @@ class _QuranPagesState extends State<QuranPages>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    MemorizationTestService.instance.status
-        .removeListener(_handleMemorizationTestStatus);
-    MemorizationTestService.instance.pageAdvanced
-        .removeListener(_handleMemorizationTestPageAdvanced);
-    MemorizationTestService.instance.drillResult
-        .removeListener(_handleTasmeeDrillResult);
+    MemorizationTestService.instance.status.removeListener(
+      _handleMemorizationTestStatus,
+    );
+    MemorizationTestService.instance.pageAdvanced.removeListener(
+      _handleMemorizationTestPageAdvanced,
+    );
+    MemorizationTestService.instance.drillResult.removeListener(
+      _handleTasmeeDrillResult,
+    );
     MemorizationTestService.instance.stop();
     HardwareKeyboard.instance.removeHandler(_handleReaderKey);
     _hideControlsTimer?.cancel();
@@ -3438,14 +3444,25 @@ class _QuranPagesState extends State<QuranPages>
       onHifzMode: () => _toggleHifzMode(!_isHifzModeEnabled),
       onTest: (closeMenu) => _openHifzTest(closeMenu),
       onTextTest: (closeMenu) => _openHifzSilentTest(closeMenu),
+      // Wrapped so a remote can work them. These are pushed from the reader,
+      // which drives its own D-pad rather than using TvFocusScope, so unlike
+      // the pages pushed from إعدادات there is no enclosing scope to narrow
+      // onto them -- and the popup driver stands down the moment a full page
+      // goes on top of the sheet. Pass-through off TV.
       onLogs: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const TasmeeLogsPage()),
+        MaterialPageRoute<void>(
+          builder: (_) => const TvFocusScope(child: TasmeeLogsPage()),
+        ),
       ),
       onReports: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const TasmeeReportsPage()),
+        MaterialPageRoute<void>(
+          builder: (_) => const TvFocusScope(child: TasmeeReportsPage()),
+        ),
       ),
       onStats: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const HifzStatsPage()),
+        MaterialPageRoute<void>(
+          builder: (_) => const TvFocusScope(child: HifzStatsPage()),
+        ),
       ),
       onWeakPoints: _openTasmeeWeakPoints,
     );
@@ -3562,13 +3579,15 @@ class _QuranPagesState extends State<QuranPages>
       final firstWord = a.text
           .split(RegExp(r'\s+'))
           .firstWhere((w) => w.isNotEmpty, orElse: () => '');
-      (byPage[a.page] ??= []).add(TasmeeError(
-        surah: a.surah,
-        ayah: a.ayah,
-        wordInAyah: 1,
-        expected: firstWord,
-        kind: 'recall',
-      ));
+      (byPage[a.page] ??= []).add(
+        TasmeeError(
+          surah: a.surah,
+          ayah: a.ayah,
+          wordInAyah: 1,
+          expected: firstWord,
+          kind: 'recall',
+        ),
+      );
     }
     for (final e in byPage.entries) {
       TasmeeWeakPointStore.addErrors(e.key, e.value, now);
@@ -3677,9 +3696,10 @@ class _QuranPagesState extends State<QuranPages>
           'إذن الميكروفون مرفوض. فعّل الميكروفون من الإعدادات لبدء الاختبار.',
         StubReason.modelNotInstalled =>
           'لم يتم تثبيت نموذج التعرف على التلاوة بعد.',
-        _ => isTest
-            ? 'تعذّر بدء الاختبار على الصفحة $startPage'
-            : 'تعذّر بدء التقوية على هذه الصفحة',
+        _ =>
+          isTest
+              ? 'تعذّر بدء الاختبار على الصفحة $startPage'
+              : 'تعذّر بدء التقوية على هذه الصفحة',
       };
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
@@ -4901,8 +4921,7 @@ class _QuranPagesState extends State<QuranPages>
                         SelectedAyahHighlight(
                           pageNumber: pageIndex + 1,
                           marginView: _isMarginImagesEnabled,
-                          dark:
-                              Theme.of(context).brightness == Brightness.dark,
+                          dark: Theme.of(context).brightness == Brightness.dark,
                         ),
                       ],
                     ),
@@ -5358,12 +5377,13 @@ class _QuranPagesState extends State<QuranPages>
                       onDoubleTapDown: _isMemorizationTestEnabled
                           ? null
                           : (details) =>
-                              _lastDoubleTapPosition = details.localPosition,
+                                _lastDoubleTapPosition = details.localPosition,
                       // Not during Tasmee: a stray double tap must not zoom
                       // the page under the reciter; the app's own zoom
                       // setting applies again once the session ends.
-                      onDoubleTap:
-                          _isMemorizationTestEnabled ? null : _togglePageZoom,
+                      onDoubleTap: _isMemorizationTestEnabled
+                          ? null
+                          : _togglePageZoom,
                       child: page,
                     );
                   },
@@ -6848,7 +6868,8 @@ class _QuranPagesState extends State<QuranPages>
 
     final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
     // A running section shows its own settings; otherwise the last choices.
-    AyahRepeatMode mode = (wasActive
+    AyahRepeatMode mode =
+        (wasActive
             ? audio.rangeRepeatMode.value == AyahRepeatMode.infinite
             : _rangeCountPref == 0)
         ? AyahRepeatMode.infinite
@@ -6859,8 +6880,8 @@ class _QuranPagesState extends State<QuranPages>
     // How many times each ayah of the section plays (1 = once, no repeat).
     int ayahRepeat = wasActive
         ? (audio.repeatMode.value == AyahRepeatMode.count
-            ? audio.repeatCount.value
-            : 1)
+              ? audio.repeatCount.value
+              : 1)
         : _rangeAyahRepeatPref;
     bool continueAfter = wasActive
         ? audio.rangeContinueAfter.value
@@ -7187,12 +7208,12 @@ class _QuranPagesState extends State<QuranPages>
                       Text(
                         mode == AyahRepeatMode.infinite
                             ? 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده حتى '
-                                'توقف التكرار.'
+                                  'توقف التكرار.'
                             : continueAfter
-                                ? 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم '
-                                    'تتابع التلاوة بعد انتهاء التكرار.'
-                                : 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم '
-                                    'تتوقف التلاوة عند أوله بعد انتهاء التكرار.',
+                            ? 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم '
+                                  'تتابع التلاوة بعد انتهاء التكرار.'
+                            : 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده، ثم '
+                                  'تتوقف التلاوة عند أوله بعد انتهاء التكرار.',
                         style: TextStyle(color: subTextColor, fontSize: 11.5),
                       ),
                     ],
@@ -7251,8 +7272,9 @@ class _QuranPagesState extends State<QuranPages>
                       ayahRepeat: ayahRepeat,
                       continueAfter: continueAfter,
                     );
-                    _rangeCountPref =
-                        mode == AyahRepeatMode.infinite ? 0 : count;
+                    _rangeCountPref = mode == AyahRepeatMode.infinite
+                        ? 0
+                        : count;
                     _rangeAyahRepeatPref = ayahRepeat;
                     _rangeContinueAfterPref = continueAfter;
                     _saveRangeRepeatPrefs();

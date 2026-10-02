@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import '../../services/tv_popup_observer.dart';
 import '../../services/tv_service.dart';
 
 /// Makes an arbitrary screen drivable by a TV remote without rewriting it.
@@ -25,9 +26,22 @@ import '../../services/tv_service.dart';
 /// route scope. That means a dialog opened above a wrapped page is driven by
 /// the page's scope — no extra wrapping needed at each `showDialog` call site.
 class TvFocusScope extends StatefulWidget {
-  const TvFocusScope({super.key, required this.child});
+  const TvFocusScope({super.key, required this.child}) : popupsOnly = false;
+
+  /// The single app-wide driver for dialogs and modal bottom sheets.
+  ///
+  /// Placed above the navigator in main(), it stands down entirely except
+  /// while a [PopupRoute] is on top — see [TvPopupObserver] for why that is
+  /// the right trigger. Without it a popup opened from a screen that drives
+  /// its own D-pad (the reader, الفهرس) had nothing driving it at all, and
+  /// since Select is blocked app-wide its buttons did literally nothing.
+  const TvFocusScope.popupDriver({super.key, required this.child})
+    : popupsOnly = true;
 
   final Widget child;
+
+  /// Whether this scope only engages while a popup route is on top.
+  final bool popupsOnly;
 
   @override
   State<TvFocusScope> createState() => _TvFocusScopeState();
@@ -69,6 +83,15 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   bool get _active => TvService.instance.isTv;
   bool get _isTop => _stack.isNotEmpty && identical(_stack.last, this);
 
+  /// The popup driver waits for a popup; every other scope is always open.
+  /// A scope wrapping a page is nearer the popup in the nesting than the root
+  /// driver is, so [_isTop] hands that page's scope the dialog as before and
+  /// the root one stays out of it.
+  bool get _gateOpen =>
+      !widget.popupsOnly || TvPopupObserver.instance.popupOnTop.value;
+
+  bool get _drives => _active && _isTop && _gateOpen;
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +101,9 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     _semantics = SemanticsBinding.instance.ensureSemantics();
     _stack.add(this);
     HardwareKeyboard.instance.addHandler(_onKey);
+    if (widget.popupsOnly) {
+      TvPopupObserver.instance.popupOnTop.addListener(_onPopupChanged);
+    }
     // Semantics are not built on the first frame, so retry briefly rather than
     // making the user spend an arrow press waking the highlight up.
     WidgetsBinding.instance.addPostFrameCallback((_) => _retarget(null));
@@ -90,12 +116,40 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   void dispose() {
     if (_active) {
       HardwareKeyboard.instance.removeHandler(_onKey);
+      if (widget.popupsOnly) {
+        TvPopupObserver.instance.popupOnTop.removeListener(_onPopupChanged);
+      }
       _stack.remove(this);
       _ringEntry?.remove();
       _ringEntry = null;
       _semantics?.dispose();
     }
     super.dispose();
+  }
+
+  /// A popup opened or closed: pick up its first target, or drop the ring.
+  void _onPopupChanged() {
+    if (!mounted || !_active) return;
+    if (!TvPopupObserver.instance.popupOnTop.value) {
+      _anchor = null;
+      _highlight = null;
+      _scopeRect = null;
+      _lastScopeRect = null;
+      _scopeStack.clear();
+      _syncRing();
+      return;
+    }
+    // A route's semantics are not built on the frame it is pushed, and a
+    // dialog animates in, so retry briefly rather than showing no ring until
+    // the first arrow press.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _retarget(null);
+    });
+    for (final ms in const [120, 300, 500]) {
+      Future.delayed(Duration(milliseconds: ms), () {
+        if (mounted && _anchor == null) _retarget(null);
+      });
+    }
   }
 
   // ---- semantics walking -------------------------------------------------
@@ -249,7 +303,12 @@ class _TvFocusScopeState extends State<TvFocusScope> {
 
   /// Keeps the ring in the root overlay so it paints above dialogs and sheets.
   void _syncRing() {
-    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    // The popup driver sits ABOVE the navigator, so there is no Overlay
+    // ancestor to find from its context; fall back to the one the app's
+    // navigator owns, which is where the dialogs it drives are painted.
+    final overlay =
+        Overlay.maybeOf(context, rootOverlay: true) ??
+        kAppNavigatorKey.currentState?.overlay;
     if (overlay == null) return;
     if (_highlight == null) {
       _ringEntry?.remove();
@@ -330,7 +389,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   // ---- keys --------------------------------------------------------------
 
   bool _onKey(KeyEvent event) {
-    if (!mounted || !_active || !_isTop) return false;
+    if (!mounted || !_drives) return false;
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
 
     final key = event.logicalKey;
@@ -550,6 +609,14 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     // tree, which needs no Flutter focus, and removing focus is what stops a
     // Material Switch or Slider from reacting to the arrows itself. Doing it
     // here rather than app-wide keeps the D-pad alive on every other screen.
+    //
+    // Two things it must NOT do. Off TV it has to be a pure pass-through, or
+    // it would quietly make the pages it wraps unfocusable on phones. And the
+    // popup driver sits above the whole app, so excluding focus there would
+    // take every text field in it with it -- a dialog that asks for a bookmark
+    // name could not be typed into. Popups rarely hold a Switch or a Slider,
+    // which is what the exclusion is for, so that trade goes the other way.
+    if (!_active || widget.popupsOnly) return widget.child;
     return ExcludeFocus(child: widget.child);
   }
 }

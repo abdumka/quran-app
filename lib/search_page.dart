@@ -7,6 +7,7 @@ import 'services/tv_service.dart';
 import 'services/ayah_position_service.dart';
 import 'utils/copy_helper.dart';
 import 'utils/quran_display_text.dart';
+import 'widgets/tv/tv_focus_scope.dart';
 
 class SearchPage extends StatefulWidget {
   /// Opens [page] in the reader. [surah]/[ayah] name the ayah the tapped
@@ -753,7 +754,10 @@ class _SearchPageState extends State<SearchPage> {
 
   // The surah-scope dropdown shown under the search field. Selecting a surah
   // limits the search to that surah; the first entry restores the whole Quran.
-  Widget _buildSurahFilter(bool compactLandscape, double horizontalSystemInset) {
+  Widget _buildSurahFilter(
+    bool compactLandscape,
+    double horizontalSystemInset,
+  ) {
     // Two-digit surah numbers keep the menu neatly aligned (e.g. "01 الفاتحة").
     String label(int surah, String name) =>
         '${surah.toString().padLeft(2, '0')} $name';
@@ -780,51 +784,49 @@ class _SearchPageState extends State<SearchPage> {
 
   Widget _buildSurahDropdown(String Function(int, String) label) {
     return DropdownButtonFormField<int>(
-          initialValue: _selectedSurah,
-          isExpanded: true,
+      initialValue: _selectedSurah,
+      isExpanded: true,
+      borderRadius: BorderRadius.circular(14),
+      icon: const Icon(Icons.arrow_drop_down),
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.menu_book_outlined),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          icon: const Icon(Icons.arrow_drop_down),
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.menu_book_outlined),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+      items: [
+        const DropdownMenuItem<int>(
+          value: 0,
+          child: Text(
+            'القرآن كاملاً',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        for (final option in _surahOptions)
+          DropdownMenuItem<int>(
+            value: option.surah,
+            child: Text(
+              label(option.surah, option.surahName),
+              textDirection: TextDirection.rtl,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          items: [
-            const DropdownMenuItem<int>(
-              value: 0,
-              child: Text(
-                'القرآن كاملاً',
-                textDirection: TextDirection.rtl,
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-            for (final option in _surahOptions)
-              DropdownMenuItem<int>(
-                value: option.surah,
-                child: Text(
-                  label(option.surah, option.surahName),
-                  textDirection: TextDirection.rtl,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-          onChanged: (value) {
-            if (value == null) return;
-            setState(() {
-              _selectedSurah = value;
-            });
-            if (_query.trim().isNotEmpty) {
-              _runSearch(_query);
-            }
-          },
+      ],
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() {
+          _selectedSurah = value;
+        });
+        if (_query.trim().isNotEmpty) {
+          _runSearch(_query);
+        }
+      },
     );
   }
 
@@ -1025,7 +1027,8 @@ class _SearchPageState extends State<SearchPage> {
               12,
               0,
               12,
-              (compactLandscape ? 8 : 12) + MediaQuery.paddingOf(context).bottom,
+              (compactLandscape ? 8 : 12) +
+                  MediaQuery.paddingOf(context).bottom,
             ),
             itemCount: rows.length,
             separatorBuilder: (context, index) {
@@ -1145,24 +1148,33 @@ class _SearchPageState extends State<SearchPage> {
               ),
             ),
             _buildSurahFilter(compactLandscape, horizontalSystemInset),
+            // Only the RESULTS are wrapped, not the whole page. TvFocusScope
+            // takes focus away from its subtree so the arrows cannot disturb
+            // it, and the search field has to keep its focus or the TV's
+            // on-screen keyboard can never be summoned to type into it. The
+            // scope still targets the whole route, so the ring reaches the
+            // field and the filters as well -- it is only the focus exclusion
+            // that is scoped to the list.
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _query.trim().isEmpty
-                  ? const Center(
-                      child: Text(
-                        '\u0627\u0643\u062a\u0628 \u0643\u0644\u0645\u0629 \u0644\u0644\u0628\u062d\u062b',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    )
-                  : _results.isEmpty
-                  ? const Center(
-                      child: Text(
-                        '\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    )
-                  : _buildResultsList(compactLandscape),
+              child: TvFocusScope(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _query.trim().isEmpty
+                    ? const Center(
+                        child: Text(
+                          '\u0627\u0643\u062a\u0628 \u0643\u0644\u0645\u0629 \u0644\u0644\u0628\u062d\u062b',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      )
+                    : _results.isEmpty
+                    ? const Center(
+                        child: Text(
+                          '\u0644\u0627 \u062a\u0648\u062c\u062f \u0646\u062a\u0627\u0626\u062c',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      )
+                    : _buildResultsList(compactLandscape),
+              ),
             ),
           ],
         ),

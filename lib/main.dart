@@ -19,9 +19,11 @@ import 'services/tafsir_edition_service.dart';
 import 'services/recitation_bar_auto_hide_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
+import 'services/tv_popup_observer.dart';
 import 'services/tv_service.dart';
 import 'services/update_notification_service.dart';
 import 'splash_screen.dart';
+import 'widgets/tv/tv_focus_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -168,9 +170,21 @@ class QuranApp extends StatelessWidget {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeService.themeMode,
       builder: (context, themeMode, _) {
+        final bool isTv = TvService.instance.isTv;
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           scrollBehavior: _AppScrollBehavior(),
+          // Android TV only. The observer says when a dialog or a modal sheet
+          // is on top, and the driver above the navigator operates it -- see
+          // TvPopupObserver. The key is how the driver reaches the overlay to
+          // paint its ring, since it sits above the Navigator that owns it.
+          navigatorKey: isTv ? kAppNavigatorKey : null,
+          navigatorObservers: isTv ? [TvPopupObserver.instance] : const [],
+          builder: isTv
+              ? (context, child) => TvFocusScope.popupDriver(
+                  child: child ?? const SizedBox.shrink(),
+                )
+              : null,
           // Android TV: stop Select/Enter from ALSO being delivered to whatever
           // widget holds Flutter focus. Every TV screen drives the D-pad
           // explicitly through a HardwareKeyboard handler, and returning true
