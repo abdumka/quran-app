@@ -617,7 +617,16 @@ class _QuranPagesState extends State<QuranPages>
       RecitationBarAutoHideService.instance.idleDelay,
       () {
         if (!mounted) return;
-        setState(() => _recitationBarHidden = true);
+        setState(() {
+          _recitationBarHidden = true;
+          // The chrome goes with it. Hiding only the recitation bar left the
+          // bottom menu still sitting over the mushaf, which is the thing
+          // this setting exists to clear away -- and the chrome's own idle
+          // timer is much longer (45 s on TV), so on a television the menu
+          // outlived the bar by half a minute.
+          _showIndex = false;
+          _hideControlsTimer?.cancel();
+        });
       },
     );
   }
