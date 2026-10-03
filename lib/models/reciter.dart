@@ -10,7 +10,7 @@ enum AudioScheme {
   /// few surahs were merged into one file (see `AudioService`'s merge table).
   mergedTail,
 
-  /// al-Naihi / قنيوه / أبوسنينة: one file per ayah in native Madani/Qaloun
+  /// قنيوه (and al-Naihi before he moved to [timedSurah]): one file per ayah in native Madani/Qaloun
   /// numbering, plus a separate basmala file `SSS000.mp3` for every surah except
   /// At-Tawba (9), with the displayed→recited ayah differences resolved via the
   /// audio map.
@@ -169,23 +169,27 @@ class Reciter {
 
   /// Walid Ali Al-Naihi — Qaloun.
   ///
-  /// Audio is mirrored from nquran.com to our own Cloudflare R2 bucket (so we
-  /// never depend on that site at runtime), in the same bucket as قنيوه under an
-  /// `Alnaihi/` folder. Native Madani numbering: `SSS000.mp3` (basmala) +
-  /// `SSS001..SSSmax.mp3` per surah — see tools/download_naihi.py and
-  /// [AudioScheme.nativeQaloun]. (Previously served from a GitHub raw mirror.)
+  /// On [AudioScheme.timedSurah] since 2026-10-01: 114 whole-surah MP3s plus
+  /// `timings/SSS.json`, aligned against the app's own text, so the displayed
+  /// numbering needs no audio map. Source: midad.com collection 35347 ("مصحف
+  /// وليد النائحي - قالون عن نافع من طريق أبي نشيط - مرتل", complete), the
+  /// same recording as the per-ayah set. Every file was already CBR (64 kbps),
+  /// so the audio is passed through bit-for-bit. He does not use الوقف الهبطي.
   ///
-  /// Known source gap: nquran lacks al-Naihi's Yusuf 012111.mp3 (verified 404 on
-  /// nquran and both mirrors, though nquran's inventory claims 111 ayat), so
-  /// Yusuf's last ayah has no al-Naihi audio — a source limitation, not the CDN.
+  /// The id is unchanged so a saved choice survives; the cache folder is new
+  /// because the file names differ (`SSS.mp3`, not `SSSAAA.mp3`). The older
+  /// per-ayah nquran mirror is still live at `Alnaihi/` and is left in place.
   static const Reciter naihiQaloun = Reciter(
     id: 'naihi_qaloun',
     name: 'وليد علي النائحي',
     riwaya: 'رواية قالون',
-    audioBaseUrl: 'https://audio.mushaf-qaloon.com/Alnaihi/',
-    cacheFolder: 'audio_cache_naihi',
-    scheme: AudioScheme.nativeQaloun,
-    missingAyat: {12: {111}},
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/naihi_timed/',
+    cacheFolder: 'audio_cache_naihi_timed',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/naihi_timed/',
   );
 
   /// Madani/Qaloun ayah count per surah, taken from nquran.com's authoritative
@@ -212,7 +216,7 @@ class Reciter {
 
   /// Al-Amin Muhammad Qaniwah — Qaloun, recited with الوقف الهبطي (combines ayat
   /// in one breath). Audio mirrored from nquran.com to a Cloudflare R2 bucket.
-  /// Reuses the same Qaloun ayah counts + audio map as al-Naihi (same source),
+  /// Reuses the Qaloun ayah counts + audio map built for al-Naihi's nquran mirror,
   /// plus [breathCombining] to skip the repeated-breath ayat.
   static const Reciter qaniwahQaloun = Reciter(
     id: 'qaniwah_qaloun',

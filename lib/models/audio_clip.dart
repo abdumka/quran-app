@@ -1,7 +1,7 @@
 /// One playable piece of recitation.
 ///
 /// Every reciter ultimately resolves a displayed ayah to a list of these. For
-/// the per-ayah mirrors (Al-Husary, al-Naihi, قنيوه, al-Hudaifi, الدوكالي) a clip
+/// the per-ayah mirrors (Al-Husary, قنيوه, al-Hudaifi, الدوكالي) a clip
 /// is a whole MP3 and [start]/[end] are null — byte for byte the behaviour the
 /// app has always had. For a [AudioScheme.timedSurah] reciter the file is the
 /// whole surah and the clip is a slice of it.

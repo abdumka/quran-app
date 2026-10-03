@@ -3,7 +3,7 @@
 from the app's own Quran data sources:
 
 - assets/data/output.json            -> quran_text.json (shared text + ayah counts)
-- assets/data/audio_ayah_map.json    -> native-scheme (naihi/qaniwah) ayah remap
+- assets/data/audio_ayah_map.json    -> native-scheme (qaniwah) ayah remap
 - assets/data/qaniwah_continuations.json -> qaniwah breath-continuation skips
 - lib/thumn_data.dart                -> thumn_index.json
 - https://audio.mushaf-qaloon.com/mushaf3.html / mushaf_doukali.html /
@@ -63,12 +63,19 @@ RECITERS = [
         "breathCombining": False,
     },
     {
+        # Moved from the per-ayah nquran mirror (`Alnaihi/`, still live) to one
+        # MP3 per surah plus a span table aligned against the app's own text,
+        # from midad collection 35347 (2026-10-01). Not هبطي, so every ayah has
+        # its own span. Under review until the owner says otherwise; the review
+        # page logs to the shared tracker under the slug "naihi_timed".
         "id": "naihi",
         "name": "وليد علي النائحي",
         "riwaya": "رواية قالون",
-        "folder": "Alnaihi",
-        "scheme": "native",
-        "breathCombining": False,
+        "folder": "naihi_timed",
+        "scheme": "timed",
+        "timingsDir": "D:/NaihiTimed/timings",
+        "underReview": True,
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_naihi.html",
     },
     {
         "id": "qaniwah",
@@ -416,11 +423,6 @@ def main() -> None:
     audio_map = load_audio_ayah_map()
     continuations, basmala_in_ayah1 = load_qaniwah_continuations()
 
-    print("Building Naihi overrides (native scheme) ...")
-    naihi_overrides = build_overrides_native(ayah_counts, audio_map, False, {}, set())
-    write_json("overrides_naihi.json", {"reciterId": "naihi", "overrides": naihi_overrides})
-    print(f"  {len(naihi_overrides)} overrides")
-
     print("Building Qaniwah overrides (native scheme + breath-combining) ...")
     qaniwah_overrides = build_overrides_native(
         ayah_counts, audio_map, True, continuations, basmala_in_ayah1
@@ -490,8 +492,8 @@ def main() -> None:
     write_json("reciters.json", {"reciters": reciters_out})
 
     # Spot checks matching the plan's verification table.
-    assert naihi_overrides["2-255"] == {"f": ["002255", "002256"], "cov": None}
-    assert naihi_overrides["2-256"] == {"f": [], "cov": "2-255"}
+    # al-Naihi is timed now; his old per-ayah overrides file must not linger.
+    assert not (WEB_DATA / "overrides_naihi.json").exists(), "delete web-player/data/overrides_naihi.json"
     assert qaniwah_overrides["2-255"]["f"] == ["002255", "002256"]
     assert husary_overrides["5-121"]["f"] == ["005120"]
     assert "5-120" not in husary_overrides  # threshold ayah == its own default, not stored

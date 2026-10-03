@@ -75,7 +75,7 @@ void main() {
       expect(downloads.getSurahFilenames(26).length, 227 - 72);
     });
 
-    test('unlike al-Naihi, his khatma includes Yusuf 111', () {
+    test('his khatma includes Yusuf 111, which the old nquran set lacked', () {
       expect(downloads.getSurahFilenames(12), contains('012111.mp3'));
     });
   });
@@ -122,32 +122,50 @@ void main() {
     });
   });
 
+  group('وليد علي النائحي (timed surah scheme)', () {
+    setUp(() => select(Reciter.naihiQaloun));
+
+    test('one file per surah, 114 for a complete download', () {
+      expect(downloads.getSurahFilenames(2), ['002.mp3']);
+      expect(downloads.getAllFilenames().length, 114);
+      // The per-ayah build's basmala files are gone with it.
+      expect(downloads.getAllFilenames(), isNot(contains('002000.mp3')));
+    });
+
+    test('points at the timed mirror, with timings on the CORS-enabled host', () {
+      const r = Reciter.naihiQaloun;
+      expect(r.scheme, AudioScheme.timedSurah);
+      // The per-ayah nquran mirror stays live at Alnaihi/ — this must not
+      // silently point back at it.
+      expect(r.audioBaseUrl, endsWith('/naihi_timed/'));
+      expect(r.timingsBaseUrl,
+          'https://quran-content.mushaf-qaloon.com/timings/naihi_timed/');
+    });
+
+    test('keeps the id a saved choice resolves to, with a fresh cache', () {
+      const r = Reciter.naihiQaloun;
+      expect(r.id, 'naihi_qaloun');
+      expect(Reciter.byId('naihi_qaloun'), same(r));
+      // SSS.mp3 files must not land among the per-ayah build's SSSAAA.mp3 ones.
+      expect(r.cacheFolder, isNot('audio_cache_naihi'));
+      expect(Reciter.fallback, same(r));
+    });
+
+    test('needs none of the per-ayah scheme tables', () {
+      const r = Reciter.naihiQaloun;
+      expect(r.coveredAyat, isEmpty);
+      expect(r.missingAyat, isEmpty);
+      expect(r.continuationsAsset, isNull);
+      expect(r.breathCombining, isFalse);
+    });
+  });
+
   group('existing reciters are untouched by the scheme refactor', () {
     test('Al-Husary keeps the merged-tail names', () {
       select(Reciter.husaryQaloun);
       final maidah = downloads.getSurahFilenames(5);
       expect(maidah.last, '005120.mp3'); // 121+122 merge onto 120
       expect(downloads.getSurahFilenames(1).length, 7);
-    });
-
-    test('al-Naihi keeps the basmala file and native counts', () {
-      select(Reciter.naihiQaloun);
-      expect(downloads.getSurahFilenames(2), contains('002000.mp3'));
-      expect(downloads.getSurahFilenames(9), isNot(contains('009000.mp3')));
-      expect(
-        downloads.getSurahFilenames(2).length,
-        Reciter.madaniAyahCounts[1] + 1,
-      );
-    });
-
-    test('al-Naihi no longer counts the Yusuf ayah his source lacks', () {
-      // 012111.mp3 404s on the source and both mirrors, so including it kept
-      // "التحميل مكتمل" permanently out of reach.
-      select(Reciter.naihiQaloun);
-      final yusuf = downloads.getSurahFilenames(12);
-      expect(yusuf, isNot(contains('012111.mp3')));
-      expect(yusuf, contains('012110.mp3'));
-      expect(downloads.getAllFilenames().length, 6214 + 113 - 1);
     });
 
     test('قنيوه still lists every file, gaps being none of his', () {
