@@ -554,6 +554,100 @@ void main() {
       expect(service.statuses[0], WordStatus.correct);
     });
 
+    test('a basmala written into the first ayah (p596) is shown, read or not', () async {
+      final ws = await pageWords(596); // 97:1 = بسم الله الرحمن الرحيم إنا أنزلناه...
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 596, engineOverride: engine, stopPlayback: false);
+      for (var w = 0; w < 4; w++) {
+        expect(service.statuses[w], WordStatus.correct, reason: 'basmala word $w shown from the start');
+      }
+      // Not read: the surah's own words are judged at once, no hold.
+      engine.recite(ayahOf(ws, 0).sublist(4));
+      engine.recite(ayahOf(ws, 1));
+      await settle();
+      expect(service.heldWord.value, -1, reason: 'no hold for the unread basmala');
+      expect(service.statuses[4], WordStatus.correct);
+      expect(service.statuses[8], WordStatus.correct);
+      final (clean, flagged) = service.summary;
+      expect(flagged, 0);
+    });
+
+    test('a basmala read at p596 is dropped and the surah goes on', () async {
+      final ws = await pageWords(596);
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: 596, engineOverride: engine, stopPlayback: false);
+      engine.recite([basmala.substring(0, 12), basmala.substring(12)]);
+      engine.recite(ayahOf(ws, 0).sublist(4));
+      engine.recite(ayahOf(ws, 1));
+      await settle();
+      expect(service.heldWord.value, -1);
+      expect(service.statuses[4], WordStatus.correct);
+      expect(service.statuses[8], WordStatus.correct);
+    });
+
+    test('mid-page at p594 (95:1): reached from the surah before, read or not', () async {
+      final ws = await pageWords(594); // 93:4.. 94 .. 95:1 (basmala in text) ..
+      final open = ws.indexWhere((w) => w.text.replaceAll(RegExp(r'[^\u0621-\u064A]'), '') == 'بسم');
+      expect(open, greaterThan(0));
+      final openAyah = ws[open].ayah;
+      final lastOf94 = openAyah - 1;
+      for (final readIt in [false, true]) {
+        final engine = _PhonemeEngine();
+        await service.start(
+          pageNumber: 594,
+          engineOverride: engine,
+          stopPlayback: false,
+          startAyahIndex: lastOf94,
+        );
+        expect(service.statuses[open], WordStatus.correct, reason: 'shown');
+        engine.recite(ayahOf(ws, lastOf94));
+        if (readIt) engine.recite([basmala.substring(0, 12), basmala.substring(12)]);
+        engine.recite(ayahOf(ws, openAyah).sublist(4));
+        engine.recite(ayahOf(ws, openAyah + 1));
+        await settle();
+        expect(service.heldWord.value, -1, reason: 'read=$readIt');
+        expect(service.statuses[open - 1], WordStatus.correct, reason: 'last word of 94, read=$readIt');
+        expect(service.statuses[open + 4], WordStatus.correct, reason: 'والتين, read=$readIt');
+        final next = ws.indexWhere((w) => w.ayah == openAyah + 1);
+        expect(service.statuses[next], WordStatus.correct, reason: '95:2, read=$readIt');
+        await service.stop();
+      }
+    });
+
+    test('flowing into p596 from p595: the basmala in the text is passed over', () async {
+      final p595 = await pageWords(595);
+      final p596 = await pageWords(596);
+      final engine = _PhonemeEngine();
+      final lastAyah = p595.last.ayah;
+      await service.start(
+        pageNumber: 595,
+        engineOverride: engine,
+        stopPlayback: false,
+        startAyahIndex: lastAyah,
+      );
+      engine.recite(ayahOf(p595, lastAyah));
+      await settle();
+      // The reciter goes straight on with إنا أنزلناه (no basmala).
+      engine.recite(ayahOf(p596, 0).sublist(4));
+      for (var i = 0; i < 20 && service.activePage != 596; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+      expect(service.activePage, 596);
+      engine.recite(ayahOf(p596, 1));
+      await settle();
+      expect(service.heldWord.value, -1);
+      for (var w = 0; w < 4; w++) {
+        expect(service.statuses[w], WordStatus.correct, reason: 'basmala word $w');
+      }
+      expect(service.statuses[4], WordStatus.correct);
+      expect(service.statuses[8], WordStatus.correct);
+    });
+
+    test('only two pages carry the basmala inside the ayah text', () {
+      expect(MemorizationTestService.embeddedBasmalaLength(['بِّسْمِ', 'اِ۬للَّهِ', 'اِ۬لرَّحْمَٰنِ', 'اِ۬لرَّحِيمِ', 'إِنَّا'], 0), 4);
+      expect(MemorizationTestService.embeddedBasmalaLength(['إِنَّا', 'أَنزَلْنَٰهُ'], 0), 0);
+    });
+
     test('the decision: a basmala, not yet, or something else', () {
       final table = PhonemeCostTable();
       int cut(String s) => MemorizationTestService.basmalaCut(s, table);

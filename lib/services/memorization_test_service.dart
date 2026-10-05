@@ -207,6 +207,77 @@ class MemorizationTestService {
   /// word as a mistake. See [_basmalaFilter].
   static const String _basmala = 'بِسمِللَااهِررَحمَاانِررَحِۦۦم';
 
+  /// Surah openings on the page whose ayah 1 carries the basmala as its
+  /// first words in the mushaf text (pages 594 and 596: the basmala shares
+  /// the line with the ayah), by opening word → number of basmala words.
+  /// Those words are not under test: shown from the start, accepted when
+  /// read, passed over when not.
+  Map<int, int> _embeddedBasmala = const {};
+
+  /// The opening the basmala filter is holding sounds for.
+  int _basmalaOpening = -1;
+
+  static const List<String> _basmalaWords = ['بسم', 'الله', 'الرحمن', 'الرحيم'];
+  static final RegExp _tashkeel = RegExp(r'[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]');
+
+  /// A word of the page text with its marks removed, for comparison.
+  static String _bare(String w) => w.replaceAll(_tashkeel, '').replaceAll('ٱ', 'ا');
+
+  /// How many words of the basmala open the page text at word [o] (0 when
+  /// the opening's text starts with the surah itself, as it almost always
+  /// does).
+  @visibleForTesting
+  static int embeddedBasmalaLength(List<String> words, int o) {
+    if (o + _basmalaWords.length > words.length) return 0;
+    for (var i = 0; i < _basmalaWords.length; i++) {
+      if (_bare(words[o + i]) != _basmalaWords[i]) return 0;
+    }
+    return _basmalaWords.length;
+  }
+
+  static Map<int, int> _embeddedOf(List<int> openings, List<String> words) => {
+        for (final o in openings)
+          if (embeddedBasmalaLength(words, o) > 0) o: embeddedBasmalaLength(words, o),
+      };
+
+  /// The page's phonemes for the tracker, with a basmala written into an
+  /// ayah left without phonemes: the tracker then passes over those words
+  /// at no cost, read or not (the filter still drops a read one).
+  static PhonemeReference _referenceFor(PagePhonemes phonemes, Map<int, int> embedded) {
+    final words = phonemes.collapsed();
+    for (final e in embedded.entries) {
+      for (var w = e.key; w < e.key + e.value && w < words.length; w++) {
+        final old = words[w];
+        words[w] = PhonemeWord(
+          phon: '',
+          text: old.text,
+          ayah: old.ayah,
+          wordInAyah: old.wordInAyah,
+          ayahWords: old.ayahWords,
+          tanween: old.tanween,
+          taMarbuta: old.taMarbuta,
+          wasl: old.wasl,
+        );
+      }
+    }
+    return PhonemeReference(words, PhonemeCostTable());
+  }
+
+  /// The first word at or after [w] that has phonemes (a basmala written
+  /// into the ayah has none, and a tracker cannot start on such a word).
+  static int _soundingWordFrom(PhonemeReference reference, int w) {
+    var i = w.clamp(0, reference.n - 1);
+    while (i + 1 < reference.n && reference.words[i].phon.isEmpty) {
+      i++;
+    }
+    return i;
+  }
+
+  /// The embedded opening the filter last decided about (a read basmala
+  /// dropped, or the sounds were the surah itself), so it is not held for
+  /// a second time at the same place.
+  int _embeddedDecided = -1;
+
   /// Word indices that open a surah with a basmala on the active page.
   List<int> _surahOpenings = const [];
 
@@ -343,7 +414,11 @@ class MemorizationTestService {
     final aligner = _aligner;
     final pageNumber = _activePage;
     if (aligner == null || pageNumber == null) return;
-    final correct = aligner.statuses.where((s) => s == WordStatus.correct).length;
+    var correct = aligner.statuses.where((s) => s == WordStatus.correct).length;
+    // A basmala written into the ayah is shown, not recited.
+    for (final len in _embeddedBasmala.values) {
+      correct = math.max(0, correct - len);
+    }
     if (correct == 0 && _errors.isEmpty) return; // nothing was recited
     final report = TasmeeReport(
       page: pageNumber,
@@ -668,6 +743,8 @@ class MemorizationTestService {
         status.value = MemorizationTestStatus.failed;
         return false;
       }
+      final openings = _openingsOf(page, starts);
+      final embedded = _embeddedOf(openings, expectedWords);
 
       final aligner = QuranWordAligner(expectedWords)
         ..onWordResolved = (_) => revision.value++;
@@ -724,8 +801,7 @@ class MemorizationTestService {
           status.value = MemorizationTestStatus.failed;
           return false;
         }
-        final reference =
-            PhonemeReference(phonemes.collapsed(), PhonemeCostTable());
+        final reference = _referenceFor(phonemes, embedded);
         _reference = reference;
         // A drill (or any session told where to begin) starts on that ayah
         // only; an ordinary session may start on any ayah of the page.
@@ -734,7 +810,10 @@ class MemorizationTestService {
           startAnywhere: startAyahIndex == null,
           startWord: startAyahIndex == null
               ? 0
-              : starts[startAyahIndex.clamp(0, starts.length - 2).toInt()],
+              : _soundingWordFrom(
+                  reference,
+                  starts[startAyahIndex.clamp(0, starts.length - 2).toInt()],
+                ),
         );
         tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
       }
@@ -765,8 +844,15 @@ class MemorizationTestService {
       _drillMissed.clear();
       _drillErrors.clear();
       _continuedFrom = null;
-      _surahOpenings = _openingsOf(page, starts);
+      _surahOpenings = openings;
+      _embeddedBasmala = embedded;
+      _embeddedDecided = -1;
+      for (final e in embedded.entries) {
+        // The basmala written inside the ayah: shown, not tested.
+        aligner.forceResolveRange(e.key, e.key + e.value, WordStatus.correct);
+      }
       _basmalaBuffer.clear();
+      _basmalaOpening = -1;
       _basmalaArmed = _surahOpenings.isNotEmpty;
       drillLabel.value = drill?.label;
       if (startAyahIndex != null) {
@@ -1298,18 +1384,35 @@ class MemorizationTestService {
   /// end of one surah / the first word of the next.
   bool _basmalaExpected(PhonemeTracker tracker) {
     if (_surahOpenings.isEmpty) return false;
-    if (tracker.heard.isEmpty) return true;
+    if (tracker.heard.isEmpty) {
+      _basmalaOpening = _surahOpenings.first;
+      return true;
+    }
     final aligner = _aligner;
     if (aligner == null) return false;
     final c = tracker.cursorWord;
     for (final o in _surahOpenings) {
-      if ((c == o || c == o - 1) &&
-          o < aligner.length &&
-          aligner.statuses[o] == WordStatus.pending) {
+      // The first word under test of the opening (after a basmala written
+      // into the ayah, where there is one).
+      final test = o + (_embeddedBasmala[o] ?? 0);
+      if ((c == o - 1 || (c >= o && c <= test)) &&
+          test < aligner.length &&
+          aligner.statuses[test] == WordStatus.pending) {
+        _basmalaOpening = o;
         return true;
       }
     }
     return false;
+  }
+
+  /// After the filter has decided (a basmala dropped, or the sounds were
+  /// something else) at an opening whose basmala is written into the ayah:
+  /// that opening is settled for this pass.
+  void _afterBasmalaDecision() {
+    if (_embeddedBasmala.containsKey(_basmalaOpening)) {
+      _embeddedDecided = _basmalaOpening;
+    }
+    _basmalaOpening = -1;
   }
 
   /// Holds back sounds that look like a basmala at a surah opening and drops
@@ -1317,7 +1420,13 @@ class MemorizationTestService {
   /// the tracker unchanged. Returns the chars to feed now.
   List<HeardChar> _basmalaFilter(PhonemeTracker tracker, List<HeardChar> chars) {
     if (_basmalaBuffer.isEmpty) {
-      if (!_basmalaArmed || !_basmalaExpected(tracker)) return chars;
+      if (!_basmalaExpected(tracker)) return chars;
+      // At an opening whose basmala is written into the ayah the filter
+      // is the only thing that can take a read basmala out of the way, so
+      // it listens there whether or not the re-arm pause has passed.
+      final embedded = _embeddedBasmala.containsKey(_basmalaOpening) &&
+          _embeddedDecided != _basmalaOpening;
+      if (!_basmalaArmed && !embedded) return chars;
     }
     _basmalaBuffer.addAll(chars);
     final table = _reference?.table;
@@ -1331,6 +1440,7 @@ class MemorizationTestService {
     _basmalaBuffer.clear();
     _basmalaArmed = false; // one basmala per opening; re-armed later
     _rearmBasmalaLater();
+    _afterBasmalaDecision();
     return rest;
   }
 
@@ -1374,6 +1484,7 @@ class MemorizationTestService {
     _basmalaBuffer.clear();
     _basmalaArmed = false;
     _rearmBasmalaLater();
+    _afterBasmalaDecision();
     return out;
   }
 
@@ -2034,9 +2145,11 @@ class MemorizationTestService {
     final reference = _reference;
     if (reference == null || _tracker == null) return;
     if (word < 0 || word >= reference.n) return;
-    final tracker =
-        PhonemeTracker(reference, startAnywhere: false, startWord: word)
-          ..heldWord = _holdWord >= 0 ? _holdWord : null;
+    final tracker = PhonemeTracker(
+      reference,
+      startAnywhere: false,
+      startWord: _soundingWordFrom(reference, word),
+    )..heldWord = _holdWord >= 0 ? _holdWord : null;
     if (barrier) {
       final ayah = _ayahIndexOfWord(word);
       if (ayah >= 0) {
@@ -2513,17 +2626,26 @@ class MemorizationTestService {
         }));
       }
 
-      final reference =
-          PhonemeReference(phonemes.collapsed(), PhonemeCostTable());
+      final openings = _openingsOf(page, starts);
+      final embedded = _embeddedOf(openings, expectedWords);
+      final reference = _referenceFor(phonemes, embedded);
       _reference = reference;
       final tracker = PhonemeTracker(
         reference,
         startAnywhere: false, // a page the session flowed into starts at its top
+        startWord: _soundingWordFrom(reference, 0),
       );
       _tracker = tracker;
       _tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
-      _aligner = QuranWordAligner(expectedWords)
+      final newAligner = QuranWordAligner(expectedWords)
         ..onWordResolved = (_) => revision.value++;
+      for (final e in embedded.entries) {
+        newAligner.forceResolveRange(e.key, e.key + e.value, WordStatus.correct);
+      }
+      _aligner = newAligner;
+      _embeddedBasmala = embedded;
+      _embeddedDecided = -1;
+      _basmalaOpening = -1;
       _regions = regions;
       _wordBoxes = _usableWordBoxes(wordRegions, page);
       _wordMarginRect = wordRegions?.marginRect;
@@ -2689,6 +2811,9 @@ class MemorizationTestService {
     _surahOpenings = const [];
     _basmalaBuffer.clear();
     _basmalaArmed = false;
+    _embeddedBasmala = const {};
+    _embeddedDecided = -1;
+    _basmalaOpening = -1;
     _regions = null;
     _wordBoxes = const [];
     _page = null;
