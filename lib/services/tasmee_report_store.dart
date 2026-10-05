@@ -18,6 +18,7 @@ class TasmeeError {
     required this.expected,
     required this.kind,
     this.heard = '',
+    this.repaired = false,
   });
 
   final int surah;
@@ -28,6 +29,26 @@ class TasmeeError {
   /// hafs | word | extra | distance | skipped | revealed | skippedAyah
   final String kind;
   final String heard;
+
+  /// The reciter stumbled here but then said the word right (the hold was
+  /// released by a repair), as opposed to moving on or asking for it.
+  bool repaired;
+
+  /// How the mistakes log files it: `repaired` (stumbled, then got it
+  /// right), `asked` (uncovered or skipped with a button), or `wrong`
+  /// (never put right in that session).
+  String get category => repaired
+      ? 'repaired'
+      : switch (kind) {
+          'revealed' || 'skippedAyah' => 'asked',
+          _ => 'wrong',
+        };
+
+  static String categoryLabel(String category) => switch (category) {
+        'repaired' => 'تعثّر ثم أصاب',
+        'asked' => 'كُشفت أو تُخطّيت بطلب',
+        _ => 'لم تُصوَّب',
+      };
 
   String get kindLabel => switch (kind) {
         // A reading of another riwaya: the user is told only that the word
@@ -51,6 +72,7 @@ class TasmeeError {
         'expected': expected,
         'kind': kind,
         if (heard.isNotEmpty) 'heard': heard,
+        if (repaired) 'repaired': true,
       };
 
   factory TasmeeError.fromJson(Map<String, dynamic> j) => TasmeeError(
@@ -60,6 +82,7 @@ class TasmeeError {
         expected: j['expected'] as String? ?? '',
         kind: j['kind'] as String? ?? 'distance',
         heard: j['heard'] as String? ?? '',
+        repaired: j['repaired'] as bool? ?? false,
       );
 }
 
@@ -186,6 +209,33 @@ class TasmeeReportStore {
       debugPrint('TasmeeReportStore: load failed: $e');
       return const [];
     }
+  }
+}
+
+/// «التسميع من أي موضع»: open any page and recite from anywhere in the
+/// mushaf; after the first words the session moves to where the reciter
+/// is. Off unless the reader turns it on; never used in the tests.
+class TasmeeLocateAnywhere {
+  static const String _pref = 'tasmee_locate_anywhere';
+  static bool? _value;
+
+  static Future<bool> enabled() async {
+    final v = _value;
+    if (v != null) return v;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _value = prefs.getBool(_pref) ?? false;
+    } catch (_) {
+      return _value = false;
+    }
+  }
+
+  static Future<void> set(bool on) async {
+    _value = on;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_pref, on);
+    } catch (_) {}
   }
 }
 

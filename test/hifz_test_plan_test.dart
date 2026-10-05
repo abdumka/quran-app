@@ -111,6 +111,144 @@ void main() {
       );
     });
 
+    test('«الصفحة الحالية» resolves to the open page before planning', () {
+      const r = HifzRange(HifzRangeKind.currentPage);
+      expect(r.label, 'الصفحة الحالية');
+      expect(index.spanOf(r), isNull, reason: 'unresolved, it covers nothing');
+      final on = r.onPage(128);
+      expect(on.kind, HifzRangeKind.pages);
+      expect(on.from, 128);
+      expect(on.to, 128);
+      expect(index.spanOf(on), index.spanOf(const HifzRange(HifzRangeKind.pages, from: 128, to: 128)));
+      expect(const HifzRange(HifzRangeKind.surahs, from: 2, to: 2).onPage(5).kind, HifzRangeKind.surahs);
+      expect(HifzRange.fromJson(r.toJson()).kind, HifzRangeKind.currentPage);
+    });
+
+    test('an error keeps its repaired mark and category through json', () {
+      final e = TasmeeError(surah: 1, ayah: 3, wordInAyah: 1, expected: 'x', kind: 'hafs')
+        ..repaired = true;
+      expect(e.category, 'repaired');
+      expect(TasmeeError.fromJson(Map<String, dynamic>.from(e.toJson())).repaired, isTrue);
+      expect(TasmeeError(surah: 1, ayah: 1, wordInAyah: 1, expected: 'x', kind: 'revealed').category, 'asked');
+      expect(TasmeeError(surah: 1, ayah: 1, wordInAyah: 1, expected: 'x', kind: 'skippedAyah').category, 'asked');
+      expect(TasmeeError(surah: 1, ayah: 1, wordInAyah: 1, expected: 'x', kind: 'word').category, 'wrong');
+    });
+
+    test('an open test runs through the range in order', () {
+      const config = HifzTestConfig(
+        range: HifzRange(HifzRangeKind.surahs, from: 1, to: 1),
+        ayahsPerQuestion: 3,
+        endless: true,
+      );
+      final qs = HifzTestPlanner.plan(index: index, config: config, pool: const []);
+      // One question per page, whatever the ayah count says.
+      expect(qs.map((q) => '${q.start.ayah}-${q.end.ayah}'), ['1-7']);
+      final baqara = HifzTestPlanner.plan(
+        index: index,
+        config: config.copyWith(range: const HifzRange(HifzRangeKind.pages, from: 2, to: 4)),
+        pool: const [],
+      );
+      expect(baqara.map((q) => q.start.page), [2, 3, 4]);
+      for (final q in baqara) {
+        expect(q.end.page, q.start.page);
+      }
+      expect(HifzTestConfig.fromJson(config.toJson()).endless, isTrue);
+      final open = const HifzRange(HifzRangeKind.currentPage).onPage(600, endless: true);
+      expect(open.kind, HifzRangeKind.pages);
+      expect(open.from, 600);
+      expect(open.to, 602);
+      // An older save of «من الصفحة الحالية» reads as the current page, open.
+      final old = HifzTestConfig.fromJson({'range': {'kind': 'fromCurrentPage'}});
+      expect(old.range.kind, HifzRangeKind.currentPage);
+      expect(old.endless, isTrue);
+    });
+
+    test('with athman every thumn is one question, shuffled unless open', () {
+      final r = HifzRange.athman(start: 9, count: 3); // hizb 2, athman 1-3
+      final inOrder = HifzTestPlanner.plan(
+        index: index,
+        config: HifzTestConfig(range: r, endless: true),
+        pool: const [],
+      );
+      // Each piece covers its thumn exactly (split only at a surah end).
+      var covered = 0;
+      for (var t = 9; t <= 11; t++) {
+        final span = index.thumnSpan(t)!;
+        final pieces = inOrder.where((q) {
+          final s = index.indexOf(q.start.surah, q.start.ayah)!;
+          return s >= span.$1 && s <= span.$2;
+        }).toList();
+        expect(pieces, isNotEmpty);
+        expect(index.indexOf(pieces.first.start.surah, pieces.first.start.ayah), span.$1);
+        expect(index.indexOf(pieces.last.end.surah, pieces.last.end.ayah), span.$2);
+        covered += pieces.length;
+      }
+      expect(covered, inOrder.length);
+
+      // Closed: as many athman as asked for, drawn from the range.
+      final two = HifzTestPlanner.plan(
+        index: index,
+        config: HifzTestConfig(range: r, questions: 2),
+        pool: const [],
+        random: Random(5),
+      );
+      final starts = {for (var t = 9; t <= 11; t++) index.thumnSpan(t)!.$1};
+      final twoStarts = two.where((q) => starts.contains(index.indexOf(q.start.surah, q.start.ayah))).length;
+      expect(twoStarts, 2);
+      final all = HifzTestPlanner.plan(
+        index: index,
+        config: HifzTestConfig(range: r, questions: 10),
+        pool: const [],
+      );
+      expect(all.map((q) => q.start.key).toSet(), inOrder.map((q) => q.start.key).toSet());
+
+      // A self-test keeps the thumn whole too (the session follows the
+      // page turn by itself).
+      final paged = HifzTestPlanner.plan(
+        index: index,
+        config: HifzTestConfig(range: HifzRange.athman(start: 9, count: 1)),
+        pool: const [],
+        singlePage: true,
+      );
+      expect(paged.length, 1);
+      expect(paged.single.end.page, greaterThan(paged.single.start.page));
+    });
+
+    test('a thumn that runs into the next surah stays one question', () {
+      // The first thumn whose span runs on into another surah (such as the
+      // one on p. 576, «ويطوف عليهم ولدان مخلدون», ending in al-Hadid).
+      final t = List.generate(480, (i) => i + 1).firstWhere((t) {
+        final span = index.thumnSpan(t);
+        return span != null && index.ayahs[span.$1].surah != index.ayahs[span.$2].surah;
+      });
+      final span = index.thumnSpan(t)!;
+      final qs = HifzTestPlanner.plan(
+        index: index,
+        config: HifzTestConfig(range: HifzRange.athman(start: t, count: 1), endless: true),
+        pool: const [],
+      );
+      expect(qs.length, 1);
+      expect(qs.single.start.surah, index.ayahs[span.$1].surah);
+      expect(qs.single.start.ayah, index.ayahs[span.$1].ayah);
+      expect(qs.single.end.surah, index.ayahs[span.$2].surah);
+      expect(qs.single.end.surah, isNot(qs.single.start.surah));
+      expect(qs.single.end.ayah, index.ayahs[span.$2].ayah);
+    });
+
+    test('athman are a start and a count of whole athman', () {
+      final r = HifzRange.athman(start: 91, count: 3);
+      expect(r.from, 91);
+      expect(r.to, 93);
+      expect(r.athmanCount, 3);
+      expect(r.label, '3 أثمان من الثمن 3 من الحزب 12');
+      expect(HifzRange.athman(start: 480, count: 5).to, 480);
+      expect(HifzRange.athman(start: 1, count: 1).label, 'الثمن 1 من الحزب 1');
+      expect(
+        TasmeeDrill(page: 1, surah: 1, ayah: 1, targets: const [], index: 4, total: 0, title: 'اختبار').label,
+        'اختبار 4',
+      );
+    });
+
     test('range labels and json round trip', () {
       expect(const HifzRange.all().label, 'المصحف كله');
       expect(const HifzRange(HifzRangeKind.surahs, from: 2, to: 2).label, 'سورة البقرة');
@@ -252,6 +390,36 @@ void main() {
       expect(m.start.key, '2:8');
       expect(m.end.key, last.key);
       expect(m.targets, isNotEmpty);
+    });
+
+    test('questions never overlap: a small range gives fewer, not repeats', () {
+      // Al-Fatiha, 7 ayat, questions of 2: at most three questions.
+      const config = HifzTestConfig(
+        range: HifzRange(HifzRangeKind.surahs, from: 1, to: 1),
+        questions: 5,
+        ayahsPerQuestion: 2,
+      );
+      final qs = HifzTestPlanner.plan(index: index, config: config, pool: const [], random: Random(2));
+      expect(qs.length, lessThanOrEqualTo(3));
+      final seen = <int>{};
+      for (final q in qs) {
+        for (var a = q.start.ayah; a <= q.end.ayah; a++) {
+          expect(seen.add(a), isTrue, reason: 'ayah $a asked twice');
+        }
+      }
+      // Mistakes on neighbouring ayat: the second is covered by the first
+      // question's run-up and is not asked again.
+      final m = HifzTestPlanner.plan(
+        index: index,
+        config: const HifzTestConfig(
+          source: HifzTestSource.mistakes,
+          range: HifzRange(HifzRangeKind.surahs, from: 2, to: 2),
+          questions: 5,
+          ayahsPerQuestion: 3,
+        ),
+        pool: [_point(2, 10, 1, count: 3), _point(2, 9, 1), _point(2, 30, 1)],
+      );
+      expect(m.map((q) => '${q.start.ayah}-${q.end.ayah}'), ['8-10', '28-30']);
     });
 
     test('a short surah cannot give more distinct questions than ayahs', () {

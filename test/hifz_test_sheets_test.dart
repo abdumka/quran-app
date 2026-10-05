@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/services/hifz_test_plan.dart';
 import 'package:islamic_dawah_mushaf/widgets/hifz/hifz_stats_page.dart';
+import 'package:islamic_dawah_mushaf/widgets/hifz/hifz_test_setup_page.dart';
 import 'package:islamic_dawah_mushaf/widgets/hifz/hifz_test_sheets.dart';
 import 'package:islamic_dawah_mushaf/widgets/hifz/hifz_tools_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,8 +35,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  group('setup sheet', () {
-    testWidgets('إلى follows من, fields are named, steppers step, ابدأ returns the choice',
+  group('setup page', () {
+    testWidgets('range picker: إلى follows من, athman are a start and a count, steppers step, ابدأ returns the choice',
         (tester) async {
       HifzTestConfig? result;
       await tester.pumpWidget(_host((context) async {
@@ -43,49 +44,79 @@ void main() {
           context,
           silentMode: true,
           mistakesInPool: 0,
+          currentPage: 128,
         );
       }));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      expect(find.text('اختبار ذاتي'), findsOneWidget);
-      expect(find.text('ابدأ'), findsOneWidget);
-      // No mistakes yet: only «عشوائي» can be chosen.
-      final mistakesChip = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'من أخطائي'),
-      );
-      expect(mistakesChip.onSelected, isNull);
+      // First open: the guide, with its four steps, closed by «فهمت».
+      expect(find.text('كيف يعمل الاختبار الذاتي'), findsOneWidget);
+      expect(find.text('احكم على نفسك'), findsOneWidget);
+      await tester.tap(find.text('فهمت'));
+      await tester.pumpAndSettle();
+      expect(find.text('كيف يعمل الاختبار الذاتي'), findsNothing);
 
-      // Surahs: من and إلى on one line; picking من = 5 drags إلى up to 5.
+      expect(find.text('اختبار ذاتي'), findsOneWidget);
+      expect(find.text('ابدأ الاختبار'), findsOneWidget);
+      // No mistakes yet: only «عشوائي» can be chosen.
+      expect(
+        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'من أخطائي')).onSelected,
+        isNull,
+      );
+
+      // The page open now.
+      await tester.tap(find.widgetWithText(ChoiceChip, 'الصفحة الحالية'));
+      await tester.pumpAndSettle();
+      expect(find.text('الصفحة 128 وحدها.'), findsOneWidget);
+
+      // Surahs, in place: من = 5 drags إلى up to 5.
       await tester.tap(find.widgetWithText(ChoiceChip, 'سور'));
       await tester.pumpAndSettle();
-      expect(find.text('من'), findsOneWidget);
-      expect(find.text('إلى'), findsOneWidget);
       await tester.tap(find.byType(DropdownButton<int>).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('5. المائدة').last);
       await tester.pumpAndSettle();
-      final dropdowns = tester.widgetList<DropdownButton<int>>(find.byType(DropdownButton<int>)).toList();
+      var dropdowns = tester.widgetList<DropdownButton<int>>(find.byType(DropdownButton<int>)).toList();
       expect(dropdowns.first.value, 5);
       expect(dropdowns.last.value, 5, reason: 'إلى can never be before من');
-      // ...and إلى offers nothing before surah 5.
       expect(dropdowns.last.items!.first.value, 5);
-      expect(find.text('النطاق: سورة المائدة'), findsOneWidget);
 
-      // Athman: two columns, each naming its hizb and thumn field.
+      // Athman: from one thumn to another, two columns each naming its hizb
+      // and thumn; each thumn is then a question, so the question rows go.
       await tester.tap(find.widgetWithText(ChoiceChip, 'أثمان'));
       await tester.pumpAndSettle();
       expect(find.text('الحزب'), findsNWidgets(2));
       expect(find.text('الثمن'), findsNWidgets(2));
       expect(find.text('من'), findsOneWidget);
       expect(find.text('إلى'), findsOneWidget);
+      expect(find.text('عدد الأسئلة'), findsNothing);
+      expect(find.text('آيات كل سؤال'), findsNothing);
+      expect(find.text('عدد الأثمان في الاختبار'), findsOneWidget);
+      // «إلى» = thumn 3 of hizb 1: the last thumn dropdown.
+      await tester.tap(find.byType(DropdownButton<int>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('3. ').last);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('3 أثمان من'), findsOneWidget);
+      // The count of athman to recite is capped by the range (3 here).
+      await tester.tap(find.byIcon(Icons.add_rounded).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add_rounded).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add_rounded).first);
+      await tester.pumpAndSettle();
+      expect(find.text('3 أثمان'), findsOneWidget);
 
       // Back to surahs: the earlier choice is remembered.
       await tester.tap(find.widgetWithText(ChoiceChip, 'سور'));
       await tester.pumpAndSettle();
-      expect(find.text('النطاق: سورة المائدة'), findsOneWidget);
+      dropdowns = tester.widgetList<DropdownButton<int>>(find.byType(DropdownButton<int>)).toList();
+      expect(dropdowns.first.value, 5);
+      expect(find.text('سورة المائدة'), findsOneWidget);
 
-      // Steppers: + on the question count, − on the ayah count.
+      // Steppers: + on the question count (the first stepper now that the
+      // range needs none), − on the ayah count.
       expect(find.text('5 أسئلة'), findsOneWidget);
       await tester.tap(find.byIcon(Icons.add_rounded).first);
       await tester.pumpAndSettle();
@@ -95,7 +126,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('آيتان'), findsOneWidget);
 
-      await tester.tap(find.text('ابدأ'));
+      await tester.tap(find.text('ابدأ الاختبار'));
       await tester.pumpAndSettle();
       expect(result, isNotNull);
       expect(result!.range.kind, HifzRangeKind.surahs);
@@ -103,31 +134,61 @@ void main() {
       expect(result!.range.to, 5);
       expect(result!.questions, 6);
       expect(result!.ayahsPerQuestion, 2);
+      expect(result!.endless, isFalse);
       expect(result!.source, HifzTestSource.random);
 
-      // The choice is remembered for next time.
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('hifz_text_test_config'), contains('"from":5'));
     });
 
-    testWidgets('إلغاء returns nothing; the microphone sheet has its own title', (tester) async {
+    testWidgets('«الصفحة الحالية» plus the open switch runs to the end; back returns nothing', (tester) async {
       HifzTestConfig? result = const HifzTestConfig();
       await tester.pumpWidget(_host((context) async {
         result = await showHifzTestSetup(
           context,
           silentMode: false,
           mistakesInPool: 7,
+          currentPage: 128,
         );
       }));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      expect(find.text('كيف يعمل اختبار الحفظ'), findsOneWidget);
+      await tester.tap(find.text('فهمت'));
+      await tester.pumpAndSettle();
       expect(find.text('اختبار الحفظ'), findsOneWidget);
-      expect(find.text('أخطاؤك المسجّلة: 7 موضعًا.'), findsOneWidget);
-      expect(
-        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'من أخطائي')).onSelected,
-        isNotNull,
-      );
-      await tester.tap(find.text('إلغاء'));
+      expect(find.text('أخطاؤك المسجّلة: 7 مواضع.'), findsOneWidget);
+      // The «؟» button brings the guide back; it is not shown again by itself.
+      await tester.tap(find.byIcon(Icons.help_outline_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('كيف يعمل اختبار الحفظ'), findsOneWidget);
+      await tester.tap(find.text('فهمت'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(ChoiceChip, 'من الصفحة الحالية'), findsNothing);
+      await tester.tap(find.widgetWithText(ChoiceChip, 'الصفحة الحالية'));
+      await tester.pumpAndSettle();
+      expect(find.text('الصفحة 128 وحدها.'), findsOneWidget);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('من الصفحة 128 إلى آخر المصحف، بالترتيب.'), findsOneWidget);
+      expect(find.text('في الاختبار المفتوح كل صفحة سؤال'), findsOneWidget);
+      expect(find.text('في الاختبار المفتوح تأتي الأسئلة بالترتيب من أول النطاق.'), findsOneWidget);
+
+      await tester.tap(find.text('ابدأ الاختبار'));
+      await tester.pumpAndSettle();
+      expect(result!.endless, isTrue);
+      expect(result!.range.kind, HifzRangeKind.currentPage);
+      expect(result!.range.onPage(128, endless: true).from, 128);
+      expect(result!.range.onPage(128, endless: true).to, 602);
+      expect(result!.range.onPage(128).to, 128);
+
+      // Opened again (no guide this time): back leaves without a choice.
+      result = const HifzTestConfig();
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('كيف يعمل اختبار الحفظ'), findsNothing);
+      await tester.pageBack();
       await tester.pumpAndSettle();
       expect(result, isNull);
     });
@@ -158,7 +219,14 @@ void main() {
       expect(find.text('الآية 3'), findsOneWidget);
       expect(find.text('اختبار 1 / 5'), findsOneWidget);
 
+      // Nothing is chosen yet: going on is not allowed until every ayah is judged.
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'السؤال التالي')).onPressed, isNull);
+      await tester.tap(find.text('صحيح').at(0));
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'السؤال التالي')).onPressed, isNull);
       await tester.tap(find.text('خطأ').at(1));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('صحيح').at(2));
       await tester.pumpAndSettle();
       await tester.tap(find.text('السؤال التالي'));
       await tester.pumpAndSettle();
@@ -168,7 +236,7 @@ void main() {
       expect(j!.missed.map((a) => a.ayah), [2]);
     });
 
-    testWidgets('all right by default; the last question leads to the result', (tester) async {
+    testWidgets('every ayah marked right; the last question leads to the result', (tester) async {
       HifzSelfJudgement? j;
       await tester.pumpWidget(_host((context) async {
         j = await showHifzSelfJudge(
@@ -180,6 +248,10 @@ void main() {
       }));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.text('صحيح').at(i));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.text('النتيجة'));
       await tester.pumpAndSettle();
       expect(j!.correct, isTrue);
@@ -253,7 +325,7 @@ void main() {
         onReports: () => reports++,
         onTasmee: () => tasmee++,
       );
-      await tester.tap(find.text('تقارير التسميع'));
+      await tester.tap(find.text('تقارير التسميع والأخطاء'));
       await tester.pumpAndSettle();
       expect(reports, 1);
       expect(find.text('أدوات الحفظ'), findsOneWidget);

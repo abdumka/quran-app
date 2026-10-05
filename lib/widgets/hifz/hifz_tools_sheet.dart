@@ -169,7 +169,8 @@ Future<void> showHifzToolsSheet(
                     ),
                   tile(
                     icon: Icons.fact_check_rounded,
-                    title: 'تقارير التسميع',
+                    title: 'تقارير التسميع والأخطاء',
+                    subtitle: 'كل صفحة سُمِّعت، وسجل الأخطاء: تعثّر ثم أصاب، أو كُشفت بطلب',
                     keepOpen: true,
                     onTap: onReports,
                   ),
@@ -236,6 +237,8 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
               ),
               const SizedBox(height: 8),
               const _AlertModeRow(),
+              const SizedBox(height: 10),
+              const _LocateAnywhereRow(),
               const SizedBox(height: 6),
             ],
           ),
@@ -246,6 +249,62 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
 }
 
 /// The two alert dropdowns («عند الخطأ», «عند التصويب») on one row.
+/// «التسميع من أي موضع»: off unless chosen.
+class _LocateAnywhereRow extends StatefulWidget {
+  const _LocateAnywhereRow();
+
+  @override
+  State<_LocateAnywhereRow> createState() => _LocateAnywhereRowState();
+}
+
+class _LocateAnywhereRowState extends State<_LocateAnywhereRow> {
+  bool _on = false;
+
+  @override
+  void initState() {
+    super.initState();
+    TasmeeLocateAnywhere.enabled().then((v) {
+      if (mounted) setState(() => _on = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = HifzPalette.of(context);
+    return Row(
+      children: [
+        Icon(Icons.travel_explore_rounded, color: p.title, size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'التسميع من أي موضع',
+                style: TextStyle(color: p.text, fontSize: 14.5, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'افتح أي صفحة واقرأ من حيث شئت؛ بعد أول كلمات ينتقل المصحف إلى موضعك '
+                '(أول موضع يطابق قراءتك، مرة واحدة في الجلسة). لا يعمل في الاختبارات.',
+                style: TextStyle(color: p.sub, fontSize: 12, height: 1.4),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: _on,
+          activeThumbColor: p.title,
+          onChanged: (v) async {
+            setState(() => _on = v);
+            await TasmeeLocateAnywhere.set(v);
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _AlertModeRow extends StatefulWidget {
   const _AlertModeRow();
 

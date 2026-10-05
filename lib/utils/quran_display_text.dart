@@ -52,6 +52,31 @@ final RegExp _maqsura = RegExp(
 // normal ya, reads as the ordinary ئ (hamza above).
 final RegExp _yehBarree = RegExp('\u06D2\u0655?');
 
+/// A count with its noun in the right Arabic form: «سؤال واحد», «سؤالان»,
+/// «3 أسئلة» (3–10, plural) and «11 سؤالًا» (11 and up, singular accusative).
+/// [one] and [two] are whole phrases; [few] is the plural; [many] the
+/// accusative singular. Zero reads like the plural («0 أسئلة»).
+String arabicCount(int n, {required String one, required String two, required String few, required String many}) {
+  if (n == 1) return one;
+  if (n == 2) return two;
+  if (n >= 3 && n <= 10) return '$n $few';
+  if (n == 0) return '$n $few';
+  return '$n $many';
+}
+
+String questionsCount(int n) =>
+    arabicCount(n, one: 'سؤال واحد', two: 'سؤالان', few: 'أسئلة', many: 'سؤالًا');
+String ayatCount(int n) =>
+    arabicCount(n, one: 'آية واحدة', two: 'آيتان', few: 'آيات', many: 'آية');
+String athmanCount(int n) =>
+    arabicCount(n, one: 'ثمن واحد', two: 'ثمنان', few: 'أثمان', many: 'ثمنًا');
+String pagesCount(int n) =>
+    arabicCount(n, one: 'صفحة واحدة', two: 'صفحتان', few: 'صفحات', many: 'صفحة');
+String notesCount(int n) =>
+    arabicCount(n, one: 'ملاحظة واحدة', two: 'ملاحظتان', few: 'ملاحظات', many: 'ملاحظة');
+String placesCount(int n) =>
+    arabicCount(n, one: 'موضع واحد', two: 'موضعان', few: 'مواضع', many: 'موضعًا');
+
 String quranDisplayText(String text) {
   return fixOpenTanween(text)
       .replaceAll(_maqsura, '\u0649')

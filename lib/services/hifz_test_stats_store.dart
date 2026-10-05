@@ -40,7 +40,7 @@ class HifzTestRecord {
         silent: run.silent,
         source: run.config.source.name,
         range: run.config.range.label,
-        questions: run.questions.length,
+        questions: run.endless ? run.answered : run.questions.length,
         answered: run.answered,
         correct: run.correct,
         mistakes: run.mistakes,

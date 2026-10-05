@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../quran_index_page.dart' show kQuranPageCount;
 import '../../services/hifz_test_stats_store.dart';
 import '../../services/tasmee_report_store.dart';
+import '../../utils/quran_display_text.dart';
 import 'hifz_palette.dart';
 
 /// «الإحصاءات»: what the saved Tasmee reports and test records add up to --
@@ -101,9 +102,11 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
     final repairs = reports.fold<int>(0, (s, r) => s + r.repairs);
     final allSeconds = reports.fold<int>(0, (s, r) => s + r.seconds);
     final kinds = <String, int>{};
+    final categories = <String, int>{};
     for (final r in reports) {
       for (final e in r.errors) {
         kinds[e.kindLabel] = (kinds[e.kindLabel] ?? 0) + 1;
+        categories[e.category] = (categories[e.category] ?? 0) + 1;
       }
     }
     final topKinds = kinds.entries.toList()
@@ -131,7 +134,7 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
           p,
           'الأخطاء',
           '$errors',
-          note: '${(errors / reports.length).toStringAsFixed(1)} في الصفحة · $cleanPages صفحات بلا أخطاء',
+          note: '${(errors / reports.length).toStringAsFixed(1)} في الصفحة · ${pagesCount(cleanPages)} بلا أخطاء',
         ),
         _stat(
           p,
@@ -140,8 +143,18 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
           note: 'مرات التوقف عند كلمة / أعدتها صحيحة',
         ),
       ]),
-      if (topKinds.isNotEmpty) ...[
+      if (errors > 0) ...[
         const SizedBox(height: 8),
+        Text(
+          [
+            for (final c in const ['repaired', 'asked', 'wrong'])
+              '${TasmeeError.categoryLabel(c)} ${categories[c] ?? 0}',
+          ].join(' · '),
+          style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.5),
+        ),
+      ],
+      if (topKinds.isNotEmpty) ...[
+        const SizedBox(height: 4),
         Text(
           'أكثر الأخطاء: ${topKinds.take(3).map((e) => '${e.key} (${e.value})').join('، ')}',
           style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.5),
@@ -168,7 +181,7 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
           p,
           'النتيجة',
           answered == 0 ? '—' : '${(correct * 100 / answered).round()}٪',
-          note: '$correct من $answered سؤالًا · الأفضل $best٪',
+          note: '$correct من ${questionsCount(answered)} · الأفضل $best٪',
         ),
         _stat(
           p,

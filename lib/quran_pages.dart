@@ -63,6 +63,7 @@ import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_stats_page.dart';
+import 'widgets/hifz/hifz_test_setup_page.dart';
 import 'widgets/hifz/hifz_test_sheets.dart';
 import 'widgets/hifz/hifz_tools_sheet.dart';
 import 'services/hifz_test_stats_store.dart';
@@ -71,7 +72,7 @@ import 'services/hifz_test_plan.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
-import 'services/tasmee_report_store.dart' show TasmeeError;
+import 'services/tasmee_report_store.dart' show TasmeeError, TasmeeLocateAnywhere;
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
@@ -3456,7 +3457,9 @@ class _QuranPagesState extends State<QuranPages>
       ),
       onReports: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => const TvFocusScope(child: TasmeeReportsPage()),
+          builder: (_) => TvFocusScope(
+            child: TasmeeReportsPage(onGoToPage: (page) => _goToPage(page)),
+          ),
         ),
       ),
       onStats: () => Navigator.of(context).push(
@@ -3510,13 +3513,18 @@ class _QuranPagesState extends State<QuranPages>
   Future<void> _openHifzTest([VoidCallback? closeMenu]) async {
     final pool = await TasmeeWeakPointStore.load();
     if (!mounted) return;
-    final config = await showHifzTestSetup(
+    var config = await showHifzTestSetup(
       context,
       silentMode: false,
       mistakesInPool: pool.length,
+      currentPage: _currentPage + 1,
     );
     if (config == null || !mounted) return;
     closeMenu?.call();
+    // «الصفحة الحالية» is the page open now.
+    config = config.copyWith(
+      range: config.range.onPage(_currentPage + 1, endless: config.endless),
+    );
     if (!await _ensureTasmeeReady()) return;
     if (!mounted) return;
     final questions = await _planHifzTest(config, pool);
@@ -3530,16 +3538,18 @@ class _QuranPagesState extends State<QuranPages>
   Future<void> _openHifzSilentTest([VoidCallback? closeMenu]) async {
     final pool = await TasmeeWeakPointStore.load();
     if (!mounted) return;
-    final config = await showHifzTestSetup(
+    var config = await showHifzTestSetup(
       context,
       silentMode: true,
       mistakesInPool: pool.length,
+      currentPage: _currentPage + 1,
     );
     if (config == null || !mounted) return;
     closeMenu?.call();
-    // A silent session cannot follow a page turn: questions stay on the
-    // page they start on.
-    final questions = await _planHifzTest(config, pool, singlePage: true);
+    config = config.copyWith(
+      range: config.range.onPage(_currentPage + 1, endless: config.endless),
+    );
+    final questions = await _planHifzTest(config, pool);
     if (questions == null || !mounted) return;
     await _startHifzTest(HifzTestRun(config, questions, silent: true));
   }
@@ -3557,7 +3567,7 @@ class _QuranPagesState extends State<QuranPages>
       ..clear()
       ..addAll([
         for (var i = 0; i < run.questions.length; i++)
-          run.questions[i].toDrill(i + 1, run.questions.length),
+          run.questions[i].toDrill(i + 1, run.endless ? 0 : run.questions.length),
       ]);
     await _runNextTasmeeDrill();
   }
@@ -3872,7 +3882,10 @@ class _QuranPagesState extends State<QuranPages>
     try {
       await _prepareForTasmeeMode();
       if (!mounted) return;
-      started = await service.start(pageNumber: pageIndex + 1);
+      started = await service.start(
+        pageNumber: pageIndex + 1,
+        locateAnywhere: await TasmeeLocateAnywhere.enabled(),
+      );
     } finally {
       closeLoading();
     }
@@ -4038,6 +4051,7 @@ class _QuranPagesState extends State<QuranPages>
     try {
       started = await MemorizationTestService.instance.start(
         pageNumber: pageIndex + 1,
+        locateAnywhere: await TasmeeLocateAnywhere.enabled(),
       );
     } finally {
       _memorizationTestMoving = false;

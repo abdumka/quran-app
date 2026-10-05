@@ -15,6 +15,8 @@ import '../models/ayah_region_data.dart';
 import '../models/quran_page_data.dart';
 import '../models/word_region_data.dart';
 import '../utils/phoneme_tracker.dart';
+import '../utils/quran_display_text.dart';
+import '../utils/quran_phoneme_locator.dart';
 import '../utils/quran_word_aligner.dart';
 import 'install_id.dart';
 import 'page_phoneme_service.dart';
@@ -273,6 +275,9 @@ class MemorizationTestService {
   // finished since the mode was switched on (shown when the run ends).
   final List<TasmeeError> _errors = [];
   final Set<String> _errorKeys = {};
+
+  /// The latest error noted at each word of the page, so a repair can mark it.
+  final Map<int, TasmeeError> _errorByWord = {};
   final List<TasmeeReport> _runReports = [];
   DateTime _pageStartedAt = DateTime.now();
 
@@ -305,6 +310,7 @@ class MemorizationTestService {
       heard: heard,
     );
     _errors.add(e);
+    _errorByWord[word] = e;
     if (_drill != null) {
       _drillMissed.add('${e.surah}:${e.ayah}:${e.wordInAyah}');
       _drillErrors.add(e);
@@ -356,6 +362,7 @@ class MemorizationTestService {
     TasmeeWeakPointStore.addErrors(report.page, report.errors, report.at);
     _errors.clear();
     _errorKeys.clear();
+    _errorByWord.clear();
     _pageHolds = 0;
     _pageRepairs = 0;
   }
@@ -367,6 +374,26 @@ class MemorizationTestService {
   /// starts mid-page reveals the ayahs before that point rather than
   /// leaving them masked (they are not being tested).
   bool _startResolved = false;
+
+  /// «التسميع من أي موضع»: while the open page has not matched, the first
+  /// sounds are also kept for a search over the whole mushaf, and the
+  /// session moves to where they were found. Once per session.
+  bool _locateArmed = false;
+  final List<HeardChar> _locateBuffer = [];
+  bool _locating = false;
+  int _locateNextAt = _locateMinChars;
+  static const int _locateMinChars = 24;
+  static const int _locateMaxChars = 72;
+  static const int _locateStep = 6;
+
+  /// The engine a test injected (kept so a move to another page can hand
+  /// the same one to the new session).
+  RecitationEngine? _engineOverride;
+
+  /// The page the session was opened on when it then moved to where the
+  /// reciter actually was; null when it did not move.
+  int? get locatedFrom => _locatedFrom;
+  int? _locatedFrom;
   static PhonemeLexicon? _lexicon;
 
   static Future<PhonemeLexicon?> _loadLexicon() async {
@@ -569,6 +596,7 @@ class MemorizationTestService {
     int? startAyahIndex,
     TasmeeDrill? drill,
     bool silent = false,
+    bool locateAnywhere = false,
   }) async {
     final token = ++_startToken;
     // A recognizer parked by the previous question survives the stop and
@@ -580,11 +608,13 @@ class MemorizationTestService {
       await parked?.stop();
       return false;
     }
-    if (parked != null && (engineOverride != null || silent)) {
+    if (parked != null &&
+        ((engineOverride != null && !identical(engineOverride, parked)) || silent)) {
       await parked.stop();
       parked = null;
     }
     _silent = silent;
+    _engineOverride = engineOverride;
     drillResult.value = null;
     status.value = MemorizationTestStatus.preparing;
 
@@ -712,8 +742,15 @@ class MemorizationTestService {
       _tracer = tracer;
       _settledApplied = false;
       _startResolved = startAyahIndex != null;
+      // The whole-mushaf search only for a plain session with the phoneme
+      // engine; a drill or a test fixes the place itself.
+      _locateArmed = locateAnywhere && tracker != null && drill == null && startAyahIndex == null;
+      _locateBuffer.clear();
+      _locating = false;
+      _locateNextAt = _locateMinChars;
       _errors.clear();
       _errorKeys.clear();
+      _errorByWord.clear();
       _pageHolds = 0;
       _pageRepairs = 0;
       _pageStartedAt = DateTime.now();
@@ -818,6 +855,8 @@ class MemorizationTestService {
             ],
             'words': expectedWords.length,
             'startAyahIndex': ?startAyahIndex,
+            if (locateAnywhere) 'locateAnywhere': true,
+            if (_locatedFrom != null) 'locatedFrom': _locatedFrom,
             if (drill != null)
               'drill': {
                 'page': drill.page,
@@ -998,6 +1037,13 @@ class MemorizationTestService {
   /// being held, else the first unresolved one) -- one word only, shown
   /// with the amber wash and counted as a flaw of its ayah.
   void showHint() {
+    _locateArmed = false; // a help button means: this page
+    if (_pageDoneWaiting) {
+      // The page is finished and the reciter is stuck on the NEXT page's
+      // first word: turn the page, then show that word.
+      unawaited(_afterFlip(showHint));
+      return;
+    }
     final aligner = _aligner;
     if (aligner == null || status.value != MemorizationTestStatus.listening) {
       return;
@@ -1077,6 +1123,36 @@ class MemorizationTestService {
   @visibleForTesting
   static RecitationEngine Function()? engineFactoryForTest;
 
+  /// Tests only: a session the service starts by itself does not touch the
+  /// audio player (no platform channels under `flutter test`).
+  @visibleForTesting
+  static bool skipPlaybackStopForTest = false;
+
+  /// Moves a self-test question onto the next page: the same drill, the
+  /// page from its top, nothing shown yet; a restart still goes back to
+  /// where the question began.
+  Future<void> _continueSilentToNextPage() async {
+    final drill = _drill;
+    final page = _activePage;
+    if (drill == null || page == null) return;
+    final next = page + 1;
+    final startPage = _drillStartPage;
+    final startAyah = _drillStartAyahIndex;
+    pageAdvanced.value = 0;
+    pageAdvanced.value = next;
+    final ok = await start(
+      pageNumber: next,
+      startAyahIndex: 0,
+      drill: drill,
+      silent: true,
+      stopPlayback: !skipPlaybackStopForTest,
+    );
+    if (ok) {
+      _drillStartPage = startPage;
+      _drillStartAyahIndex = startAyah;
+    }
+  }
+
   /// Tests only: pretends the active page was flowed into from [page].
   @visibleForTesting
   set continuedFromForTest(int? page) => _continuedFrom = page;
@@ -1106,6 +1182,13 @@ class MemorizationTestService {
   void skipCurrentAyah() => _resolveCurrentAyah('skip', WordStatus.skipped);
 
   void _resolveCurrentAyah(String action, WordStatus mark) {
+    _locateArmed = false; // a help button means: this page
+    if (_pageDoneWaiting) {
+      // Finished page, stuck on the next page's first ayah: turn the page
+      // and reveal (or skip) that ayah.
+      unawaited(_afterFlip(() => _resolveCurrentAyah(action, mark)));
+      return;
+    }
     final aligner = _aligner;
     // The ayah of the held word when the session is stopped at one (the
     // cursor may already sit past it), else the ayah being recited.
@@ -1349,6 +1432,90 @@ class MemorizationTestService {
     lastHeard.value =
         shown.length > 40 ? shown.substring(shown.length - 40) : shown;
     _applyTrackerVerdicts(settled: false);
+    if (_locateArmed) {
+      if (_startResolved) {
+        // The open page matched: the reciter is here after all.
+        _locateArmed = false;
+      } else {
+        _locateBuffer.addAll(toFeed);
+        if (_locateBuffer.length >= _locateNextAt) unawaited(_maybeLocate());
+      }
+    }
+  }
+
+  /// Looks for the heard run in the whole mushaf once enough has been heard
+  /// and the open page still has not matched; moves the session there when
+  /// it is found on another page, gives up after a while.
+  Future<void> _maybeLocate() async {
+    if (_locating || !_locateArmed || _startResolved) return;
+    _locating = true;
+    final token = _startToken;
+    try {
+      final locator = await QuranPhonemeLocator.shared();
+      if (token != _startToken || !_locateArmed || _startResolved) return;
+      final heard = _locateBuffer.map((c) => c.ch).join();
+      _locateNextAt = _locateBuffer.length + _locateStep;
+      final hit = locator.locate(heard);
+      _recorder?.log('locate', {
+        'chars': heard.length,
+        'page': ?hit?.page,
+        'word': ?hit?.wordOnPage,
+        'distance': ?hit?.distance,
+      });
+      if (hit != null && hit.page != _activePage) {
+        await _relocateTo(hit);
+        return;
+      }
+      if (_locateBuffer.length >= _locateMaxChars) {
+        _locateArmed = false;
+        _setFeedback(
+          const RecitationFeedback(FeedbackKind.info, 'لم أتعرّف على الموضع، تابع من هذه الصفحة'),
+          show: true,
+        );
+      } else if (hit == null) {
+        _setFeedback(
+          const RecitationFeedback(FeedbackKind.info, 'أستمع لأتعرّف على موضع قراءتك…'),
+          show: true,
+        );
+      }
+    } finally {
+      _locating = false;
+    }
+  }
+
+  /// Moves the session to the page the reciter was found on: the recognizer
+  /// stays live, the opened page (nothing was recited on it) leaves no
+  /// report, the view flips, and what was heard is replayed on the new page
+  /// so it starts where those words are.
+  Future<void> _relocateTo(QuranLocation hit) async {
+    final from = _activePage;
+    final override = _engineOverride;
+    final buffer = List<HeardChar>.of(_locateBuffer);
+    _locateArmed = false;
+    _recorder?.log('located', {
+      'from': from,
+      'page': hit.page,
+      'word': hit.wordOnPage,
+      'ayah': hit.ayahOnPage,
+      'distance': hit.distance,
+    });
+    await _stopEngineOnly(park: true);
+    pageAdvanced.value = 0;
+    pageAdvanced.value = hit.page;
+    final ok = await start(
+      pageNumber: hit.page,
+      engineOverride: override,
+      stopPlayback: false,
+    );
+    if (!ok) return;
+    _locatedFrom = from;
+    _recorder?.log('locatedFrom', {'page': from});
+    _setFeedback(
+      RecitationFeedback(FeedbackKind.good, 'انتقل المصحف إلى الصفحة ${hit.page}'),
+      show: true,
+    );
+    final tracker = _tracker;
+    if (tracker != null) _feedChars(tracker, buffer, -1);
   }
 
   void _tickTracker() {
@@ -1844,6 +2011,8 @@ class MemorizationTestService {
     // followed without looking.
     if (how == 'repaired') {
       _pageRepairs++;
+      // The stumble stays in the report, filed as "then got it right".
+      _errorByWord[_holdWord]?.repaired = true;
       TasmeeAlert.fire(kind: TasmeeAlertKind.corrected);
     }
     if (feedback.value?.kind == FeedbackKind.wrong) _setFeedback(null);
@@ -2132,6 +2301,13 @@ class MemorizationTestService {
     if (aligner == null || !aligner.isComplete) return;
     // The last word held for a mistake: the page waits for it like any other.
     if (_holdWord >= 0) return;
+    // A self-test question that goes on past this page (a whole thumn): the
+    // next page opens fully covered and the question continues there.
+    final drill = _drill;
+    if (_silent && drill != null && (_activePage ?? 0) < drill.page) {
+      unawaited(_continueSilentToNextPage());
+      return;
+    }
     // The phoneme engine flows into the next page without stopping: the
     // next page is made ready now, and the view flips at the reciter's next
     // sound (see [_pageDoneWaiting]).
@@ -2146,7 +2322,7 @@ class MemorizationTestService {
             flagged == 0 ? FeedbackKind.good : FeedbackKind.info,
             flagged == 0
                 ? 'الصفحة $_activePage ✓ — تابع'
-                : 'الصفحة $_activePage: $flagged آيات بملاحظات — تابع',
+                : 'الصفحة $_activePage: ${ayatCount(flagged)} بملاحظات — تابع',
           ),
           sticky: true,
           show: true,
@@ -2211,6 +2387,28 @@ class MemorizationTestService {
     } finally {
       _swapping = false;
     }
+  }
+
+  /// A help button pressed while a finished page waits for the reciter's
+  /// next sound: turns the page now (the next page's data may still be
+  /// loading; wait a moment for it) and then runs [action] there. If the
+  /// next page cannot be used, the run ends as it would have anyway.
+  Future<void> _afterFlip(void Function() action) async {
+    final token = _startToken;
+    for (var i = 0; i < 60 && _nextPage == null && _pageDoneWaiting; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (token != _startToken) return;
+    }
+    if (!_pageDoneWaiting || token != _startToken) return;
+    if (_nextPage == null) {
+      _cancelPendingFlip();
+      _finishPage();
+      return;
+    }
+    _recorder?.log('control', {'action': 'flipForButton'});
+    await _resumeOnNextPage();
+    if (token != _startToken || _pageDoneWaiting) return;
+    action();
   }
 
   /// Ends the page for good: summary line, engine stopped, result left on
@@ -2481,6 +2679,10 @@ class MemorizationTestService {
     _drill = null;
     _drillErrors.clear();
     _silent = false;
+    _locateArmed = false;
+    _locateBuffer.clear();
+    _locatedFrom = null;
+    _engineOverride = null;
     drillLabel.value = null;
     _continuedFrom = null;
     _cancelPendingFlip();

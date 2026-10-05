@@ -93,4 +93,19 @@ void main() {
       expect(tafsirDisplayText('رَأَي'), 'رَأَي');
     });
   });
+
+  test('counts agree with their nouns', () {
+    expect(questionsCount(1), 'سؤال واحد');
+    expect(questionsCount(2), 'سؤالان');
+    expect(questionsCount(3), '3 أسئلة');
+    expect(questionsCount(10), '10 أسئلة');
+    expect(questionsCount(11), '11 سؤالًا');
+    expect(questionsCount(15), '15 سؤالًا');
+    expect(ayatCount(15), '15 آية');
+    expect(athmanCount(2), 'ثمنان');
+    expect(pagesCount(9), '9 صفحات');
+    expect(notesCount(1), 'ملاحظة واحدة');
+    expect(placesCount(7), '7 مواضع');
+    expect(placesCount(113), '113 موضعًا');
+  });
 }

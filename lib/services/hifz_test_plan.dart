@@ -4,13 +4,18 @@ import '../models/quran_page_data.dart';
 import '../quran_constants.dart';
 import '../surah_data.dart';
 import '../thumn_data.dart';
+import '../utils/quran_display_text.dart' as ar;
 import 'tasmee_weak_point_store.dart';
 
 /// Where the questions of a memorization test come from.
 enum HifzTestSource { mistakes, random, both }
 
 /// What part of the mushaf a test draws its questions from.
-enum HifzRangeKind { all, surahs, hizbs, athman, pages }
+/// [currentPage] is a stand-in the setup page offers; the page view turns it
+/// into a [pages] range before planning (see [HifzRange.onPage]): that one
+/// page, or from it to the end in an open test. [fromCurrentPage] is kept
+/// only so an older saved choice still reads.
+enum HifzRangeKind { all, currentPage, fromCurrentPage, surahs, hizbs, athman, pages }
 
 /// A stretch of the mushaf: the whole of it, surahs [from]..[to], hizbs,
 /// athman or pages [from]..[to] (all inclusive, 1-based).
@@ -26,6 +31,8 @@ class HifzRange {
   /// Number of items of this kind in the mushaf.
   static int maxOf(HifzRangeKind kind) => switch (kind) {
         HifzRangeKind.all => 1,
+        HifzRangeKind.currentPage => 1,
+        HifzRangeKind.fromCurrentPage => 1,
         HifzRangeKind.surahs => 114,
         HifzRangeKind.hizbs => 60,
         HifzRangeKind.athman => 480,
@@ -85,6 +92,10 @@ class HifzRange {
     switch (r.kind) {
       case HifzRangeKind.all:
         return 'المصحف كله';
+      case HifzRangeKind.currentPage:
+        return 'الصفحة الحالية';
+      case HifzRangeKind.fromCurrentPage:
+        return 'من الصفحة الحالية إلى آخر المصحف';
       case HifzRangeKind.surahs:
         return r.from == r.to
             ? 'سورة ${surahName(r.from)}'
@@ -94,16 +105,34 @@ class HifzRange {
             ? 'الحزب ${r.from}'
             : 'الأحزاب ${r.from} إلى ${r.to}';
       case HifzRangeKind.athman:
-        return r.from == r.to
-            ? 'الثمن ${thumnInHizb(r.from)} من الحزب ${hizbOfThumn(r.from)}'
-            : 'من الثمن ${thumnInHizb(r.from)} من الحزب ${hizbOfThumn(r.from)} '
-                'إلى الثمن ${thumnInHizb(r.to)} من الحزب ${hizbOfThumn(r.to)}';
+        final n = r.to - r.from + 1;
+        final start = 'الثمن ${thumnInHizb(r.from)} من الحزب ${hizbOfThumn(r.from)}';
+        return n == 1 ? start : '${ar.athmanCount(n)} من $start';
       case HifzRangeKind.pages:
         return r.from == r.to
             ? 'الصفحة ${r.from}'
             : 'الصفحات ${r.from} إلى ${r.to}';
     }
   }
+
+  /// This range resolved for the page open now: «الصفحة الحالية» becomes
+  /// that one page; anything else is returned as is.
+  HifzRange onPage(int page, {bool endless = false}) => switch (kind) {
+        HifzRangeKind.currentPage || HifzRangeKind.fromCurrentPage => HifzRange(
+            HifzRangeKind.pages,
+            from: page,
+            to: endless ? maxOf(HifzRangeKind.pages) : page,
+          ),
+        _ => this,
+      };
+
+  /// Athman are chosen as a start and a count of whole athman.
+  static HifzRange athman({required int start, required int count}) {
+    final a = start.clamp(1, 480);
+    return HifzRange(HifzRangeKind.athman, from: a, to: (a + count.clamp(1, 480) - 1).clamp(a, 480));
+  }
+
+  int get athmanCount => kind == HifzRangeKind.athman ? normalized().to - normalized().from + 1 : 0;
 
   Map<String, Object?> toJson() => {'kind': kind.name, 'from': from, 'to': to};
 
@@ -127,10 +156,16 @@ class HifzTestConfig {
     this.range = const HifzRange.all(),
     this.questions = 5,
     this.ayahsPerQuestion = 3,
+    this.endless = false,
   });
 
   final HifzTestSource source;
   final HifzRange range;
+
+  /// An open test: questions follow one another in order through the
+  /// range, one page each, as many as the reader wants, until they end it.
+  /// [questions], [ayahsPerQuestion] and [source] are then ignored.
+  final bool endless;
 
   /// How many questions the test asks.
   final int questions;
@@ -150,12 +185,14 @@ class HifzTestConfig {
     HifzRange? range,
     int? questions,
     int? ayahsPerQuestion,
+    bool? endless,
   }) =>
       HifzTestConfig(
         source: source ?? this.source,
         range: range ?? this.range,
         questions: questions ?? this.questions,
         ayahsPerQuestion: ayahsPerQuestion ?? this.ayahsPerQuestion,
+        endless: endless ?? this.endless,
       );
 
   Map<String, Object?> toJson() => {
@@ -163,23 +200,34 @@ class HifzTestConfig {
         'range': range.toJson(),
         'questions': questions,
         'ayahsPerQuestion': ayahsPerQuestion,
+        'endless': endless,
       };
 
-  factory HifzTestConfig.fromJson(Map<String, dynamic> j) => HifzTestConfig(
+  factory HifzTestConfig.fromJson(Map<String, dynamic> j) {
+    var range = j['range'] is Map<String, dynamic>
+        ? HifzRange.fromJson(j['range'] as Map<String, dynamic>)
+        : const HifzRange.all();
+    var endless = j['endless'] as bool? ?? false;
+    // An older build saved «من الصفحة الحالية» as a kind of its own.
+    if (range.kind == HifzRangeKind.fromCurrentPage) {
+      range = const HifzRange(HifzRangeKind.currentPage);
+      endless = true;
+    }
+    return HifzTestConfig(
         source: HifzTestSource.values.firstWhere(
           (s) => s.name == j['source'],
           orElse: () => HifzTestSource.random,
         ),
-        range: j['range'] is Map<String, dynamic>
-            ? HifzRange.fromJson(j['range'] as Map<String, dynamic>)
-            : const HifzRange.all(),
+        range: range,
         questions: (j['questions'] as int? ?? 5).clamp(1, maxQuestions),
         // 0 (open-ended) from an earlier build reads as the default.
         ayahsPerQuestion: () {
           final n = j['ayahsPerQuestion'] as int? ?? 3;
           return n <= 0 ? 3 : n.clamp(1, maxAyahsPerQuestion);
         }(),
+        endless: endless,
       );
+  }
 }
 
 /// One ayah of the mushaf, with where it is printed.
@@ -256,6 +304,9 @@ class QuranAyahIndex {
     switch (r.kind) {
       case HifzRangeKind.all:
         return (0, ayahs.length - 1);
+      case HifzRangeKind.currentPage:
+      case HifzRangeKind.fromCurrentPage:
+        return null; // resolved with onPage() before planning
       case HifzRangeKind.surahs:
         final lo = ayahs.indexWhere((a) => a.surah == r.from);
         final hi = ayahs.lastIndexWhere((a) => a.surah == r.to);
@@ -286,6 +337,9 @@ class QuranAyahIndex {
     if (hi < lo) return null;
     return (lo, hi);
   }
+
+  /// Inclusive span of thumn [t] (1..480), or null when it is unknown.
+  (int, int)? thumnSpan(int t) => _thumnSpan(t, t);
 
   /// Flat index of the first ayah of thumn [t] (1..480); null past the end.
   int? _thumnStart(int t) {
@@ -352,8 +406,7 @@ class HifzTestQuestion {
     final n = ayahCount;
     if (open) return 'اقرأ ما شئت (حتى الآية ${end.ayah})';
     if (n == 1) return 'آية واحدة';
-    final count = n == 2 ? 'آيتان' : '$n آيات';
-    return '$count (${start.ayah}–${end.ayah})';
+    return '${ar.ayatCount(n)} (${start.ayah}–${end.ayah})';
   }
 
   /// Short name for lists: «سورة البقرة، الآيات ٢٥–٢٧».
@@ -393,6 +446,8 @@ class HifzTestQuestion {
 class HifzTestRun {
   HifzTestRun(this.config, this.questions, {this.silent = false})
       : startedAt = DateTime.now();
+
+  bool get endless => config.endless;
 
   final HifzTestConfig config;
   final List<HifzTestQuestion> questions;
@@ -446,7 +501,51 @@ class HifzTestPlanner {
     final rng = random ?? Random();
 
     final out = <HifzTestQuestion>[];
-    final used = <String>{};
+    // Ayahs (flat indices) already inside a question: no two questions
+    // overlap, so a small range never asks the same ayah twice or walks
+    // through neighbouring ayat in order.
+    final covered = <int>{};
+    bool claim(HifzTestQuestion q) {
+      final a = index.indexOf(q.start.surah, q.start.ayah)!;
+      final b = index.indexOf(q.end.surah, q.end.ayah)!;
+      for (var i = a; i <= b; i++) {
+        if (covered.contains(i)) return false;
+      }
+      for (var i = a; i <= b; i++) {
+        covered.add(i);
+      }
+      return true;
+    }
+
+    if (config.range.kind == HifzRangeKind.athman) {
+      // Every thumn of the range is one whole question, even where it runs
+      // on into the next surah or page (the session follows both), the
+      // athman shuffled unless the test is open.
+      final r = config.range.normalized();
+      final thumns = <HifzTestQuestion>[];
+      for (var t = r.from; t <= r.to; t++) {
+        final span = index.thumnSpan(t);
+        if (span == null) continue;
+        thumns.add(_questionStartingAt(index, span.$1, _unbounded, span.$2, crossSurah: true));
+      }
+      if (config.endless) return thumns;
+      // A closed test: as many athman as asked for, drawn at random.
+      thumns.shuffle(rng);
+      return thumns.take(want).toList();
+    }
+
+    if (config.endless) {
+      // One question after another through the whole range, in order; each
+      // runs to the end of its page (or its surah, whichever comes first), so
+      // the reader is only interrupted at a page's end.
+      var s = lo;
+      while (s <= hi) {
+        final q = _questionStartingAt(index, s, _unbounded, hi, samePage: true);
+        out.add(q);
+        s = index.indexOf(q.end.surah, q.end.ayah)! + 1;
+      }
+      return out;
+    }
 
     if (config.source != HifzTestSource.random) {
       final groups = _mistakeGroups(index, pool, lo, hi);
@@ -456,6 +555,8 @@ class HifzTestPlanner {
       for (final g in groups) {
         if (out.length >= take) break;
         final t = index.indexOf(g.first.surah, g.first.ayah)!;
+        // A missed ayah already inside an earlier question is tested there.
+        if (covered.contains(t)) continue;
         // Open-ended: a short run-up before the missed ayah, then on to the
         // end; otherwise the question ends at the missed ayah.
         final q = open
@@ -469,17 +570,18 @@ class HifzTestPlanner {
                 open: true,
               )
             : _questionEndingAt(index, t, n, lo, targets: g, samePage: singlePage);
-        if (used.add(q.start.key)) out.add(q);
+        if (claim(q)) out.add(q);
       }
       if (config.source == HifzTestSource.mistakes) return out;
     }
 
-    // Random questions fill the rest; starts are not repeated.
+    // Random questions fill the rest, none overlapping another; a range
+    // too small for the count simply gives fewer questions.
     var tries = 0;
     while (out.length < want && tries++ < _tries) {
       final s = lo + rng.nextInt(hi - lo + 1);
       final q = _questionStartingAt(index, s, n, hi, samePage: singlePage, open: open);
-      if (used.add(q.start.key)) out.add(q);
+      if (claim(q)) out.add(q);
     }
     if (config.source == HifzTestSource.both) out.shuffle(rng);
     return out;
@@ -563,11 +665,12 @@ class HifzTestPlanner {
     int hi, {
     bool samePage = false,
     bool open = false,
+    bool crossSurah = false,
     List<TasmeeWeakPoint> targets = const [],
   }) {
     var e = s;
     while (e + 1 <= hi &&
-        _joins(index.ayahs[e + 1], index.ayahs[s], samePage) &&
+        (crossSurah || _joins(index.ayahs[e + 1], index.ayahs[s], samePage)) &&
         e - s + 1 < n) {
       e++;
     }

@@ -124,7 +124,8 @@ class TasmeeDrill {
   final int? startPage;
   final int? startAyahIndex;
 
-  String get label => '$title $index / $total';
+  /// «اختبار 2 / 5», or «اختبار 2» in an open test (no total).
+  String get label => total > 0 ? '$title $index / $total' : '$title $index';
 }
 
 /// Outcome of a drill: the weak words recited correctly and the ones that
