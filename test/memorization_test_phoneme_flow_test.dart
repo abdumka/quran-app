@@ -559,8 +559,9 @@ void main() {
       final engine = _PhonemeEngine();
       await service.start(pageNumber: 596, engineOverride: engine, stopPlayback: false);
       for (var w = 0; w < 4; w++) {
-        expect(service.statuses[w], WordStatus.correct, reason: 'basmala word $w shown from the start');
+        expect(service.statuses[w], WordStatus.pending, reason: 'basmala word $w covered like the rest');
       }
+      expect(service.currentWordIndex, 0, reason: 'the cursor has not moved');
       // Not read: the surah's own words are judged at once, no hold.
       engine.recite(ayahOf(ws, 0).sublist(4));
       engine.recite(ayahOf(ws, 1));
@@ -568,6 +569,9 @@ void main() {
       expect(service.heldWord.value, -1, reason: 'no hold for the unread basmala');
       expect(service.statuses[4], WordStatus.correct);
       expect(service.statuses[8], WordStatus.correct);
+      for (var w = 0; w < 4; w++) {
+        expect(service.statuses[w], WordStatus.correct, reason: 'basmala word $w shows once passed');
+      }
       final (clean, flagged) = service.summary;
       expect(flagged, 0);
     });
@@ -599,7 +603,7 @@ void main() {
           stopPlayback: false,
           startAyahIndex: lastOf94,
         );
-        expect(service.statuses[open], WordStatus.correct, reason: 'shown');
+        expect(service.statuses[open], WordStatus.pending, reason: 'covered until passed');
         engine.recite(ayahOf(ws, lastOf94));
         if (readIt) engine.recite([basmala.substring(0, 12), basmala.substring(12)]);
         engine.recite(ayahOf(ws, openAyah).sublist(4));
@@ -612,6 +616,36 @@ void main() {
         expect(service.statuses[next], WordStatus.correct, reason: '95:2, read=$readIt');
         await service.stop();
       }
+    });
+
+    test('p594: the basmala read right after the last word of الشرح (owner log 16:28)', () async {
+      // The tail of «فارغب» arrived with the cursor already on that word,
+      // the filter flushed it, and the basmala that followed half a second
+      // later went to the tracker as «والتين» read wrong.
+      final ws = await pageWords(594);
+      final open = ws.indexWhere((w) => w.text.replaceAll(RegExp(r'[^ء-ي]'), '') == 'بسم');
+      final openAyah = ws[open].ayah;
+      final engine = _PhonemeEngine();
+      await service.start(
+        pageNumber: 594,
+        engineOverride: engine,
+        stopPlayback: false,
+        startAyahIndex: openAyah - 1,
+      );
+      final last = ayahOf(ws, openAyah - 1);
+      engine.recite(last.sublist(0, last.length - 1));
+      final tail = last.last;
+      engine.recite([tail.substring(0, 2), tail.substring(2)]); // the word in two batches
+      await settle();
+      expect(service.statuses[open - 1], WordStatus.correct);
+      engine.recite(['بِ', 'س', 'مِللَااهِ', 'ررَحمَاانِ', 'ررَحِۦۦم']);
+      engine.recite(ayahOf(ws, openAyah).sublist(4));
+      engine.recite(ayahOf(ws, openAyah + 1));
+      await settle();
+      expect(service.heldWord.value, -1, reason: 'the basmala was taken out of the way');
+      expect(service.statuses[open + 4], WordStatus.correct, reason: 'والتين');
+      final (clean, flagged) = service.summary;
+      expect(flagged, 0);
     });
 
     test('flowing into p596 from p595: the basmala in the text is passed over', () async {
@@ -641,6 +675,42 @@ void main() {
       }
       expect(service.statuses[4], WordStatus.correct);
       expect(service.statuses[8], WordStatus.correct);
+    });
+
+    test('a breath heard as «إنّ» opens nothing (p594, p596, p151)', () async {
+      for (final page in [594, 596, 151]) {
+        final engine = _PhonemeEngine();
+        await service.start(pageNumber: page, engineOverride: engine, stopPlayback: false);
+        engine.recite(['ءِ']);
+        await settle();
+        engine.recite(['ننننَ', 'ءِ']);
+        await settle();
+        expect(service.statuses.where((s) => s == WordStatus.correct), isEmpty, reason: 'page $page');
+        expect(service.heldWord.value, -1, reason: 'page $page');
+        await service.stop();
+      }
+    });
+
+    test('a short first word («قل») fixes the start together with the next', () async {
+      // Al-Ikhlas opens with a three-phoneme word.
+      int page = -1;
+      for (var n = 598; n <= 602 && page < 0; n++) {
+        final ph = await PagePhonemeService.forPage(n);
+        if (ph != null && ph.ayahKeys.contains('112:1')) page = n;
+      }
+      expect(page, greaterThan(0));
+      final ws = await pageWords(page);
+      final ayahIndex = (await PagePhonemeService.forPage(page))!.ayahKeys.indexOf('112:1');
+      final first = ws.indexWhere((w) => w.ayah == ayahIndex);
+      final engine = _PhonemeEngine();
+      await service.start(pageNumber: page, engineOverride: engine, stopPlayback: false);
+      engine.recite([collapseMadd(ws[first].phon)]);
+      await settle();
+      expect(service.statuses[first], WordStatus.pending, reason: 'one short word is not enough');
+      engine.recite([collapseMadd(ws[first + 1].phon), collapseMadd(ws[first + 2].phon)]);
+      await settle();
+      expect(service.statuses[first], WordStatus.correct);
+      expect(service.statuses[first + 1], WordStatus.correct);
     });
 
     test('only two pages carry the basmala inside the ayah text', () {

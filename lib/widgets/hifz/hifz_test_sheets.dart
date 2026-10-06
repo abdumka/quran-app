@@ -221,14 +221,31 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
       ? [widget.question.start]
       : widget.question.ayahs;
 
+  /// The marks of ayah [i]; with [i] < 0 the pair that marks every ayah at
+  /// once (lit only when every ayah carries that mark).
   Widget _mark(HifzPalette p, int i) {
-    final wrong = _verdict[i];
+    final bool? wrong;
+    if (i >= 0) {
+      wrong = _verdict[i];
+    } else {
+      final n = _ayahs.length;
+      final all = [for (var k = 0; k < n; k++) _verdict[k]];
+      wrong = _allMarked && all.every((v) => v == all.first) ? all.first : null;
+    }
     Widget button(bool asWrong) {
       final on = wrong == asWrong;
       final color = asWrong ? p.bad : p.good;
       return InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () => setState(() => _verdict[i] = asWrong),
+        onTap: () => setState(() {
+          if (i >= 0) {
+            _verdict[i] = asWrong;
+          } else {
+            for (var k = 0; k < _ayahs.length; k++) {
+              _verdict[k] = asWrong;
+            }
+          }
+        }),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
@@ -304,6 +321,33 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
                   style: TextStyle(color: p.sub, fontSize: 13),
                 ),
                 const SizedBox(height: 10),
+                if (ayahs.length >= 3) ...[
+                  // Many ayahs: one pair marks them all, then fix the odd one.
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: p.raised,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: p.border),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'كل الآيات',
+                            style: TextStyle(
+                              color: p.title,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        _mark(p, -1),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 for (var i = 0; i < ayahs.length; i++)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),

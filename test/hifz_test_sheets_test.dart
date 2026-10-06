@@ -221,12 +221,14 @@ void main() {
 
       // Nothing is chosen yet: going on is not allowed until every ayah is judged.
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'السؤال التالي')).onPressed, isNull);
-      await tester.tap(find.text('صحيح').at(0));
+      // Three ayahs: the «كل الآيات» pair sits first, the ayahs follow.
+      expect(find.text('كل الآيات'), findsOneWidget);
+      await tester.tap(find.text('صحيح').at(1));
       await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'السؤال التالي')).onPressed, isNull);
-      await tester.tap(find.text('خطأ').at(1));
+      await tester.tap(find.text('خطأ').at(2));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('صحيح').at(2));
+      await tester.tap(find.text('صحيح').at(3));
       await tester.pumpAndSettle();
       await tester.tap(find.text('السؤال التالي'));
       await tester.pumpAndSettle();
@@ -248,10 +250,15 @@ void main() {
       }));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      for (var i = 0; i < 3; i++) {
-        await tester.tap(find.text('صحيح').at(i));
-        await tester.pumpAndSettle();
-      }
+      // One tap on the «كل الآيات» pair marks all three right.
+      await tester.tap(find.text('صحيح').first);
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'النتيجة')).onPressed, isNotNull);
+      // ...and one ayah can still be changed after that.
+      await tester.tap(find.text('خطأ').at(2));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('صحيح').at(2));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('النتيجة'));
       await tester.pumpAndSettle();
       expect(j!.correct, isTrue);

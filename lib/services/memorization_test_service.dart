@@ -273,6 +273,28 @@ class MemorizationTestService {
     return i;
   }
 
+  /// Whether word [w] is part of a basmala written into an ayah.
+  bool _isEmbeddedWord(int w) {
+    for (final e in _embeddedBasmala.entries) {
+      if (w >= e.key && w < e.key + e.value) return true;
+    }
+    return false;
+  }
+
+  /// Marks a basmala written into the ayah as passed when [word] is one of
+  /// its words (a help button at that spot), and returns the word after it.
+  int _passEmbeddedAt(int word) {
+    final aligner = _aligner;
+    if (aligner == null) return word;
+    for (final e in _embeddedBasmala.entries) {
+      if (word >= e.key && word < e.key + e.value) {
+        aligner.forceResolveRange(e.key, e.key + e.value, WordStatus.correct);
+        return e.key + e.value;
+      }
+    }
+    return word;
+  }
+
   /// The embedded opening the filter last decided about (a read basmala
   /// dropped, or the sounds were the surah itself), so it is not held for
   /// a second time at the same place.
@@ -847,10 +869,6 @@ class MemorizationTestService {
       _surahOpenings = openings;
       _embeddedBasmala = embedded;
       _embeddedDecided = -1;
-      for (final e in embedded.entries) {
-        // The basmala written inside the ayah: shown, not tested.
-        aligner.forceResolveRange(e.key, e.key + e.value, WordStatus.correct);
-      }
       _basmalaBuffer.clear();
       _basmalaOpening = -1;
       _basmalaArmed = _surahOpenings.isNotEmpty;
@@ -1145,6 +1163,8 @@ class MemorizationTestService {
       );
     }
     if (word < 0) return;
+    word = _passEmbeddedAt(word); // a basmala in the text is not a hint
+    if (word >= aligner.length) return;
     _recorder?.log('control', {'action': 'hint', 'word': word});
     final wasHard = _holdHard && _holdWord == word;
     if (_holdWord == word) _releaseHold('control');
@@ -1288,7 +1308,7 @@ class MemorizationTestService {
     _releaseHold('control');
     if (!_silent) {
       for (var w = _ayahWordStarts[ayah]; w < _ayahWordStarts[ayah + 1]; w++) {
-        if (aligner.statuses[w] != WordStatus.correct) {
+        if (aligner.statuses[w] != WordStatus.correct && !_isEmbeddedWord(w)) {
           _noteError(w, action == 'skip' ? 'skippedAyah' : 'revealed');
           if (action == 'skip') break;
         }
@@ -1405,11 +1425,13 @@ class MemorizationTestService {
     return false;
   }
 
-  /// After the filter has decided (a basmala dropped, or the sounds were
-  /// something else) at an opening whose basmala is written into the ayah:
-  /// that opening is settled for this pass.
-  void _afterBasmalaDecision() {
-    if (_embeddedBasmala.containsKey(_basmalaOpening)) {
+  /// After the filter has decided at an opening whose basmala is written
+  /// into the ayah. Only a DROPPED basmala settles the opening: sounds that
+  /// turned out to be the end of the word before it (the filter listens
+  /// while the cursor is still on that word) must leave it listening for
+  /// the basmala that may still come.
+  void _afterBasmalaDecision({required bool dropped}) {
+    if (dropped && _embeddedBasmala.containsKey(_basmalaOpening)) {
       _embeddedDecided = _basmalaOpening;
     }
     _basmalaOpening = -1;
@@ -1440,7 +1462,7 @@ class MemorizationTestService {
     _basmalaBuffer.clear();
     _basmalaArmed = false; // one basmala per opening; re-armed later
     _rearmBasmalaLater();
-    _afterBasmalaDecision();
+    _afterBasmalaDecision(dropped: true);
     return rest;
   }
 
@@ -1484,7 +1506,7 @@ class MemorizationTestService {
     _basmalaBuffer.clear();
     _basmalaArmed = false;
     _rearmBasmalaLater();
-    _afterBasmalaDecision();
+    _afterBasmalaDecision(dropped: false);
     return out;
   }
 
@@ -1673,6 +1695,9 @@ class MemorizationTestService {
     final waiting = <int>{};
     WordVerdict? repaired;
     for (final v in verdicts) {
+      // A basmala written into the ayah has no phonemes to judge: whatever
+      // the judge says of it is noise (it is passed over below).
+      if (_isEmbeddedWord(v.word)) continue;
       switch (v.state) {
         case VerdictState.ok:
         case VerdictState.unsure:
@@ -1766,7 +1791,8 @@ class MemorizationTestService {
     for (var w = 0; w < behind && w < aligner.length; w++) {
       if (aligner.statuses[w] == WordStatus.pending &&
           !waiting.contains(w) &&
-          !updates.containsKey(w)) {
+          !updates.containsKey(w) &&
+          !_isEmbeddedWord(w)) {
         updates[w] = WordStatus.skipped;
       }
     }
@@ -1836,10 +1862,21 @@ class MemorizationTestService {
     // chose to start there, so the ayahs before it are not under test and
     // are shown (unflagged) rather than left masked.
     if (!_startResolved) {
-      final firstCorrect = updates.entries
-          .where((e) => e.value == WordStatus.correct)
-          .map((e) => e.key)
-          .fold<int>(-1, (a, b) => a < 0 || b < a ? b : a);
+      final okWords = [
+        for (final e in updates.entries)
+          if (e.value == WordStatus.correct) e.key,
+      ]..sort();
+      // The start is fixed by two words read right, not one: a breath the
+      // recognizer hears as «إنّ» must not open the page (everything before
+      // the start is shown). The first word shows with the second.
+      final solid = okWords.length >= 2;
+      if (okWords.isNotEmpty && !solid) {
+        for (final w in okWords) {
+          updates.remove(w);
+        }
+        _recorder?.log('startWait', {'word': okWords.first});
+      }
+      final firstCorrect = solid && okWords.isNotEmpty ? okWords.first : -1;
       if (firstCorrect >= 0) {
         _startResolved = true;
         final ayah = _ayahIndexOfWord(firstCorrect);
@@ -1879,6 +1916,18 @@ class MemorizationTestService {
         if (firstWrong < 0 || w < firstWrong) firstWrong = w;
       }
       if (firstWrong >= 0) updates.removeWhere((w, st) => w > firstWrong);
+    }
+    // A basmala written into the ayah is passed over in silence: it shows
+    // once the reader is beyond it, never before.
+    for (final e in _embeddedBasmala.entries) {
+      final after = e.key + e.value;
+      if (after >= aligner.length) continue;
+      final passed = aligner.statuses[after] != WordStatus.pending ||
+          updates.entries.any((u) => u.key >= after && u.value != WordStatus.skipped);
+      if (!passed) continue;
+      for (var w = e.key; w < after; w++) {
+        if (aligner.statuses[w] == WordStatus.pending) updates[w] = WordStatus.correct;
+      }
     }
     // Where the session started is the only free choice. Until it is known
     // nothing is a skip; once it is, the recitation may not skip: a skipped
@@ -2639,9 +2688,6 @@ class MemorizationTestService {
       _tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
       final newAligner = QuranWordAligner(expectedWords)
         ..onWordResolved = (_) => revision.value++;
-      for (final e in embedded.entries) {
-        newAligner.forceResolveRange(e.key, e.key + e.value, WordStatus.correct);
-      }
       _aligner = newAligner;
       _embeddedBasmala = embedded;
       _embeddedDecided = -1;

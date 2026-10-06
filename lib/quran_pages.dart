@@ -3730,8 +3730,9 @@ class _QuranPagesState extends State<QuranPages>
       final hasNext = _drillQueue.isNotEmpty;
       final bool next;
       if (run.silent) {
-        // Nothing was judged: the reader says how it went.
-        final question = run.questions[run.results.length - 1];
+        // Nothing was judged: the reader says how it went. (The drill's
+        // number names the question; questions may have been passed over.)
+        final question = run.questions[(result.drill.index - 1).clamp(0, run.questions.length - 1)];
         final j = await showHifzSelfJudge(
           context,
           question: question,
@@ -4039,9 +4040,31 @@ class _QuranPagesState extends State<QuranPages>
   /// If the new page can't be started the mode switches off rather than
   /// leaving the mic icon claiming a session that isn't there.
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
-    // Turning the page by hand leaves a drill round or a test.
-    _drillQueue.clear();
     final run = _hifzTest;
+    if (run != null && run.silent) {
+      // A self-test never turns into a microphone session by a page turn.
+      // In an open self-test every page is a question: the page turned to
+      // is simply the next question (what was left of this one is not
+      // judged). Otherwise the test ends where it stands.
+      if (run.endless) {
+        final at = _drillQueue.indexWhere((d) => (d.startPage ?? d.page) == pageIndex + 1);
+        if (at >= 0) {
+          _drillQueue.removeRange(0, at);
+          _memorizationTestPageIndex = pageIndex;
+          await _runNextTasmeeDrill();
+          return;
+        }
+      }
+      _hifzTest = null;
+      _drillQueue.clear();
+      _finishHifzTest(run);
+      await _toggleMemorizationTest(false);
+      if (!mounted) return;
+      if (run.answered > 0) await showHifzTestSummary(context, run);
+      return;
+    }
+    // Turning the page by hand leaves a drill round or a microphone test.
+    _drillQueue.clear();
     _hifzTest = null;
     MemorizationTestService.instance.keepEngineWarm = false;
     if (run != null) _finishHifzTest(run);
