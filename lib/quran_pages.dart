@@ -72,7 +72,8 @@ import 'services/hifz_test_plan.dart';
 import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
-import 'services/tasmee_report_store.dart' show TasmeeError, TasmeeLocateAnywhere;
+import 'services/tasmee_report_store.dart'
+    show TasmeeError, TasmeeLocateAnywhere;
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
@@ -984,6 +985,10 @@ class _QuranPagesState extends State<QuranPages>
       // Keeps the "صفحة اليوم" queue a full horizon deep. Returns immediately
       // once it has run for the day, so this is cheap on every other resume.
       DailyPageService.instance.refreshSchedule();
+      // Re-assert the keep-awake flag. It lives on the Activity's window, so
+      // anything that recreates the window drops it, and on TV losing it means
+      // the set goes to standby mid-recitation.
+      _setReadingMode(_keepScreenAwakeService.enabled.value);
     }
   }
 
@@ -995,8 +1000,15 @@ class _QuranPagesState extends State<QuranPages>
     // this await never sees. Skip it there entirely; keeping the screen awake
     // is a native-only nicety.
     if (kIsWeb) return;
+    // On TV the screen never sleeps while the app is up, whatever the
+    // preference says. MainActivity sets the same flag at onCreate; this stops
+    // anything here from clearing it again -- turning the setting off, or
+    // auto-scroll ending, or a settings reset. A television that blanks in the
+    // middle of a tilawah is the bug being fixed, and there is no battery to
+    // trade against it.
+    final bool keepAwake = enabled || TvService.instance.isTv;
     try {
-      await WakelockPlus.toggle(enable: enabled);
+      await WakelockPlus.toggle(enable: keepAwake);
     } catch (_) {}
   }
 
@@ -3567,7 +3579,10 @@ class _QuranPagesState extends State<QuranPages>
       ..clear()
       ..addAll([
         for (var i = 0; i < run.questions.length; i++)
-          run.questions[i].toDrill(i + 1, run.endless ? 0 : run.questions.length),
+          run.questions[i].toDrill(
+            i + 1,
+            run.endless ? 0 : run.questions.length,
+          ),
       ]);
     await _runNextTasmeeDrill();
   }
@@ -3732,7 +3747,11 @@ class _QuranPagesState extends State<QuranPages>
       if (run.silent) {
         // Nothing was judged: the reader says how it went. (The drill's
         // number names the question; questions may have been passed over.)
-        final question = run.questions[(result.drill.index - 1).clamp(0, run.questions.length - 1)];
+        final question =
+            run.questions[(result.drill.index - 1).clamp(
+              0,
+              run.questions.length - 1,
+            )];
         final j = await showHifzSelfJudge(
           context,
           question: question,
@@ -4047,7 +4066,9 @@ class _QuranPagesState extends State<QuranPages>
       // is simply the next question (what was left of this one is not
       // judged). Otherwise the test ends where it stands.
       if (run.endless) {
-        final at = _drillQueue.indexWhere((d) => (d.startPage ?? d.page) == pageIndex + 1);
+        final at = _drillQueue.indexWhere(
+          (d) => (d.startPage ?? d.page) == pageIndex + 1,
+        );
         if (at >= 0) {
           _drillQueue.removeRange(0, at);
           _memorizationTestPageIndex = pageIndex;

@@ -1153,23 +1153,27 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         },
       ),
-      ValueListenableBuilder<bool>(
-        valueListenable: _keepScreenAwakeService.enabled,
-        builder: (context, keepAwakeEnabled, _) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: CompactSwitchTile(
-              title: 'استخدام إعدادات الهاتف لقفل وإطفاء الشاشة',
-              icon: Icons.screen_lock_portrait_rounded,
-              onInfo: () => _showInfoNotice(_systemScreenTimeoutInfoText),
-              value: !keepAwakeEnabled,
-              onChanged: (useSystemScreenTimeout) {
-                _keepScreenAwakeService.setEnabled(!useSystemScreenTimeout);
-              },
-            ),
-          );
-        },
-      ),
+      // Not on TV. The screen is held on there unconditionally -- a set that
+      // blanks mid-tilawah is a bug, and there is no battery to trade against
+      // it -- so this switch would do nothing, and it says "الهاتف" besides.
+      if (!TvService.instance.isTv)
+        ValueListenableBuilder<bool>(
+          valueListenable: _keepScreenAwakeService.enabled,
+          builder: (context, keepAwakeEnabled, _) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: CompactSwitchTile(
+                title: 'استخدام إعدادات الهاتف لقفل وإطفاء الشاشة',
+                icon: Icons.screen_lock_portrait_rounded,
+                onInfo: () => _showInfoNotice(_systemScreenTimeoutInfoText),
+                value: !keepAwakeEnabled,
+                onChanged: (useSystemScreenTimeout) {
+                  _keepScreenAwakeService.setEnabled(!useSystemScreenTimeout);
+                },
+              ),
+            );
+          },
+        ),
       ValueListenableBuilder<bool>(
         valueListenable: _pageZoomService.enabled,
         builder: (context, zoomEnabled, _) {
@@ -1667,43 +1671,44 @@ class _SettingsPageState extends State<SettingsPage> {
                       // margin tile above it. Hidden for now: the shade is
                       // simply on (SpineShadowService.userSettable).
                       if (SpineShadowService.userSettable)
-                      const SizedBox(height: 6),
+                        const SizedBox(height: 6),
                       if (SpineShadowService.userSettable)
-                      SettingsCard(
-                        child: ValueListenableBuilder<bool>(
-                          valueListenable: _spineShadowService.enabled,
-                          builder: (context, enabled, _) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 5,
-                              ),
-                              child: Row(
-                                textDirection: TextDirection.rtl,
-                                children: [
-                                  Expanded(
-                                    child: SettingsTileHeader(
-                                      title: 'ظلّ الكعب (تمييز اليمنى واليسرى)',
-                                      onInfo: () => _showInfoNotice(
-                                        _spineShadowInfoText,
+                        SettingsCard(
+                          child: ValueListenableBuilder<bool>(
+                            valueListenable: _spineShadowService.enabled,
+                            builder: (context, enabled, _) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 5,
+                                ),
+                                child: Row(
+                                  textDirection: TextDirection.rtl,
+                                  children: [
+                                    Expanded(
+                                      child: SettingsTileHeader(
+                                        title:
+                                            'ظلّ الكعب (تمييز اليمنى واليسرى)',
+                                        onInfo: () => _showInfoNotice(
+                                          _spineShadowInfoText,
+                                        ),
+                                        scaleDownToFit: true,
                                       ),
-                                      scaleDownToFit: true,
                                     ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Switch(
-                                    activeThumbColor: const Color(0xFF8B7355),
-                                    value: enabled,
-                                    onChanged: _spineShadowService.setEnabled,
-                                    materialTapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                                    const SizedBox(width: 4),
+                                    Switch(
+                                      activeThumbColor: const Color(0xFF8B7355),
+                                      value: enabled,
+                                      onChanged: _spineShadowService.setEnabled,
+                                      materialTapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 6),
                       _buildDailyPageSection(),
                       const SizedBox(height: 6),

@@ -31,6 +31,20 @@ class MainActivity : AudioServiceActivity() {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
+
+        // Android TV: hold the screen on from the very first frame.
+        //
+        // Dart asks for this too (wakelock_plus sets exactly this flag), but
+        // only once the engine is up and the reader has built, and it swallows
+        // the NoActivityException it throws if the plugin has not been attached
+        // to an Activity yet. A television left playing a long tilawah with no
+        // remote input went to standby after about fifteen minutes, so the flag
+        // needs to be on before any of that can go wrong. A TV has no battery
+        // to protect, and the app being in the foreground means someone is
+        // using it.
+        if (isAndroidTv()) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     // Tells Dart whether this is an Android TV. Nothing on the Flutter side can
