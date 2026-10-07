@@ -15,7 +15,7 @@ publish_to: 'none'
 # (arm64-v8a) and 4102 (x86_64). Play refuses any versionCode it has seen before
 # on any track, so a LOWER build number here silently becomes an unuploadable
 # APK — e.g. +30 would produce 1030/2030/4030, beneath the 4102 already built.
-version: 1.5.5+121
+version: 1.5.5+122
 
 environment:
   sdk: ^3.11.1
@@ -61,11 +61,10 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.1    
 
 flutter_launcher_icons:
-  ios: false
+  ios: true
   android: true
   remove_alpha_ios: true
-  image_path: "assets/icon/app_icon.png"
-  image_path_android: "store_assets/1024x1024android.png"
+  image_path: "store_assets/1024x1024android.png"
   adaptive_icon_background: "#a86b0c"
   adaptive_icon_foreground: "store_assets/1024x1024android.png"
 
