@@ -163,7 +163,7 @@ void main() {
       expect(old.endless, isTrue);
     });
 
-    test('with athman every thumn is one question, shuffled unless open', () {
+    test('with athman every thumn is one question, as many as asked, at random', () {
       final r = HifzRange.athman(start: 9, count: 3); // hizb 2, athman 1-3
       final inOrder = HifzTestPlanner.plan(
         index: index,

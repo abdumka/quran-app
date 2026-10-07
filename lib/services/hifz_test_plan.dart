@@ -426,12 +426,13 @@ class HifzTestQuestion {
 
   /// The question as a Tasmee session runs it: start on [start]'s page at
   /// its ayah, end once [end] is recited.
-  TasmeeDrill toDrill(int index, int total) => TasmeeDrill(
+  TasmeeDrill toDrill(int index, int total, {int? number}) => TasmeeDrill(
         page: end.page,
         surah: end.surah,
         ayah: end.ayah,
         targets: targets,
         index: index,
+        number: number,
         total: total,
         title: 'اختبار',
         cue: cue,
@@ -455,11 +456,20 @@ class HifzTestRun {
   final DateTime startedAt;
   final List<TasmeeDrillResult> results = [];
 
-  /// Self-test only: what the reader said of each question, in order.
+  /// Self-test only: what the reader said of each question, in order, and
+  /// which question (index into [questions]) each verdict is about.
   final List<bool> judgements = [];
+  final List<int> judged = [];
 
   /// Self-test only: the ayahs the reader marked wrong, over all questions.
   int missedAyahs = 0;
+
+  /// Open self-test: pages read through (nothing is judged there).
+  int pagesRead = 0;
+
+  /// The question the [i]th answer is about.
+  HifzTestQuestion questionOf(int i) => questions[
+      (silent ? judged[i] : results[i].drill.index - 1).clamp(0, questions.length - 1)];
 
   int get answered => silent ? judgements.length : results.length;
   int get correct => silent
@@ -528,10 +538,10 @@ class HifzTestPlanner {
         if (span == null) continue;
         thumns.add(_questionStartingAt(index, span.$1, _unbounded, span.$2, crossSurah: true));
       }
-      if (config.endless) return thumns;
-      // A closed test: as many athman as asked for, drawn at random.
+      // As many athman as asked for, drawn at random from the range (an
+      // open test only drops the pauses between them).
       thumns.shuffle(rng);
-      return thumns.take(want).toList();
+      return thumns.take(want.clamp(1, thumns.length)).toList();
     }
 
     if (config.endless) {

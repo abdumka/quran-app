@@ -160,6 +160,31 @@ void main() {
     });
   });
 
+  group('أحمد صالح رجب (timed surah scheme)', () {
+    setUp(() => select(Reciter.rajabQaloun));
+
+    test('one file per surah, 114 for a complete download', () {
+      expect(downloads.getSurahFilenames(2), ['002.mp3']);
+      expect(downloads.getAllFilenames().length, 114);
+      expect(downloads.getAllFilenames(), isNot(contains('002000.mp3')));
+    });
+
+    test('offered in the picker, timings on the CORS-enabled host', () {
+      const r = Reciter.rajabQaloun;
+      expect(Reciter.all, contains(r));
+      expect(r.scheme, AudioScheme.timedSurah);
+      expect(r.audioBaseUrl, 'https://audio.mushaf-qaloon.com/rajab/');
+      expect(r.timingsBaseUrl,
+          'https://quran-content.mushaf-qaloon.com/timings/rajab/');
+    });
+
+    test("shows the owner's spelling of the name", () {
+      // midad lists him as «أحمد بن صالح رجب»; the owner asked for no «بن».
+      expect(Reciter.rajabQaloun.name, 'أحمد صالح رجب');
+      expect(Reciter.rajabQaloun.name, isNot(contains('بن')));
+    });
+  });
+
   group('existing reciters are untouched by the scheme refactor', () {
     test('Al-Husary keeps the merged-tail names', () {
       select(Reciter.husaryQaloun);

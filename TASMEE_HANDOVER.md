@@ -43,7 +43,7 @@ session at the word. Riwaya Qalun (سكون وقصر), Libyan mushaf, 602 pages,
 
 | Step | Where | What |
 |---|---|---|
-| Recognizer | `lib/services/zipformer_recitation_engine.dart` | Streaming Zipformer2-CTC phoneme model (Quran-Lab `zipformer_p_arabic_v3.1` int8, 251 tokens) via `sherpa_onnx` in a worker isolate; decodes every 100 ms. Downloaded once from R2 (`AsrModelManager`). Licence NPL-1.2: feature stays free, no ads. |
+| Recognizer | `lib/services/zipformer_recitation_engine.dart` | Streaming Zipformer2-CTC phoneme model (Quran-Lab `zipformer_p_arabic_v3.1` int8, 251 tokens) via `sherpa_onnx` in a worker isolate; the engine pushes audio every 100 ms but the model only decodes once it holds a full chunk. **Since 2026-10-06 the file is our own re-export of the same weights at a 16-frame chunk (`zipformer_p_arabic_v3.1_c16.int8.onnx`, 0.32 s per step) instead of Quran-Lab's 24-frame export (0.48 s)**: emission wait median 0.50 → 0.40 s, no change in sheikh false alarms (`tasmee_work/research_2026-10-05/RESULTS.txt`). Exporter: `tasmee_work/research_2026-10-05/export_chunks.py` (runs on the T4 VM); a chunk-8 export exists too (0.32 s emission wait but +14 % stops on the owner's phone sessions, not shipped). Downloaded once from R2 `asr/` (`AsrModelManager`; `obsoleteFiles` removes the old 24-frame file). Licence NPL-1.2: feature stays free, no ads. |
 | Tracker | `lib/utils/phoneme_tracker.dart` (`PhonemeTracker`) | Online edit-distance DP of heard phonemes against the page's expected phoneme string, with restart origins so repeats are re-judged from their first sound. |
 | Judge | same file (`VerdictTracer`) | Per word: `ok`, `unsure`, `wrong`, `skipped`, `pending`; wrong reasons `hafs`, `word`, `extra`, `haraka`, or plain distance. |
 | Session | `lib/services/memorization_test_service.dart` | Verdicts → word statuses, holds, page flow, reports, logs, basmala filter, extra-word notices. |
@@ -62,6 +62,31 @@ There is **no demo/stub engine** any more (deleted 2026-09-20). No mic or no mod
 session does not start and a snackbar says why (`StubReason` kept its name).
 
 ### Session rules
+- **Early commit (2026-10-06, judge, mirrored):** a word heard exactly (or as an accepted form) is
+  revealed as soon as the tracker's cursor has moved to the next word, instead of after
+  `commitDwell` (6) more phonemes, unless its Hafs alternative, a same-spot look-alike, or any
+  lexicon word could still continue what has been heard (`PhonemeLexicon.extendsEntry`, up to 3
+  phonemes after the span are consulted; مِن stays pending while the next sounds fit مِنهُم).
+  `TrackerConfig.earlyCommit`, `VerdictTracer._exactAndFinal`; Python `exact_and_final`, harness flag
+  `--no-early`, and the harness now prints `flips ok->wrong` (a word revealed early that the final
+  verdict called wrong). Tests: `phoneme_tracker_early_commit_test.dart`. The parity fixtures are
+  settled-only and were unaffected. Why: on 11,000 words of the owner's logs the judge hold-back was
+  0.48 s of the 1.09 s median reveal lag (`research_2026-10-05/lag_decompose.py`).
+- **Dropped particle behind a stray vowel (2026-10-06, judge, mirrored):** owner's p440: «لمن» said
+  as «من», heard «َمِنَ» (d 0.167, unsure, revealed). When a heard slice begins with a short vowel
+  (no word does) and the rest is the expected word minus a one-letter particle (لَ وَ فَ بِ كَ سَ لِ),
+  the lexicon checks run on the slice without the vowel → `wrong [word]`. Not for wasl or
+  hamza-initial words. `TrackerConfig.orphanVowel`, `_droppedParticle`; harness `--no-orphan`.
+  A broader version (strip the vowel for every word) was measured and narrowed: +3 sheikh stops
+  and 23 new stops in the owner's sessions, most of them the model dropping a word's opening
+  (الذين, يدعون→دون, بآياتنا→آياتنا). The narrow rule: 0 on the sheikh, 0 on those sessions.
+  Test: `phoneme_tracker_orphan_vowel_test.dart`. Known limit: «لقد» read correctly but heard
+  «قَدڇ» (model drop after a pause) is the same token evidence as «من» for «لمن»; the audio
+  (`research_2026-10-05/clips/p440_laqad.*`) shows the لَ was said. Only the model side can fix it.
+- **Cursor-word commit (2026-10-06, second half of early commit):** the cursor word itself commits
+  when heard exactly and complete and no lexicon word begins with it (`lexicon.extendsEntry(exp)`
+  false; 60.7 % of words). Replay of 256 sessions: commit lag median 0.64 → 0.52 s, p90 1.26 →
+  1.04 s, final verdicts identical, flips +2. Test: `phoneme_tracker_cursor_commit_test.dart`.
 - Where the session starts is the only free choice (any ayah of the page); no forward jumps.
 - **Mistake**: hold at the word (pink, alert). Released by a correct re-read (`ok`, or
   distance ≤ 0.3), a help button, or 12 correct words further on. **Nothing after a word with a
@@ -347,6 +372,7 @@ margin placement of pages 1, 69, 289 was refitted on the text block (`tools/refi
 | 09-21 | Mask audit + fixes (§3); playing-ayah highlight; joined-group highlight | Banners covered on 62 pages, 655 markers misplaced, kasras on the wrong line |
 | 09-23 | Basmala filter; extra-word notice; repeat-ayah page-back; readable reports; upload hint | «الٓمٓصٓ» flagged after a basmala; «قد وجدنا» passed; reports showed «مءهلكنامن» |
 | 09-24 | إسرائيل data fix; no riwaya names in UI; two alert kinds; floating bar; first-use guide; what's-new list; draft update.json | — |
+| 10-06 | Chunk-16 re-export of the model; early commit in the judge (tag `pre-tasmee-fast-2026-10-06`) | Reveal lag median 1.09 s (0.44 chunk wait + 0.1 compute + 0.48 dwell) → see `research_2026-10-05/RESULTS.txt` |
 
 Recovery tags: `pre-tasmee-cleanup-2026-09-20`, `pre-tasmee-round8-2026-09-21`,
 `pre-masks-highlight-2026-09-21`, `pre-group-highlight-2026-09-21`.

@@ -340,7 +340,7 @@ void main() {
     // A word uncovered by hand stays amber but is not an error...
     final first = firstWordOf(1);
     service.showHint();
-    expect(service.statuses[first], WordStatus.revealed);
+    expect(service.statuses[first], WordStatus.correct);
     // ...and a whole ayah uncovered shows plain.
     service.revealCurrentAyah();
     for (var w = first + 1; w < firstWordOf(2); w++) {
@@ -435,6 +435,33 @@ void main() {
     } finally {
       MemorizationTestService.skipPlaybackStopForTest = false;
     }
+  });
+
+  test('in a self-test a shown word is plain and no error is noted', () async {
+    final question = TasmeeDrill(
+      page: 1,
+      surah: 1,
+      ayah: 3,
+      targets: const [],
+      title: 'اختبار',
+      startPage: 1,
+      startAyahIndex: 0,
+    );
+    expect(
+      await service.start(pageNumber: 1, stopPlayback: false, drill: question, silent: true),
+      isTrue,
+    );
+    service.showHint();
+    expect(service.statuses[0], WordStatus.correct, reason: 'shown plainly, not amber');
+    service.revealCurrentAyah();
+    expect(service.statuses[firstWordOf(1) - 1], WordStatus.correct);
+    service.revealCurrentAyah();
+    service.revealCurrentAyah();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final r = service.drillResult.value;
+    expect(r, isNotNull);
+    expect(r!.errors, isEmpty, reason: 'nothing is a mistake in a self-test');
+    expect(r.failed, isEmpty);
   });
 
   test('a clean test question is clean', () async {

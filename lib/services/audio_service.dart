@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_session/audio_session.dart';
+
+import 'tv_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
@@ -77,6 +79,15 @@ class AudioService {
   List<QuranAyahData> _playlistAyahs = [];
   List<AudioClip> _currentAyahClips = [];
   bool _isChangingPage = false;
+
+  /// Bumped by [stop]. Work that awaits the player — loading the first ayah of
+  /// a page, a seek inside the surah — captures it first and, once the await
+  /// returns, gives up if the recitation was closed in the meantime. Without
+  /// this, one await that never returned held [_isChangingPage] for the rest
+  /// of the process: closing the bar did not release it, and every later tap
+  /// on التلاوة returned at once without a word (owner's phone, 2026-10-07;
+  /// only a force stop brought it back).
+  int _session = 0;
 
   /// Ayat advanced past in a row because they had no clip to play. A reciter
   /// who joins ayat legitimately yields a few (Doukali up to 14 in a row);
@@ -367,7 +378,20 @@ class AudioService {
   Future<void> _setupAudioSession() async {
     try {
       final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.speech());
+      // speech() sets androidWillPauseWhenDucked, which turns a *transient
+      // duck* request from another app into a full pause for us. On a phone
+      // that is right: a spoken notification over a recitation is a mess. On
+      // a television it is not -- the launcher plays video previews with
+      // sound the moment you press Home, and a recitation the user has
+      // explicitly asked to keep playing in the background should drop in
+      // volume for that, not stop dead.
+      await session.configure(
+        TvService.instance.isTv
+            ? const AudioSessionConfiguration.speech().copyWith(
+                androidWillPauseWhenDucked: false,
+              )
+            : const AudioSessionConfiguration.speech(),
+      );
       session.interruptionEventStream.listen((event) {
         if (event.begin) {
           switch (event.type) {
@@ -398,7 +422,14 @@ class AudioService {
         }
       });
       // Headphones unplugged / Bluetooth disconnected → pause (don't blast audio).
+      //
+      // Not on TV. There is nothing to unplug from a television and no one to
+      // startle, but the event does fire there on an HDMI or audio-output
+      // route change -- which is exactly what can happen as the launcher takes
+      // the screen -- and pausing on it would stop a recitation the user
+      // deliberately left running.
       session.becomingNoisyEventStream.listen((_) {
+        if (TvService.instance.isTv) return;
         if (_player.playing) pause();
       });
     } catch (e) {
@@ -555,12 +586,16 @@ class AudioService {
   List<AudioClip> _getClipsForAyah(QuranAyahData ayah, {int? pageNumber}) {
     final reciter = ReciterService.instance.selected.value;
     if (reciter.scheme == AudioScheme.timedSurah) {
-      return SurahTimingsService.instance
-          .clipsFor(reciter, ayah.surah, ayah.ayah);
+      return SurahTimingsService.instance.clipsFor(
+        reciter,
+        ayah.surah,
+        ayah.ayah,
+      );
     }
-    return _getAudioFilesForAyah(ayah, pageNumber: pageNumber)
-        .map(AudioClip.whole)
-        .toList();
+    return _getAudioFilesForAyah(
+      ayah,
+      pageNumber: pageNumber,
+    ).map(AudioClip.whole).toList();
   }
 
   /// Whether [ayah] is recited inside the clip of the ayah before it, for
@@ -646,10 +681,12 @@ class AudioService {
   }) async {
     if (_isChangingPage) return;
     _isChangingPage = true;
+    final session = _session;
     // Whatever page turn was owed, it is about to be overtaken by this one.
     _cancelDeferredFlip();
     try {
       if (_quranPages == null) await init();
+      if (session != _session) return;
 
       final int pageNumber = pageIndex + 1;
       _currentPageIndex = pageIndex;
@@ -667,6 +704,7 @@ class AudioService {
       // walk all the way back to the first ayah. A no-op for every other scheme,
       // and for a surah already loaded.
       await _ensureTimingsFor(pageData.ayahs);
+      if (session != _session) return;
       if (startFromAyahIndex != null) {
         _currentGlobalAyahIndex = startFromAyahIndex;
       } else if (startFromLastAyah) {
@@ -695,14 +733,18 @@ class AudioService {
       } finally {
         isLoadingAudio.value = false;
       }
+      if (session != _session) return;
 
       await _playCurrentAyah(autoPlay: autoPlay);
+      if (session != _session) return;
 
       // Download remaining ayahs + next page in background
       _downloadPageAyahs(pageData.ayahs); // Fire and forget
       _preloadNextPage(pageIndex);
     } finally {
-      _isChangingPage = false;
+      // After [stop] the lock is no longer this call's to release: stop()
+      // already did, and a new playPage may hold it now.
+      if (session == _session) _isChangingPage = false;
     }
   }
 
@@ -839,7 +881,9 @@ class AudioService {
               ayah.surah,
             ) ==
             null) {
+      final session = _session;
       await _ensureTimingsFor([ayah]);
+      if (session != _session) return;
       _currentAyahClips = _getClipsForAyah(
         ayah,
         pageNumber: _currentPageIndex + 1,
@@ -937,6 +981,9 @@ class AudioService {
     // from the previous clip must never fire against this one.
     _clipEndTarget = null;
     var streamed = kIsWeb; // the source is a remote URL, not a cached file
+    // Closed while one of the awaits below was pending: arm, play and report
+    // nothing — the recitation this clip belonged to is over.
+    final session = _session;
     try {
       final Uri uri;
       if (kIsWeb) {
@@ -948,9 +995,10 @@ class AudioService {
 
         final hasLocalFile = localFile.existsSync();
         if (!hasLocalFile && !await _hasInternetConnection()) {
-          _haltPlayback(_offlineNotice);
+          if (session == _session) _haltPlayback(_offlineNotice);
           return false;
         }
+        if (session != _session) return false;
 
         streamed = !hasLocalFile;
         uri = hasLocalFile
@@ -988,6 +1036,7 @@ class AudioService {
         final seekNeeded = drift < -slack || drift > slack;
         if (seekNeeded) {
           await _player.seek(clip.start ?? Duration.zero);
+          if (session != _session) return false;
         }
         _armClipEnd(clip, absolute: true);
         if (autoPlay) {
@@ -1002,6 +1051,7 @@ class AudioService {
         // it pointing at the previous ayah forever. Resetting to idle first
         // forces a genuine load of the new URL.
         await _player.stop();
+        if (session != _session) return false;
       }
       // The MediaItem tag drives the OS media notification via
       // just_audio_background, which is only initialised on Android/iOS (see
@@ -1019,13 +1069,13 @@ class AudioService {
       AudioSource buildSource() => timedSurah
           ? AudioSource.uri(uri, tag: tag)
           : clip.isClipped
-              ? ClippingAudioSource(
-                  child: AudioSource.uri(uri),
-                  start: clip.start,
-                  end: clip.end,
-                  tag: tag,
-                )
-              : AudioSource.uri(uri, tag: tag);
+          ? ClippingAudioSource(
+              child: AudioSource.uri(uri),
+              start: clip.start,
+              end: clip.end,
+              tag: tag,
+            )
+          : AudioSource.uri(uri, tag: tag);
       try {
         await _player.setAudioSource(buildSource());
       } on PlayerException catch (_) {
@@ -1038,8 +1088,13 @@ class AudioService {
         // wrong with the file. The old source is gone by now, so simply
         // loading again succeeds — without this the recitation stopped dead
         // on roughly one surah change in four while streaming.
+        //
+        // Unless the interruption was the next recitation's own load (the bar
+        // was closed and opened again): retrying would knock that one out.
+        if (session != _session) return false;
         await _player.setAudioSource(buildSource());
       }
+      if (session != _session) return false;
       _loadedSurahUri = timedSurah ? uri : null;
 
       if (timedSurah) {
@@ -1048,6 +1103,7 @@ class AudioService {
       if (seekTo != null) {
         await _player.seek(seekTo);
       }
+      if (session != _session) return false;
       _armClipEnd(clip, absolute: timedSurah);
       if (autoPlay) {
         _player.play();
@@ -1055,6 +1111,7 @@ class AudioService {
       return true;
     } catch (e) {
       debugPrint('Error playing audio: $e');
+      if (session != _session) return false; // not this recitation's error
       _halted = true; // whatever is loaded is not trustworthy: play retries
       if (e is SocketException) {
         _showPlaybackNotice(_offlineNotice);
@@ -1115,8 +1172,9 @@ class AudioService {
       return;
     }
     final duration = clip.duration;
-    _clipEndTarget =
-        (duration != null && duration > Duration.zero) ? duration : null;
+    _clipEndTarget = (duration != null && duration > Duration.zero)
+        ? duration
+        : null;
     _sawPositionInsideClip = false;
   }
 
@@ -1367,8 +1425,7 @@ class AudioService {
   /// continuation ayat and phantom verses, which produce no clips — and, under
   /// [AudioScheme.timedSurah], for ayat whose timing entry is null because the
   /// sheikh recites them inside a neighbour's breath).
-  bool _isPlayableAyah(QuranAyahData ayah) =>
-      _getClipsForAyah(ayah).isNotEmpty;
+  bool _isPlayableAyah(QuranAyahData ayah) => _getClipsForAyah(ayah).isNotEmpty;
 
   /// Cycle through repeat modes: off → 2× → 3× → infinite (∞) → off
   ///
@@ -1835,6 +1892,7 @@ class AudioService {
     // before the next one starts — however short the page was.
     _flipNow();
     if (_playlistAyahs.isEmpty) return;
+    final session = _session;
 
     final lastAyah = _playlistAyahs.last;
 
@@ -1920,8 +1978,11 @@ class AudioService {
       final head = nextPageAyahs.isEmpty
           ? null
           : spannedAyahHead[nextPageIndex + 1];
+      // Closed during a repeat-boundary check above: don't reopen the bar.
+      if (session != _session) return;
       if (head == null) onPageChangeRequired?.call(nextPageIndex);
       await playPage(nextPageIndex);
+      if (session != _session) return;
       if (head != null) _deferFlip(nextPageIndex, head, nextPageAyahs.first);
     } else {
       // Don't stop unless we really reached the end of the Quran
@@ -1993,6 +2054,11 @@ class AudioService {
 
   /// Stop playback and close the recitation bar.
   void stop() {
+    // Ends this recitation: anything of it still awaiting the player drops
+    // out when the await returns, and the page lock is free again even if
+    // that await never returns (see [_session]).
+    _session++;
+    _isChangingPage = false;
     _splitMonitorSubscription?.cancel();
     _cancelDeferredFlip();
     _clipEndTarget = null;

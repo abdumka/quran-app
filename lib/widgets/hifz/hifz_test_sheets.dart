@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/hifz_test_plan.dart';
@@ -214,6 +216,35 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
   /// Each ayah's verdict once given: true = wrong. Unmarked until tapped.
   final Map<int, bool> _verdict = {};
 
+  /// Once every ayah is marked the sheet goes on by itself after a
+  /// moment; another tap restarts the moment, so a mark can be changed.
+  Timer? _auto;
+  static const Duration autoAdvance = Duration(milliseconds: 1200);
+
+  @override
+  void dispose() {
+    _auto?.cancel();
+    super.dispose();
+  }
+
+  void _marked() {
+    _auto?.cancel();
+    if (_allMarked) _auto = Timer(autoAdvance, _submit);
+  }
+
+  void _submit() {
+    _auto?.cancel();
+    if (!mounted) return;
+    final ayahs = _ayahs;
+    Navigator.of(context).pop(
+      HifzSelfJudgement(
+        correct: _wrong.isEmpty,
+        missed: [for (final i in _wrong) ayahs[i]],
+        next: widget.hasNext,
+      ),
+    );
+  }
+
   bool get _allMarked => _verdict.length >= _ayahs.length;
   Iterable<int> get _wrong => [for (final e in _verdict.entries) if (e.value) e.key];
 
@@ -237,7 +268,8 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
       final color = asWrong ? p.bad : p.good;
       return InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () => setState(() {
+        onTap: () {
+          setState(() {
           if (i >= 0) {
             _verdict[i] = asWrong;
           } else {
@@ -245,7 +277,9 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
               _verdict[k] = asWrong;
             }
           }
-        }),
+          });
+          _marked();
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
@@ -375,26 +409,30 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
                   child: FilledButton(
                     style: _filled(p),
                     // Only once every ayah has been judged.
-                    onPressed: !_allMarked
-                        ? null
-                        : () => Navigator.of(context).pop(
-                              HifzSelfJudgement(
-                                correct: _wrong.isEmpty,
-                                missed: [for (final i in _wrong) ayahs[i]],
-                                next: widget.hasNext,
-                              ),
-                            ),
+                    onPressed: _allMarked ? _submit : null,
                     child: Text(
                       widget.hasNext ? 'السؤال التالي' : 'النتيجة',
                       style: _buttonText,
                     ),
                   ),
                 ),
+                if (_allMarked)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'ينتقل بعد لحظة؛ غيّر ما شئت قبل ذلك.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: p.sub, fontSize: 12),
+                    ),
+                  ),
                 Center(
                   child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(
-                      const HifzSelfJudgement(correct: null, next: false),
-                    ),
+                    onPressed: () {
+                      _auto?.cancel();
+                      Navigator.of(context).pop(
+                        const HifzSelfJudgement(correct: null, next: false),
+                      );
+                    },
                     child: Text(
                       widget.hasNext ? 'إنهاء الاختبار دون حكم' : 'إغلاق دون حكم',
                       style: TextStyle(color: p.sub, fontSize: 13.5),
@@ -434,7 +472,9 @@ Future<void> showHifzTestSummary(BuildContext context, HifzTestRun run) {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'نتيجة الاختبار: ${run.correct} من ${run.answered}',
+                  run.silent && run.endless
+                      ? 'اختبار ذاتي مفتوح: ${pagesCount(run.pagesRead)}'
+                      : 'نتيجة الاختبار: ${run.correct} من ${run.answered}',
                   style: TextStyle(
                     color: p.title,
                     fontSize: 19,
@@ -466,7 +506,7 @@ Future<void> showHifzTestSummary(BuildContext context, HifzTestRun run) {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '${i + 1}. ${run.questions[i].title}'
+                            '${i + 1}. ${run.questionOf(i).title}'
                             '${!run.silent && !run.isCorrect(i) ? ' — ${notesCount(run.results[i].errors.length)}' : ''}',
                             style: TextStyle(color: p.text, fontSize: 14, height: 1.5),
                           ),

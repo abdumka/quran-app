@@ -126,6 +126,8 @@ class TrackerConfig {
     this.lostWindow = 120,
     this.lostRate = 0.35,
     this.settleFrames = 25,
+    this.earlyCommit = true,
+    this.orphanVowel = true,
   });
   /// Cost of starting at any word (the session's first phonemes) and, once
   /// under way, of the DP jumping to an arbitrary word.
@@ -166,6 +168,22 @@ class TrackerConfig {
   final int lostWindow;
   final double lostRate;
   final int settleFrames;
+
+  /// Commit a word the moment it was heard exactly and nothing could still
+  /// extend it, instead of waiting [commitDwell] phonemes. The word must be
+  /// behind the tracker's cursor (the next word has begun), its heard form
+  /// must equal its expected form or an accepted form, and neither its Hafs
+  /// alternative, a look-alike at the same spot, nor any other lexicon word
+  /// may continue it with what was heard so far (مِن could still become
+  /// مِنهُم; فَيَغْفِر could still become the Hafs فَيَغْفِرُ). Measured
+  /// 2026-10-06: the judge's hold-back was half of the reveal lag.
+  final bool earlyCommit;
+
+  /// Run the lexicon substitution checks on the heard slice without a
+  /// leading short vowel (no word begins with one). Cost on the al-Naihi
+  /// audit: 3 more stops in 76,565 words; gain: «من» said for «لمن» is
+  /// caught instead of passing as `unsure`.
+  final bool orphanVowel;
 }
 
 final RegExp _maddRun = RegExp('(ا{3,}|ۥ{3,}|ۦ{3,})');
@@ -997,6 +1015,37 @@ class VerdictTracer {
     return b.toString();
   }
 
+  /// The early-commit test of [TrackerConfig.earlyCommit]: the span was heard
+  /// exactly as expected (or as an accepted form) and no longer word, Hafs
+  /// alternative or look-alike could still grow out of what has been heard
+  /// since (up to three phonemes after the span are consulted).
+  bool _exactAndFinal(PhonemeWord wd, String exp, _Span span, int heardLen) {
+    final slice = _slice(span.from, span.to);
+    if (slice != exp && !wd.accept.contains(slice)) return false;
+    if (wd.hafsAlt.isNotEmpty && wd.hafsAlt != exp && wd.hafsAlt.startsWith(exp)) {
+      return false;
+    }
+    for (final alt in wd.alts) {
+      if (alt != exp && alt.startsWith(exp)) return false;
+    }
+    final lex = lexicon;
+    if (lex == null) return true;
+    final follow = _slice(span.to, math.min(heardLen, span.to + 3));
+    return !lex.extendsEntry(exp + follow);
+  }
+
+  /// [heard] begins with a short vowel (no word does) and what follows it is
+  /// [exp] without a leading one-letter particle (لَ وَ فَ بِ كَ سَ لِ).
+  static bool _droppedParticle(String heard, String exp, PhonemeWord wd) {
+    if (heard.length < 4 || !_shortVowels.contains(heard[0])) return false;
+    if (wd.wasl || exp.startsWith('ء')) return false;
+    final rest = heard.substring(1);
+    if (!exp.endsWith(rest) || exp.length - rest.length != 2) return false;
+    return _particlePrefixes.contains(exp.substring(0, 2));
+  }
+
+  static const Set<String> _particlePrefixes = {'لَ', 'وَ', 'فَ', 'بِ', 'كَ', 'سَ', 'لِ'};
+
   List<WordVerdict> _judge(Map<int, _Span> spans, bool settled, int lastRun) {
     final t = tracker;
     if (spans.isEmpty) return const [];
@@ -1016,9 +1065,34 @@ class VerdictTracer {
       final wd = t.reference.words[w];
       final exp = wd.phon;
       final expLen = exp.runes.length;
-      final pending = (w == cursorWord && cursorPending) ||
+      var pending = (w == cursorWord && cursorPending) ||
           (span != null && span.to > heardLen - dwell) ||
           (span != null && span.run < lastRun && w >= cursorWord);
+      if (pending &&
+          cfg.earlyCommit &&
+          !settled &&
+          span != null &&
+          w < cursorWord &&
+          span.run >= lastRun &&
+          span.to <= heardLen &&
+          _exactAndFinal(wd, exp, span, heardLen)) {
+        pending = false;
+      } else if (pending &&
+          cfg.earlyCommit &&
+          !settled &&
+          span != null &&
+          w == cursorWord &&
+          span.run >= lastRun &&
+          span.to == heardLen &&
+          lexicon != null &&
+          !lexicon!.extendsEntry(exp) &&
+          _exactAndFinal(wd, exp, span, heardLen)) {
+        // The cursor word itself, heard exactly and complete, when no word
+        // in the lexicon begins with it: nothing the reciter says next can
+        // turn it into something else. 2026-10-06 replay of 256 sessions:
+        // commit lag median 0.64 -> 0.52 s, flips +2.
+        pending = false;
+      }
       final heardCount = span == null ? 0 : span.to - span.from;
       if (!pending && heardCount < cfg.minHeardFraction * expLen) {
         // Skipped only once the cursor has passed it: a gap between the
@@ -1116,8 +1190,19 @@ class VerdictTracer {
       // (الفاسقون for الظالمون, يفقهون for يعقلون, وإذا for وترى) is a
       // substitution, however close the two happen to be acoustically.
       String substitute = '';
+      // No word begins with a short vowel: a heard slice that does carries
+      // the previous word's tail (or the vowel of a consonant the model
+      // dropped). The lexicon checks look at the slice without it, so «مِن»
+      // said for «لَمِن» and heard as «َمِنَ» is still found (2026-10-06).
+      // Only for the memorisation slip it was built for: the rest of the
+      // slice is the expected word minus a one-letter particle (لَمِن heard
+      // as «َمِنَ»). Not for hamzat-al-wasl or hamza-initial words, whose
+      // openings the model drops by itself.
+      final core = cfg.orphanVowel && _droppedParticle(heardSlice, exp, wd)
+          ? heardSlice.substring(1)
+          : heardSlice;
       if (!pending && !accepted && reason.isEmpty && distance > cfg.okDistance && lexicon != null) {
-        final hit = lexicon!.nearest(heardSlice, cfg.lexiconDistance, table);
+        final hit = lexicon!.nearest(core, cfg.lexiconDistance, table);
         // A truncated or pausal form of the expected word itself (قَبلِ of
         // قَبلِكُم, مَكَانَ of مَكَانًا) is not another word.
         if (hit != null &&
@@ -1141,18 +1226,18 @@ class VerdictTracer {
           distance > 0 &&
           distance <= cfg.okDistance &&
           lexicon != null &&
-          heardSlice.runes.length >= 3 &&
-          heardSlice != exp &&
-          heardSlice != pausal &&
-          lexicon!.contains(heardSlice) &&
-          !exp.startsWith(heardSlice) &&
-          !heardSlice.startsWith(exp) &&
-          _foldNasal(heardSlice) != _foldNasal(exp) &&
-          !_prefixHeardBefore(heardSlice, exp, from) &&
-          _skeleton(heardSlice) != _skeleton(exp) &&
-          heardSlice != wd.hafsAlt) {
+          core.runes.length >= 3 &&
+          core != exp &&
+          core != pausal &&
+          lexicon!.contains(core) &&
+          !exp.startsWith(core) &&
+          !core.startsWith(exp) &&
+          _foldNasal(core) != _foldNasal(exp) &&
+          !_prefixHeardBefore(core, exp, from) &&
+          _skeleton(core) != _skeleton(exp) &&
+          core != wd.hafsAlt) {
         reason = 'word';
-        substitute = heardSlice;
+        substitute = core;
       }
       // Look-alike passages: the word another ayah has at this very spot.
       if (!pending && !accepted && reason.isEmpty && wd.alts.isNotEmpty && heardSlice != exp) {
@@ -1308,6 +1393,26 @@ class PhonemeLexicon {
   /// Whether [s] is exactly a lexicon entry.
   bool contains(String s) =>
       (_all ??= {for (final b in _byLength.values) ...b}).contains(s);
+
+  Set<String>? _prefixes;
+
+  /// Whether some lexicon entry is longer than [s] and begins with it, i.e.
+  /// a word heard as [s] so far could still turn out to be another word.
+  bool extendsEntry(String s) {
+    final p = _prefixes ??= () {
+      final set = <String>{};
+      for (final bucket in _byLength.values) {
+        for (final e in bucket) {
+          final runes = e.runes.toList();
+          for (var i = 1; i < runes.length; i++) {
+            set.add(String.fromCharCodes(runes.sublist(0, i)));
+          }
+        }
+      }
+      return set;
+    }();
+    return p.contains(s);
+  }
 
   /// The lexicon entry within [maxDistance] of [heard] with the smallest
   /// distance, or null. Only entries of a similar length are tried.

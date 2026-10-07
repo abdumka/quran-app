@@ -133,6 +133,21 @@ RECITERS = [
         "scheme": "timed",
         "timingsDir": "D:/AlQryw/timings",
     },
+    {
+        # midad collection 465947, timed scheme (2026-10-06). The owner's
+        # spelling has no «بن» (midad: «أحمد بن صالح رجب»). Not هبطي — every
+        # ayah has its own span. The audio was aligned on the Proxmox VM; only
+        # the timings live on this PC. Review page logs to the shared tracker
+        # under the slug "rajab".
+        "id": "rajab",
+        "name": "أحمد صالح رجب",
+        "riwaya": "رواية قالون",
+        "folder": "rajab",
+        "scheme": "timed",
+        "timingsDir": "D:/RajabTimed/timings",
+        "underReview": True,
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_rajab.html",
+    },
 ]
 
 # Badge text shown for reciters still being reviewed.

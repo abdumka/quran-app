@@ -196,7 +196,7 @@ Future<void> _workerMain(_WorkerInit init) async {
           zipformer2Ctc: sherpa.OnlineZipformer2CtcModelConfig(model: init.paths.model),
           tokens: init.paths.tokens,
           modelType: 'zipformer2_ctc',
-          // Chunks are 0.48 s of audio; one thread keeps up at ~5-15 % of
+          // Chunks are 0.32 s of audio (16-frame export); one thread keeps up at ~5-15 % of
           // real time and leaves the big cores to the UI.
           numThreads: 2,
           debug: false,

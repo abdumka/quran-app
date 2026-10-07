@@ -53,10 +53,26 @@ class AsrModelManager {
   /// int8, NPL-1.2 -- see `asr_model_upload/zipformer-LICENSE-NPL-1.2.txt`)
   /// and its 251-token symbol table. When present this set is preferred
   /// over the Whisper set above; it is what [download] fetches.
+  ///
+  /// `_c16` is the same checkpoint re-exported with a 16-frame decode
+  /// chunk (0.32 s of audio per step) instead of Quran-Lab's 24 (0.48 s):
+  /// the model waits 0.1 s less for every sound, at no measured cost on the
+  /// sheikh audits (`tasmee_work/research_2026-10-05/RESULTS.txt`).
+  /// Exported by `tasmee_work/research_2026-10-05/export_chunks.py`.
   static const Map<String, int> zipformerFiles = {
-    'zipformer_p_arabic_v3.1.int8.onnx': 72705392,
+    zipformerModelFile: 72705392,
     'zipformer-tokens.txt': 2346,
   };
+
+  /// File name of the recognizer the session loads.
+  static const String zipformerModelFile =
+      'zipformer_p_arabic_v3.1_c16.int8.onnx';
+
+  /// Earlier recognizer exports that a previous build downloaded; removed
+  /// from the download directory once the current set is complete.
+  static const List<String> obsoleteFiles = [
+    'zipformer_p_arabic_v3.1.int8.onnx',
+  ];
 
   final ValueNotifier<AsrModelState> state =
       ValueNotifier(AsrModelState.notDownloaded);
@@ -206,6 +222,13 @@ class AsrModelManager {
         if (await target.exists()) await target.delete();
         await partFile.rename(target.path);
         doneBytes += entry.value;
+      }
+
+      for (final name in obsoleteFiles) {
+        final stale = File('${dir.path}${Platform.pathSeparator}$name');
+        try {
+          if (await stale.exists()) await stale.delete();
+        } catch (_) {}
       }
 
       state.value = AsrModelState.ready;

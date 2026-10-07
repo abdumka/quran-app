@@ -89,6 +89,7 @@ class TasmeeDrill {
     required this.ayah,
     required this.targets,
     this.index = 1,
+    this.number,
     this.total = 1,
     this.title = 'تقوية الحفظ',
     this.cue,
@@ -109,6 +110,7 @@ class TasmeeDrill {
 
   /// Position of this drill in the run (for the "2 / 5" label).
   int index;
+  int? number;
   int total;
 
   /// What the bar calls it («تقوية الحفظ», «اختبار»).
@@ -125,7 +127,12 @@ class TasmeeDrill {
   final int? startAyahIndex;
 
   /// «اختبار 2 / 5», or «اختبار 2» in an open test (no total).
-  String get label => total > 0 ? '$title $index / $total' : '$title $index';
+  /// The number shown for the drill; [index] names it among the questions
+  /// of a test, and may differ (an open test numbers what has been read).
+  int get shownNumber => number ?? index;
+
+  String get label =>
+      total > 0 ? '$title $shownNumber / $total' : '$title $shownNumber';
 }
 
 /// Outcome of a drill: the weak words recited correctly and the ones that

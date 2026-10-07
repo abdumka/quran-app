@@ -408,7 +408,10 @@ class _QuranPagesState extends State<QuranPages>
 
   /// True while the session is being moved to another page (see
   /// [_followMemorizationTestToPage]).
-  bool _memorizationTestMoving = false;
+  /// Sessions being moved to another page right now (a page turn during a
+  /// move must not read as the mode ending).
+  int _memorizationTestMoves = 0;
+  bool get _memorizationTestMoving => _memorizationTestMoves > 0;
 
   /// The user's last choices in the تكرار مقطع picker, kept across launches:
   /// passes of the section (0 = ∞), plays of each ayah (1 = no repeat), and
@@ -3415,7 +3418,9 @@ class _QuranPagesState extends State<QuranPages>
         _onTasmeeModeEnded();
         if (run != null) {
           MemorizationTestService.instance.takeRunReports();
-          if (run.answered > 0) showHifzTestSummary(context, run);
+          if (run.answered > 0 || run.pagesRead > 0) {
+            showHifzTestSummary(context, run);
+          }
         } else {
           _showTasmeeRunSummary();
         }
@@ -3685,7 +3690,7 @@ class _QuranPagesState extends State<QuranPages>
     final closeLoading = MemorizationTestService.instance.hasWarmEngine
         ? () {}
         : _showTasmeeLoading();
-    _memorizationTestMoving = true;
+    _memorizationTestMoves++;
     bool started;
     try {
       if (!_isMemorizationTestEnabled) {
@@ -3704,7 +3709,7 @@ class _QuranPagesState extends State<QuranPages>
         silent: _hifzTest?.silent ?? false,
       );
     } finally {
-      _memorizationTestMoving = false;
+      _memorizationTestMoves--;
       closeLoading();
     }
     if (!mounted) return;
@@ -3744,14 +3749,17 @@ class _QuranPagesState extends State<QuranPages>
       run.results.add(result);
       final hasNext = _drillQueue.isNotEmpty;
       final bool next;
-      if (run.silent) {
+      final questionIndex = (result.drill.index - 1).clamp(0, run.questions.length - 1);
+      if (run.endless) {
+        // An open test is not interrupted: page after page until the
+        // reader ends it (the microphone notes what it hears; a self-test
+        // simply counts the pages read).
+        if (run.silent) run.pagesRead++;
+        next = true;
+      } else if (run.silent) {
         // Nothing was judged: the reader says how it went. (The drill's
         // number names the question; questions may have been passed over.)
-        final question =
-            run.questions[(result.drill.index - 1).clamp(
-              0,
-              run.questions.length - 1,
-            )];
+        final question = run.questions[questionIndex];
         final j = await showHifzSelfJudge(
           context,
           question: question,
@@ -3761,6 +3769,7 @@ class _QuranPagesState extends State<QuranPages>
         if (!mounted) return;
         if (j.correct != null) {
           run.judgements.add(j.correct!);
+          run.judged.add(questionIndex);
           run.missedAyahs += j.missed.length;
           _recordSelfJudgement(question, j.missed);
         }
@@ -4060,37 +4069,21 @@ class _QuranPagesState extends State<QuranPages>
   /// leaving the mic icon claiming a session that isn't there.
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
     final run = _hifzTest;
-    if (run != null && run.silent) {
-      // A self-test never turns into a microphone session by a page turn.
-      // In an open self-test every page is a question: the page turned to
-      // is simply the next question (what was left of this one is not
-      // judged). Otherwise the test ends where it stands.
-      if (run.endless) {
-        final at = _drillQueue.indexWhere(
-          (d) => (d.startPage ?? d.page) == pageIndex + 1,
-        );
-        if (at >= 0) {
-          _drillQueue.removeRange(0, at);
-          _memorizationTestPageIndex = pageIndex;
-          await _runNextTasmeeDrill();
-          return;
-        }
-      }
-      _hifzTest = null;
-      _drillQueue.clear();
-      _finishHifzTest(run);
-      await _toggleMemorizationTest(false);
-      if (!mounted) return;
-      if (run.answered > 0) await showHifzTestSummary(context, run);
+    if (run != null) {
+      // A page turned by hand during a test: the test goes on, in its own
+      // mode, with that page as its next question. An open test simply
+      // continues from there, forwards or backwards; a closed one takes
+      // the page as an extra question before the rest.
+      await _continueTestOnPage(run, pageIndex + 1);
       return;
     }
-    // Turning the page by hand leaves a drill round or a microphone test.
+    // Turning the page by hand leaves a drill round.
     _drillQueue.clear();
     _hifzTest = null;
     MemorizationTestService.instance.keepEngineWarm = false;
     if (run != null) _finishHifzTest(run);
     _memorizationTestPageIndex = pageIndex;
-    _memorizationTestMoving = true;
+    _memorizationTestMoves++;
     bool started;
     try {
       started = await MemorizationTestService.instance.start(
@@ -4098,7 +4091,7 @@ class _QuranPagesState extends State<QuranPages>
         locateAnywhere: await TasmeeLocateAnywhere.enabled(),
       );
     } finally {
-      _memorizationTestMoving = false;
+      _memorizationTestMoves--;
     }
     if (!mounted || _memorizationTestPageIndex != pageIndex) return;
     if (started) {
@@ -4109,6 +4102,51 @@ class _QuranPagesState extends State<QuranPages>
       _onTasmeeModeEnded();
     }
     setState(() {});
+  }
+
+  /// Makes the page [page] (whole, in order, split only at a surah end)
+  /// the next question(s) of [run]; an open test then runs on from there
+  /// to the end of the mushaf.
+  Future<void> _continueTestOnPage(HifzTestRun run, int page) async {
+    final config = run.config.copyWith(
+      range: HifzRange(
+        HifzRangeKind.pages,
+        from: page,
+        to: run.endless ? HifzRange.maxOf(HifzRangeKind.pages) : page,
+      ),
+      endless: true,
+      source: HifzTestSource.random,
+    );
+    final index = QuranAyahIndex.fromPages(await QuranJsonService.loadQuranPages());
+    final questions = HifzTestPlanner.plan(index: index, config: config, pool: const []);
+    if (!mounted || _hifzTest != run || questions.isEmpty) return;
+    if (run.endless) {
+      // The pages not reached are replaced by the new run of pages: keep
+      // only the questions already asked.
+      var used = 0;
+      for (final r in run.results) {
+        if (r.drill.index > used) used = r.drill.index;
+      }
+      run.questions.removeRange(used, run.questions.length);
+    }
+    final first = run.questions.length;
+    run.questions.addAll(questions);
+    final total = run.endless ? 0 : run.questions.length;
+    // An open test numbers its questions by what has been read so far.
+    final shown = run.results.length;
+    final drills = [
+      for (var i = 0; i < questions.length; i++)
+        questions[i].toDrill(first + i + 1, total, number: run.endless ? shown + i + 1 : null),
+    ];
+    if (run.endless) {
+      _drillQueue
+        ..clear()
+        ..addAll(drills);
+    } else {
+      _drillQueue.insertAll(0, drills);
+    }
+    MemorizationTestService.instance.logUi('testFollowsPage', {'page': page});
+    await _runNextTasmeeDrill();
   }
 
   /// Ends any active memorization test (used when another mode takes over

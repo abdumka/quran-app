@@ -936,7 +936,7 @@ class MemorizationTestService {
           'appVersion': appVersion,
           'platform': Platform.operatingSystem,
           'os': Platform.operatingSystemVersion,
-          'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1.int8' : 'whisper-base-ar-quran',
+          'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1_c16.int8' : 'whisper-base-ar-quran',
           'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
           'stubReason': stubReason.value.name,
         };
@@ -948,7 +948,7 @@ class MemorizationTestService {
             'appVersion': appVersion,
             'platform': Platform.operatingSystem,
             'os': Platform.operatingSystemVersion,
-            'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1.int8' : 'whisper-base-ar-quran',
+            'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1_c16.int8' : 'whisper-base-ar-quran',
             'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
             'stubReason': stubReason.value.name,
             'alertMode': (await TasmeeAlert.mode()).name,
@@ -1118,7 +1118,7 @@ class MemorizationTestService {
     if (await manager.hasZipformer()) {
       return ZipformerRecitationEngine(
         ZipformerModelPaths(
-          model: await manager.pathFor('zipformer_p_arabic_v3.1.int8.onnx'),
+          model: await manager.pathFor(AsrModelManager.zipformerModelFile),
           tokens: await manager.pathFor('zipformer-tokens.txt'),
         ),
       );
@@ -1168,9 +1168,9 @@ class MemorizationTestService {
     _recorder?.log('control', {'action': 'hint', 'word': word});
     final wasHard = _holdHard && _holdWord == word;
     if (_holdWord == word) _releaseHold('control');
-    aligner.forceResolveRange(word, word + 1, WordStatus.revealed);
-    // In a self-test uncovering a word is how the reader checks themself
-    // (it stays amber as a word they needed), not a flaw to report.
+    // In a self-test uncovering a word is how the reader checks themself:
+    // shown plainly, not a flaw to report nor a word to tint.
+    aligner.forceResolveRange(word, word + 1, _silent ? WordStatus.correct : WordStatus.revealed);
     if (!_silent) _noteError(word, 'revealed');
     // After a hard stop the tracker waits at the held word: move it on to
     // the word after the one just shown.

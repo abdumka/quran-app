@@ -93,6 +93,17 @@ void main() {
       expect(find.text('عدد الأسئلة'), findsNothing);
       expect(find.text('آيات كل سؤال'), findsNothing);
       expect(find.text('عدد الأثمان في الاختبار'), findsOneWidget);
+      // The count stays with the open switch on: open only drops the pauses.
+      await tester.ensureVisible(find.byType(Switch));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(find.text('عدد الأثمان في الاختبار'), findsOneWidget);
+      expect(find.text('بلا توقف بين الأثمان، حتى تُنهيه أنت'), findsOneWidget);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'أثمان'));
+      await tester.pumpAndSettle();
       // «إلى» = thumn 3 of hizb 1: the last thumn dropdown.
       await tester.tap(find.byType(DropdownButton<int>).last);
       await tester.pumpAndSettle();
@@ -264,6 +275,34 @@ void main() {
       expect(j!.correct, isTrue);
       expect(j!.missed, isEmpty);
       expect(j!.next, isFalse);
+    });
+
+    testWidgets('marking every ayah goes on by itself after a moment', (tester) async {
+      HifzSelfJudgement? j;
+      await tester.pumpWidget(_host((context) async {
+        j = await showHifzSelfJudge(
+          context,
+          question: question,
+          label: 'اختبار 2 / 5',
+          hasNext: true,
+        );
+      }));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('صحيح').first); // «كل الآيات»
+      await tester.pump();
+      expect(find.text('ينتقل بعد لحظة؛ غيّر ما شئت قبل ذلك.'), findsOneWidget);
+      // A change within the moment is kept and restarts it.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('خطأ').at(1));
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(j, isNull, reason: 'still open: the moment restarted');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(j, isNotNull);
+      expect(j!.correct, isFalse);
+      expect(j!.missed.map((a) => a.ayah), [1]);
+      expect(j!.next, isTrue);
     });
 
     testWidgets('ending without judging returns no verdict', (tester) async {

@@ -369,6 +369,30 @@ class Reciter {
         'https://quran-content.mushaf-qaloon.com/timings/alqryw/',
   );
 
+  /// Ahmad Saleh Rajab (أحمد صالح رجب) — Qaloun.
+  ///
+  /// On [AudioScheme.timedSurah]: 114 whole-surah MP3s plus `timings/SSS.json`.
+  /// Source: midad.com collection 465947 («مصحف أحمد بن صالح رجب - قالون»,
+  /// narration id 4 = قالون عن نافع). The owner's spelling of the name has no
+  /// «بن» — keep it that way wherever it is shown.
+  ///
+  /// The published audio is VBR with no seek table (48 kHz mono, ~150 kbps);
+  /// our mirror is re-encoded to 128 kbps mono **CBR** before alignment, so the
+  /// timings match what the app actually plays.
+  static const Reciter rajabQaloun = Reciter(
+    id: 'rajab_qaloun',
+    name: 'أحمد صالح رجب',
+    shortName: 'أحمد صالح رجب',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/rajab/',
+    cacheFolder: 'audio_cache_rajab',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/rajab/',
+  );
+
   /// All reciters offered in the picker, in display order.
   ///
   static const List<Reciter> all = [
@@ -379,6 +403,7 @@ class Reciter {
     doukaliQaloun,
     alqrywQaloun,
     abusenainahQaloun,
+    rajabQaloun,
   ];
 
   /// Every reciter the code knows about, including any not currently offered in
