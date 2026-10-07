@@ -163,7 +163,7 @@ void main() {
       expect(old.endless, isTrue);
     });
 
-    test('with athman every thumn is one question, as many as asked, at random', () {
+    test('with athman every thumn is one question: all in order when open, as many as asked at random when closed', () {
       final r = HifzRange.athman(start: 9, count: 3); // hizb 2, athman 1-3
       final inOrder = HifzTestPlanner.plan(
         index: index,
@@ -184,6 +184,13 @@ void main() {
         covered += pieces.length;
       }
       expect(covered, inOrder.length);
+      for (var i = 1; i < inOrder.length; i++) {
+        expect(
+          index.indexOf(inOrder[i].start.surah, inOrder[i].start.ayah)!,
+          greaterThan(index.indexOf(inOrder[i - 1].start.surah, inOrder[i - 1].start.ayah)!),
+          reason: 'open: in order',
+        );
+      }
 
       // Closed: as many athman as asked for, drawn from the range.
       final two = HifzTestPlanner.plan(

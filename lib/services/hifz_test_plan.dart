@@ -538,8 +538,9 @@ class HifzTestPlanner {
         if (span == null) continue;
         thumns.add(_questionStartingAt(index, span.$1, _unbounded, span.$2, crossSurah: true));
       }
-      // As many athman as asked for, drawn at random from the range (an
-      // open test only drops the pauses between them).
+      // An open test: every thumn of the range, one after another, in order.
+      if (config.endless) return thumns;
+      // A closed test: as many athman as asked for, drawn at random.
       thumns.shuffle(rng);
       return thumns.take(want.clamp(1, thumns.length)).toList();
     }

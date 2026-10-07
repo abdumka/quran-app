@@ -93,13 +93,15 @@ void main() {
       expect(find.text('عدد الأسئلة'), findsNothing);
       expect(find.text('آيات كل سؤال'), findsNothing);
       expect(find.text('عدد الأثمان في الاختبار'), findsOneWidget);
-      // The count stays with the open switch on: open only drops the pauses.
+      // The count is for a closed test only.
       await tester.ensureVisible(find.byType(Switch));
       await tester.pumpAndSettle();
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
-      expect(find.text('عدد الأثمان في الاختبار'), findsOneWidget);
-      expect(find.text('بلا توقف بين الأثمان، حتى تُنهيه أنت'), findsOneWidget);
+      // Open: every thumn of the range in order, so no count to choose.
+      expect(find.text('عدد الأثمان في الاختبار'), findsNothing);
+      expect(find.textContaining('والأثمان كلها بترتيبها'), findsOneWidget);
+      expect(find.text('كل أثمان النطاق بترتيبها، بلا توقف، حتى تُنهيه أنت'), findsOneWidget);
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'أثمان'));

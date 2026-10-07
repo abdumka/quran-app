@@ -288,12 +288,21 @@ class _SetupPageState extends State<_SetupPage> {
                   onChanged: (v) => _set(_config.copyWith(endless: v)),
                 ),
                 subtitle: _byThumn
-                    ? 'بلا توقف بين الأثمان، حتى تُنهيه أنت'
+                    ? 'كل أثمان النطاق بترتيبها، بلا توقف، حتى تُنهيه أنت'
                     : _config.range.kind == HifzRangeKind.currentPage
                         ? 'من هذه الصفحة إلى آخر المصحف، صفحة بعد صفحة، حتى تُنهيه أنت'
                         : 'صفحة بعد صفحة بالترتيب، لا ينتهي حتى تُنهيه أنت',
               ),
               Divider(height: 1, color: p.border, indent: 16, endIndent: 16),
+              if (_byThumn && endless)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Text(
+                    'كل ثمن سؤال، والأثمان كلها بترتيبها: ${questionsCount(_config.range.athmanCount)}.',
+                    style: TextStyle(color: p.text, fontSize: 13.5, height: 1.5),
+                  ),
+                ),
+              if (!(_byThumn && endless))
               _row(
                 p,
                 _byThumn ? 'عدد الأثمان في الاختبار' : 'عدد الأسئلة',
@@ -303,14 +312,14 @@ class _SetupPageState extends State<_SetupPage> {
                       : _config.questions.clamp(1, HifzTestConfig.maxQuestions),
                   min: 1,
                   max: _byThumn ? _config.range.athmanCount : HifzTestConfig.maxQuestions,
-                  enabled: !endless || _byThumn,
+                  enabled: !endless,
                   label: _byThumn ? athmanCount : questionsCount,
                   onChanged: (v) => _set(_config.copyWith(questions: v)),
                 ),
                 subtitle: _byThumn
                     ? 'كل ثمن سؤال كامل، تُختار من النطاق عشوائيًا (${athmanCount(_config.range.athmanCount)} في النطاق)'
                     : null,
-                dim: endless && !_byThumn,
+                dim: endless,
               ),
               if (!_byThumn)
               _row(
