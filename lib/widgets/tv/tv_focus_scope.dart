@@ -132,6 +132,14 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     if (!mounted || !_active) return;
     // Rebuild: the arrow barrier in build() is gated on the same flag.
     setState(() {});
+    // A popup above a wrapped page is driven by that page's scope, not by
+    // this one -- resolving a target here would only produce a second ring.
+    if (!_isTop) {
+      _anchor = null;
+      _highlight = null;
+      _syncRing();
+      return;
+    }
     if (!TvPopupObserver.instance.popupOnTop.value) {
       _anchor = null;
       _highlight = null;
@@ -304,7 +312,24 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   }
 
   /// Keeps the ring in the root overlay so it paints above dialogs and sheets.
+  ///
+  /// Only the scope that is actually driving may show one. Scopes are nested
+  /// -- the popup driver sits above the whole app and a wrapped page sits
+  /// inside it -- and every one of them owns an overlay entry, so without
+  /// this the user sees TWO rings: the real one tracking the arrows, plus a
+  /// stale one parked wherever the idle scope last resolved. That is the
+  /// "weird small box" next to the تكرار مقطع pickers.
   void _syncRing() {
+    if (!_drives && _ringEntry != null) {
+      _ringEntry!.remove();
+      _ringEntry = null;
+      return;
+    }
+    if (!_drives) return;
+    _syncRingInner();
+  }
+
+  void _syncRingInner() {
     // The popup driver sits ABOVE the navigator, so there is no Overlay
     // ancestor to find from its context; fall back to the one the app's
     // navigator owns, which is where the dialogs it drives are painted.
