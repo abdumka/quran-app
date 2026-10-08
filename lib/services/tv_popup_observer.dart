@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 /// The app's navigator, so code above the [Navigator] can still reach the
@@ -31,6 +32,16 @@ class TvPopupObserver extends NavigatorObserver {
   final ValueNotifier<bool> popupOnTop = ValueNotifier<bool>(false);
 
   final List<Route<dynamic>> _routes = [];
+
+  /// Drops the tracked routes. The app has one navigator for the life of the
+  /// process, so this is only for tests, where each case pumps a fresh
+  /// MaterialApp onto the same singleton and the routes of the previous one
+  /// are never popped -- leaving [popupOnTop] stuck true for the next test.
+  @visibleForTesting
+  void reset() {
+    _routes.clear();
+    popupOnTop.value = false;
+  }
 
   void _sync() {
     popupOnTop.value = _routes.isNotEmpty && _routes.last is PopupRoute;

@@ -60,7 +60,13 @@ Future<void> press(
 }
 
 void main() {
-  setUp(() => TvService.instance.debugIsTv = true);
+  setUp(() {
+    TvService.instance.debugIsTv = true;
+    // The observer is a singleton and the previous test's routes are never
+    // popped, so without this popupOnTop is still true when the next test
+    // starts.
+    TvPopupObserver.instance.reset();
+  });
   tearDown(() => TvService.instance.debugIsTv = false);
 
   testWidgets('a dialog button can be activated by remote', (tester) async {
@@ -98,11 +104,9 @@ void main() {
 
     await press(tester, LogicalKeyboardKey.select);
 
-    expect(
-      pressed,
-      ['إغلاق'],
-      reason: 'the remote could not work the dialog button',
-    );
+    expect(pressed, [
+      'إغلاق',
+    ], reason: 'the remote could not work the dialog button');
   });
 
   testWidgets('arrows reach a second button in the dialog', (tester) async {
@@ -207,7 +211,8 @@ void main() {
     expect(
       pressed,
       isEmpty,
-      reason: 'the driver activated a page button; it must leave pages to the '
+      reason:
+          'the driver activated a page button; it must leave pages to the '
           'screens that drive their own D-pad',
     );
   });
@@ -255,13 +260,84 @@ void main() {
     expect(
       TvPopupObserver.instance.popupOnTop.value,
       isFalse,
-      reason: 'a pushed page is not a popup, so the root driver is not what '
+      reason:
+          'a pushed page is not a popup, so the root driver is not what '
           'is being tested here',
     );
 
     await press(tester, LogicalKeyboardKey.select);
 
     expect(pressed, ['inner']);
+  });
+
+  testWidgets('arrows do not move Flutter focus while a popup is open', (
+    tester,
+  ) async {
+    // Two cursors was the bug. A Material dropdown menu opens in its OWN
+    // route, which no scope's ExcludeFocus covers, so the menu moved its grey
+    // highlight on every arrow press while the scope moved the gold ring.
+    // They drifted apart -- grey on 15. الحجر, ring on 19. مريم -- and Select
+    // fired on the ring, which read as the تكرار مقطع picker skipping surahs.
+    //
+    // Two stacked focusable buttons, so directional traversal has somewhere
+    // to go: without the barrier the arrow moves focus from one to the other.
+    final first = FocusNode(debugLabel: 'first');
+    final second = FocusNode(debugLabel: 'second');
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+
+    await tester.pumpWidget(
+      app(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    content: SizedBox(
+                      height: 200,
+                      child: Column(
+                        children: [
+                          TextButton(
+                            focusNode: first,
+                            onPressed: () {},
+                            child: const Text('أ'),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            focusNode: second,
+                            onPressed: () {},
+                            child: const Text('ب'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    first.requestFocus();
+    await tester.pumpAndSettle();
+    expect(first.hasFocus, isTrue, reason: 'could not seed focus');
+
+    await press(tester, LogicalKeyboardKey.arrowDown);
+
+    expect(
+      second.hasFocus,
+      isFalse,
+      reason: 'directional traversal ran alongside the scope: two cursors',
+    );
+    expect(first.hasFocus, isTrue);
   });
 
   testWidgets('a text field inside a popup can still take focus', (

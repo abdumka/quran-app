@@ -130,6 +130,8 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   /// A popup opened or closed: pick up its first target, or drop the ring.
   void _onPopupChanged() {
     if (!mounted || !_active) return;
+    // Rebuild: the arrow barrier in build() is gated on the same flag.
+    setState(() {});
     if (!TvPopupObserver.instance.popupOnTop.value) {
       _anchor = null;
       _highlight = null;
@@ -616,7 +618,35 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     // take every text field in it with it -- a dialog that asks for a bookmark
     // name could not be typed into. Popups rarely hold a Switch or a Slider,
     // which is what the exclusion is for, so that trade goes the other way.
-    if (!_active || widget.popupsOnly) return widget.child;
+    if (!_active) return widget.child;
+    if (widget.popupsOnly) {
+      // The popup driver cannot exclude focus, but it must still stop the
+      // arrows reaching Flutter's directional traversal while a popup is up,
+      // or there are TWO cursors.
+      //
+      // Seen on the تكرار مقطع surah pickers: a Material dropdown menu opens
+      // in its OWN route, so no scope's ExcludeFocus covers it, and the menu
+      // moved its own grey highlight on every arrow press while this scope
+      // moved the gold ring. They drifted apart -- grey on 15. الحجر, ring on
+      // 19. مريم -- and Select fired on the ring, so the picker looked like
+      // it was skipping surahs. Blocking the arrows here is narrow: it lasts
+      // only while a popup is on top, which is also the only time this driver
+      // is awake, so every other screen keeps its traversal.
+      if (!_gateOpen) return widget.child;
+      return Shortcuts(
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.arrowUp):
+              DoNothingAndStopPropagationIntent(),
+          SingleActivator(LogicalKeyboardKey.arrowDown):
+              DoNothingAndStopPropagationIntent(),
+          SingleActivator(LogicalKeyboardKey.arrowLeft):
+              DoNothingAndStopPropagationIntent(),
+          SingleActivator(LogicalKeyboardKey.arrowRight):
+              DoNothingAndStopPropagationIntent(),
+        },
+        child: widget.child,
+      );
+    }
     return ExcludeFocus(child: widget.child);
   }
 }
