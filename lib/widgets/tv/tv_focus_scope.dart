@@ -25,6 +25,9 @@ import '../../services/tv_service.dart';
 /// Collection is from the *global* semantics root, narrowed to the innermost
 /// route scope. That means a dialog opened above a wrapped page is driven by
 /// the page's scope — no extra wrapping needed at each `showDialog` call site.
+/// Identifies the focus ring in the widget tree, for tests.
+const Key kTvFocusRingKey = ValueKey('tvFocusRing');
+
 class TvFocusScope extends StatefulWidget {
   const TvFocusScope({super.key, required this.child}) : popupsOnly = false;
 
@@ -57,6 +60,12 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   /// recycled whenever the tree updates, so an id-based target silently reset
   /// to the first item (the back arrow) and Select then closed the page.
   Rect? _anchor;
+
+  /// Vertical presses that arrived while a scrolled step was still waiting
+  /// for its frame. Applied together rather than discarded.
+  int _pendingSteps = 0;
+  TraversalDirection? _pendingDir;
+  bool _stepScheduled = false;
 
   /// Semantics id of the current target. Used ONLY to correct that node's
   /// rect after a scroll -- never to find the target, because ids are
@@ -273,7 +282,31 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     }
     _scopeRect = sr;
 
-    final current = _resolve(targets);
+    // By id first. The snapshot below may be a frame or two behind a scroll,
+    // and matching by position against stale rects is what used to pick the
+    // neighbouring row and compound the error step after step.
+    _TvTarget? current;
+    final wantId = _targetId;
+    if (wantId != null) {
+      for (final t in targets) {
+        if (t.id == wantId) {
+          current = t;
+          break;
+        }
+      }
+    }
+    current ??= _resolve(targets);
+
+    // How far this snapshot is behind the screen. Every rect in it comes from
+    // the same frame, so the snapshot is internally consistent even when it
+    // is stale: one offset, measured against the rect we know is current,
+    // converts any of them to real screen coordinates. That is what makes the
+    // next row's rect right immediately instead of half a second later.
+    double lag = 0;
+    if (current != null && _highlight != null) {
+      lag = _highlight!.top - current.rect.top;
+    }
+
     final _TvTarget next;
     if (current == null || dir == null) {
       // Fresh target set (a chooser just opened): start on the current value
@@ -285,8 +318,22 @@ class _TvFocusScopeState extends State<TvFocusScope> {
       next = _nearest(targets, current, dir) ?? current;
     }
 
-    _anchor = next.rect;
-    _highlight = next.rect;
+    var nextRect = lag == 0 ? next.rect : next.rect.shift(Offset(0, lag));
+    // A row scrolled in on this very frame can still carry a collapsed rect:
+    // the node exists but has not been laid out. Painting it is what put a
+    // "small box" on screen for the half second before a correction arrived,
+    // and holding the arrow down outran that correction. Keep the previous
+    // rect instead -- the ring stays on the old row for a frame rather than
+    // flashing something wrong, and _correctRect moves it as soon as the real
+    // geometry exists.
+    final lastRect = _highlight;
+    if (lastRect != null &&
+        current != null &&
+        nextRect.height < current.rect.height * 0.6) {
+      nextRect = lastRect;
+    }
+    _anchor = nextRect;
+    _highlight = nextRect;
     _targetId = next.id;
     _syncRing();
     // Routes animate. A dialog scales in, a bottom sheet slides up, a
@@ -363,6 +410,9 @@ class _TvFocusScopeState extends State<TvFocusScope> {
           return Positioned.fromRect(
             rect: r.inflate(4),
             child: IgnorePointer(
+              // Keyed so a test can measure where the ring actually landed
+              // and compare it with the row it is meant to wrap.
+              key: kTvFocusRingKey,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
@@ -460,11 +510,29 @@ class _TvFocusScopeState extends State<TvFocusScope> {
       // Scroll rather than step out of the list the highlight is in, while
       // that list still has somewhere to go. See _stepLeavesScrollable.
       if (vertical && _stepLeavesScrollable(dir) && _scrollPage(dir)) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _retarget(dir);
-          _ensureVisible();
-        });
+        // The step has to wait a frame for the newly scrolled-in rows to
+        // exist, but the presses must not be LOST while it waits. Holding
+        // the arrow down used to drop every press that happened to land in
+        // this branch, so the ring fell a row behind and looked like it had
+        // drifted off the list. Count them and apply the whole backlog once
+        // the rows are there.
+        _pendingSteps++;
+        _pendingDir = dir;
+        if (!_stepScheduled) {
+          _stepScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _stepScheduled = false;
+            if (!mounted) return;
+            final n = _pendingSteps;
+            final d = _pendingDir;
+            _pendingSteps = 0;
+            if (d == null) return;
+            for (int i = 0; i < n; i++) {
+              _retarget(d);
+            }
+            _ensureVisible();
+          });
+        }
         return true;
       }
       final moved = _retarget(dir);
@@ -546,6 +614,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     final applied = target - pos.pixels;
     if (applied == 0) return;
     pos.jumpTo(target);
+    // Provisional: good enough for one frame if the flush below cannot run.
     _anchor = _anchor?.shift(Offset(0, -applied));
     _highlight = _highlight?.shift(Offset(0, -applied));
     _syncRing();

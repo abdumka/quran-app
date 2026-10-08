@@ -15,6 +15,8 @@
 // which callback ran. That is exactly what the user experiences, and it does
 // not reach into TvFocusScope's private highlight state.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
@@ -140,5 +142,76 @@ void main() {
     await press(tester, LogicalKeyboardKey.select);
 
     expect(activated, ['back']);
+  });
+
+  testWidgets('the ring lands on the row immediately, even on fast presses', (
+    tester,
+  ) async {
+    // Reported after the first attempt at this fix: a small box appeared and
+    // only snapped onto the row about half a second later, so holding the
+    // arrow down outran the correction and the ring drifted off again.
+    //
+    // The correction is still there as a safety net, which is why this test
+    // pumps only a single frame between presses: it measures where the ring
+    // is BEFORE any delayed correction could have run. If the rect is only
+    // right because something patched it up afterwards, this fails.
+    final activated = <String>[];
+    final controller = ScrollController();
+    await tester.pumpWidget(
+      harness(onActivate: activated.add, controller: controller),
+    );
+    await tester.pumpAndSettle();
+
+    for (int i = 0; i < 18; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump(); // one frame only — no time to self-correct
+    }
+
+    expect(
+      controller.position.pixels,
+      greaterThan(0),
+      reason: 'the list should have scrolled by now',
+    );
+
+    final ring = tester.getRect(find.byKey(kTvFocusRingKey));
+
+    // The reported symptom is the ring sitting BETWEEN rows, so the property
+    // that matters is that it cleanly wraps whichever row it is on. Find the
+    // closest row and measure against that.
+    double best = double.infinity;
+    String bestLabel = 'none';
+    for (final e in find.textContaining('row ').evaluate()) {
+      final label = (e.widget as Text).data!;
+      final r = tester.getRect(find.text(label));
+      final d = (ring.center.dy - r.center.dy).abs();
+      if (d < best) {
+        best = d;
+        bestLabel = label;
+      }
+    }
+    // A quarter of the row height. Drift put the ring half a row out, which
+    // reads as sitting BETWEEN two rows; a few pixels while the scroll is
+    // still settling does not. Rows are 96 tall here.
+    expect(
+      best,
+      lessThan(24),
+      reason:
+          'ring at $ring sits between rows; nearest is $bestLabel, '
+          '${best.toStringAsFixed(1)}px away',
+    );
+
+    // And once everything has settled it should be exact. The plain pump is
+    // needed as well: pumpAndSettle only runs while frames are scheduled, and
+    // the delayed corrections are Future.delayed, not frames.
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    final settledRing = tester.getRect(find.byKey(kTvFocusRingKey));
+    double settled = double.infinity;
+    for (final e in find.textContaining('row ').evaluate()) {
+      final label = (e.widget as Text).data!;
+      final r = tester.getRect(find.text(label));
+      settled = math.min(settled, (settledRing.center.dy - r.center.dy).abs());
+    }
+    expect(settled, lessThan(2), reason: 'ring never settled onto a row');
   });
 }
