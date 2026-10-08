@@ -140,6 +140,27 @@ That is the whole app change. A timed reciter needs no `coveredAyat`, no
 — the per-ayah reciters go through it unchanged; `_getClipsForAyah` is the only
 seam. `test/reciter_audio_files_test.dart` guards this.
 
+**1b. Page turns inside an ayah — every new reciter, timed or per-ayah.** Five
+ayat are printed across a page break (2:218 p34→35, 4:44 p85→86, 14:27
+p258→259, 24:36 p354→355, 24:42 p355→356). The page turns when the sheikh
+finishes the last word on the earlier page, at a moment measured in *his*
+audio and stored in `lib/page_turn_cues.dart`. Once his timings are live,
+measure him in WSL, from the repo root:
+
+```sh
+/root/quran-venv/bin/python tools/measure_page_turn_cues.py --only x_qaloun
+```
+
+It reads `Reciter.all` from `reciter.dart`, so there is nothing to configure.
+It force-aligns the five clips with the pipeline's CTC aligner, snaps each
+moment to the audio, regenerates `lib/page_turn_cues.dart`, and writes a
+listening page (`build/page_turn_cues/review/page_turn_cues_review.html`). In
+that page a tick marks each turn and should fall just after the page's last
+word. `test/page_turn_cues_test.dart` fails until he is measured. Unmeasured,
+the app falls back to a shared estimate (`spannedAyahHead`). Re-measure if his
+audio is ever re-uploaded. A re-cut of the timings alone does not need it,
+because the moments are positions in the surah file, not offsets into a span.
+
 **2. The web player** — an entry in `RECITERS` in
 `tools/build_web_player_data.py` with `"scheme": "timed"` and `"timingsDir"`,
 then run it. It bundles `web-player/data/timings_<slug>.json`.
@@ -250,6 +271,9 @@ of the advance/repeat logic. Not attempted.
 - [ ] Spans contiguous, no `"0"` key anywhere
 - [ ] `Reciter` entry added to `Reciter.all`; `flutter test` passes;
       `_getAudioFilesForAyah` untouched
+- [ ] Page-turn moments measured (`tools/measure_page_turn_cues.py --only
+      <id>`), `lib/page_turn_cues.dart` regenerated, the listening page's
+      five ticks heard just after each page's last word
 - [ ] `tools/build_web_player_data.py` rerun; `timings_<slug>.json` bundled
 - [ ] Review page built, uploaded to its stable `mushaf_<slug>.html` URL
 - [ ] **Listened to by ear** across at least one surah boundary and one joined

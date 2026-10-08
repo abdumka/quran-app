@@ -1,5 +1,11 @@
 """Measure where each reciter actually pauses at a page break.
 
+Superseded for the app by tools/measure_page_turn_cues.py, which times the
+exact moment in each reciter's own audio (lib/page_turn_cues.dart). The medians
+this script produces now only feed `spannedAyahHead`'s fallback fractions, used
+for a reciter nobody has measured yet. Its reciter table is from 2026-08 (al-
+Naihi was still per-ayah then) and is not kept up to date.
+
 `build_page_spans.py` works out how far into a page-spanning ayah the break
 falls by measuring the page image and counting the ayah's letters. Both are
 proxies for the thing that matters — how long the head of the ayah takes to

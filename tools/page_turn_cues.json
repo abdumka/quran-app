@@ -1,0 +1,1310 @@
+{
+ "abusenainah_qaloun": {
+  "259": {
+   "at_in_clip": 23.2,
+   "at_ms": 641810,
+   "ayah": 27,
+   "clip_seconds": 40.16,
+   "clips": [
+    [
+     "014.mp3",
+     618610,
+     658770
+    ]
+   ],
+   "ctc_next": [
+    23.22,
+    23.84
+   ],
+   "ctc_word": [
+    20.36,
+    23.0
+   ],
+   "file": "014.mp3",
+   "how": "read on, dip -19 dB",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": null,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 37.22,
+   "at_ms": 5702400,
+   "ayah": 217,
+   "clip_seconds": 67.89,
+   "clips": [
+    [
+     "002.mp3",
+     5665180,
+     5733070
+    ]
+   ],
+   "ctc_next": [
+    37.9,
+    39.22
+   ],
+   "ctc_word": [
+    35.68,
+    36.82
+   ],
+   "file": "002.mp3",
+   "how": "pause 0.43s",
+   "joined": true,
+   "pause_end": 37.55,
+   "recited": [
+    "2:217",
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 37.12,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 13.12,
+   "at_ms": 890910,
+   "ayah": 36,
+   "clip_seconds": 58.37,
+   "clips": [
+    [
+     "024.mp3",
+     877790,
+     936160
+    ]
+   ],
+   "ctc_next": [
+    14.18,
+    14.8
+   ],
+   "ctc_word": [
+    10.7,
+    11.94
+   ],
+   "file": "024.mp3",
+   "how": "pause 1.07s",
+   "joined": false,
+   "pause_end": 14.09,
+   "recited": [
+    "24:36",
+    "24:37"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": 13.02,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 54.29,
+   "at_ms": 1093260,
+   "ayah": 42,
+   "clip_seconds": 68.04,
+   "clips": [
+    [
+     "024.mp3",
+     1038970,
+     1107010
+    ]
+   ],
+   "ctc_next": [
+    54.44,
+    55.22
+   ],
+   "ctc_word": [
+    51.98,
+    53.62
+   ],
+   "file": "024.mp3",
+   "how": "read on, stop 0.12s",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": null,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 13.97,
+   "at_ms": 1422950,
+   "ayah": 44,
+   "clip_seconds": 28.52,
+   "clips": [
+    [
+     "004.mp3",
+     1408980,
+     1437500
+    ]
+   ],
+   "ctc_next": [
+    14.74,
+    15.58
+   ],
+   "ctc_word": [
+    12.68,
+    13.86
+   ],
+   "file": "004.mp3",
+   "how": "pause 0.81s",
+   "joined": false,
+   "pause_end": 14.68,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 13.87,
+   "word": "السبيل"
+  }
+ },
+ "alqryw_qaloun": {
+  "259": {
+   "at_in_clip": 17.26,
+   "at_ms": 560980,
+   "ayah": 27,
+   "clip_seconds": 34.87,
+   "clips": [
+    [
+     "014.mp3",
+     543720,
+     578590
+    ]
+   ],
+   "ctc_next": [
+    18.4,
+    18.9
+   ],
+   "ctc_word": [
+    15.12,
+    17.16
+   ],
+   "file": "014.mp3",
+   "how": "pause 1.24s",
+   "joined": false,
+   "pause_end": 18.4,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": 17.16,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 14.21,
+   "at_ms": 5481800,
+   "ayah": 218,
+   "clip_seconds": 46.15,
+   "clips": [
+    [
+     "002.mp3",
+     5467590,
+     5513740
+    ]
+   ],
+   "ctc_next": [
+    15.44,
+    16.8
+   ],
+   "ctc_word": [
+    12.7,
+    13.84
+   ],
+   "file": "002.mp3",
+   "how": "pause 1.33s",
+   "joined": false,
+   "pause_end": 15.44,
+   "recited": [
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 14.11,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 14.96,
+   "at_ms": 993280,
+   "ayah": 36,
+   "clip_seconds": 42.08,
+   "clips": [
+    [
+     "024.mp3",
+     978320,
+     1020400
+    ]
+   ],
+   "ctc_next": [
+    15.08,
+    15.84
+   ],
+   "ctc_word": [
+    13.34,
+    14.84
+   ],
+   "file": "024.mp3",
+   "how": "read on",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "24:36"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": null,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 51.67,
+   "at_ms": 1214830,
+   "ayah": 42,
+   "clip_seconds": 68.87,
+   "clips": [
+    [
+     "024.mp3",
+     1163160,
+     1232030
+    ]
+   ],
+   "ctc_next": [
+    52.88,
+    53.96
+   ],
+   "ctc_word": [
+    49.18,
+    51.44
+   ],
+   "file": "024.mp3",
+   "how": "pause 1.27s",
+   "joined": false,
+   "pause_end": 52.84,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": 51.57,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 14.49,
+   "at_ms": 1478900,
+   "ayah": 44,
+   "clip_seconds": 29.37,
+   "clips": [
+    [
+     "004.mp3",
+     1464410,
+     1493780
+    ]
+   ],
+   "ctc_next": [
+    15.42,
+    16.28
+   ],
+   "ctc_word": [
+    13.02,
+    14.24
+   ],
+   "file": "004.mp3",
+   "how": "pause 1.02s",
+   "joined": false,
+   "pause_end": 15.41,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 14.39,
+   "word": "السبيل"
+  }
+ },
+ "doukali_qaloun": {
+  "259": {
+   "at_in_clip": 14.76,
+   "at_ms": 14760,
+   "ayah": 27,
+   "clip_seconds": 32.978,
+   "clips": [
+    [
+     "014027.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    14.78,
+    15.6
+   ],
+   "ctc_word": [
+    12.84,
+    14.6
+   ],
+   "file": "014027.mp3",
+   "how": "read on, dip -22 dB",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": null,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 32.74,
+   "at_ms": 32740,
+   "ayah": 217,
+   "clip_seconds": 62.71,
+   "clips": [
+    [
+     "002217.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    34.84,
+    35.84
+   ],
+   "ctc_word": [
+    31.46,
+    32.48
+   ],
+   "file": "002217.mp3",
+   "how": "pause 2.17s",
+   "joined": true,
+   "pause_end": 34.81,
+   "recited": [
+    "2:217",
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 32.64,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 13.08,
+   "at_ms": 13080,
+   "ayah": 36,
+   "clip_seconds": 52.235,
+   "clips": [
+    [
+     "024036.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    15.14,
+    15.76
+   ],
+   "ctc_word": [
+    9.9,
+    11.2
+   ],
+   "file": "024036.mp3",
+   "how": "pause 2.10s",
+   "joined": false,
+   "pause_end": 15.08,
+   "recited": [
+    "24:36",
+    "24:37"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": 12.98,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 47.93,
+   "at_ms": 47930,
+   "ayah": 42,
+   "clip_seconds": 60.14,
+   "clips": [
+    [
+     "024042.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    48.0,
+    48.62
+   ],
+   "ctc_word": [
+    46.84,
+    47.86
+   ],
+   "file": "024042.mp3",
+   "how": "read on",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": null,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 12.53,
+   "at_ms": 12530,
+   "ayah": 44,
+   "clip_seconds": 25.24,
+   "clips": [
+    [
+     "004044.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    14.0,
+    14.56
+   ],
+   "ctc_word": [
+    10.8,
+    12.4
+   ],
+   "file": "004044.mp3",
+   "how": "pause 1.52s",
+   "joined": false,
+   "pause_end": 13.95,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 12.43,
+   "word": "السبيل"
+  }
+ },
+ "hudaifi_qaloun": {
+  "259": {
+   "at_in_clip": 16.9,
+   "at_ms": 16900,
+   "ayah": 27,
+   "clip_seconds": 32.415,
+   "clips": [
+    [
+     "014027.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    17.78,
+    18.54
+   ],
+   "ctc_word": [
+    13.94,
+    14.72
+   ],
+   "file": "014027.mp3",
+   "how": "pause 0.98s",
+   "joined": false,
+   "pause_end": 17.78,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": 16.8,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 35.85,
+   "at_ms": 35850,
+   "ayah": 217,
+   "clip_seconds": 66.71,
+   "clips": [
+    [
+     "002217.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    36.98,
+    38.26
+   ],
+   "ctc_word": [
+    34.6,
+    35.62
+   ],
+   "file": "002217.mp3",
+   "how": "pause 1.19s",
+   "joined": true,
+   "pause_end": 36.94,
+   "recited": [
+    "2:217",
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 35.75,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 13.27,
+   "at_ms": 13270,
+   "ayah": 36,
+   "clip_seconds": 38.68,
+   "clips": [
+    [
+     "024036.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    14.3,
+    14.88
+   ],
+   "ctc_word": [
+    9.68,
+    10.84
+   ],
+   "file": "024036.mp3",
+   "how": "pause 1.06s",
+   "joined": false,
+   "pause_end": 14.23,
+   "recited": [
+    "24:36"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": 13.17,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 51.02,
+   "at_ms": 51020,
+   "ayah": 42,
+   "clip_seconds": 63.12,
+   "clips": [
+    [
+     "024042.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    52.16,
+    52.92
+   ],
+   "ctc_word": [
+    48.32,
+    50.94
+   ],
+   "file": "024042.mp3",
+   "how": "pause 1.21s",
+   "joined": false,
+   "pause_end": 52.13,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": 50.92,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 13.23,
+   "at_ms": 13230,
+   "ayah": 44,
+   "clip_seconds": 25.879,
+   "clips": [
+    [
+     "004044.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    14.22,
+    14.92
+   ],
+   "ctc_word": [
+    10.9,
+    13.06
+   ],
+   "file": "004044.mp3",
+   "how": "pause 1.01s",
+   "joined": false,
+   "pause_end": 14.14,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 13.13,
+   "word": "السبيل"
+  }
+ },
+ "husary_qaloun": {
+  "259": {
+   "at_in_clip": 25.07,
+   "at_ms": 25070,
+   "ayah": 27,
+   "clip_seconds": 52.532,
+   "clips": [
+    [
+     "014027.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    28.02,
+    28.76
+   ],
+   "ctc_word": [
+    22.98,
+    24.96
+   ],
+   "file": "014027.mp3",
+   "how": "pause 3.05s",
+   "joined": false,
+   "pause_end": 28.02,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": 24.97,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 24.29,
+   "at_ms": 24290,
+   "ayah": 218,
+   "clip_seconds": 74.815,
+   "clips": [
+    [
+     "002218.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    26.28,
+    28.48
+   ],
+   "ctc_word": [
+    22.06,
+    23.98
+   ],
+   "file": "002218.mp3",
+   "how": "pause 2.04s",
+   "joined": false,
+   "pause_end": 26.23,
+   "recited": [
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 24.19,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 21.44,
+   "at_ms": 21440,
+   "ayah": 36,
+   "clip_seconds": 66.273,
+   "clips": [
+    [
+     "024036.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    21.44,
+    22.44
+   ],
+   "ctc_word": [
+    19.34,
+    21.2
+   ],
+   "file": "024036.mp3",
+   "how": "read on, dip -15 dB",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "24:36"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": null,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 72.24,
+   "at_ms": 72240,
+   "ayah": 42,
+   "clip_seconds": 90.54,
+   "clips": [
+    [
+     "024042.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    73.62,
+    74.8
+   ],
+   "ctc_word": [
+    69.98,
+    72.12
+   ],
+   "file": "024042.mp3",
+   "how": "pause 1.44s",
+   "joined": false,
+   "pause_end": 73.58,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": 72.14,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 19.61,
+   "at_ms": 19610,
+   "ayah": 44,
+   "clip_seconds": 41.848,
+   "clips": [
+    [
+     "004044.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    22.92,
+    24.18
+   ],
+   "ctc_word": [
+    17.94,
+    19.48
+   ],
+   "file": "004044.mp3",
+   "how": "pause 3.37s",
+   "joined": false,
+   "pause_end": 22.88,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 19.51,
+   "word": "السبيل"
+  }
+ },
+ "naihi_qaloun": {
+  "259": {
+   "at_in_clip": 21.0,
+   "at_ms": 504530,
+   "ayah": 27,
+   "clip_seconds": 34.29,
+   "clips": [
+    [
+     "014.mp3",
+     483530,
+     517820
+    ]
+   ],
+   "ctc_next": [
+    21.0,
+    21.76
+   ],
+   "ctc_word": [
+    18.84,
+    20.84
+   ],
+   "file": "014.mp3",
+   "how": "read on, dip -15 dB",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": null,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 10.82,
+   "at_ms": 5044020,
+   "ayah": 218,
+   "clip_seconds": 37.5,
+   "clips": [
+    [
+     "002.mp3",
+     5033200,
+     5070700
+    ]
+   ],
+   "ctc_next": [
+    11.56,
+    12.78
+   ],
+   "ctc_word": [
+    9.62,
+    10.64
+   ],
+   "file": "002.mp3",
+   "how": "pause 0.82s",
+   "joined": false,
+   "pause_end": 11.54,
+   "recited": [
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 10.72,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 10.98,
+   "at_ms": 756020,
+   "ayah": 36,
+   "clip_seconds": 31.5,
+   "clips": [
+    [
+     "024.mp3",
+     745040,
+     776540
+    ]
+   ],
+   "ctc_next": [
+    11.78,
+    12.36
+   ],
+   "ctc_word": [
+    9.56,
+    10.88
+   ],
+   "file": "024.mp3",
+   "how": "pause 0.87s",
+   "joined": false,
+   "pause_end": 11.75,
+   "recited": [
+    "24:36"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": 10.88,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 36.79,
+   "at_ms": 914360,
+   "ayah": 42,
+   "clip_seconds": 47.61,
+   "clips": [
+    [
+     "024.mp3",
+     877570,
+     925180
+    ]
+   ],
+   "ctc_next": [
+    37.32,
+    37.96
+   ],
+   "ctc_word": [
+    35.36,
+    36.64
+   ],
+   "file": "024.mp3",
+   "how": "pause 0.60s",
+   "joined": false,
+   "pause_end": 37.29,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": 36.69,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 12.43,
+   "at_ms": 1339820,
+   "ayah": 44,
+   "clip_seconds": 25.77,
+   "clips": [
+    [
+     "004.mp3",
+     1327390,
+     1353160
+    ]
+   ],
+   "ctc_next": [
+    13.08,
+    13.8
+   ],
+   "ctc_word": [
+    11.26,
+    12.32
+   ],
+   "file": "004.mp3",
+   "how": "pause 0.70s",
+   "joined": false,
+   "pause_end": 13.03,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 12.33,
+   "word": "السبيل"
+  }
+ },
+ "qaniwah_qaloun": {
+  "259": {
+   "at_in_clip": 44.24,
+   "at_ms": 19816,
+   "ayah": 27,
+   "clip_seconds": 64.314,
+   "clips": [
+    [
+     "014026.mp3",
+     null,
+     null
+    ],
+    [
+     "014027.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    44.24,
+    45.18
+   ],
+   "ctc_word": [
+    42.0,
+    44.02
+   ],
+   "file": "014027.mp3",
+   "how": "read on, dip -26 dB",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": null,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 42.54,
+   "at_ms": 42540,
+   "ayah": 217,
+   "clip_seconds": 78.498,
+   "clips": [
+    [
+     "002217.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    44.18,
+    45.72
+   ],
+   "ctc_word": [
+    40.86,
+    42.08
+   ],
+   "file": "002217.mp3",
+   "how": "pause 1.71s",
+   "joined": true,
+   "pause_end": 44.15,
+   "recited": [
+    "2:217",
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 42.44,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 14.42,
+   "at_ms": 14420,
+   "ayah": 36,
+   "clip_seconds": 58.462,
+   "clips": [
+    [
+     "024036.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    14.52,
+    15.22
+   ],
+   "ctc_word": [
+    12.94,
+    14.32
+   ],
+   "file": "024036.mp3",
+   "how": "read on",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "24:36",
+    "24:37"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": null,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 47.28,
+   "at_ms": 47280,
+   "ayah": 42,
+   "clip_seconds": 63.295,
+   "clips": [
+    [
+     "024042.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    48.6,
+    49.52
+   ],
+   "ctc_word": [
+    45.32,
+    47.16
+   ],
+   "file": "024042.mp3",
+   "how": "pause 0.96s",
+   "joined": false,
+   "pause_end": 48.14,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": 47.18,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 16.18,
+   "at_ms": 16180,
+   "ayah": 44,
+   "clip_seconds": 32.418,
+   "clips": [
+    [
+     "004044.mp3",
+     null,
+     null
+    ]
+   ],
+   "ctc_next": [
+    17.98,
+    18.46
+   ],
+   "ctc_word": [
+    14.34,
+    15.48
+   ],
+   "file": "004044.mp3",
+   "how": "pause 1.09s",
+   "joined": false,
+   "pause_end": 17.17,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 16.08,
+   "word": "السبيل"
+  }
+ },
+ "rajab_qaloun": {
+  "259": {
+   "at_in_clip": 19.11,
+   "at_ms": 616930,
+   "ayah": 27,
+   "clip_seconds": 34.81,
+   "clips": [
+    [
+     "014.mp3",
+     597820,
+     632630
+    ]
+   ],
+   "ctc_next": [
+    18.88,
+    19.42
+   ],
+   "ctc_word": [
+    16.56,
+    18.7
+   ],
+   "file": "014.mp3",
+   "how": "pause 0.27s",
+   "joined": false,
+   "pause_end": 19.28,
+   "recited": [
+    "14:27"
+   ],
+   "spanning_ayah": 27,
+   "surah": 14,
+   "voice_end": 19.01,
+   "word": "السماء"
+  },
+  "35": {
+   "at_in_clip": 11.37,
+   "at_ms": 5114100,
+   "ayah": 218,
+   "clip_seconds": 38.97,
+   "clips": [
+    [
+     "002.mp3",
+     5102730,
+     5141700
+    ]
+   ],
+   "ctc_next": [
+    12.52,
+    13.8
+   ],
+   "ctc_word": [
+    9.98,
+    11.1
+   ],
+   "file": "002.mp3",
+   "how": "pause 1.18s",
+   "joined": false,
+   "pause_end": 12.45,
+   "recited": [
+    "2:218"
+   ],
+   "spanning_ayah": 218,
+   "surah": 2,
+   "voice_end": 11.27,
+   "word": "والاخرة"
+  },
+  "355": {
+   "at_in_clip": 12.09,
+   "at_ms": 878270,
+   "ayah": 36,
+   "clip_seconds": 39.68,
+   "clips": [
+    [
+     "024.mp3",
+     866180,
+     905860
+    ]
+   ],
+   "ctc_next": [
+    12.1,
+    13.46
+   ],
+   "ctc_word": [
+    10.72,
+    11.92
+   ],
+   "file": "024.mp3",
+   "how": "read on, dip -12 dB",
+   "joined": false,
+   "pause_end": null,
+   "recited": [
+    "24:36"
+   ],
+   "spanning_ayah": 36,
+   "surah": 24,
+   "voice_end": null,
+   "word": "والاصال"
+  },
+  "356": {
+   "at_in_clip": 54.72,
+   "at_ms": 1087090,
+   "ayah": 42,
+   "clip_seconds": 68.9,
+   "clips": [
+    [
+     "024.mp3",
+     1032370,
+     1101270
+    ]
+   ],
+   "ctc_next": [
+    55.7,
+    56.44
+   ],
+   "ctc_word": [
+    52.6,
+    54.66
+   ],
+   "file": "024.mp3",
+   "how": "pause 1.04s",
+   "joined": false,
+   "pause_end": 55.66,
+   "recited": [
+    "24:42"
+   ],
+   "spanning_ayah": 42,
+   "surah": 24,
+   "voice_end": 54.62,
+   "word": "بالابصار"
+  },
+  "86": {
+   "at_in_clip": 13.24,
+   "at_ms": 1328710,
+   "ayah": 44,
+   "clip_seconds": 27.38,
+   "clips": [
+    [
+     "004.mp3",
+     1315470,
+     1342850
+    ]
+   ],
+   "ctc_next": [
+    13.92,
+    14.72
+   ],
+   "ctc_word": [
+    11.24,
+    12.9
+   ],
+   "file": "004.mp3",
+   "how": "pause 0.75s",
+   "joined": false,
+   "pause_end": 13.89,
+   "recited": [
+    "4:44"
+   ],
+   "spanning_ayah": 44,
+   "surah": 4,
+   "voice_end": 13.14,
+   "word": "السبيل"
+  }
+ }
+}

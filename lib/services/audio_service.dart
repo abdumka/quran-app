@@ -15,6 +15,7 @@ import '../models/audio_clip.dart';
 import '../models/quran_page_data.dart';
 import '../models/reciter.dart';
 import '../page_span_data.dart';
+import '../page_turn_cues.dart';
 import '../thumn_data.dart';
 import '../utils/joined_ayah_group.dart';
 import 'audio_ayah_map_service.dart';
@@ -302,16 +303,21 @@ class AudioService {
   /// be reached with a seek instead of a reload — see [_playClip].
   Uri? _loadedSurahUri;
 
-  /// The page turn the display still owes the recitation — see [_deferFlip].
-  /// Null whenever the two are already on the same page.
-  int? _deferredFlipPageIndex;
+  /// The page the recitation has turned to while the reader is still held on
+  /// the one before it: the page opens with an ayah printed across the break,
+  /// and the sheikh has not yet finished the last word on the earlier page —
+  /// see [_syncPageTurn]. Null whenever the two are on the same page.
+  int? _heldTurnPageIndex;
 
-  /// The page-spanning ayah the held-back turn is waiting on. The hold only
-  /// lasts as long as this ayah is the one playing.
-  QuranAyahData? _deferredFlipAyah;
+  /// The page the display has gone on to ahead of the recitation: the clip now
+  /// playing is listed on the page before (a sheikh who reads the
+  /// page-spanning ayah inside the previous ayah's breath), but the words it
+  /// has reached are printed on this one — see [_syncPageTurn]. Null whenever
+  /// the two are on the same page.
+  int? _leadPageIndex;
 
-  /// Watches the held-back turn's position target.
-  StreamSubscription<Duration>? _deferredFlipSubscription;
+  /// Watches the clip now playing for its page-turn moment.
+  StreamSubscription<Duration>? _pageTurnSubscription;
 
   bool _isInitialized = false;
 
@@ -678,12 +684,29 @@ class AudioService {
     bool startFromLastAyah = false,
     int? startFromAyahIndex,
     bool autoPlay = true,
+  }) => _startPage(
+    pageIndex,
+    startFromLastAyah: startFromLastAyah,
+    startFromAyahIndex: startFromAyahIndex,
+    autoPlay: autoPlay,
+  );
+
+  /// [playPage], plus [holdTurn]: the recitation itself turned to this page,
+  /// which opens with an ayah printed across the break, and the reader stays
+  /// on the page before until the sheikh is past it (see [_syncPageTurn]).
+  Future<void> _startPage(
+    int pageIndex, {
+    bool startFromLastAyah = false,
+    int? startFromAyahIndex,
+    bool autoPlay = true,
+    bool holdTurn = false,
   }) async {
     if (_isChangingPage) return;
     _isChangingPage = true;
     final session = _session;
     // Whatever page turn was owed, it is about to be overtaken by this one.
-    _cancelDeferredFlip();
+    _cancelPageTurn();
+    if (holdTurn) _heldTurnPageIndex = pageIndex;
     try {
       if (_quranPages == null) await init();
       if (session != _session) return;
@@ -856,13 +879,6 @@ class AudioService {
 
     final ayah = _playlistAyahs[_currentGlobalAyahIndex];
     currentAyah.value = ayah;
-    // A held-back page turn lasts only as long as the spanning ayah it is
-    // waiting on: once the recitation has moved off it — it finished, or the
-    // listener picked another ayah — the reader belongs on the new page.
-    final owed = _deferredFlipAyah;
-    if (owed != null && (owed.surah != ayah.surah || owed.ayah != ayah.ayah)) {
-      _flipNow();
-    }
     _currentAyahClips = _getClipsForAyah(
       ayah,
       pageNumber: _currentPageIndex + 1,
@@ -937,6 +953,7 @@ class AudioService {
     if (_currentFileIndexWithinAyah == 0) {
       currentAyahGroup.value = _joinedGroupOf(ayah);
     }
+    _syncPageTurn(ayah);
     final clip = _currentAyahClips[_currentFileIndexWithinAyah];
     final didStart = await _playClip(clip, autoPlay: autoPlay);
     if (!didStart) return;
@@ -1221,7 +1238,7 @@ class AudioService {
   void _haltPlayback(String message) {
     _emptyAdvances = 0;
     _halted = true;
-    _cancelDeferredFlip();
+    _cancelPageTurn();
     _clipEndTarget = null;
     _loadedSurahUri = null;
     _player.stop(); // drop the stale source; the position is not kept
@@ -1874,7 +1891,10 @@ class AudioService {
     // While a turn is held back the recitation is already on the next page,
     // but the ayah being recited is printed on this one — which is what the
     // play button and the مقطع picker are really asking about.
-    if (_deferredFlipPageIndex == pageIndex + 1) return true;
+    if (_heldTurnPageIndex == pageIndex + 1) return true;
+    // And when the display has gone on ahead, the clip is still listed on the
+    // page before, but the words it has reached are printed on this one.
+    if (_leadPageIndex == pageIndex) return true;
     final pageNumber = pageIndex + 1;
     final pageData = _quranPages!.firstWhere(
       (p) => p.page == pageNumber,
@@ -1965,25 +1985,33 @@ class AudioService {
       }
       // An ayah printed across the page break is filed in output.json under the
       // page it *ends* on, so turning the page the moment it starts throws the
-      // reader forward off words still printed in front of them. On the pages
-      // where a real part of it is read before the break the audio moves on as
-      // usual, but the turn waits for the recitation to reach the last word on
-      // the page being read (see [spannedAyahHead]).
+      // reader forward off words still printed in front of them. Where the
+      // sheikh reads it as a clip of its own the audio moves on as usual, but
+      // the turn waits for him to finish the last word on the page being read;
+      // where he reads it inside the previous ayah's breath, that clip has
+      // already turned the page, mid-way (see [_syncPageTurn]).
       final nextPageAyahs = _quranPages!
           .firstWhere(
             (p) => p.page == nextPageIndex + 1,
             orElse: () => QuranPageData(page: nextPageIndex + 1, ayahs: []),
           )
           .ayahs;
-      final head = nextPageAyahs.isEmpty
-          ? null
-          : spannedAyahHead[nextPageIndex + 1];
+      final alreadyThere = _leadPageIndex == nextPageIndex;
+      _leadPageIndex = null;
+      final hold =
+          !alreadyThere &&
+          nextPageAyahs.isNotEmpty &&
+          _opensWithHeldTurn(nextPageIndex, nextPageAyahs.first);
       // Closed during a repeat-boundary check above: don't reopen the bar.
       if (session != _session) return;
-      if (head == null) onPageChangeRequired?.call(nextPageIndex);
-      await playPage(nextPageIndex);
+      if (!alreadyThere && !hold) onPageChangeRequired?.call(nextPageIndex);
+      await _startPage(nextPageIndex, holdTurn: hold);
       if (session != _session) return;
-      if (head != null) _deferFlip(nextPageIndex, head, nextPageAyahs.first);
+      // The page never started (another was already being set up): don't
+      // leave the reader behind on the old one.
+      if (hold && _currentPageIndex != nextPageIndex) {
+        onPageChangeRequired?.call(nextPageIndex);
+      }
     } else {
       // Don't stop unless we really reached the end of the Quran
       if (nextPageIndex >= _quranPages!.length) {
@@ -1992,50 +2020,203 @@ class AudioService {
     }
   }
 
-  /// Holds the turn to [pageIndex] back until [headFraction] of the ayah now
-  /// playing — the part of it printed on the page the reader is still looking
-  /// at — has been recited.
-  void _deferFlip(int pageIndex, double headFraction, QuranAyahData spanning) {
-    _cancelDeferredFlip();
-    final playing = currentAyah.value;
-    // Nothing to wait for unless the spanning ayah really is what started
-    // playing — it can be skipped outright (a reciter who reads it inside a
-    // neighbour's breath), and the page can have failed to load at all. The
-    // single-file test is because the fraction is of the whole ayah while
-    // [AudioPlayer.duration] is only the file now playing: for the rare ayah
-    // spread over two recitation files the target would land inside the first
-    // one. None of these is worth more machinery — turn the page as before.
-    if (playing == null ||
-        _currentPageIndex != pageIndex ||
-        playing.surah != spanning.surah ||
-        playing.ayah != spanning.ayah ||
-        _currentAyahClips.length != 1) {
-      onPageChangeRequired?.call(pageIndex);
-      return;
+  // ─────────────────────────────────────
+  //  PAGE TURNS INSIDE AN AYAH
+  // ─────────────────────────────────────
+  //
+  // Five ayat in this mushaf start at the foot of one page and finish on the
+  // next (see [spannedAyahHead]). The page should turn when the sheikh
+  // finishes the last word printed on the earlier page — not when the ayah
+  // starts, and not when it ends. Where that is inside each reciter's audio is
+  // measured, per reciter, by tools/measure_page_turn_cues.py ([pageTurnCues]).
+  //
+  // The moment sits in one of two kinds of clip:
+  //  * the page-spanning ayah's own clip, which the recitation reaches by
+  //    turning to the page it is listed on. The turn is then held back
+  //    ([_heldTurnPageIndex]) until the moment, so the reader stays on the
+  //    page the ayah starts on;
+  //  * the previous ayah's clip, for a sheikh who reads the spanning ayah
+  //    inside that ayah's breath. That clip is listed on the earlier page and
+  //    plays before the recitation turns at all, so the display goes on ahead
+  //    of it at the moment ([_leadPageIndex]).
+
+  /// Lines the display up with the clip about to play, and arms the page turn
+  /// inside it when it carries one. Called as each clip starts.
+  void _syncPageTurn(QuranAyahData ayah) {
+    _pageTurnSubscription?.cancel();
+    _pageTurnSubscription = null;
+    final turn = _pageTurnFor(ayah, _currentAyahClips);
+    final index = _currentFileIndexWithinAyah;
+
+    // A held-back turn lasts only while the moment it waits for is still
+    // ahead in this ayah: once the recitation has moved past it — it
+    // finished, or the listener picked another ayah — the reader belongs on
+    // the page the recitation is on.
+    final held = _heldTurnPageIndex;
+    if (held != null &&
+        (turn == null || turn.pageIndex != held || index > turn.clipIndex)) {
+      _flipNow();
     }
-    _deferredFlipPageIndex = pageIndex;
-    _deferredFlipAyah = playing;
-    _deferredFlipSubscription = _player.positionStream.listen((position) {
-      final total = _player.duration;
-      if (total == null || total <= Duration.zero) return;
-      if (position.inMilliseconds >= total.inMilliseconds * headFraction) {
+    // Gone on ahead, but this clip is back before the break — the ayah or
+    // the page is being repeated, or another ayah was picked: back to the
+    // page the recitation is on.
+    final lead = _leadPageIndex;
+    if (lead != null &&
+        (turn == null || turn.pageIndex != lead || index <= turn.clipIndex)) {
+      _leadPageIndex = null;
+      onPageChangeRequired?.call(_currentPageIndex);
+    }
+    if (turn == null || index != turn.clipIndex) return;
+
+    if (turn.pageIndex == _currentPageIndex) {
+      // The spanning ayah's own clip. Hold the turn only if the reader is
+      // still on the page before — that is, the recitation turned the page to
+      // get here. Started from this page (a tap, a repeat) the reader is
+      // already on the page the ayah is listed on, and stays there.
+      if (_heldTurnPageIndex == turn.pageIndex) {
+        _armPageTurn(turn, lead: false);
+      }
+    } else if (turn.pageIndex == _currentPageIndex + 1) {
+      // A clip listed on this page that reads on across the break. Turn
+      // early only on the pass that moves on to the next page: a repeat of
+      // the ayah or of the page starts it again here, so the reader stays.
+      if (_recitationMovesOnAfter()) _armPageTurn(turn, lead: true);
+    }
+  }
+
+  /// Where, among [clips] (one ayah's, for the reciter now selected), the
+  /// sheikh finishes the last word printed on a page — null for every ayah but
+  /// the handful that carry a page break.
+  _PageTurn? _pageTurnFor(QuranAyahData ayah, List<AudioClip> clips) {
+    final reciter = ReciterService.instance.selected.value;
+    final cues = pageTurnCues[reciter.id];
+    if (cues != null) {
+      for (final entry in cues.entries) {
+        final cue = entry.value;
+        if (cue.surah != ayah.surah || cue.ayah != ayah.ayah) continue;
+        final at = Duration(milliseconds: cue.atMs);
+        for (var i = 0; i < clips.length; i++) {
+          final clip = clips[i];
+          if (clip.file != cue.file) continue;
+          if (clip.start != null && at < clip.start!) continue;
+          if (clip.end != null && at >= clip.end!) continue;
+          return _PageTurn(entry.key - 1, i, at: at);
+        }
+      }
+      return null;
+    }
+    // A reciter nobody has measured yet: estimate from how far into the ayah
+    // the reciters who have been measured reach the break — which only works
+    // when the ayah is one clip of its own.
+    if (clips.length != 1) return null;
+    for (final entry in spannedAyahHead.entries) {
+      final first = _firstAyahOfPage(entry.key);
+      if (first != null &&
+          first.surah == ayah.surah &&
+          first.ayah == ayah.ayah) {
+        return _PageTurn(entry.key - 1, 0, fraction: entry.value);
+      }
+    }
+    return null;
+  }
+
+  /// Whether the page at [pageIndex] opens with an ayah its reciter reads as
+  /// a clip of its own that starts on the page before — the turn to that page
+  /// then waits inside it (see [_syncPageTurn]).
+  bool _opensWithHeldTurn(int pageIndex, QuranAyahData first) {
+    final cues = pageTurnCues[ReciterService.instance.selected.value.id];
+    if (cues == null) return spannedAyahHead.containsKey(pageIndex + 1);
+    final cue = cues[pageIndex + 1];
+    return cue != null && cue.surah == first.surah && cue.ayah == first.ayah;
+  }
+
+  /// Whether, once the ayah now playing finishes, the recitation goes on to
+  /// the next page — rather than repeat the ayah or the page, play more of
+  /// this page, or loop a ثمن or مقطع that ends here (see [_goToNextPage]).
+  bool _recitationMovesOnAfter() {
+    final mode = repeatMode.value;
+    if (mode == AyahRepeatMode.infinite) return false;
+    if (mode == AyahRepeatMode.count &&
+        _currentRepeatIteration + 1 < repeatCount.value) {
+      return false;
+    }
+    for (var i = _currentGlobalAyahIndex + 1; i < _playlistAyahs.length; i++) {
+      if (_isPlayableAyah(_playlistAyahs[i])) return false;
+    }
+    final pageMode = pageRepeatMode.value;
+    if (pageMode == AyahRepeatMode.infinite) return false;
+    if (pageMode == AyahRepeatMode.count &&
+        _pageRepeatIteration + 1 < pageRepeatCount.value) {
+      return false;
+    }
+    final next = _firstAyahOfPage(_currentPageIndex + 2);
+    if (next == null) return false;
+    if (rangeRepeatMode.value != AyahRepeatMode.off &&
+        !_isInsideRange(next.surah, next.ayah)) {
+      return false;
+    }
+    if (thumnRepeatMode.value != AyahRepeatMode.off &&
+        _thumnStartSurah > 0 &&
+        !_isBeforeThumnEnd(next.surah, next.ayah)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Turns the page when the clip now playing reaches [turn]: on ahead of
+  /// the recitation when [lead], else the turn that was held back.
+  void _armPageTurn(_PageTurn turn, {required bool lead}) {
+    final clip = _currentAyahClips[turn.clipIndex];
+    var sawBefore = false;
+    _pageTurnSubscription = _player.positionStream.listen((position) {
+      var at = turn.at;
+      if (at == null) {
+        final start = clip.start ?? Duration.zero;
+        final end = clip.end ?? _player.duration;
+        if (end == null || end <= start) return;
+        at = start + (end - start) * turn.fraction!;
+      }
+      if (position < at) {
+        sawBefore = true;
+        return;
+      }
+      // A position left over from before this clip began — the end of the
+      // previous ayah, or of this one on a repeat — must not turn the page.
+      if (!sawBefore) return;
+      _pageTurnSubscription?.cancel();
+      _pageTurnSubscription = null;
+      if (lead) {
+        _leadPageIndex = turn.pageIndex;
+        onPageChangeRequired?.call(turn.pageIndex);
+      } else {
         _flipNow();
       }
     });
   }
 
+  QuranAyahData? _firstAyahOfPage(int pageNumber) {
+    for (final page in _quranPages ?? const <QuranPageData>[]) {
+      if (page.page == pageNumber) {
+        return page.ayahs.isEmpty ? null : page.ayahs.first;
+      }
+    }
+    return null;
+  }
+
   /// Turns the page the display still owes, if any.
   void _flipNow() {
-    final pageIndex = _deferredFlipPageIndex;
-    _cancelDeferredFlip();
+    final pageIndex = _heldTurnPageIndex;
+    _pageTurnSubscription?.cancel();
+    _pageTurnSubscription = null;
+    _heldTurnPageIndex = null;
     if (pageIndex != null) onPageChangeRequired?.call(pageIndex);
   }
 
-  void _cancelDeferredFlip() {
-    _deferredFlipSubscription?.cancel();
-    _deferredFlipSubscription = null;
-    _deferredFlipPageIndex = null;
-    _deferredFlipAyah = null;
+  void _cancelPageTurn() {
+    _pageTurnSubscription?.cancel();
+    _pageTurnSubscription = null;
+    _heldTurnPageIndex = null;
+    _leadPageIndex = null;
   }
 
   void pause() {
@@ -2060,7 +2241,7 @@ class AudioService {
     _session++;
     _isChangingPage = false;
     _splitMonitorSubscription?.cancel();
-    _cancelDeferredFlip();
+    _cancelPageTurn();
     _clipEndTarget = null;
     // stop() drops the loaded source, so the next ayah must load it again
     // rather than seek into a player that is no longer holding the surah.
@@ -2089,7 +2270,25 @@ class AudioService {
   void dispose() {
     _splitMonitorSubscription?.cancel();
     _clipEndSubscription?.cancel();
-    _deferredFlipSubscription?.cancel();
+    _pageTurnSubscription?.cancel();
     _player.dispose();
   }
+}
+
+/// Where inside one ayah's clips the page turns — see
+/// [AudioService._syncPageTurn].
+class _PageTurn {
+  const _PageTurn(this.pageIndex, this.clipIndex, {this.at, this.fraction});
+
+  /// The page turned to.
+  final int pageIndex;
+
+  /// Which of the ayah's clips holds the moment.
+  final int clipIndex;
+
+  /// The moment, as a position in that clip's file ([PageTurnCue.atMs]) …
+  final Duration? at;
+
+  /// … or, for a reciter not measured yet, as a share of the clip.
+  final double? fraction;
 }

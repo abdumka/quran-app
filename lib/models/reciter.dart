@@ -54,6 +54,12 @@ enum AudioScheme {
 /// each reciter's audio must live on stable hosting **we control** — today the
 /// `quran-audio` Cloudflare R2 bucket behind audio.mushaf-qaloon.com. Nothing
 /// here points at a streaming/player website directly.
+///
+/// Every reciter in [all] also needs his own page-turn moments for the five
+/// ayat printed across a page break — where in his audio he finishes the last
+/// word on the earlier page (lib/page_turn_cues.dart). They are measured from
+/// the recording by tools/measure_page_turn_cues.py, and
+/// test/page_turn_cues_test.dart fails until a new reciter has them.
 class Reciter {
   /// Stable identifier, persisted in SharedPreferences and used as the cache
   /// folder discriminator. Never change an existing id or users lose their
