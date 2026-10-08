@@ -64,7 +64,10 @@ Future<void> press(
   }
   // Select schedules retries out to 800 ms (menus animate closed before their
   // semantics settle), so let those run or the test ends with timers pending.
-  await tester.pump(const Duration(seconds: 1));
+  // Long enough to outlive the ring's delayed rect corrections (up to
+  // 600 ms) and Select's retries (up to 800 ms), or the test ends with
+  // timers pending.
+  await tester.pump(const Duration(seconds: 2));
   await tester.pumpAndSettle();
 }
 

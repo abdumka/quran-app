@@ -58,6 +58,11 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   /// to the first item (the back arrow) and Select then closed the page.
   Rect? _anchor;
 
+  /// Semantics id of the current target. Used ONLY to correct that node's
+  /// rect after a scroll -- never to find the target, because ids are
+  /// recycled when the tree rebuilds.
+  int? _targetId;
+
   /// Global coordinates. The ring lives in the ROOT overlay, not in this
   /// subtree: a dialog or sheet paints above the wrapped page, so a ring drawn
   /// inside the page is hidden behind it -- the margins confirm dialog was
@@ -282,7 +287,15 @@ class _TvFocusScopeState extends State<TvFocusScope> {
 
     _anchor = next.rect;
     _highlight = next.rect;
+    _targetId = next.id;
     _syncRing();
+    // Routes animate. A dialog scales in, a bottom sheet slides up, a
+    // dropdown expands -- so the rect read on the frame the target is chosen
+    // is a rect in motion, and the ring was left wherever the animation
+    // happened to be. That is why it straddled the title of خيارات التلاوة
+    // instead of wrapping القارئ. Correcting afterwards costs nothing and
+    // covers every animated surface at once.
+    _resyncFromSemantics();
     return current == null || next.id != current.id;
   }
 
@@ -536,11 +549,47 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     _anchor = _anchor?.shift(Offset(0, -applied));
     _highlight = _highlight?.shift(Offset(0, -applied));
     _syncRing();
+    _resyncFromSemantics();
   }
 
-  /// Scrolls the list holding the current target by half a viewport in
-  /// [dir]. Returns false when there is no such list or it is already at that
-  /// end — i.e. the highlight really is on the last entry.
+  /// Re-reads the current target's rect from the semantics tree on the next
+  /// frame, replacing whatever the scroll arithmetic guessed.
+  ///
+  /// Shifting the cached rect by the applied scroll delta is only an
+  /// estimate: the semantics tree is a frame behind the jump, so each step
+  /// carries a small error and the errors ADD UP. On the تكرار مقطع surah
+  /// picker the ring sat exactly on 8. الأنفال, slid further off the row
+  /// through 9, 10 and 11, then snapped back onto 12. يوسف when a larger
+  /// relayout happened to resync it. Reading the real rect once the frame is
+  /// laid out means the error can never accumulate past a single step.
+  void _resyncFromSemantics() {
+    final id = _targetId;
+    if (id == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _correctRect(id));
+    // Past the end of the usual Material animations, so a ring that was
+    // placed while something was still moving ends up where it belongs.
+    for (final ms in const [120, 320, 600]) {
+      Future.delayed(Duration(milliseconds: ms), () => _correctRect(id));
+    }
+  }
+
+  void _correctRect(int id) {
+    if (!mounted || !_drives) return;
+    if (_targetId != id) return;
+    // Look the SAME node up by id and take its settled rect. Re-resolving by
+    // nearest-centre instead would let the ring jump to a different, smaller
+    // node that happens to sit near the anchor -- which is exactly what
+    // collapsed it to a little box beside the تكرار مقطع pickers.
+    for (final t in _targets()) {
+      if (t.id != id) continue;
+      if (_highlight != null && _sameRect(t.rect, _highlight!)) return;
+      _anchor = t.rect;
+      _highlight = t.rect;
+      _syncRing();
+      return;
+    }
+  }
+
   /// Whether one vertical step would take the highlight out of the scrollable
   /// it is currently in, while that scrollable can still scroll that way.
   ///
@@ -573,6 +622,9 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     return !viewport.contains(next.rect.center);
   }
 
+  /// Scrolls the list holding the current target by half a viewport in
+  /// [dir]. Returns false when there is no such list or it is already at that
+  /// end -- i.e. the highlight really is on the last entry.
   bool _scrollPage(TraversalDirection dir) {
     final rect = _highlight;
     if (rect == null) return false;
