@@ -28,6 +28,12 @@ import 'widgets/tv/tv_focus_scope.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Resolved first, not in the parallel batch below, because two things set up
+  // before that batch need to know whether this is a television: the media
+  // service's foreground behaviour just below, and the background-playback
+  // default. It is one MethodChannel round trip with a 2 s cap.
+  await TvService.instance.initialize();
+
   // Enables background playback + system media controls (notification / lock
   // screen / headset / Bluetooth) for the recitation. Hardware volume buttons
   // control playback volume whenever the media session is active.
@@ -42,7 +48,17 @@ Future<void> main() async {
         androidNotificationChannelId: 'com.quran.app.audio',
         androidNotificationChannelName: 'تلاوة القرآن',
         androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
+        // Phones drop the service out of the foreground while paused, which
+        // is the tidy thing to do there.
+        //
+        // NOT on TV. Every pause demotes the service to an ordinary
+        // background one, and ActivityManager then reaps it: caught in the
+        // act on a TV emulator, "Stopping service due to app idle:
+        // com.ryanheise.audioservice.AudioService", followed a few seconds
+        // later by the system destroying the app's TCP sockets and the
+        // recitation dying mid-surah. Keeping the service foreground for the
+        // whole session is what stops the idle sweep touching it.
+        androidStopForegroundOnPause: !TvService.instance.isTv,
       ).timeout(const Duration(seconds: 5));
     } catch (error, stack) {
       debugPrint('JustAudioBackground.init failed: $error\n$stack');
@@ -96,8 +112,6 @@ Future<void> main() async {
     ReciterService.instance.load(),
     TafsirEditionService.instance.load(),
     AppUpdateService.instance.load(),
-    // NOTE: BackgroundPlaybackService.load() is deliberately NOT in this
-    // batch -- its default depends on TvService, which is resolved by it.
     // Prefs-only, like the rest of this batch: the notification plugin and the
     // timezone database stay untouched until the reader tops the reminder
     // queue up after its first frame (see QuranPages).
@@ -105,10 +119,6 @@ Future<void> main() async {
     // Same deal: prefs only, and it claims its tap-payload prefix so a tap that
     // cold-started the app is routed once the plugin is up.
     KahfReminderService.instance.load(),
-    // Resolved here rather than lazily: the very first frame's layout
-    // depends on it, and it rides along in the existing parallel batch so
-    // it adds no measurable time to the splash.
-    TvService.instance.initialize(),
     PageColorService.instance.load(),
     PageZoomService.instance.load(),
     SpineShadowService.instance.load(),
@@ -122,9 +132,6 @@ Future<void> main() async {
       DeviceOrientation.landscapeRight,
     ]),
   ]);
-  // After the batch, not inside it: its default is "off on TV, on everywhere
-  // else", so it has to see the resolved TvService. Prefs are warm by now, so
-  // it costs nothing to run it on its own.
   await BackgroundPlaybackService.instance.load();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
