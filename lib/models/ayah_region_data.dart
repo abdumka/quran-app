@@ -42,14 +42,29 @@ class AyahRegionPageData {
   final int page;
   final List<AyahRegion> ayahs;
 
-  const AyahRegionPageData({required this.page, required this.ayahs});
+  /// The first words of the next page's first ayah, on the five pages where
+  /// that ayah begins at the foot of this one (see `spannedAyahHead`).
+  /// `output.json` lists the ayah on the next page only, so it is not one of
+  /// [ayahs] — which stay one for one with the page's text — but a reader
+  /// following it starts here. Its [AyahRegion.marker] is null.
+  final AyahRegion? continuing;
+
+  const AyahRegionPageData({
+    required this.page,
+    required this.ayahs,
+    this.continuing,
+  });
 
   factory AyahRegionPageData.fromJson(Map<String, dynamic> json) {
+    final continuing = json['continues'];
     return AyahRegionPageData(
       page: json['page'] as int,
       ayahs: (json['ayahs'] as List<dynamic>)
           .map((a) => AyahRegion.fromJson(a as Map<String, dynamic>))
           .toList(growable: false),
+      continuing: continuing == null
+          ? null
+          : AyahRegion.fromJson(continuing as Map<String, dynamic>),
     );
   }
 }

@@ -51,8 +51,16 @@ void main() {
     test('one file per displayed ayah, minus the silent placeholders', () {
       final coveredCount = Reciter.doukaliQaloun.coveredAyat.values
           .fold<int>(0, (sum, ayat) => sum + ayat.length);
-      expect(coveredCount, 1194);
+      expect(coveredCount, 1193);
       expect(downloads.getAllFilenames().length, 6214 - coveredCount);
+    });
+
+    test('5:34 is his own recording, not covered by 5:33', () {
+      // The source page marks it covered, but 005034.mp3 is a real 43.6 s
+      // recording of «من أجل ذلك كتبنا…» and 005033.mp3 holds 5:33 alone.
+      // Covered, the ayah was never played or downloaded.
+      expect(Reciter.doukaliQaloun.coveredAyat[5], isNot(contains(34)));
+      expect(downloads.getSurahFilenames(5), contains('005034.mp3'));
     });
 
     test('no basmala file — the bucket has no SSS000.mp3', () {

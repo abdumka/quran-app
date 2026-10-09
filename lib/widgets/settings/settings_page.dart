@@ -34,11 +34,13 @@ import '../../services/reciter_service.dart';
 import '../../services/tafsir_edition_service.dart';
 import '../../services/tafsir_cache_service.dart';
 import '../../services/recitation_bar_opacity_service.dart';
+import '../../utils/multi_tap_detector.dart';
 import '../../utils/responsive_helper.dart';
 
 import 'settings_components.dart';
 import 'settings_coach_overlay.dart';
 import 'daily_page_tile.dart';
+import 'developer_tools_page.dart';
 import 'kahf_reminder_tile.dart';
 import '../hifz_lens_icon.dart';
 import 'downloads_management_page.dart';
@@ -865,6 +867,32 @@ class _SettingsPageState extends State<SettingsPage> {
   String get _kahfReminderInfoText =>
       'يذكّرك كل يوم جمعة بقراءة سورة الكهف في الوقت الذي تختاره بتوقيت جهازك، ويعمل بدون إنترنت. بالضغط على الإشعار يفتح التطبيق على أول صفحة من السورة.';
 
+  /// Seven taps on the «إعدادات متقدمة» ℹ️, none more than a second after the
+  /// last, open [DeveloperToolsPage]. Every tap still shows the normal
+  /// explanation, so the button behaves like every other ℹ️ for a reader who
+  /// taps it once — or twice out of curiosity.
+  final MultiTapDetector _advancedInfoTaps = MultiTapDetector(taps: 7);
+
+  void _handleAdvancedInfoTap() {
+    if (_advancedInfoTaps.register()) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const DeveloperToolsPage()),
+      );
+      return;
+    }
+    // Only the tap that starts a run shows the explanation. Re-showing it on
+    // every tap repositions a 260px notice under the finger and repaints the
+    // page, which is what made the rest of the run hard to land.
+    if (_advancedInfoTaps.count == 1) {
+      _showInfoNotice(_advancedSettingsInfoText);
+    }
+  }
+
+  /// Kept short on purpose: the notice is drawn just above the finger, and a
+  /// long one grows down over the ℹ️ itself.
+  String get _advancedSettingsInfoText =>
+      'إعدادات إضافية لا يحتاجها معظم القرّاء: شريط التلاوة، لون الصفحة، التكبير، والملفات المحمّلة.';
+
   String get _dailyPageInfoText =>
       'يذكّرك يوميًا بقراءة صفحة واحدة على الأقل من المصحف. اختر «وقت محدد» ليصلك التذكير في نفس الوقت كل يوم، أو «وقت عشوائي» ليصلك في وقت مختلف داخل الفترة التي تحددها. يحمل كل تذكير صفحة عشوائية، وبالضغط عليه يفتح التطبيق على تلك الصفحة مباشرة.';
 
@@ -1287,6 +1315,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return SettingsGroupCard(
       icon: Icons.tune_rounded,
       title: 'إعدادات متقدمة',
+      onInfoTap: _handleAdvancedInfoTap,
       children: advancedChildren,
     );
   }

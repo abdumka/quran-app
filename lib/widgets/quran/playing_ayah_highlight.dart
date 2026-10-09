@@ -89,12 +89,7 @@ class PlayingAyahHighlight extends StatelessWidget {
               playing.ayah,
               [for (final g in audio.currentAyahGroup.value) (g.surah, g.ayah)],
             );
-            final rects = <Rect>[
-              for (final a in regions.ayahs)
-                if (keys.contains((a.surah, a.ayah)))
-                  for (final r in a.rects)
-                    Rect.fromLTWH(r.x, r.y, r.width, r.height),
-            ];
+            final rects = highlightRects(regions, keys);
             if (rects.isEmpty) return const SizedBox.shrink();
             return IgnorePointer(
               child: CustomPaint(
@@ -116,6 +111,15 @@ class PlayingAyahHighlight extends StatelessWidget {
 /// the playing ayah is tinted, as for every other reciter.
 Set<(int, int)> highlightedAyat(int surah, int ayah, List<(int, int)> group) =>
     group.contains((surah, ayah)) ? group.toSet() : {(surah, ayah)};
+
+/// The line rects of [keys] on one page. An ayah printed across a page break
+/// is tinted on both pages from its first word: on the earlier page its head
+/// is [AyahRegionPageData.continuing], not one of the page's own ayat.
+List<Rect> highlightRects(AyahRegionPageData regions, Set<(int, int)> keys) => [
+  for (final a in [...regions.ayahs, ?regions.continuing])
+    if (keys.contains((a.surah, a.ayah)))
+      for (final r in a.rects) Rect.fromLTWH(r.x, r.y, r.width, r.height),
+];
 
 class PlayingAyahHighlightPainter extends CustomPainter {
   const PlayingAyahHighlightPainter(this.rects, this.margin, this.dark);

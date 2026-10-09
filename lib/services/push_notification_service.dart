@@ -54,17 +54,39 @@ class PushNotificationService {
   /// new device, or FCM rotating it) needs them made again.
   static const String _subscriptionPrefKey = 'pushTopicSubscription';
 
+  /// Topic used for trying a message out before sending it widely.
+  static const String testTopic = 'test';
+
+  /// Whether this device opted into [testTopic] from the developer tools.
+  static const String _testTopicPrefKey = 'pushTestTopicOptIn';
+
+  /// Id for [showLocalTestNotification], kept clear of the update
+  /// notification's 4801, the Al-Kahf reminder's 4890 and the daily-page block
+  /// at 4900+.
+  static const int _testNotificationId = 4802;
+
   bool _started = false;
+
+  /// Last token fetched, so the developer tools can show it without asking
+  /// Firebase again. Null until [start] has run (or if registration failed,
+  /// which is itself the answer to "why does this device get nothing?").
+  String? _token;
+  String? get token => _token;
+
+  /// Lets one device receive messages sent to [testTopic] on any build, so a
+  /// release or TestFlight install can be tested without reaching everyone.
+  /// Debug and profile builds are in it regardless.
+  final ValueNotifier<bool> testTopicEnabled = ValueNotifier<bool>(false);
 
   static bool get _isSupported =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
-  static List<String> get _topics => [
+  List<String> get _topics => [
     'all',
     defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-    if (!kReleaseMode) 'test',
+    if (!kReleaseMode || testTopicEnabled.value) testTopic,
   ];
 
   Future<void> start() async {
@@ -72,6 +94,8 @@ class PushNotificationService {
     _started = true;
     try {
       _registerTapHandlers();
+      final prefs = await SharedPreferences.getInstance();
+      testTopicEnabled.value = prefs.getBool(_testTopicPrefKey) ?? false;
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
@@ -143,7 +167,78 @@ class PushNotificationService {
     }
     final token = await messaging.getToken();
     debugPrint('[Push] FCM token: $token');
+    _token = token;
     return token;
+  }
+
+  /// Turns this device's [testTopic] membership on or off and makes the change
+  /// straight away, rather than waiting for the next launch. Returns whether
+  /// FCM accepted it; the pref is written either way, so a device that was
+  /// offline picks the topic up on its next start.
+  Future<bool> setTestTopicEnabled(bool value) async {
+    testTopicEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_testTopicPrefKey, value);
+    if (!_isSupported) return false;
+    try {
+      final messaging = FirebaseMessaging.instance;
+      if (value) {
+        await messaging.subscribeToTopic(testTopic);
+      } else if (kReleaseMode) {
+        // Debug and profile builds stay in the topic by definition, so there
+        // is nothing to leave.
+        await messaging.unsubscribeFromTopic(testTopic);
+      }
+      // Keep the stored signature in step, or the next launch would see a
+      // stale one and redo every subscription.
+      final token = _token ?? await messaging.getToken();
+      if (token != null) {
+        _token = token;
+        await prefs.setString(
+          _subscriptionPrefKey,
+          '$token|${_topics.join(',')}',
+        );
+      }
+      _log('test topic ${value ? 'subscribed' : 'unsubscribed'}');
+      return true;
+    } catch (error) {
+      _log('test topic change failed: $error');
+      return false;
+    }
+  }
+
+  /// Posts a notification locally, exactly as an arriving push is shown while
+  /// the app is open. Proves display, the channel and tap routing without
+  /// anything being sent from Firebase. Returns false if the OS won't allow
+  /// notifications, which is the usual reason nothing appears.
+  Future<bool> showLocalTestNotification({
+    String title = 'إشعار تجريبي',
+    String body = 'إن ظهر هذا الإشعار فالعرض يعمل. اضغط عليه لفتح سورة الكهف.',
+    String payload = 'page:293',
+  }) async {
+    final center = NotificationCenter.instance;
+    if (!await center.areNotificationsEnabled()) return false;
+    await center.ensureInitialized();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await _createAndroidChannel();
+    }
+    await center.plugin.show(
+      _testNotificationId,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      payload: payload,
+    );
+    return true;
   }
 
   Future<void> _subscribe(String token) async {

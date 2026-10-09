@@ -79,12 +79,18 @@ class SettingsGroupCard extends StatelessWidget {
   final List<Widget> children;
   final ExpansibleController? controller;
 
+  /// Optional ℹ️ in the header, like the one every individual tile can have.
+  /// Its own tap is consumed here, so it explains the group instead of
+  /// expanding it.
+  final VoidCallback? onInfoTap;
+
   const SettingsGroupCard({
     super.key,
     required this.icon,
     required this.title,
     required this.children,
     this.controller,
+    this.onInfoTap,
   });
 
   static const Color _accent = Color(0xFF8B7355);
@@ -145,6 +151,12 @@ class SettingsGroupCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (onInfoTap != null) ...[
+                  // Roomier than on a tile: here the button sits inside the
+                  // ExpansionTile's own tap target, so a near miss opens the
+                  // group and shifts the row out from under the finger.
+                  InfoHintButton(onTap: onInfoTap!, hitPadding: 10),
+                ],
                 const SizedBox(width: 6),
                 // How many settings are inside: the cheapest possible hint that
                 // this row opens onto more rows instead of doing something.
@@ -274,16 +286,21 @@ class ActionTile extends StatelessWidget {
 class InfoHintButton extends StatelessWidget {
   final VoidCallback onTap;
 
-  const InfoHintButton({super.key, required this.onTap});
+  /// Padding around the icon, which is also the tap target: an InkResponse
+  /// only hit-tests its own child, so this is the one way to make the button
+  /// easier to hit. Raise it where a miss would land on something else.
+  final double hitPadding;
+
+  const InfoHintButton({super.key, required this.onTap, this.hitPadding = 2});
 
   @override
   Widget build(BuildContext context) {
     return InkResponse(
       onTap: onTap,
       radius: 18,
-      child: const Padding(
-        padding: EdgeInsets.all(2),
-        child: Icon(
+      child: Padding(
+        padding: EdgeInsets.all(hitPadding),
+        child: const Icon(
           Icons.info_outline_rounded,
           size: 16,
           color: Color(0xFF8B7355),
@@ -1604,11 +1621,7 @@ class PageColorSamplePreview extends StatelessWidget {
     final page = PageImageCrop(
       page: _samplePage,
       enabled: true,
-      child: Image.asset(
-        _sampleAsset,
-        fit: BoxFit.fill,
-        gaplessPlayback: true,
-      ),
+      child: Image.asset(_sampleAsset, fit: BoxFit.fill, gaplessPlayback: true),
     );
     final filtered = ColorFiltered(
       colorFilter: theme.lightModeFilter,

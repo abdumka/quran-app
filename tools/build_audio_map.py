@@ -13,6 +13,17 @@ Two-step compose, keeping the exact half exact:
   O -> A = compose(O->Q, Q->A).
 
 Output JSON: { "<surah>": { "<O_ayah>": [<A_file>, ...] } } (non-identity only).
+
+WARNING (2026-10-08): this script no longer reproduces the shipped map. Run
+today it emits 27 surahs; the shipped file has 16, pruned by hand after it was
+generated on 2026-07-14. Do not regenerate over it. Edit the JSON directly, and
+verify any change against the audio first: file durations across mirrors,
+and forced alignment of the file against the displayed text.
+
+Later on 2026-10-08 every surah the shipped map remapped was checked against
+قنيوه's files (the only reader of the map now) and found to follow output.json
+one for one, so the shipped map is down to the single entry in
+PLACEHOLDER_OVERRIDES. The text alignment below is kept for reference only.
 """
 import json, re, unicodedata
 from difflib import SequenceMatcher
@@ -163,13 +174,43 @@ Q2A_OVERRIDES = {
     2: {253: [253], 254: [253], 255: [254], 256: [255, 256]},
 }
 
+# Surahs where the recitation files follow output.json's own division even
+# though QalounData divides them differently, so O -> A is plain identity.
+#   S14: QalounData divides 14:22-27 differently from output.json, but every
+#   mirror's file 023 is the 5-word «وما ذلك على الله بعزيز» (قنيوه 5.9 s,
+#   al-Naihi 4.7 s, al-Husary 8.5 s) and 024-027 match the displayed ayat in
+#   length and in forced alignment. The text remap played 14:23-27 one ayah
+#   behind for قنيوه (removed 2026-10-08).
+#   The rest were checked the same day by greedy CTC decode of each قنيوه file
+#   around every remapped ayah (file N decodes as displayed ayah N, or as the
+#   breath group starting at N). What the remaps did instead:
+#   S2   196-199 one behind (2:218 and 2:255-256 merges were no-ops / blurred).
+#   S3   91-97 one behind.             S11  122 (last ayah) never played.
+#   S18  33-35 one behind; 22-24 and 83-84 merged into one highlight.
+#   S20  87-88 one behind.
+#   S30  55-60 one behind, 60 (last ayah) never played.
+#   S39  16-19 one behind.             S40  53-58 one behind; 71-72 no-op.
+#   S44  41-43 no-op.                  S56  20-29, 53 one behind.
+#   S65  2-10 one behind.              S71  24-25 one behind.
+#   S73  2-20 one behind, 19-20 (the last two) never played.
+#   S80  24-42 one behind.             S91  15-16, 16 (last) never played.
+#   S103 2-3 no-op.
+AUDIO_FOLLOWS_OUTPUT = {2, 3, 11, 14, 18, 20, 30, 39, 40, 44, 56, 65, 71, 73,
+                        80, 91, 103}
+
+# Entries that come from the audio, not from any text division. قنيوه's
+# 020024.mp3 is a silent 1.6 kB placeholder upstream (nquran); he recites 20:24
+# at the start of 020025.mp3, the 24-29 breath (25-29 are byte-identical
+# continuations). Mapping 24 -> 25 plays that breath on 24 and highlights 24-29.
+PLACEHOLDER_OVERRIDES = {20: {24: [25]}}
+
 
 def main():
     O, Q = load_output(), load_qalun()
     result = {}
     for s in range(1, 115):
         od, nd = O.get(s), Q.get(s)
-        if not nd:
+        if not nd or s in AUDIO_FOLLOWS_OUTPUT:
             continue
         o2q = text_align(od, nd) if od else None
         q2a = Q2A_OVERRIDES.get(s, {})  # exact text for O->Q; only the verified Q->A overrides
@@ -188,6 +229,9 @@ def main():
                 sm[str(o)] = files
         if sm:
             result[str(s)] = sm
+    for s, entries in PLACEHOLDER_OVERRIDES.items():
+        result.setdefault(str(s), {}).update(
+            {str(a): files for a, files in entries.items()})
 
     out = {
         "_comment": "output.json ayah -> recitation audio file(s). Built by "

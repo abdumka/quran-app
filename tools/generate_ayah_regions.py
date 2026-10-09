@@ -4,7 +4,7 @@
 Usage: python ayah_geometry.py <repo_root> <outdir> [pages...]
 Writes <outdir>/ayah_regions.json, <outdir>/report.json, overlays for sample pages.
 """
-import json, os, sys
+import json, os, re, sys
 import cv2, numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +20,16 @@ flat = []
 for e in raw:
     flat.extend(e if isinstance(e, list) else [e])
 by_page = {p['page']: p['ayahs'] for p in flat}
+
+# Pages whose last ayah runs on past the foot of the page: output.json lists it
+# on the page it ends on (the next one), so it is not in this page's `ayahs`,
+# but its first words are printed here. They are written to the page's
+# `continues` region instead — kept out of `ayahs`, which must match
+# output.json one for one (MemorizationTestService checks it). Taken from
+# lib/page_span_data.dart (tools/build_page_spans.py finds them).
+_span_src = open(os.path.join(root, 'lib/page_span_data.dart'), encoding='utf-8').read()
+CONTINUES_ON = {int(k) - 1 for k in re.findall(
+    r'^\s+(\d+):', _span_src.split('spannedAyahHead')[1], re.M)}
 
 def ayah_ends(page):
     ay = by_page[page]
@@ -264,6 +274,7 @@ def build_regions(page, an):
             marker=dict(x=round(m['x'] / w, 5), y=round(m['y'] / h, 5), width=round(m['w'] / w, 5), height=round(m['h'] / h, 5)),
         ))
         prev = (bi, m['x'])
+    an['tail'] = (prev or (text_bands[0], tr)) + (tl, tr)
     # trailing ayah continuing to next page
     ay = by_page[page]
     if len(ay) > len(ends):
@@ -273,6 +284,31 @@ def build_regions(page, an):
         rects = [r for r in rects if r[2] > r[0]]
         regions.append(dict(surah=surah, ayah=ayah, rects=[dict(x=round(x0 / w, 5), y=round(y0 / h, 5), width=round((x1 - x0) / w, 5), height=round((y1 - y0) / h, 5)) for x0, y0, x1, y1 in rects], marker=None))
     return regions, None
+
+def continuing_region(page, an):
+    """The first words of the next page's first ayah, when they are printed at
+    the foot of this page: everything after this page's last marker."""
+    nxt = by_page.get(page + 1)
+    if 'tail' not in an or not nxt:
+        return None
+    w, h, bands = an['w'], an['h'], an['bands']
+    bi, x, tl, tr = an['tail']
+    text_bands = [i for i, b in enumerate(bands) if b['kind'] == 'text']
+    rects = [(tl, bands[bi]['top'], x, bands[bi]['bot'])] + \
+        [(tl, bands[k]['top'], tr, bands[k]['bot']) for k in text_bands if k > bi]
+    # A page that ends on an ayah leaves at most a sliver beside its marker.
+    rects = [r for r in rects if r[2] - r[0] > 0.03 * w]
+    if bool(rects) != (page in CONTINUES_ON):
+        print('page %3d  %s' % (page, 'in spannedAyahHead but no text after its last marker'
+                                if page in CONTINUES_ON else
+                                'text after its last marker but not in spannedAyahHead'))
+    if page not in CONTINUES_ON or not rects:
+        return None
+    a = nxt[0]
+    return dict(surah=a['surah'], ayah=a['ayah'],
+                rects=[dict(x=round(x0 / w, 5), y=round(y0 / h, 5), width=round((x1 - x0) / w, 5),
+                            height=round((y1 - y0) / h, 5)) for x0, y0, x1, y1 in rects],
+                marker=None)
 
 def keep_out_of_furniture(page, regions):
     """An ayah rect never reaches into a surah banner or a basmala: the band
@@ -326,19 +362,24 @@ for page in pages:
     an = analyse(page)
     regions, err = build_regions(page, an)
     regions = keep_out_of_furniture(page, regions)
+    head = continuing_region(page, an) if regions else None
+    if head:
+        head = keep_out_of_furniture(page, [head])[0]
     kinds = ''.join(b['kind'][0].upper() for b in an['bands'])
     report.append(dict(page=page, markers=len(an['markers']), expected=len(ayah_ends(page)), bands=kinds, error=err,
                        min_score=round(an['min_score'], 2), next_score=round(an['next_score'], 2)))
     if regions:
-        out.append(dict(page=page, ayahs=regions))
+        out.append(dict(page=page, ayahs=regions, **({'continues': head} if head else {})))
         if an['min_score'] < 0.72 or an['next_score'] > 0.62:
             print('page %3d  WEAK margin: accepted min %.2f, next rejected %.2f' % (page, an['min_score'], an['next_score']))
     if page in OVERLAY_PAGES:
-        overlay(page, an, regions, os.path.join(outdir, 'ayah_%03d.png' % page))
+        overlay(page, an, (regions or []) + ([head] if head else []), os.path.join(outdir, 'ayah_%03d.png' % page))
     if err:
         print('page %3d  %-22s  bands %s' % (page, err, kinds))
 
-json.dump(out, open(os.path.join(outdir, 'ayah_regions.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+# Minified, as shipped in assets/data/ayah_regions.json.
+json.dump(out, open(os.path.join(outdir, 'ayah_regions.json'), 'w', encoding='utf-8'), ensure_ascii=False,
+          separators=(',', ':'))
 json.dump(report, open(os.path.join(outdir, 'report.json'), 'w'), indent=1)
 ok = sum(1 for r in report if not r['error'])
 print('pages OK: %d / %d' % (ok, len(report)))

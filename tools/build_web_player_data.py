@@ -32,6 +32,10 @@ ASSETS = ROOT / "assets" / "data"
 WEB_DATA = ROOT / "web-player" / "data"
 SOURCES_CACHE = ROOT / "tools" / "_sources"
 
+# Ayat the Doukali source page marks as covered whose bucket file is in fact a
+# real recording of that ayah (see where it is applied in main()).
+DOUKALI_NOT_COVERED = ("5-34",)
+
 # Husary ("direct" scheme): trailing ayat past the threshold all collapse onto
 # one file. Copied from lib/services/audio_service.dart's _getAudioFilesForAyah
 # (the merge table there, verbatim).
@@ -461,9 +465,16 @@ def main() -> None:
         "https://audio.mushaf-qaloon.com/mushaf_doukali.html", SOURCES_CACHE / "doukali_covered.json"
     )
     assert len(doukali_covered) == 1194, f"doukali covered count changed: {len(doukali_covered)}"
+    # The source page marks 5:34 as read inside 5:33, but the bucket's
+    # 005034.mp3 is a real 43.6 s recording of 5:34 («من أجل ذلك كتبنا…») and
+    # 005033.mp3 holds 5:33 alone (greedy CTC decode, 2026-10-08). Covered, the
+    # whole ayah was never played.
+    for key in DOUKALI_NOT_COVERED:
+        del doukali_covered[key]
+    doukali_overrides = build_overrides_covered(doukali_covered)
     write_json(
         "overrides_doukali.json",
-        {"reciterId": "doukali", "overrides": build_overrides_covered(doukali_covered)},
+        {"reciterId": "doukali", "overrides": doukali_overrides},
     )
     print(f"  {len(doukali_covered)} overrides")
 
@@ -509,7 +520,12 @@ def main() -> None:
     # Spot checks matching the plan's verification table.
     # al-Naihi is timed now; his old per-ayah overrides file must not linger.
     assert not (WEB_DATA / "overrides_naihi.json").exists(), "delete web-player/data/overrides_naihi.json"
-    assert qaniwah_overrides["2-255"]["f"] == ["002255", "002256"]
+    # قنيوه plays file for file (assets/data/audio_ayah_map.json); 20:24 is the
+    # one exception, a silent placeholder recited inside the 24-29 breath.
+    assert "2-255" not in qaniwah_overrides and "30-60" not in qaniwah_overrides
+    assert qaniwah_overrides["20-24"]["f"] == ["020025"]
+    assert qaniwah_overrides["20-25"] == {"f": [], "cov": "20-24"}
+    assert "5-34" not in doukali_overrides
     assert husary_overrides["5-121"]["f"] == ["005120"]
     assert "5-120" not in husary_overrides  # threshold ayah == its own default, not stored
 

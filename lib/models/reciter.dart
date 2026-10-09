@@ -323,7 +323,7 @@ class Reciter {
   /// A continuous khatma cut per-ayah with the same pipeline as the Hudaifi
   /// set: file `SSSAAA.mp3` is exactly the displayed ayah for all 6214, no
   /// basmala file (`SSS000.mp3` 404s) and no merged tail — verified by probing
-  /// the surah boundaries on the bucket. The 1194 ayat he reads inside a
+  /// the surah boundaries on the bucket. The 1193 ayat he reads inside a
   /// neighbouring ayah's file are silent 1579-byte placeholders, listed in the
   /// generated [doukaliCoveredAyat] (see that file's header to regenerate).
   static const Reciter doukaliQaloun = Reciter(

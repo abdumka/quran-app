@@ -978,16 +978,11 @@
  },
  "qaniwah_qaloun": {
   "259": {
-   "at_in_clip": 44.24,
-   "at_ms": 19816,
+   "at_in_clip": 19.82,
+   "at_ms": 19820,
    "ayah": 27,
-   "clip_seconds": 64.314,
+   "clip_seconds": 39.889,
    "clips": [
-    [
-     "014026.mp3",
-     null,
-     null
-    ],
     [
      "014027.mp3",
      null,
@@ -995,12 +990,12 @@
     ]
    ],
    "ctc_next": [
-    44.24,
-    45.18
+    19.82,
+    20.76
    ],
    "ctc_word": [
-    42.0,
-    44.02
+    17.58,
+    19.6
    ],
    "file": "014027.mp3",
    "how": "read on, dip -26 dB",
