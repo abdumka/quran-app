@@ -34,7 +34,6 @@ import '../../services/reciter_service.dart';
 import '../../services/tafsir_edition_service.dart';
 import '../../services/tafsir_cache_service.dart';
 import '../../services/recitation_bar_opacity_service.dart';
-import '../../utils/multi_tap_detector.dart';
 import '../../utils/responsive_helper.dart';
 
 import 'settings_components.dart';
@@ -867,25 +866,14 @@ class _SettingsPageState extends State<SettingsPage> {
   String get _kahfReminderInfoText =>
       'يذكّرك كل يوم جمعة بقراءة سورة الكهف في الوقت الذي تختاره بتوقيت جهازك، ويعمل بدون إنترنت. بالضغط على الإشعار يفتح التطبيق على أول صفحة من السورة.';
 
-  /// Seven taps on the «إعدادات متقدمة» ℹ️, none more than a second after the
-  /// last, open [DeveloperToolsPage]. Every tap still shows the normal
-  /// explanation, so the button behaves like every other ℹ️ for a reader who
-  /// taps it once — or twice out of curiosity.
-  final MultiTapDetector _advancedInfoTaps = MultiTapDetector(taps: 7);
-
-  void _handleAdvancedInfoTap() {
-    if (_advancedInfoTaps.register()) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const DeveloperToolsPage()),
-      );
-      return;
-    }
-    // Only the tap that starts a run shows the explanation. Re-showing it on
-    // every tap repositions a 260px notice under the finger and repaints the
-    // page, which is what made the rest of the run hard to land.
-    if (_advancedInfoTaps.count == 1) {
-      _showInfoNotice(_advancedSettingsInfoText);
-    }
+  /// Holding the «إعدادات متقدمة» ℹ️ for seven seconds opens
+  /// [DeveloperToolsPage]. A plain tap explains the section like every other
+  /// ℹ️, so nothing about it invites the hold, and unlike a run of taps the
+  /// hold is not disturbed by the notice the first tap puts on screen.
+  void _openDeveloperTools() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const DeveloperToolsPage()));
   }
 
   /// Kept short on purpose: the notice is drawn just above the finger, and a
@@ -1315,7 +1303,8 @@ class _SettingsPageState extends State<SettingsPage> {
     return SettingsGroupCard(
       icon: Icons.tune_rounded,
       title: 'إعدادات متقدمة',
-      onInfoTap: _handleAdvancedInfoTap,
+      onInfoTap: () => _showInfoNotice(_advancedSettingsInfoText),
+      onInfoHold: _openDeveloperTools,
       children: advancedChildren,
     );
   }

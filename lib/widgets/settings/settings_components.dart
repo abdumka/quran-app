@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../models/reciter.dart';
 import '../../models/tafsir_edition.dart';
 import '../../services/audio_download_service.dart';
@@ -84,6 +87,9 @@ class SettingsGroupCard extends StatelessWidget {
   /// expanding it.
   final VoidCallback? onInfoTap;
 
+  /// Optional action for holding that ℹ️ down — see [InfoHintButton.onHold].
+  final VoidCallback? onInfoHold;
+
   const SettingsGroupCard({
     super.key,
     required this.icon,
@@ -91,6 +97,7 @@ class SettingsGroupCard extends StatelessWidget {
     required this.children,
     this.controller,
     this.onInfoTap,
+    this.onInfoHold,
   });
 
   static const Color _accent = Color(0xFF8B7355);
@@ -155,7 +162,11 @@ class SettingsGroupCard extends StatelessWidget {
                   // Roomier than on a tile: here the button sits inside the
                   // ExpansionTile's own tap target, so a near miss opens the
                   // group and shifts the row out from under the finger.
-                  InfoHintButton(onTap: onInfoTap!, hitPadding: 10),
+                  InfoHintButton(
+                    onTap: onInfoTap!,
+                    onHold: onInfoHold,
+                    hitPadding: 10,
+                  ),
                 ],
                 const SizedBox(width: 6),
                 // How many settings are inside: the cheapest possible hint that
@@ -283,7 +294,7 @@ class ActionTile extends StatelessWidget {
 /// icon and a short title only (no subtitle), so a pair fits the width that a
 /// single full ActionTile used to take.
 /// A small circular ℹ️ button used to open a setting's instruction card.
-class InfoHintButton extends StatelessWidget {
+class InfoHintButton extends StatefulWidget {
   final VoidCallback onTap;
 
   /// Padding around the icon, which is also the tap target: an InkResponse
@@ -291,15 +302,70 @@ class InfoHintButton extends StatelessWidget {
   /// easier to hit. Raise it where a miss would land on something else.
   final double hitPadding;
 
-  const InfoHintButton({super.key, required this.onTap, this.hitPadding = 2});
+  /// Called when the button is held down for [holdFor] without moving off it.
+  /// Used for the developer tools, which should be reachable but not stumbled
+  /// into: a hold is deliberate in a way a few taps are not, and unlike
+  /// repeated tapping it is not disturbed by the notice the tap puts on screen.
+  final VoidCallback? onHold;
+  final Duration holdFor;
+
+  const InfoHintButton({
+    super.key,
+    required this.onTap,
+    this.hitPadding = 2,
+    this.onHold,
+    this.holdFor = const Duration(seconds: 7),
+  });
+
+  @override
+  State<InfoHintButton> createState() => _InfoHintButtonState();
+}
+
+class _InfoHintButtonState extends State<InfoHintButton> {
+  Timer? _holdTimer;
+
+  /// Set when the hold fired, so releasing afterwards doesn't also run the
+  /// ordinary tap and drop a notice over whatever the hold just opened.
+  bool _held = false;
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startHold() {
+    if (widget.onHold == null) return;
+    _held = false;
+    _holdTimer?.cancel();
+    _holdTimer = Timer(widget.holdFor, () {
+      _held = true;
+      HapticFeedback.mediumImpact();
+      widget.onHold!();
+    });
+  }
+
+  void _cancelHold() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+  }
 
   @override
   Widget build(BuildContext context) {
     return InkResponse(
-      onTap: onTap,
+      onTap: () {
+        if (_held) {
+          _held = false;
+          return;
+        }
+        widget.onTap();
+      },
+      onTapDown: widget.onHold == null ? null : (_) => _startHold(),
+      onTapUp: widget.onHold == null ? null : (_) => _cancelHold(),
+      onTapCancel: widget.onHold == null ? null : _cancelHold,
       radius: 18,
       child: Padding(
-        padding: EdgeInsets.all(hitPadding),
+        padding: EdgeInsets.all(widget.hitPadding),
         child: const Icon(
           Icons.info_outline_rounded,
           size: 16,

@@ -1,91 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:islamic_dawah_mushaf/utils/multi_tap_detector.dart';
 import 'package:islamic_dawah_mushaf/widgets/settings/settings_components.dart';
 
+/// The way into the developer tools: holding the ℹ️ on «إعدادات متقدمة».
 void main() {
-  group('MultiTapDetector', () {
-    final start = DateTime(2026, 10, 8, 12, 0);
+  Widget wrap(Widget child) => MaterialApp(
+    home: Scaffold(body: ListView(children: [child])),
+  );
 
-    test('fires on the seventh tap, not before', () {
-      final detector = MultiTapDetector(taps: 7);
-      for (var i = 0; i < 6; i++) {
-        expect(
-          detector.register(start.add(Duration(milliseconds: 200 * i))),
-          isFalse,
-          reason: 'tap ${i + 1} must not trigger',
-        );
-      }
-      expect(
-        detector.register(start.add(const Duration(milliseconds: 1200))),
-        isTrue,
+  Widget card({VoidCallback? onInfoTap, VoidCallback? onInfoHold}) =>
+      SettingsGroupCard(
+        icon: Icons.tune_rounded,
+        title: 'إعدادات متقدمة',
+        onInfoTap: onInfoTap ?? () {},
+        onInfoHold: onInfoHold,
+        children: const [Text('nested setting')],
       );
-    });
 
-    test('a pause longer than the gap starts the run over', () {
-      final detector = MultiTapDetector(taps: 7);
-      for (var i = 0; i < 6; i++) {
-        detector.register(start.add(Duration(milliseconds: 200 * i)));
-      }
-      // Six taps in, then the user walks away and comes back.
-      expect(
-        detector.register(start.add(const Duration(seconds: 30))),
-        isFalse,
-      );
-      // That late tap counts as the first of a new run, so six more are needed.
-      for (var i = 1; i < 6; i++) {
-        expect(
-          detector.register(
-            start.add(Duration(seconds: 30, milliseconds: 200 * i)),
-          ),
-          isFalse,
-        );
-      }
-      expect(
-        detector.register(
-          start.add(const Duration(seconds: 31, milliseconds: 500)),
-        ),
-        isTrue,
-      );
-    });
-
-    test('a tap exactly on the limit still continues the run', () {
-      final detector = MultiTapDetector(taps: 2);
-      expect(detector.register(start), isFalse);
-      expect(detector.register(start.add(const Duration(seconds: 1))), isTrue);
-    });
-
-    test('resets after firing, so a held run cannot fire twice', () {
-      final detector = MultiTapDetector(taps: 2);
-      detector.register(start);
-      expect(
-        detector.register(start.add(const Duration(milliseconds: 100))),
-        isTrue,
-      );
-      expect(
-        detector.register(start.add(const Duration(milliseconds: 200))),
-        isFalse,
-      );
-    });
-  });
-
-  group('SettingsGroupCard info button', () {
-    Widget wrap(Widget child) => MaterialApp(
-      home: Scaffold(body: ListView(children: [child])),
-    );
-
-    testWidgets('calls onInfoTap without expanding the group', (tester) async {
+  group('info button', () {
+    testWidgets('a tap explains the group without expanding it', (
+      tester,
+    ) async {
       var taps = 0;
-      await tester.pumpWidget(
-        wrap(
-          SettingsGroupCard(
-            icon: Icons.tune_rounded,
-            title: 'إعدادات متقدمة',
-            onInfoTap: () => taps++,
-            children: const [Text('nested setting')],
-          ),
-        ),
-      );
+      await tester.pumpWidget(wrap(card(onInfoTap: () => taps++)));
 
       expect(find.text('nested setting'), findsNothing);
       await tester.tap(find.byType(InfoHintButton));
@@ -103,19 +40,10 @@ void main() {
       tester,
     ) async {
       var taps = 0;
-      await tester.pumpWidget(
-        wrap(
-          SettingsGroupCard(
-            icon: Icons.tune_rounded,
-            title: 'إعدادات متقدمة',
-            onInfoTap: () => taps++,
-            children: const [Text('nested setting')],
-          ),
-        ),
-      );
+      await tester.pumpWidget(wrap(card(onInfoTap: () => taps++)));
 
-      // 13px off centre: inside the button's padding, but on the bare 16px
-      // icon it would have hit the ExpansionTile and expanded the group.
+      // 13px off centre: inside the button's padding, but on a bare 16px icon
+      // it would have hit the ExpansionTile and expanded the group.
       final centre = tester.getCenter(find.byType(InfoHintButton));
       await tester.tapAt(centre + const Offset(13, 0));
       await tester.pumpAndSettle();
@@ -135,6 +63,81 @@ void main() {
         ),
       );
       expect(find.byType(InfoHintButton), findsNothing);
+    });
+  });
+
+  group('holding the info button', () {
+    testWidgets('fires after the full seven seconds', (tester) async {
+      var holds = 0;
+      var taps = 0;
+      await tester.pumpWidget(
+        wrap(card(onInfoTap: () => taps++, onInfoHold: () => holds++)),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(InfoHintButton)),
+      );
+      await tester.pump(const Duration(seconds: 6));
+      expect(holds, 0, reason: 'six seconds is not enough');
+
+      // The hold starts when the tap is recognised, a fraction after touch
+      // down, so the seventh second lands just past the seven-second mark.
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(holds, 1);
+
+      // Letting go afterwards must not also run the ordinary tap, which would
+      // drop a notice over the page the hold just opened.
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(taps, 0);
+    });
+
+    testWidgets('letting go early does nothing but explain', (tester) async {
+      var holds = 0;
+      var taps = 0;
+      await tester.pumpWidget(
+        wrap(card(onInfoTap: () => taps++, onInfoHold: () => holds++)),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(InfoHintButton)),
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(holds, 0);
+      expect(taps, 1);
+    });
+
+    testWidgets('sliding off the button cancels the hold', (tester) async {
+      var holds = 0;
+      await tester.pumpWidget(wrap(card(onInfoHold: () => holds++)));
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(InfoHintButton)),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await gesture.moveBy(const Offset(0, 300));
+      await tester.pump(const Duration(seconds: 6));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(holds, 0);
+    });
+
+    testWidgets('a tile with no hold action is unaffected', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(wrap(card(onInfoTap: () => taps++)));
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(InfoHintButton)),
+      );
+      await tester.pump(const Duration(seconds: 9));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(taps, 1, reason: 'still just a tap, however long it is held');
     });
   });
 }
