@@ -154,6 +154,82 @@ void main() {
     expect(pressed.single, anyOf('cancel', 'ok'));
   });
 
+  testWidgets('the remote steps over a greyed-out dropdown', (tester) async {
+    // تكرار مقطع: choosing «السورة كاملة» greys out the "إلى" row by
+    // disabling its dropdowns. A disabled dropdown has no tap action, so the
+    // ring must go from the "من" row straight past it to the next control,
+    // not stop on a box that Select cannot open.
+    final pressed = <String>[];
+    await tester.pumpWidget(
+      app(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    content: SizedBox(
+                      height: 240,
+                      child: Column(
+                        children: [
+                          DropdownButton<int>(
+                            value: 0,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 0,
+                                child: Text('السورة كاملة'),
+                              ),
+                              DropdownMenuItem(value: 1, child: Text('1')),
+                            ],
+                            onChanged: (_) {},
+                          ),
+                          const Spacer(),
+                          Opacity(
+                            opacity: 0.4,
+                            child: DropdownButton<int>(
+                              value: 7,
+                              items: const [
+                                DropdownMenuItem(value: 7, child: Text('7')),
+                              ],
+                              onChanged: null,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () => pressed.add('play'),
+                            child: const Text('تشغيل المقطع'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // Up to the "من" dropdown first: the ring can open anywhere (here, next
+    // to where the "open" button was). Three presses reach the top even if
+    // the greyed-out row were a stop on the way.
+    await press(tester, LogicalKeyboardKey.arrowUp, 3);
+    await press(tester, LogicalKeyboardKey.arrowDown);
+    await press(tester, LogicalKeyboardKey.select);
+
+    expect(
+      pressed,
+      ['play'],
+      reason: 'one step down from the "من" row stopped on the greyed-out row',
+    );
+  });
+
   testWidgets('a modal bottom sheet is driven too', (tester) async {
     final pressed = <String>[];
     await tester.pumpWidget(

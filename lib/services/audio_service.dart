@@ -2015,6 +2015,18 @@ class AudioService {
     } else {
       // Don't stop unless we really reached the end of the Quran
       if (nextPageIndex >= _quranPages!.length) {
+        // A مقطع or ثمن that runs to the mushaf's last ayah has no next page
+        // to check above, but it still has to loop: «سورة الناس كاملة» or the
+        // final ثمن stopped after a single pass.
+        if (rangeRepeatMode.value != AyahRepeatMode.off &&
+            await _handleRangeBoundary()) {
+          return;
+        }
+        if (thumnRepeatMode.value != AyahRepeatMode.off &&
+            _thumnStartSurah > 0 &&
+            await _handleThumnBoundary()) {
+          return;
+        }
         stop();
       }
     }

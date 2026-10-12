@@ -6871,13 +6871,22 @@ class _QuranPagesState extends State<QuranPages>
     final total = audio.rangeRepeatMode.value == AyahRepeatMode.infinite
         ? '∞'
         : '${audio.rangeRepeatCount.value}';
-    final where = range.isSingleSurah
+    final where = _isWholeSurah(range)
+        ? '${_surahName(range.startSurah)} كاملة'
+        : range.isSingleSurah
         ? '${_surahName(range.startSurah)} '
               '${range.startAyah}-${range.endAyah}'
         : '${_surahName(range.startSurah)} ${range.startAyah}'
               ' ← ${_surahName(range.endSurah)} ${range.endAyah}';
     return '$where · التكرار $pass/$total';
   }
+
+  /// Whether [range] is exactly one surah, first ayah to last — what the
+  /// picker's «السورة كاملة» arms.
+  bool _isWholeSurah(AyahRange range) =>
+      range.isSingleSurah &&
+      range.startAyah == 1 &&
+      range.endAyah == _maxAyahForSurah(range.startSurah);
 
   /// Highest ayah number available for [surah]. Read from the page data (the
   /// mushaf's own numbering); falls back to the index table if it isn't loaded.
@@ -6907,6 +6916,10 @@ class _QuranPagesState extends State<QuranPages>
   /// list starts at the chosen "من" ayah whenever both ends are in the same
   /// surah. So an end that precedes the start can't be selected at all, and
   /// there is no error state to explain.
+  ///
+  /// The "من" ayah list opens with «السورة كاملة» above ayah 1. Choosing it
+  /// pins the section to that surah's first and last ayah and greys out the
+  /// "إلى" row, which then just shows where the surah ends.
   ///
   /// It opens pre-filled with what's on screen — the surah being recited (or the
   /// visible page's first surah) and that page's portion of it — so the common
@@ -6961,6 +6974,8 @@ class _QuranPagesState extends State<QuranPages>
     int toAyah =
         active?.endAyah ??
         _sectionEndOnPage(_recitationTargetPage, fromSurah, fromAyah);
+    // A running whole surah re-opens as «السورة كاملة», not as 1 → last.
+    bool wholeSurah = active != null && _isWholeSurah(active);
 
     final wasActive = audio.rangeRepeatMode.value != AyahRepeatMode.off;
     // A running section shows its own settings; otherwise the last choices.
@@ -7013,17 +7028,26 @@ class _QuranPagesState extends State<QuranPages>
           // after every change, so the invariant «end >= start» holds at all
           // times and the dropdowns below always contain their own value.
           void normalize() {
+            if (wholeSurah) {
+              fromAyah = 1;
+              toSurah = fromSurah;
+              toAyah = _maxAyahForSurah(fromSurah);
+              return;
+            }
             fromAyah = fromAyah.clamp(1, _maxAyahForSurah(fromSurah));
             if (toSurah < fromSurah) toSurah = fromSurah;
             toAyah = toAyah.clamp(1, _maxAyahForSurah(toSurah));
             if (toSurah == fromSurah && toAyah < fromAyah) toAyah = fromAyah;
           }
 
+          // [wholeSurahItem] puts «السورة كاملة» (value 0) above ayah 1 — the
+          // "من" list only. A null [onChanged] shows the value but greyed out.
           Widget ayahDropdown({
             required int value,
             required int min,
             required int max,
-            required ValueChanged<int> onChanged,
+            required ValueChanged<int>? onChanged,
+            bool wholeSurahItem = false,
           }) => dropdownFrame(
             child: DropdownButton<int>(
               value: value,
@@ -7034,9 +7058,27 @@ class _QuranPagesState extends State<QuranPages>
                 color: titleColor,
                 size: 20,
               ),
+              iconDisabledColor: titleColor,
               dropdownColor: bgColor,
               borderRadius: BorderRadius.circular(12),
               items: [
+                if (wholeSurahItem)
+                  DropdownMenuItem(
+                    value: 0,
+                    // The ayah box is the narrow one; shrink rather than clip.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        'السورة كاملة',
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
                 for (int n = min; n <= max; n++)
                   DropdownMenuItem(
                     value: n,
@@ -7050,9 +7092,11 @@ class _QuranPagesState extends State<QuranPages>
                     ),
                   ),
               ],
-              onChanged: (v) {
-                if (v != null) onChanged(v);
-              },
+              onChanged: onChanged == null
+                  ? null
+                  : (v) {
+                      if (v != null) onChanged(v);
+                    },
             ),
           );
 
@@ -7061,7 +7105,7 @@ class _QuranPagesState extends State<QuranPages>
           Widget surahDropdown({
             required int value,
             required int min,
-            required ValueChanged<int> onChanged,
+            required ValueChanged<int>? onChanged,
           }) => dropdownFrame(
             child: DropdownButton<int>(
               value: value,
@@ -7072,6 +7116,7 @@ class _QuranPagesState extends State<QuranPages>
                 color: titleColor,
                 size: 20,
               ),
+              iconDisabledColor: titleColor,
               dropdownColor: bgColor,
               borderRadius: BorderRadius.circular(12),
               items: [
@@ -7089,14 +7134,18 @@ class _QuranPagesState extends State<QuranPages>
                     ),
                   ),
               ],
-              onChanged: (v) {
-                if (v != null) onChanged(v);
-              },
+              onChanged: onChanged == null
+                  ? null
+                  : (v) {
+                      if (v != null) onChanged(v);
+                    },
             ),
           );
 
           // One labelled surah+ayah pair — the "من" and "إلى" rows are identical
-          // in shape, only their allowed minimums differ.
+          // in shape, only their allowed minimums differ. A row that isn't
+          // [enabled] is greyed out and can't be opened — by touch or by the TV
+          // remote, which skips controls with no tap action.
           Widget endpointRow({
             required String heading,
             required int surah,
@@ -7105,33 +7154,40 @@ class _QuranPagesState extends State<QuranPages>
             required int minAyah,
             required ValueChanged<int> onSurahChanged,
             required ValueChanged<int> onAyahChanged,
-          }) => Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              label(heading),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: surahDropdown(
-                      value: surah,
-                      min: minSurah,
-                      onChanged: onSurahChanged,
+            bool enabled = true,
+            bool wholeSurahItem = false,
+          }) => AnimatedOpacity(
+            opacity: enabled ? 1 : 0.4,
+            duration: const Duration(milliseconds: 180),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                label(heading),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: surahDropdown(
+                        value: surah,
+                        min: minSurah,
+                        onChanged: enabled ? onSurahChanged : null,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: ayahDropdown(
-                      value: ayah,
-                      min: minAyah,
-                      max: _maxAyahForSurah(surah),
-                      onChanged: onAyahChanged,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: ayahDropdown(
+                        value: ayah,
+                        min: minAyah,
+                        max: _maxAyahForSurah(surah),
+                        onChanged: enabled ? onAyahChanged : null,
+                        wholeSurahItem: wholeSurahItem,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           );
 
           Widget countChip(String text, bool selected, VoidCallback onTap) =>
@@ -7200,12 +7256,14 @@ class _QuranPagesState extends State<QuranPages>
                       endpointRow(
                         heading: 'من: السورة والآية',
                         surah: fromSurah,
-                        ayah: fromAyah,
+                        ayah: wholeSurah ? 0 : fromAyah,
                         minSurah: 1,
                         minAyah: 1,
+                        wholeSurahItem: true,
                         onSurahChanged: (v) => setPickerState(() {
                           // A new start surah re-seeds the section to that
-                          // surah's opening page, so both ends stay sensible.
+                          // surah's opening page, so both ends stay sensible
+                          // (or, for «السورة كاملة», to the new surah's end).
                           final firstPage = audio.pageIndexForAyah(v, 1);
                           fromSurah = v;
                           fromAyah = 1;
@@ -7216,7 +7274,10 @@ class _QuranPagesState extends State<QuranPages>
                           normalize();
                         }),
                         onAyahChanged: (v) => setPickerState(() {
-                          fromAyah = v;
+                          // 0 is «السورة كاملة»; any real ayah leaves it, and
+                          // the end it had (the surah's last ayah) stays.
+                          wholeSurah = v == 0;
+                          if (v > 0) fromAyah = v;
                           normalize();
                         }),
                       ),
@@ -7225,6 +7286,7 @@ class _QuranPagesState extends State<QuranPages>
                         heading: 'إلى: السورة والآية',
                         surah: toSurah,
                         ayah: toAyah,
+                        enabled: !wholeSurah,
                         minSurah: fromSurah,
                         // Within the same surah the end can't precede the start;
                         // in a later surah every ayah is fair game.
@@ -7302,7 +7364,17 @@ class _QuranPagesState extends State<QuranPages>
                       ],
                       const SizedBox(height: 12),
                       Text(
-                        mode == AyahRepeatMode.infinite
+                        wholeSurah
+                            ? (mode == AyahRepeatMode.infinite
+                                  ? 'يُنتقل إلى أول السورة وتُتلى كاملة حتى '
+                                        'توقف التكرار.'
+                                  : continueAfter
+                                  ? 'يُنتقل إلى أول السورة وتُتلى كاملة، ثم '
+                                        'تتابع التلاوة بعد انتهاء التكرار.'
+                                  : 'يُنتقل إلى أول السورة وتُتلى كاملة، ثم '
+                                        'تتوقف التلاوة عند أولها بعد انتهاء '
+                                        'التكرار.')
+                            : mode == AyahRepeatMode.infinite
                             ? 'يُنتقل إلى صفحة بداية المقطع ويُتلى وحده حتى '
                                   'توقف التكرار.'
                             : continueAfter
