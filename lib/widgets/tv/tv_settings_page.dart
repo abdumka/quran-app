@@ -186,10 +186,10 @@ class _TvSettingsPageState extends State<TvSettingsPage> {
       _ensureVisible();
       return true;
     }
-    if (key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.gameButtonA) {
-      rows[_index].onSelect();
+    if (_isSelect(key)) {
+      // A held OK is one press, not one per key repeat -- otherwise a toggle
+      // row flips twice and a picker row opens twice.
+      if (event is! KeyRepeatEvent) rows[_index].onSelect();
       return true;
     }
     // Left/Right are swallowed so they cannot leak to the reader underneath.
@@ -421,6 +421,12 @@ class _Row {
   });
 }
 
+/// The remote's OK button, under its three possible key codes.
+bool _isSelect(LogicalKeyboardKey key) =>
+    key == LogicalKeyboardKey.select ||
+    key == LogicalKeyboardKey.enter ||
+    key == LogicalKeyboardKey.gameButtonA;
+
 /// Generic single-choice list driven entirely by Up/Down + Select.
 class _TvPickerPage<T> extends StatefulWidget {
   const _TvPickerPage({
@@ -473,10 +479,12 @@ class _TvPickerPageState<T> extends State<_TvPickerPage<T>> {
       _ensureVisible();
       return true;
     }
-    if (key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.gameButtonA) {
-      Navigator.of(context).pop(widget.items[_index]);
+    if (_isSelect(key)) {
+      // A repeat here would pop a second route -- the settings page under
+      // this picker.
+      if (event is! KeyRepeatEvent) {
+        Navigator.of(context).pop(widget.items[_index]);
+      }
       return true;
     }
     return key == LogicalKeyboardKey.arrowLeft ||
@@ -625,10 +633,8 @@ class _TvDownloadsPageState extends State<TvDownloadsPage> {
       _ensureVisible();
       return true;
     }
-    if (key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.gameButtonA) {
-      _downloadFocused();
+    if (_isSelect(key)) {
+      if (event is! KeyRepeatEvent) _downloadFocused();
       return true;
     }
     return key == LogicalKeyboardKey.arrowLeft ||
@@ -821,10 +827,9 @@ class _TvGuidePageState extends State<_TvGuidePage> {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
     if (ModalRoute.of(context)?.isCurrent != true) return false;
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.gameButtonA) {
-      Navigator.of(context).maybePop();
+    if (_isSelect(key)) {
+      // One pop per press: a repeat would also pop the settings page.
+      if (event is! KeyRepeatEvent) Navigator.of(context).maybePop();
       return true;
     }
     // Swallow the arrows so they cannot drive the reader behind this screen.

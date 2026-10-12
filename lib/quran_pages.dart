@@ -73,7 +73,7 @@ import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
 import 'services/tasmee_report_store.dart'
-    show TasmeeError, TasmeeLocateAnywhere;
+    show TasmeeError, TasmeeLocateAnywhere, TasmeeReport, TasmeeReportStore;
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
@@ -640,6 +640,12 @@ class _QuranPagesState extends State<QuranPages>
     // Every bar control routes through here, so this is the one place that
     // reliably sees "the user did something".
     _noteRecitationActivity();
+    _armHideControlsTimer();
+  }
+
+  /// Starts (or restarts) the chrome's idle countdown without counting as
+  /// user activity.
+  void _armHideControlsTimer() {
     _hideControlsTimer?.cancel();
     // Stepping along the bar with a remote takes far longer than tapping, so
     // the TV gets a longer window. Phones keep the original 10s exactly.
@@ -647,15 +653,31 @@ class _QuranPagesState extends State<QuranPages>
         ? const Duration(seconds: 45)
         : const Duration(seconds: 10);
     _hideControlsTimer = Timer(hideAfter, () {
-      if (mounted) {
-        setState(() {
-          // The top bar and bottom menu are one piece of chrome — auto-hide
-          // them together after a period of inactivity.
-          _showIndex = false;
-        });
+      if (!mounted) return;
+      // On a TV the countdown must not run out underneath a dialog or sheet
+      // the remote is busy in (خيارات التلاوة, تكرار مقطع, التفسير...). It
+      // used to: the user came back from a minute in the options sheet to
+      // find the menu gone, and the next Left/Right turned the page instead
+      // of moving the ring. The countdown restarts once the reader is back.
+      if (TvService.instance.isTv &&
+          ModalRoute.of(context)?.isCurrent != true) {
+        _armHideControlsTimer();
+        return;
       }
+      setState(() {
+        // The top bar and bottom menu are one piece of chrome — auto-hide
+        // them together after a period of inactivity.
+        _showIndex = false;
+      });
     });
   }
+
+  /// TV: whether the remote's ring is on the recitation bar, which also needs
+  /// the bar to actually be on screen. [_tvRecitationFocused] alone outlived
+  /// the bar: after إغلاق the bar was gone, the flag stayed true, and the
+  /// menu showed no ring while Left/Right moved an invisible one.
+  bool get _tvOnBar =>
+      _tvRecitationFocused && AudioService.instance.isRecitationBarVisible.value;
 
   // ط¸â€‍ط¸â€‍ط·ع¾ط·آ¬ط·آ±ط¸ظ¹ط·آ¨ ط·آ¨ط¸ظ¹ط¸â€  contain / cover / fill
   BoxFit currentFit = BoxFit.contain;
@@ -1433,7 +1455,10 @@ class _QuranPagesState extends State<QuranPages>
           titleColor: titleColor,
           accentColor: accentColor,
           onPageChanged: (newPage) {
-            _goToPage(newPage + 1);
+            // Paging inside the sheet moves the reader behind it. On a TV
+            // the chrome under the sheet stays, so the ring is still there
+            // when the sheet closes.
+            _goToPage(newPage + 1, keepChrome: TvService.instance.isTv);
           },
         );
       },
@@ -2286,7 +2311,17 @@ class _QuranPagesState extends State<QuranPages>
     _closeBookmarkGuideForNow();
   }
 
-  void _goToPage(int page, {double yOffsetRatio = 0.0}) {
+  /// Moves the reader to [page] (1-based). Closes the chrome on the way, as
+  /// a tap-driven navigation should -- unless [keepChrome], used on a TV when
+  /// the move was not the user's doing (the recitation reaching the next
+  /// page, the tafsir sheet paging). Closing it there pulled the remote's
+  /// ring out from under the user mid-walk, and the next Left/Right turned
+  /// the page instead of moving along the menu.
+  void _goToPage(
+    int page, {
+    double yOffsetRatio = 0.0,
+    bool keepChrome = false,
+  }) {
     final targetIndex = page - 1;
     final usePortraitScrolling =
         (_supportsPortraitScrollMode(context) &&
@@ -2317,7 +2352,7 @@ class _QuranPagesState extends State<QuranPages>
       final targetViewIndex = _getViewIndexForPage(targetIndex, context);
 
       setState(() {
-        _showIndex = false;
+        if (!keepChrome) _showIndex = false;
         _showSurahs = false;
         _isSearching = false;
       });
@@ -2348,7 +2383,7 @@ class _QuranPagesState extends State<QuranPages>
     _portraitController.jumpToPage(targetViewIndex);
 
     setState(() {
-      _showIndex = false;
+      if (!keepChrome) _showIndex = false;
       _showSurahs = false;
       _isSearching = false;
     });
@@ -2374,6 +2409,19 @@ class _QuranPagesState extends State<QuranPages>
     if (ModalRoute.of(context)?.isCurrent != true) return false;
 
     final key = event.logicalKey;
+    final bool isSelectKey =
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.gameButtonA;
+
+    // A held OK button arrives as one KeyDown plus a stream of repeats, and
+    // every one of them used to count as a fresh press: holding OK for half
+    // a second opened the chrome and then "pressed" whatever the ring landed
+    // on -- play/pause toggled, or البحث opened out of nowhere. Only the
+    // arrows are allowed to auto-repeat.
+    if (TvService.instance.isTv && event is KeyRepeatEvent && isSelectKey) {
+      return true;
+    }
 
     // The TV remote guide is driven from here rather than through a focusable
     // dialog on purpose: on Android TV the D-pad does not move Flutter's focus
@@ -2396,7 +2444,7 @@ class _QuranPagesState extends State<QuranPages>
     if (TvService.instance.isTv && _showIndex && !_showSurahs) {
       final audio = AudioService.instance;
       final bool barVisible = audio.isRecitationBarVisible.value;
-      final bool onBar = _tvRecitationFocused && barVisible;
+      final bool onBar = _tvOnBar;
 
       if (onBar) {
         // The bar sits below the menu, so Up walks back up to it.
@@ -2504,8 +2552,9 @@ class _QuranPagesState extends State<QuranPages>
     if (TvService.instance.isTv) {
       // DPAD_CENTER is the most-used button on a remote; without this it does
       // nothing in the reader. Same effect as tapping the page on a phone.
-      if (key == LogicalKeyboardKey.select ||
-          key == LogicalKeyboardKey.gameButtonA) {
+      // Enter is included because some remotes and all Bluetooth keyboards
+      // send it for OK, and the open-chrome path already accepted it.
+      if (isSelectKey) {
         _handleReaderTap();
         return true;
       }
@@ -2655,6 +2704,11 @@ class _QuranPagesState extends State<QuranPages>
         break;
       case _TvBarControl.close:
         audio.stop();
+        // The bar is going away, and the ring with it. Hand the remote back
+        // to the menu on التلاوة, which is where the bar came from.
+        _tvRecitationFocused = false;
+        _tvMenuIndex = BottomOverlayMenu.tvItemLabels.indexOf('التلاوة');
+        _resetHideTimer();
         break;
       case _TvBarControl.optionsSheet:
         _showTilawahOptionsSheet();
@@ -3622,6 +3676,29 @@ class _QuranPagesState extends State<QuranPages>
     for (final e in byPage.entries) {
       TasmeeWeakPointStore.addErrors(e.key, e.value, now);
     }
+    // And the report list (تقارير التسميع والأخطاء): one entry for the
+    // question, its ayahs marked wrong as its notes.
+    final words = q.ayahs.fold<int>(
+      0,
+      (n, a) => n + a.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
+    );
+    final missedWords = missed.fold<int>(
+      0,
+      (n, a) => n + a.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
+    );
+    TasmeeReportStore.save(
+      TasmeeReport(
+        page: q.start.page,
+        at: now,
+        seconds: 0,
+        words: words,
+        correct: (words - missedWords).clamp(0, words),
+        errors: [for (final l in byPage.values) ...l],
+        finished: true,
+        holds: 0,
+        repairs: 0,
+      ),
+    );
   }
 
   /// Closes a test: its record goes to the statistics.
@@ -4382,7 +4459,9 @@ class _QuranPagesState extends State<QuranPages>
   /// rather than by jumping.
   void _followRecitationToPage(int pageIndex) {
     if (!_isAutoScrollEnabled) {
-      _goToPage(pageIndex + 1);
+      // The reader turns the page itself here, so on a TV the chrome stays:
+      // the user may be walking the bar with the remote at that very moment.
+      _goToPage(pageIndex + 1, keepChrome: TvService.instance.isTv);
       return;
     }
 
@@ -6481,7 +6560,7 @@ class _QuranPagesState extends State<QuranPages>
                           (TvService.instance.isTv &&
                               _showIndex &&
                               !_showSurahs &&
-                              !_tvRecitationFocused &&
+                              !_tvOnBar &&
                               !_tvTopBarFocused)
                           ? _tvMenuIndex
                           : null,
@@ -6526,11 +6605,23 @@ class _QuranPagesState extends State<QuranPages>
                       onPlayTapped: () {
                         // Auto-scroll is deliberately left running: the two are
                         // independent, and readers pair them to follow along.
+                        final bool tv = TvService.instance.isTv;
                         setState(() {
-                          _showIndex = false;
-                          _showSurahs = false;
+                          if (tv) {
+                            // The bar appears paused, so the next thing the
+                            // remote wants is its play button. Keeping the
+                            // chrome and moving the ring there saves the two
+                            // presses it took to reopen the menu and walk
+                            // down to it.
+                            _tvRecitationFocused = true;
+                            _tvBarIndex = _tvBarDefaultIndex;
+                          } else {
+                            _showIndex = false;
+                            _showSurahs = false;
+                          }
                         });
                         _updateSystemUI();
+                        if (tv) _resetHideTimer();
                         AudioService.instance.playPage(
                           _recitationTargetPage,
                           autoPlay: false,

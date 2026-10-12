@@ -377,6 +377,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.gameButtonA;
+    // A held OK must open one thing, not one per key repeat.
+    if (select && event is KeyRepeatEvent) return true;
 
     // The tab row sits above the grid.
     if (_tvOnTabs) {

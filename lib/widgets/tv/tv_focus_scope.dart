@@ -555,6 +555,10 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     if (key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.gameButtonA) {
+      // A held OK repeats; the tap already happened on the KeyDown. Firing
+      // again toggled a chip straight back or closed a dialog and then
+      // "pressed" whatever sat under it on the page.
+      if (event is KeyRepeatEvent) return true;
       final target = _resolve(_targets());
       if (target != null) {
         // The anchor is deliberately KEPT. Clearing it here sent the highlight

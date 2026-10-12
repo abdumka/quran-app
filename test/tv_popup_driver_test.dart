@@ -112,6 +112,53 @@ void main() {
     ], reason: 'the remote could not work the dialog button');
   });
 
+  testWidgets('a held Select fires the dialog button once, not per repeat', (
+    tester,
+  ) async {
+    final pressed = <String>[];
+    await tester.pumpWidget(
+      app(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    content: const Text('العلامات'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => pressed.add('إغلاق'),
+                        child: const Text('إغلاق'),
+                      ),
+                    ],
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // What a remote sends when OK is held: one down, then repeats.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.select);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.select);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.select);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.select);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(pressed, ['إغلاق'], reason: 'each key repeat counted as a press');
+  });
+
   testWidgets('arrows reach a second button in the dialog', (tester) async {
     final pressed = <String>[];
     await tester.pumpWidget(

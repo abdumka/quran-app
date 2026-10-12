@@ -696,6 +696,9 @@ class MemorizationTestService {
     bool locateAnywhere = false,
   }) async {
     final token = ++_startToken;
+    // The page the last session was on: a session opening at the top of
+    // the page after it may go back to that page's last ayah.
+    final prevPage = _activePage;
     // A recognizer parked by the previous question survives the stop and
     // is reused below; anything else about the old session goes.
     var parked = _parkedEngine;
@@ -865,7 +868,11 @@ class MemorizationTestService {
       _drillStartAyahIndex = startAyahIndex;
       _drillMissed.clear();
       _drillErrors.clear();
-      _continuedFrom = null;
+      // «أعد الآية» at the top of this page goes back to the page before
+      // when the session came straight on from it (a test question moving
+      // to the next page, the next question on the next page).
+      _continuedFrom =
+          (startAyahIndex ?? 0) == 0 && prevPage == pageNumber - 1 ? prevPage : null;
       _surahOpenings = openings;
       _embeddedBasmala = embedded;
       _embeddedDecided = -1;
@@ -1272,14 +1279,23 @@ class MemorizationTestService {
       if (p.page == pageNumber) page = p;
     }
     if (page == null || page.ayahs.isEmpty) return;
+    // A test question keeps going: it now begins at that ayah and runs on
+    // over the page turn to where it ends. The live recognizer is kept.
+    final drill = _drill;
+    final silent = _silent;
+    final override = _engineOverride ?? engineFactoryForTest?.call();
+    if (_engine != null && usingRealEngine.value) {
+      await _stopEngineOnly(park: true);
+    }
     pageAdvanced.value = 0;
     pageAdvanced.value = pageNumber;
-    final testEngine = engineFactoryForTest?.call();
     await start(
       pageNumber: pageNumber,
       startAyahIndex: page.ayahs.length - 1,
-      engineOverride: testEngine,
-      stopPlayback: testEngine == null,
+      engineOverride: override,
+      stopPlayback: override == null,
+      drill: drill,
+      silent: silent,
     );
   }
 

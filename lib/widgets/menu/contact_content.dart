@@ -85,11 +85,11 @@ class ContactContent extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         buildContactButton(
-          title: 'واتساب',
-          subtitle: 'مراسلة مباشرة',
-          icon: Icons.chat_rounded,
-          accentColor: const Color(0xFF25D366),
-          onTap: () => onOpenLink('https://chat.whatsapp.com/CNYz1t7EvXzBU0LXlwfkoy'),
+          title: 'صفحة فيسبوك',
+          subtitle: 'AlMushafAlJami',
+          icon: Icons.facebook_rounded,
+          accentColor: const Color(0xFF1877F2),
+          onTap: () => onOpenLink('https://www.facebook.com/AlMushafAlJami'),
         ),
         const SizedBox(height: 12),
         buildContactButton(
@@ -98,6 +98,14 @@ class ContactContent extends StatelessWidget {
           icon: Icons.send_rounded,
           accentColor: const Color(0xFF0088CC),
           onTap: () => onOpenLink('https://t.me/moshafqr/2'),
+        ),
+        const SizedBox(height: 12),
+        buildContactButton(
+          title: 'واتساب',
+          subtitle: 'مراسلة مباشرة',
+          icon: Icons.chat_rounded,
+          accentColor: const Color(0xFF25D366),
+          onTap: () => onOpenLink('https://chat.whatsapp.com/CNYz1t7EvXzBU0LXlwfkoy'),
         ),
         const SizedBox(height: 12),
         buildContactButton(

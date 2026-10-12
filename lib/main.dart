@@ -228,6 +228,13 @@ class QuranApp extends StatelessWidget {
               seedColor: const Color(0xFFB08010),
               brightness: Brightness.light,
             ),
+            // Android TV: the gold ring is the only cursor. Flutter's own
+            // focus still moves behind it (the arrows reach the Shortcuts
+            // path whatever the key handlers return), and Material paints
+            // that focus as a grey tint -- seen as a second highlight on a
+            // تكرار مقطع dropdown four rows away from the ring.
+            focusColor: isTv ? Colors.transparent : null,
+            hoverColor: isTv ? Colors.transparent : null,
           ),
           darkTheme: ThemeData(
             brightness: Brightness.dark,
@@ -236,6 +243,8 @@ class QuranApp extends StatelessWidget {
               seedColor: const Color(0xFFD6B45A),
               brightness: Brightness.dark,
             ),
+            focusColor: isTv ? Colors.transparent : null,
+            hoverColor: isTv ? Colors.transparent : null,
           ),
           home: const SplashScreen(),
         );

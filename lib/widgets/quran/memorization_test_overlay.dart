@@ -109,6 +109,25 @@ class MemorizationTestOverlay extends StatelessWidget {
                 paper: paper,
               );
             }
+            // On the five pages whose last ayah runs on to the next page,
+            // the words of that ayah printed here belong to the next page's
+            // text: they are covered like the rest and show once every ayah
+            // of this page is done (the reader then turns the page).
+            final head = regions.continuing;
+            if (head != null) {
+              final done = states.isNotEmpty &&
+                  states.every((s) => s == AyahRevealState.revealed);
+              _collectAyah(
+                head,
+                done ? AyahRevealState.revealed : AyahRevealState.hidden,
+                map,
+                wordBoxes: null,
+                wordStatuses: const [],
+                masks: masks,
+                frames: frames,
+                paper: paper,
+              );
+            }
 
             return Stack(
               children: [

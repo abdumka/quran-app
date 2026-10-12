@@ -437,6 +437,47 @@ void main() {
     }
   });
 
+  test('«أعد الآية» at the top of a test page goes back to the page before, question kept', () async {
+    // A self-test question that moved on to page 2 (the session before it
+    // was on page 1): the first ayah of page 2 is where it stands.
+    final p1 = (await PagePhonemeService.forPage(1))!.words;
+    final q1 = TasmeeDrill(page: 1, surah: 1, ayah: 7, targets: const [], title: 'اختبار', startPage: 1, startAyahIndex: 0);
+    await service.start(pageNumber: 1, stopPlayback: false, drill: q1, silent: true);
+    final q2 = TasmeeDrill(page: 2, surah: 2, ayah: 2, targets: const [], title: 'اختبار', startPage: 2, startAyahIndex: 0);
+    expect(
+      await service.start(pageNumber: 2, stopPlayback: false, startAyahIndex: 0, drill: q2, silent: true),
+      isTrue,
+    );
+    final flips = <int>[];
+    void onFlip() => flips.add(service.pageAdvanced.value);
+    service.pageAdvanced.addListener(onFlip);
+    try {
+      service.repeatAyah();
+      for (var i = 0; i < 20 && service.activePage != 1; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      expect(service.activePage, 1, reason: 'back on the page before');
+      expect(flips.where((f) => f > 0), [1]);
+      expect(service.drill, same(q2), reason: 'the question goes on');
+      final lastStart = p1.indexWhere((w) => w.ayah == 6);
+      expect(service.statuses[lastStart], WordStatus.pending, reason: 'the last ayah is to be read again');
+      expect(service.statuses[lastStart - 1], WordStatus.correct, reason: 'the ayahs before it are shown');
+      // Reading it ends page 1 and the question runs on to page 2.
+      service.revealCurrentAyah();
+      for (var i = 0; i < 20 && service.activePage != 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      expect(service.activePage, 2);
+      expect(service.drill, same(q2));
+      service.revealCurrentAyah();
+      service.revealCurrentAyah();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(service.drillResult.value, isNotNull, reason: 'the question ends where it should');
+    } finally {
+      service.pageAdvanced.removeListener(onFlip);
+    }
+  });
+
   test('in a self-test a shown word is plain and no error is noted', () async {
     final question = TasmeeDrill(
       page: 1,
