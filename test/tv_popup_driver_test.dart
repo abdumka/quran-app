@@ -230,6 +230,128 @@ void main() {
     );
   });
 
+  testWidgets('a row the dialog cuts in half is scrolled in, not skipped', (
+    tester,
+  ) async {
+    // تكرار مقطع on a 960x540 TV: the picker is taller than the screen, and
+    // its last row («بعد انتهاء المقطع») sat half under the dialog's buttons.
+    // A half-hidden row's semantics rect is only its visible sliver, which the
+    // scope took for a row not laid out yet, so the ring stayed put and the
+    // dialog never scrolled: the row could not be read or reliably chosen.
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+
+    final pressed = <String>[];
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    Widget chips(List<String> labels) => Row(
+      children: [
+        for (final l in labels)
+          Expanded(
+            child: InkWell(
+              onTap: () => pressed.add(l),
+              child: SizedBox(height: 38, child: Center(child: Text(l))),
+            ),
+          ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      app(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  // RTL like the app, so reading order is the app's.
+                  builder: (_) => Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: AlertDialog(
+                      title: const Text('تكرار مقطع'),
+                      content: SizedBox(
+                        width: double.maxFinite,
+                        child: SingleChildScrollView(
+                          controller: scroll,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text('من'),
+                              chips(['من سورة', 'من آية']),
+                              const SizedBox(height: 14),
+                              const Text('إلى'),
+                              chips(['إلى سورة', 'إلى آية']),
+                              const SizedBox(height: 14),
+                              const Text('عدد مرات التكرار'),
+                              chips(['2×', '3×', '5×', '7×', '∞']),
+                              const SizedBox(height: 14),
+                              const Text('تكرار كل آية'),
+                              chips(['بدون', 'آية 2×', 'آية 3×', 'آية 5×']),
+                              const SizedBox(height: 14),
+                              const Text('بعد انتهاء المقطع'),
+                              chips(['متابعة التلاوة', 'التوقف']),
+                              const SizedBox(height: 12),
+                              const Text('سطر الشرح\nسطر ثانٍ'),
+                            ],
+                          ),
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => pressed.add('إلغاء'),
+                          child: const Text('إلغاء'),
+                        ),
+                        TextButton(
+                          onPressed: () => pressed.add('تشغيل'),
+                          child: const Text('تشغيل المقطع'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(
+      scroll.position.maxScrollExtent,
+      greaterThan(0),
+      reason: 'the harness must overflow like the real picker on a TV',
+    );
+
+    // Walk down one press at a time until the dialog scrolls; where the ring
+    // starts depends on where the "open" button was, so don't count presses.
+    for (int i = 0; i < 20 && scroll.offset == 0; i++) {
+      await press(tester, LogicalKeyboardKey.arrowDown);
+    }
+    expect(
+      scroll.offset,
+      greaterThan(0),
+      reason: 'walking down never scrolled the cut-off row into view',
+    );
+
+    // The row is now readable: wholly inside the dialog's visible area.
+    final viewport = tester.getRect(find.byType(SingleChildScrollView));
+    final chip = tester.getRect(
+      find.ancestor(
+        of: find.text('متابعة التلاوة'),
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(chip.bottom, lessThanOrEqualTo(viewport.bottom + 0.5));
+
+    await press(tester, LogicalKeyboardKey.select);
+    expect(pressed, ['متابعة التلاوة']);
+  });
+
   testWidgets('a modal bottom sheet is driven too', (tester) async {
     final pressed = <String>[];
     await tester.pumpWidget(

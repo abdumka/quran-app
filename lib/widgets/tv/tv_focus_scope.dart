@@ -670,6 +670,12 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   /// remote at all. Scrolling first puts those rows in the tree, and the step
   /// then lands where the user expects.
   ///
+  /// The same goes for a target the list's edge cuts in half. Its semantics
+  /// rect is only the visible sliver, which the collapsed-rect guard in
+  /// [_retarget] takes for a row that is not laid out yet, so the ring stayed
+  /// put and nothing scrolled. In تكرار مقطع on a TV the «بعد انتهاء المقطع»
+  /// row sat half under the dialog's buttons and was never brought into view.
+  ///
   /// Returns false once the list is at its end in that direction, so the
   /// highlight can still leave for the app bar (or whatever is below) the
   /// moment there is genuinely nothing more to scroll to.
@@ -688,7 +694,10 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     final next = _nearest(targets, current, dir);
     // No next target at all is the other caller's case (scroll, then retry).
     if (next == null) return false;
-    return !viewport.contains(next.rect.center);
+    if (!viewport.contains(next.rect.center)) return true;
+    return dir == TraversalDirection.down
+        ? next.rect.bottom >= viewport.bottom - 0.5
+        : next.rect.top <= viewport.top + 0.5;
   }
 
   /// Scrolls the list holding the current target by half a viewport in

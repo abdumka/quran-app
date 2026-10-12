@@ -7190,6 +7190,25 @@ class _QuranPagesState extends State<QuranPages>
             ),
           );
 
+          // A TV screen is wide but only 540 tall. Side by side, the two ends
+          // leave room for the whole picker without scrolling — and scrolling
+          // is what the remote handled badly: the «بعد انتهاء المقطع» row sat
+          // half under the buttons, unreadable and hard to choose.
+          Widget endpoints(Widget from, Widget to) => TvService.instance.isTv
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: from),
+                    const SizedBox(width: 16),
+                    Expanded(child: to),
+                  ],
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [from, const SizedBox(height: 14), to],
+                );
+
           Widget countChip(String text, bool selected, VoidCallback onTap) =>
               Expanded(
                 child: InkWell(
@@ -7253,52 +7272,53 @@ class _QuranPagesState extends State<QuranPages>
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      endpointRow(
-                        heading: 'من: السورة والآية',
-                        surah: fromSurah,
-                        ayah: wholeSurah ? 0 : fromAyah,
-                        minSurah: 1,
-                        minAyah: 1,
-                        wholeSurahItem: true,
-                        onSurahChanged: (v) => setPickerState(() {
-                          // A new start surah re-seeds the section to that
-                          // surah's opening page, so both ends stay sensible
-                          // (or, for «السورة كاملة», to the new surah's end).
-                          final firstPage = audio.pageIndexForAyah(v, 1);
-                          fromSurah = v;
-                          fromAyah = 1;
-                          toSurah = v;
-                          toAyah = firstPage >= 0
-                              ? _sectionEndOnPage(firstPage, v, 1)
-                              : 1;
-                          normalize();
-                        }),
-                        onAyahChanged: (v) => setPickerState(() {
-                          // 0 is «السورة كاملة»; any real ayah leaves it, and
-                          // the end it had (the surah's last ayah) stays.
-                          wholeSurah = v == 0;
-                          if (v > 0) fromAyah = v;
-                          normalize();
-                        }),
-                      ),
-                      const SizedBox(height: 14),
-                      endpointRow(
-                        heading: 'إلى: السورة والآية',
-                        surah: toSurah,
-                        ayah: toAyah,
-                        enabled: !wholeSurah,
-                        minSurah: fromSurah,
-                        // Within the same surah the end can't precede the start;
-                        // in a later surah every ayah is fair game.
-                        minAyah: toSurah == fromSurah ? fromAyah : 1,
-                        onSurahChanged: (v) => setPickerState(() {
-                          toSurah = v;
-                          normalize();
-                        }),
-                        onAyahChanged: (v) => setPickerState(() {
-                          toAyah = v;
-                          normalize();
-                        }),
+                      endpoints(
+                        endpointRow(
+                          heading: 'من: السورة والآية',
+                          surah: fromSurah,
+                          ayah: wholeSurah ? 0 : fromAyah,
+                          minSurah: 1,
+                          minAyah: 1,
+                          wholeSurahItem: true,
+                          onSurahChanged: (v) => setPickerState(() {
+                            // A new start surah re-seeds the section to that
+                            // surah's opening page, so both ends stay sensible
+                            // (or, for «السورة كاملة», to the new surah's end).
+                            final firstPage = audio.pageIndexForAyah(v, 1);
+                            fromSurah = v;
+                            fromAyah = 1;
+                            toSurah = v;
+                            toAyah = firstPage >= 0
+                                ? _sectionEndOnPage(firstPage, v, 1)
+                                : 1;
+                            normalize();
+                          }),
+                          onAyahChanged: (v) => setPickerState(() {
+                            // 0 is «السورة كاملة»; any real ayah leaves it, and
+                            // the end it had (the surah's last ayah) stays.
+                            wholeSurah = v == 0;
+                            if (v > 0) fromAyah = v;
+                            normalize();
+                          }),
+                        ),
+                        endpointRow(
+                          heading: 'إلى: السورة والآية',
+                          surah: toSurah,
+                          ayah: toAyah,
+                          enabled: !wholeSurah,
+                          minSurah: fromSurah,
+                          // Within the same surah the end can't precede the start;
+                          // in a later surah every ayah is fair game.
+                          minAyah: toSurah == fromSurah ? fromAyah : 1,
+                          onSurahChanged: (v) => setPickerState(() {
+                            toSurah = v;
+                            normalize();
+                          }),
+                          onAyahChanged: (v) => setPickerState(() {
+                            toAyah = v;
+                            normalize();
+                          }),
+                        ),
                       ),
                       const SizedBox(height: 14),
                       label('عدد مرات التكرار'),
