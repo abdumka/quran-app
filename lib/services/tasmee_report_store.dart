@@ -252,9 +252,11 @@ class TasmeeAlert {
     TasmeeAlertKind.mistake: 'tasmee_alert_mode',
     TasmeeAlertKind.corrected: 'tasmee_alert_ok_mode',
   };
+  /// Tone and vibration unless the reader chooses otherwise in the
+  /// settings (owner, 2026-10-12).
   static final Map<TasmeeAlertKind, TasmeeAlertMode> _modes = {
-    TasmeeAlertKind.mistake: TasmeeAlertMode.vibrate,
-    TasmeeAlertKind.corrected: TasmeeAlertMode.vibrate,
+    TasmeeAlertKind.mistake: TasmeeAlertMode.vibrateAndSound,
+    TasmeeAlertKind.corrected: TasmeeAlertMode.vibrateAndSound,
   };
   static bool _loaded = false;
 

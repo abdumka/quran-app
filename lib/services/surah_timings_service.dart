@@ -161,10 +161,30 @@ class SurahTimingsService {
     }
   }
 
+  /// Folder name for [reciter]'s current [Reciter.timingsRevision]: `timings`
+  /// for the first, `timings_r2`, `timings_r3`… after a correction.
+  static String timingsFolderName(Reciter reciter) => reciter.timingsRevision <= 1
+      ? 'timings'
+      : 'timings_r${reciter.timingsRevision}';
+
   Future<Directory> _timingsDir(Reciter reciter) async {
     final appDir = await getApplicationSupportDirectory();
-    final dir = Directory(p.join(appDir.path, reciter.cacheFolder, 'timings'));
-    if (!await dir.exists()) await dir.create(recursive: true);
+    final base = p.join(appDir.path, reciter.cacheFolder);
+    final name = timingsFolderName(reciter);
+    final dir = Directory(p.join(base, name));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+      // A new revision: the older folders hold superseded spans -- drop them.
+      try {
+        await for (final e in Directory(base).list()) {
+          final n = p.basename(e.path);
+          if (e is Directory && n != name &&
+              (n == 'timings' || n.startsWith('timings_r'))) {
+            await e.delete(recursive: true);
+          }
+        }
+      } catch (_) {}
+    }
     return dir;
   }
 

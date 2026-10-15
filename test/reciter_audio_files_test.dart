@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/models/reciter.dart';
 import 'package:islamic_dawah_mushaf/services/audio_download_service.dart';
 import 'package:islamic_dawah_mushaf/services/reciter_service.dart';
+import 'package:islamic_dawah_mushaf/services/surah_timings_service.dart';
 
 /// Guards the per-reciter audio file lists, which decide both what gets
 /// downloaded for offline listening and what playback asks the CDN for. Every
@@ -157,6 +158,14 @@ void main() {
       // SSS.mp3 files must not land among the per-ayah build's SSSAAA.mp3 ones.
       expect(r.cacheFolder, isNot('audio_cache_naihi'));
       expect(Reciter.fallback, same(r));
+    });
+
+    test('corrected timings live in their own cache folder', () {
+      // Phones keep a surah's timings on disk forever; the 2026-10-15 fixes
+      // only reach them because revision 2 reads from a new folder.
+      expect(Reciter.naihiQaloun.timingsRevision, 2);
+      expect(SurahTimingsService.timingsFolderName(Reciter.naihiQaloun), 'timings_r2');
+      expect(SurahTimingsService.timingsFolderName(Reciter.alqrywQaloun), 'timings');
     });
 
     test('needs none of the per-ayah scheme tables', () {

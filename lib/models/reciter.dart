@@ -98,6 +98,14 @@ class Reciter {
   String get timingsBaseUrl =>
       timingsBaseUrlOverride ?? '${audioBaseUrl}timings/';
 
+  /// [AudioScheme.timedSurah] only: bumped whenever the published timing files
+  /// are corrected. A phone keeps a surah's timings on disk once fetched and
+  /// never asks again, so without this a correction would only ever reach
+  /// people who had not played that surah yet. Each revision is stored in its
+  /// own folder (see `SurahTimingsService`), so a bump makes every surah
+  /// re-fetch once; the audio cache is untouched.
+  final int timingsRevision;
+
   /// Folder name (under the app support dir) where this reciter's MP3s are
   /// cached on disk. Kept distinct per reciter because every reciter uses the
   /// same file names (`001001.mp3` …) but different audio.
@@ -148,6 +156,7 @@ class Reciter {
     this.continuationsAsset,
     this.missingAyat = const {},
     this.timingsBaseUrlOverride,
+    this.timingsRevision = 1,
   }) : shortName = shortName ?? name;
 
   /// Whether ([surah], [ayah]) is one of this mirror's upstream gaps.
@@ -196,6 +205,10 @@ class Reciter {
     // web build could not fetch these from beside the MP3s.
     timingsBaseUrlOverride:
         'https://quran-content.mushaf-qaloon.com/timings/naihi_timed/',
+    // 2 (2026-10-15): reviewer corrections -- 21 boundaries moved, 16:32 read
+    // inside 16:31, and 56:30's start nudged off a byte where Chrome's seek
+    // landed on a false MP3 frame header and stopped playback.
+    timingsRevision: 2,
   );
 
   /// Madani/Qaloun ayah count per surah, taken from nquran.com's authoritative

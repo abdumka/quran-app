@@ -390,8 +390,8 @@ void main() {
       expect(find.text('إعدادات التسميع'), findsOneWidget);
       expect(find.text('عند الخطأ'), findsOneWidget);
       expect(find.text('عند التصويب'), findsOneWidget);
-      // Both default to vibration only.
-      expect(find.text('اهتزاز فقط'), findsNWidgets(2));
+      // Both default to tone and vibration.
+      expect(find.text('اهتزاز وصوت'), findsNWidgets(2));
     });
   });
 

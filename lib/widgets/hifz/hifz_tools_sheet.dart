@@ -326,7 +326,7 @@ class _AlertModeRowState extends State<_AlertModeRow> {
   }
 
   Widget _choice(HifzPalette p, TasmeeAlertKind kind, String title) {
-    final mode = _modes[kind] ?? TasmeeAlertMode.vibrate;
+    final mode = _modes[kind] ?? TasmeeAlertMode.vibrateAndSound;
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
