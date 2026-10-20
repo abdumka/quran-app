@@ -17,6 +17,13 @@ class ReciterService {
   /// Every reciter the user can pick from.
   final List<Reciter> reciters = Reciter.all;
 
+  /// Height cap for a reciter dropdown's menu: about five and a half rows plus
+  /// the menu's own padding, so the list scrolls (half a row peeking out says
+  /// there is more) instead of growing to fill the screen as reciters are
+  /// added. Flutter opens the capped menu scrolled to the selected reciter.
+  static double pickerMenuMaxHeight(double itemHeight) =>
+      5.5 * itemHeight + 16;
+
   /// The active reciter. Listen to rebuild UI / re-point the audio layer.
   final ValueNotifier<Reciter> selected =
       ValueNotifier<Reciter>(Reciter.fallback);

@@ -26,7 +26,7 @@ position in an exact audio file:
 
 The aligner lives in the WSL venv used by the reciter pipelines
 (`/root/quran-venv`, `/root/quran/ctc_segment_progress.py`; see
-D:/RajabTimed/pipeline/NEW_RECITER_INSTRUCTIONS.md). Run from WSL as root:
+C:/Down/RajabTimed/pipeline/NEW_RECITER_INSTRUCTIONS.md). Run from WSL as root:
 
     cd "/mnt/d/quran app/quran-app-main"
     /root/quran-venv/bin/python tools/measure_page_turn_cues.py

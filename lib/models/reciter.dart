@@ -412,6 +412,81 @@ class Reciter {
         'https://quran-content.mushaf-qaloon.com/timings/rajab/',
   );
 
+  /// Nouraldin al-Mislati (نورالدين المسلاتي) — Qaloun.
+  ///
+  /// On [AudioScheme.timedSurah]: 114 whole-surah MP3s plus `timings/SSS.json`.
+  /// Source: the sheikh's own Telegram channel (t.me/Nouraldinrecitation), a
+  /// complete khatma at 320 kbps CBR; our mirror is 128 kbps mono **CBR**. The
+  /// owner asked for الاستعاذة to be removed from every surah but al-Fatiha;
+  /// measured, only al-Fatiha has one (kept in the file, outside every span).
+  ///
+  /// Timings revision 2 (2026-10-19): where he reads ayat without stopping, the
+  /// group is one clip on its first ayah (452 ayat in 368 groups, e.g. 20:24-29)
+  /// and the others have no span, as for the other joining reciters.
+  static const Reciter almislatiQaloun = Reciter(
+    id: 'almislati_qaloun',
+    name: 'نورالدين المسلاتي',
+    shortName: 'نورالدين المسلاتي',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/almislati/',
+    cacheFolder: 'audio_cache_almislati',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/almislati/',
+    timingsRevision: 2,
+  );
+
+  /// Ahmad Khadr Al-Trabulsi (أحمد خضر الطرابلسي) — Qaloun.
+  ///
+  /// On [AudioScheme.timedSurah]: 114 whole-surah MP3s plus `timings/SSS.json`.
+  /// Source: midad.com collection 461010 («مصحف أحمد خضر الطرابلسي - قالون -
+  /// مرتل», narration id 4 = قالون عن نافع).
+  ///
+  /// The published audio is VBR with no seek table (16 kHz mono, ~28 kbps);
+  /// our mirror is re-encoded to 48 kbps mono **CBR** at the same 16 kHz
+  /// before alignment, so the timings match what the app actually plays.
+  static const Reciter trabulsiQaloun = Reciter(
+    id: 'trabulsi_qaloun',
+    name: 'أحمد خضر الطرابلسي',
+    shortName: 'أحمد الطرابلسي',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/trabulsi/',
+    cacheFolder: 'audio_cache_trabulsi',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/trabulsi/',
+  );
+
+  /// Mohammed Khalil Al-Zarrouq (محمد خليل الزروق) — Qaloun.
+  ///
+  /// On [AudioScheme.timedSurah]: 114 whole-surah MP3s plus `timings/SSS.json`.
+  /// Source: midad.com collection 465737 («مصحف محمد خليلي الزروق - مرتل»,
+  /// narration id 4 = قالون عن نافع). midad's collection title spells him
+  /// «خليلي»; the owner's spelling is «محمد خليل الزروق».
+  ///
+  /// The published audio is VBR with no seek table (44.1 kHz stereo,
+  /// ~160 kbps); our mirror is re-encoded to 128 kbps stereo **CBR** before
+  /// alignment, so the timings match what the app actually plays. Each file
+  /// ends with ~5 s of silence, left outside the last ayah's span. midad's
+  /// 040.mp3 appears to be missing part of 40:83 («بالله وحده … مشركين»).
+  static const Reciter zarrouqQaloun = Reciter(
+    id: 'zarrouq_qaloun',
+    name: 'محمد خليل الزروق',
+    shortName: 'محمد خليل الزروق',
+    riwaya: 'رواية قالون',
+    audioBaseUrl: 'https://audio.mushaf-qaloon.com/zarrouq/',
+    cacheFolder: 'audio_cache_zarrouq',
+    scheme: AudioScheme.timedSurah,
+    // See [timingsBaseUrlOverride]: the audio host sends no CORS header, so the
+    // web build could not fetch these from beside the MP3s.
+    timingsBaseUrlOverride:
+        'https://quran-content.mushaf-qaloon.com/timings/zarrouq/',
+  );
+
   /// All reciters offered in the picker, in display order.
   ///
   static const List<Reciter> all = [
@@ -423,6 +498,9 @@ class Reciter {
     alqrywQaloun,
     abusenainahQaloun,
     rajabQaloun,
+    almislatiQaloun,
+    trabulsiQaloun,
+    zarrouqQaloun,
   ];
 
   /// Every reciter the code knows about, including any not currently offered in

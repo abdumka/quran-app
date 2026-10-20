@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/reciter.dart';
+import '../../services/reciter_service.dart';
 import '../../models/tafsir_edition.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/tafsir_cache_service.dart';
@@ -880,6 +881,7 @@ class ReciterTile extends StatelessWidget {
                     isDense: true,
                     value: current,
                     itemHeight: 54,
+                    menuMaxHeight: ReciterService.pickerMenuMaxHeight(54),
                     borderRadius: BorderRadius.circular(12),
                     dropdownColor: const Color(0xFFF6F1E5),
                     icon: const Icon(

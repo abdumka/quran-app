@@ -126,4 +126,40 @@ const Map<String, Map<int, PageTurnCue>> pageTurnCues = {
     // 24:42 «بالابصار», pause 1.04s.
     356: PageTurnCue(24, 42, '024.mp3', 1087090),
   },
+  'almislati_qaloun': {
+    // 2:218 «والاخرة», pause 0.86s.
+    35: PageTurnCue(2, 218, '002.mp3', 4759390),
+    // 4:44 «السبيل», pause 0.61s.
+    86: PageTurnCue(4, 44, '004.mp3', 1216410),
+    // 14:27 «السماء», read on, dip -24 dB.
+    259: PageTurnCue(14, 27, '014.mp3', 530120),
+    // 24:36 «والاصال», pause 0.65s.
+    355: PageTurnCue(24, 36, '024.mp3', 758930),
+    // 24:42 «بالابصار», pause 0.55s.
+    356: PageTurnCue(24, 42, '024.mp3', 935120),
+  },
+  'trabulsi_qaloun': {
+    // 2:218 «والاخرة», pause 1.02s.
+    35: PageTurnCue(2, 218, '002.mp3', 6384740),
+    // 4:44 «السبيل», pause 1.21s.
+    86: PageTurnCue(4, 44, '004.mp3', 1738390),
+    // 14:27 «السماء», pause 0.43s.
+    259: PageTurnCue(14, 27, '014.mp3', 672630),
+    // 24:36 «والاصال», pause 1.06s.
+    355: PageTurnCue(24, 36, '024.mp3', 1019280),
+    // 24:42 «بالابصار», pause 0.78s.
+    356: PageTurnCue(24, 42, '024.mp3', 1256720),
+  },
+  'zarrouq_qaloun': {
+    // 2:218 «والاخرة», pause 1.37s.
+    35: PageTurnCue(2, 218, '002.mp3', 5194470),
+    // 4:44 «السبيل», pause 0.40s.
+    86: PageTurnCue(4, 44, '004.mp3', 1305300),
+    // 14:27 «السماء», pause 1.09s.
+    259: PageTurnCue(14, 27, '014.mp3', 647970),
+    // 24:36 «والاصال», pause 1.11s.
+    355: PageTurnCue(24, 36, '024.mp3', 929450),
+    // 24:42 «بالابصار», pause 1.57s.
+    356: PageTurnCue(24, 42, '024.mp3', 1124970),
+  },
 };

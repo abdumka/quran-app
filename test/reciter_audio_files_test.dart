@@ -202,6 +202,87 @@ void main() {
     });
   });
 
+  group('أحمد خضر الطرابلسي (timed surah scheme)', () {
+    setUp(() => select(Reciter.trabulsiQaloun));
+
+    test('one file per surah, 114 for a complete download', () {
+      expect(downloads.getSurahFilenames(2), ['002.mp3']);
+      expect(downloads.getAllFilenames().length, 114);
+      expect(downloads.getAllFilenames(), isNot(contains('002000.mp3')));
+    });
+
+    test('offered in the picker, timings on the CORS-enabled host', () {
+      const r = Reciter.trabulsiQaloun;
+      expect(Reciter.all, contains(r));
+      expect(Reciter.byId('trabulsi_qaloun'), same(r));
+      expect(r.scheme, AudioScheme.timedSurah);
+      expect(r.audioBaseUrl, 'https://audio.mushaf-qaloon.com/trabulsi/');
+      expect(r.timingsBaseUrl,
+          'https://quran-content.mushaf-qaloon.com/timings/trabulsi/');
+      expect(r.shortName, 'أحمد الطرابلسي');
+    });
+
+    test('needs none of the per-ayah scheme tables', () {
+      const r = Reciter.trabulsiQaloun;
+      expect(r.coveredAyat, isEmpty);
+      expect(r.missingAyat, isEmpty);
+      expect(r.continuationsAsset, isNull);
+    });
+  });
+
+  group('نورالدين المسلاتي (timed surah scheme)', () {
+    setUp(() => select(Reciter.almislatiQaloun));
+
+    test('one file per surah, 114 for a complete download', () {
+      expect(downloads.getSurahFilenames(2), ['002.mp3']);
+      expect(downloads.getAllFilenames().length, 114);
+      expect(downloads.getAllFilenames(), isNot(contains('002000.mp3')));
+    });
+
+    test('offered in the picker, timings on the CORS-enabled host', () {
+      const r = Reciter.almislatiQaloun;
+      expect(Reciter.all, contains(r));
+      expect(r.scheme, AudioScheme.timedSurah);
+      expect(r.audioBaseUrl, 'https://audio.mushaf-qaloon.com/almislati/');
+      expect(r.timingsBaseUrl,
+          'https://quran-content.mushaf-qaloon.com/timings/almislati/');
+      expect(r.coveredAyat, isEmpty);
+      expect(r.continuationsAsset, isNull);
+    });
+
+    test("shows the owner's spelling of the name", () {
+      expect(Reciter.almislatiQaloun.name, 'نورالدين المسلاتي');
+    });
+  });
+
+  group('محمد خليل الزروق (timed surah scheme)', () {
+    setUp(() => select(Reciter.zarrouqQaloun));
+
+    test('one file per surah, 114 for a complete download', () {
+      expect(downloads.getSurahFilenames(2), ['002.mp3']);
+      expect(downloads.getAllFilenames().length, 114);
+      expect(downloads.getAllFilenames(), isNot(contains('002000.mp3')));
+    });
+
+    test('offered in the picker, timings on the CORS-enabled host', () {
+      const r = Reciter.zarrouqQaloun;
+      expect(Reciter.all, contains(r));
+      expect(Reciter.byId('zarrouq_qaloun'), same(r));
+      expect(r.scheme, AudioScheme.timedSurah);
+      expect(r.audioBaseUrl, 'https://audio.mushaf-qaloon.com/zarrouq/');
+      expect(r.timingsBaseUrl,
+          'https://quran-content.mushaf-qaloon.com/timings/zarrouq/');
+      expect(r.coveredAyat, isEmpty);
+      expect(r.continuationsAsset, isNull);
+    });
+
+    test("shows the owner's spelling of the name", () {
+      // midad's collection title has «خليلي»; the owner's spelling wins.
+      expect(Reciter.zarrouqQaloun.name, 'محمد خليل الزروق');
+      expect(Reciter.zarrouqQaloun.shortName, 'محمد خليل الزروق');
+    });
+  });
+
   group('existing reciters are untouched by the scheme refactor', () {
     test('Al-Husary keeps the merged-tail names', () {
       select(Reciter.husaryQaloun);

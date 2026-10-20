@@ -7698,6 +7698,10 @@ class _QuranPagesState extends State<QuranPages>
                                   ),
                                   dropdownColor: bgColor,
                                   borderRadius: BorderRadius.circular(12),
+                                  menuMaxHeight:
+                                      ReciterService.pickerMenuMaxHeight(
+                                    kMinInteractiveDimension,
+                                  ),
                                   items: [
                                     for (final reciter
                                         in reciterService.reciters)

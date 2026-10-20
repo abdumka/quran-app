@@ -77,9 +77,7 @@ RECITERS = [
         "riwaya": "رواية قالون",
         "folder": "naihi_timed",
         "scheme": "timed",
-        "timingsDir": "D:/NaihiTimed/timings",
-        "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_naihi.html",
+        "timingsDir": "C:/Down/NaihiTimed/timings",
     },
     {
         "id": "qaniwah",
@@ -122,7 +120,7 @@ RECITERS = [
         "riwaya": "رواية قالون",
         "folder": "abusenainah_timed",
         "scheme": "timed",
-        "timingsDir": "D:/AbuSenainahTimed/timings",
+        "timingsDir": "C:/Down/AbuSenainahTimed/timings",
     },
     {
         # The first mirror stored as one MP3 per SURAH plus a table of ayah
@@ -135,7 +133,7 @@ RECITERS = [
         "riwaya": "رواية قالون",
         "folder": "alqryw",
         "scheme": "timed",
-        "timingsDir": "D:/AlQryw/timings",
+        "timingsDir": "C:/Down/AlQryw/timings",
     },
     {
         # midad collection 465947, timed scheme (2026-10-06). The owner's
@@ -148,9 +146,50 @@ RECITERS = [
         "riwaya": "رواية قالون",
         "folder": "rajab",
         "scheme": "timed",
-        "timingsDir": "D:/RajabTimed/timings",
+        "timingsDir": "C:/Down/RajabTimed/timings",
+    },
+    {
+        # The sheikh's own Telegram khatma (t.me/Nouraldinrecitation), timed
+        # scheme (2026-10-15). الاستعاذة is cut out of every file but al-Fatiha
+        # (owner's request). Review page logs to the shared tracker under the
+        # slug "almislati".
+        "id": "almislati",
+        "name": "نورالدين المسلاتي",
+        "riwaya": "رواية قالون",
+        "folder": "almislati",
+        "scheme": "timed",
+        "timingsDir": "C:/Down/MislatiTimed/timings",
         "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_rajab.html",
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_almislati.html",
+    },
+    {
+        # midad collection 461010, timed scheme (2026-10-15). Source is 16 kHz
+        # mono VBR; the mirror is 48 kbps mono CBR. Not هبطي — every ayah has
+        # its own span. Review page logs to the shared tracker under the slug
+        # "trabulsi".
+        "id": "trabulsi",
+        "name": "أحمد خضر الطرابلسي",
+        "shortName": "أحمد الطرابلسي",
+        "riwaya": "رواية قالون",
+        "folder": "trabulsi",
+        "scheme": "timed",
+        "timingsDir": "C:/Down/TrabulsiTimed/timings",
+        "underReview": True,
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_trabulsi.html",
+    },
+    {
+        # midad collection 465737, timed scheme (2026-10-15). Source is 44.1 kHz
+        # stereo VBR; the mirror is 128 kbps stereo CBR. Not هبطي. midad's
+        # title spells him «خليلي»; the owner's spelling is «محمد خليل الزروق».
+        # Review page logs to the shared tracker under the slug "zarrouq".
+        "id": "zarrouq",
+        "name": "محمد خليل الزروق",
+        "riwaya": "رواية قالون",
+        "folder": "zarrouq",
+        "scheme": "timed",
+        "timingsDir": "C:/Down/ZarrouqTimed/timings",
+        "underReview": True,
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_zarrouq.html",
     },
 ]
 
