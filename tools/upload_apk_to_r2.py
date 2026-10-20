@@ -38,7 +38,31 @@ DEFAULT_APK = ROOT / "build" / "app" / "outputs" / "flutter-apk" / "app-debug.ap
 
 
 def credentials(bucket_wanted: str = "quran-content") -> dict:
-    """First R2_* block of .r2_secret whose R2_BUCKET matches."""
+    """R2 keys for `bucket_wanted`, from the environment or from .r2_secret.
+
+    The file is the path on the owner's machine. A cloud session has no such
+    file, so the same values may be set as environment secrets instead —
+    R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET if it is
+    not the default. The environment wins when it is complete, so a machine
+    that has the file keeps behaving exactly as before.
+    """
+    wanted = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+    env = {k: os.environ[k] for k in wanted if os.environ.get(k)}
+    if len(env) == len(wanted):
+        env["R2_BUCKET"] = os.environ.get("R2_BUCKET", bucket_wanted)
+        if env["R2_BUCKET"] != bucket_wanted:
+            raise SystemExit(
+                f'R2_BUCKET is {env["R2_BUCKET"]!r}, but this uploads to {bucket_wanted!r}'
+            )
+        return env
+    if env:
+        missing = ", ".join(k for k in wanted if k not in env)
+        raise SystemExit(f"incomplete R2 environment: {missing} not set")
+    if not SECRET.exists():
+        raise SystemExit(
+            f"no R2 credentials: {SECRET} is missing, and R2_ENDPOINT / "
+            "R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY are not set either"
+        )
     blocks, cur = [], {}
     for line in SECRET.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
