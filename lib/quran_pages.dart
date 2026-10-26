@@ -23,6 +23,12 @@ import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/page_image_crop.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
+import 'widgets/quran/tanzilat_overlay.dart';
+import 'widgets/quran/tanzilat_sheet.dart';
+import 'widgets/quran/ayah_recite_row.dart';
+import 'services/tanzilat_service.dart';
+import 'services/ayah_play_setting.dart';
+import 'services/content_update_service.dart';
 import 'widgets/quran/spine_shadow.dart';
 import 'services/memorization_test_service.dart';
 import 'services/asr_model_manager.dart';
@@ -73,7 +79,7 @@ import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
 import 'services/tasmee_report_store.dart'
-    show TasmeeError, TasmeeLocateAnywhere, TasmeeReport, TasmeeReportStore;
+    show TasmeeError, TasmeeLocateAnywhere, TasmeeReport, TasmeeReportStore, TasmeeSpeed, TasmeeSpeedSetting;
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
@@ -773,9 +779,13 @@ class _QuranPagesState extends State<QuranPages>
     _loadLastPage();
     _loadRangeRepeatPrefs();
     PlayingAyahHighlightSetting.load();
+    TanzilatSetting.load();
     _loadBookmark();
     _loadBookmarkGuidePreference();
     _checkForUpdate();
+    // Server-updated data (tanzilat, word colouring, reciters): a silent
+    // check well after the first frame, at most once a day.
+    ContentUpdateService.instance.scheduleBackgroundCheck();
     // Tapping a "صفحة اليوم" reminder while the app is already running lands
     // here rather than in SplashScreen, so the reader jumps to the page itself.
     DailyPageService.instance.pendingOpenPage.addListener(
@@ -1915,6 +1925,7 @@ class _QuranPagesState extends State<QuranPages>
     required double sourceHeight,
     Offset imageInset = Offset.zero,
     Size? imageSize,
+    bool fromDoubleTap = false,
   }) async {
     final size = imageSize ?? Size(sourceWidth, sourceHeight);
     final ratio = Offset(
@@ -1928,6 +1939,9 @@ class _QuranPagesState extends State<QuranPages>
     );
     if (!mounted) return;
     if (hit == null) {
+      // A double tap off the text (margins, surah headers) does nothing; only
+      // the long press drops a bookmark there.
+      if (fromDoubleTap) return;
       await _promptSaveBookmark(
         page,
         x,
@@ -1946,7 +1960,17 @@ class _QuranPagesState extends State<QuranPages>
       surah: hit.$1,
       ayah: hit.$2,
     );
-    final action = await _showAyahActionsSheet(hit.$1, hit.$2);
+    // Tiny and parsed once; needed to know whether to offer the tanzilat.
+    await TanzilatService.instance.load();
+    await AyahPlaySetting.load();
+    if (!mounted) return;
+    // The testers' switch: a double tap goes straight to the tanzilat.
+    final action =
+        fromDoubleTap &&
+            TanzilatSetting.doubleTapOpensTanzilat.value &&
+            TanzilatService.instance.forAyah(hit.$1, hit.$2).isNotEmpty
+        ? _AyahAction.tanzilat
+        : await _showAyahActionsSheet(hit.$1, hit.$2);
     if (!mounted) return;
     switch (action) {
       case _AyahAction.bookmark:
@@ -1959,10 +1983,118 @@ class _QuranPagesState extends State<QuranPages>
         );
       case _AyahAction.tafsir:
         await _showTafsirDialog(page, initialAyah: hit);
+      case _AyahAction.tanzilat:
+        await _showTanzilatSheet(page + 1, hit.$1, hit.$2);
+      case _AyahAction.recite:
+        _reciteFromAyah(page, hit.$1, hit.$2);
       case null:
         break;
     }
-    SelectedAyahHighlight.selected.value = null;
+    // A place opened from the tanzilat sheet tints its own ayah (as a search
+    // result does); leave that one on the page.
+    if (_searchResultHighlight == null) {
+      SelectedAyahHighlight.selected.value = null;
+    }
+  }
+
+  /// The «تنزيلات ومتشابهات» sheet of one ayah. Tapping a place opens its
+  /// page with the ayah tinted, and a «رجوع» snack bar brings the reader back
+  /// to [fromPage] (1-based) with the sheet open again.
+  Future<void> _showTanzilatSheet(int fromPage, int surah, int ayah) {
+    return showTanzilatSheet(
+      context,
+      surah: surah,
+      ayah: ayah,
+      onOpenPlace: (page, s, a) {
+        if (!mounted) return;
+        _goToPage(page);
+        _highlightSearchResult(page, s, a);
+        if (page == fromPage && s == surah && a == ayah) return;
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'سورة ${_surahNameOf(s)} $a',
+              textDirection: TextDirection.rtl,
+            ),
+            action: SnackBarAction(
+              label: 'رجوع',
+              onPressed: () {
+                if (!mounted) return;
+                _goToPage(fromPage);
+                _highlightSearchResult(fromPage, surah, ayah);
+                _showTanzilatSheet(fromPage, surah, ayah);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// «تلاوة» in an ayah's options: what opening التلاوة and pressing play
+  /// does, but from that ayah (see [AudioService.playFromAyah]). [pageIndex]
+  /// is the page it was pressed on; in a two-page spread the bar's controls
+  /// move to that page.
+  void _reciteFromAyah(int pageIndex, int surah, int ayah) {
+    final bool tv = TvService.instance.isTv;
+    final spread = _spreadPages;
+    setState(() {
+      if (spread.contains(pageIndex)) {
+        _spreadSelectedOffset = pageIndex - spread.first;
+      }
+      if (tv) {
+        // Playing already: the remote's next press is pause, so start there.
+        _tvRecitationFocused = true;
+        _tvBarIndex = _tvBarDefaultIndex;
+      } else {
+        _showIndex = false;
+        _showSurahs = false;
+      }
+    });
+    _updateSystemUI();
+    if (tv) _resetHideTimer();
+    AudioService.instance.playFromAyah(
+      surah,
+      ayah,
+      onlyThisAyah: AyahPlaySetting.onlyThisAyah.value,
+      readerPageIndex: pageIndex,
+    );
+  }
+
+  String _surahNameOf(int surah) =>
+      surahList
+          .firstWhere(
+            (s) => s['number'] == surah,
+            orElse: () => const {},
+          )['name']
+          ?.toString() ??
+      '';
+
+  /// A double tap on a page box: the same ayah options as a long press
+  /// (bookmark, tafsir, tanzilat), at the point the second tap went down.
+  void _handlePageDoubleTap(
+    int pageIndex,
+    BuildContext boxContext, {
+    EdgeInsets inset = EdgeInsets.zero,
+  }) {
+    final box = boxContext.findRenderObject() as RenderBox?;
+    final global = _lastDoubleTapPosition;
+    if (box == null || global == null) return;
+    final local = box.globalToLocal(global);
+    _handlePageLongPress(
+      pageIndex,
+      local.dx,
+      local.dy,
+      sourceWidth: box.size.width,
+      sourceHeight: box.size.height,
+      imageInset: inset.topLeft,
+      imageSize: inset.deflateSize(box.size),
+      fromDoubleTap: true,
+    );
   }
 
   Future<_AyahAction?> _showAyahActionsSheet(int surah, int ayah) {
@@ -2057,6 +2189,28 @@ class _QuranPagesState extends State<QuranPages>
                   label: 'تفسير الآية',
                   action: _AyahAction.tafsir,
                 ),
+                // Offered whether or not the colouring is on.
+                if (TanzilatService.instance.forAyah(surah, ayah).isNotEmpty)
+                  option(
+                    icon: const Icon(Icons.compare_arrows_rounded),
+                    label: 'تنزيلات ومتشابهات',
+                    action: _AyahAction.tanzilat,
+                  ),
+                // Not during التسميع: the microphone is listening.
+                if (!_isMemorizationTestEnabled) ...[
+                  Divider(
+                    height: 9,
+                    thickness: 1,
+                    indent: 16,
+                    endIndent: 16,
+                    color: borderColor,
+                  ),
+                  AyahReciteRow(
+                    isDarkMode: isDarkMode,
+                    onPlay: () =>
+                        Navigator.of(sheetContext).pop(_AyahAction.recite),
+                  ),
+                ],
                 const SizedBox(height: 6),
               ],
             ),
@@ -3889,6 +4043,8 @@ class _QuranPagesState extends State<QuranPages>
   /// for download once) and, the first time, shows the guide. False when
   /// the model is still missing or the page went away.
   Future<bool> _ensureTasmeeReady() async {
+    AsrModelManager.instance.fast =
+        await TasmeeSpeedSetting.mode() == TasmeeSpeed.fast;
     if (!await AsrModelManager.instance.refresh()) {
       if (!mounted) return false;
       await _promptAndDownloadAsrModel();
@@ -4880,6 +5036,22 @@ class _QuranPagesState extends State<QuranPages>
             children: [
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
+                // Double tap = the ayah's options. Not in Hifz mode, and not
+                // during Tasmee: a double-tap recognizer delays every single
+                // tap by 300 ms (the session bar's buttons included).
+                onDoubleTapDown: _isHifzModeEnabled || _isMemorizationTestEnabled
+                    ? null
+                    : (details) =>
+                          _lastDoubleTapPosition = details.globalPosition,
+                onDoubleTap: _isHifzModeEnabled || _isMemorizationTestEnabled
+                    ? null
+                    : () => _handlePageDoubleTap(
+                        pageIndex,
+                        context,
+                        inset: useMarginSafeInset
+                            ? const EdgeInsets.fromLTRB(4, 2, 4, 4)
+                            : EdgeInsets.zero,
+                      ),
                 // In Hifz mode the long press drives the reveal window
                 // instead of the bookmark prompt.
                 onLongPressStart: _isHifzModeEnabled
@@ -4936,6 +5108,17 @@ class _QuranPagesState extends State<QuranPages>
                                 filterQuality:
                                     _pageQualityService.filterQuality,
                               ),
+                            ),
+                            // The tanzilat colours sit on the ink itself,
+                            // under the Tasmee masks: a covered word hides
+                            // its colour and shows it when revealed. (The
+                            // hifz blur wraps this whole stack.)
+                            TanzilatOverlay(
+                              pageNumber: pageIndex + 1,
+                              marginView: _isMarginImagesEnabled,
+                              dark:
+                                  Theme.of(context).brightness ==
+                                  Brightness.dark,
                             ),
                             // On every page while the mode is on: the overlay
                             // itself follows the service's live page and
@@ -5034,6 +5217,14 @@ class _QuranPagesState extends State<QuranPages>
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
+              // Double tap = the ayah's options (as in the paged view).
+              onDoubleTapDown: _isHifzModeEnabled || _isMemorizationTestEnabled
+                  ? null
+                  : (details) =>
+                        _lastDoubleTapPosition = details.globalPosition,
+              onDoubleTap: _isHifzModeEnabled || _isMemorizationTestEnabled
+                  ? null
+                  : () => _handlePageDoubleTap(pageIndex, context),
               // In Hifz mode the long press drives the reveal window
               // instead of the bookmark prompt.
               onLongPressStart: _isHifzModeEnabled
@@ -5072,6 +5263,13 @@ class _QuranPagesState extends State<QuranPages>
                             gaplessPlayback: true,
                             filterQuality: _pageQualityService.filterQuality,
                           ),
+                        ),
+                        // Under the Tasmee masks (see the two-page stack).
+                        TanzilatOverlay(
+                          pageNumber: pageIndex + 1,
+                          marginView: _isMarginImagesEnabled,
+                          dark:
+                              Theme.of(context).brightness == Brightness.dark,
                         ),
                         if (_isMemorizationTestEnabled)
                           MemorizationTestOverlay(
@@ -5268,6 +5466,16 @@ class _QuranPagesState extends State<QuranPages>
                       sourceHeight: height,
                     );
                   },
+                  onDoubleTapPage: (page, x, y, width, height) {
+                    _handlePageLongPress(
+                      page,
+                      x,
+                      y,
+                      sourceWidth: width,
+                      sourceHeight: height,
+                      fromDoubleTap: true,
+                    );
+                  },
                   onMoveBookmark: (slot, page, x, y, width, height) {
                     final bookmark = _bookmarks[slot];
                     if (bookmark == null) return;
@@ -5334,21 +5542,6 @@ class _QuranPagesState extends State<QuranPages>
       SpineShadowService.instance.enabled.value &&
       !_isMarginImagesEnabled &&
       !_useTwoPageView(context);
-
-  /// Double-tap: zoom out to fit if already zoomed, otherwise zoom in to 2.5×
-  /// centred on the tapped point (like a photo viewer). InteractiveViewer clamps
-  /// the result so the page keeps covering the viewport.
-  void _togglePageZoom() {
-    if (_isPageZoomed) {
-      _resetPageZoom();
-      return;
-    }
-    const double scale = 2.5;
-    final Offset p = _lastDoubleTapPosition ?? Offset.zero;
-    _pageZoomController.value = Matrix4.identity()
-      ..translateByDouble(-p.dx * (scale - 1), -p.dy * (scale - 1), 0, 1)
-      ..scaleByDouble(scale, scale, scale, 1);
-  }
 
   Widget _buildPortraitReader(bool useTwoPages) {
     final bool isPhonePortrait =
@@ -5533,8 +5726,8 @@ class _QuranPagesState extends State<QuranPages>
                       // nothing to pan, and leaving pan enabled makes
                       // InteractiveViewer's recognizer claim horizontal drags
                       // before the PageView can — which silently breaks
-                      // page-flipping with a mouse on the web. Pinch/double-tap
-                      // zoom still work (scaleEnabled stays on).
+                      // page-flipping with a mouse on the web. Pinch zoom still
+                      // works (scaleEnabled stays on).
                       panEnabled: _isPageZoomed,
                       child: child!,
                     );
@@ -5543,22 +5736,9 @@ class _QuranPagesState extends State<QuranPages>
                       onTapUp: (details) =>
                           _lastReaderTapDy = details.globalPosition.dy,
                       onTap: _handleReaderTap,
-                      // Double-tap toggles zoom (out to fit, or in to 2.5×)
-                      // like a photo viewer. Kept lightweight so single-tap
-                      // stays responsive. (No double-tap recognizer at all
-                      // during Tasmee: it would delay every tap on the
-                      // session bar by 300 ms and swallow quick double taps
-                      // on its buttons.)
-                      onDoubleTapDown: _isMemorizationTestEnabled
-                          ? null
-                          : (details) =>
-                                _lastDoubleTapPosition = details.localPosition,
-                      // Not during Tasmee: a stray double tap must not zoom
-                      // the page under the reciter; the app's own zoom
-                      // setting applies again once the session ends.
-                      onDoubleTap: _isMemorizationTestEnabled
-                          ? null
-                          : _togglePageZoom,
+                      // A double tap no longer zooms (pinch still does): it
+                      // opens the ayah's options, on the page box itself
+                      // (see _handlePageDoubleTap).
                       child: page,
                     );
                   },
@@ -9286,7 +9466,7 @@ class _MeasureSizeRenderObject extends RenderProxyBox {
 enum _TafsirCopyMode { ayah, tafsir, both }
 
 /// What the reader picked from the long-pressed ayah's menu.
-enum _AyahAction { bookmark, tafsir }
+enum _AyahAction { bookmark, tafsir, tanzilat, recite }
 
 /// Stateful Tafsir sheet with page navigation.
 class _TafsirSheetContent extends StatefulWidget {

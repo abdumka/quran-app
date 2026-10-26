@@ -23,6 +23,7 @@ import 'services/tv_popup_observer.dart';
 import 'services/tv_service.dart';
 import 'services/update_notification_service.dart';
 import 'splash_screen.dart';
+import 'widgets/app_switch_theme.dart';
 import 'widgets/tv/tv_focus_scope.dart';
 
 Future<void> main() async {
@@ -228,6 +229,7 @@ class QuranApp extends StatelessWidget {
               seedColor: const Color(0xFFB08010),
               brightness: Brightness.light,
             ),
+            switchTheme: appSwitchTheme,
             // Android TV: the gold ring is the only cursor. Flutter's own
             // focus still moves behind it (the arrows reach the Shortcuts
             // path whatever the key handlers return), and Material paints
@@ -243,6 +245,7 @@ class QuranApp extends StatelessWidget {
               seedColor: const Color(0xFFD6B45A),
               brightness: Brightness.dark,
             ),
+            switchTheme: appSwitchTheme,
             focusColor: isTv ? Colors.transparent : null,
             hoverColor: isTv ? Colors.transparent : null,
           ),

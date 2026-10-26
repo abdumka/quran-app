@@ -7,6 +7,7 @@ import 'services/tv_service.dart';
 import 'services/ayah_position_service.dart';
 import 'utils/copy_helper.dart';
 import 'utils/quran_display_text.dart';
+import 'utils/quran_search_spelling.dart';
 import 'widgets/tv/tv_focus_scope.dart';
 
 class SearchPage extends StatefulWidget {
@@ -29,6 +30,10 @@ class SearchResult {
   final String text;
   final int score;
   final bool containsFullQuery;
+  // The full query matched only once joined/separated spellings were
+  // treated alike (أين ما for an ayah that writes أينما), so highlighting
+  // has to look past the spaces.
+  final bool spellingMatch;
   // How many times the query occurs inside this single ayah. An ayah that
   // repeats the word twice is still one card, but counts twice in the tally.
   // Smart (non-exact) matches have no literal occurrence to count, so they
@@ -44,6 +49,7 @@ class SearchResult {
     required this.score,
     required this.containsFullQuery,
     required this.matchCount,
+    this.spellingMatch = false,
   });
 }
 
@@ -58,6 +64,10 @@ class _IndexedAyah {
   // matching can tell أمة apart from أمه.
   final String exactText;
   final List<String> normalizedWords;
+  // exactText with joined spellings written separated (أينما -> اين ما,
+  // يَٰقَوْمِ -> يا قوم), or null when the ayah has none. See
+  // quran_search_spelling.dart.
+  final String? spellingExactText;
 
   const _IndexedAyah({
     required this.page,
@@ -68,6 +78,7 @@ class _IndexedAyah {
     required this.normalizedText,
     required this.exactText,
     required this.normalizedWords,
+    this.spellingExactText,
   });
 }
 
@@ -165,6 +176,11 @@ class _SearchPageState extends State<SearchPage> {
       for (final page in pages) {
         for (final ayah in page.ayahs) {
           final normalizedText = _normalizeText(ayah.text);
+          final exactText = _normalizeText(ayah.text, exact: true);
+          final spellingExactText = splitText(
+            ayah.text,
+            (word) => _normalizeText(word, exact: true),
+          );
           final truePage =
               visualPageMap['${ayah.surah}_${ayah.ayah}'] ?? page.page;
 
@@ -178,11 +194,14 @@ class _SearchPageState extends State<SearchPage> {
               // forms, so matching and highlight offsets are unaffected.
               text: quranDisplayText(ayah.text),
               normalizedText: normalizedText,
-              exactText: _normalizeText(ayah.text, exact: true),
+              exactText: exactText,
               normalizedWords: normalizedText
                   .split(' ')
                   .where((e) => e.isNotEmpty)
                   .toList(growable: false),
+              spellingExactText: spellingExactText == exactText
+                  ? null
+                  : spellingExactText,
             ),
           );
         }
@@ -222,7 +241,7 @@ class _SearchPageState extends State<SearchPage> {
   // `exact: true` keeps Ta Marbuta (ة) distinct from Ha (ه) so an exact
   // search for أمة doesn't match أمه; everything else (diacritics, script
   // artifacts the user can't type) is still normalized the same way.
-  String _normalizeText(String text, {bool exact = false}) {
+  static String _normalizeText(String text, {bool exact = false}) {
     var result = text
         // Normalize Alef Wasla
         .replaceAll('ٱ', 'ا')
@@ -384,6 +403,30 @@ class _SearchPageState extends State<SearchPage> {
   bool _containsWholeWord(String text, String query) =>
       _countWholeWord(text, query) > 0;
 
+  // Whole-phrase matches once joined and separated spellings are treated
+  // alike: the typed query and its separated spelling, against the ayah and
+  // its separated spelling. The plain query against the plain ayah is
+  // counted by the caller.
+  int _countSpellingMatches(
+    _IndexedAyah ayah,
+    String query,
+    String spellingQuery,
+  ) {
+    var best = 0;
+    void consider(String text, String q) {
+      final count = _countWholeWord(text, q);
+      if (count > best) best = count;
+    }
+
+    if (spellingQuery != query) consider(ayah.exactText, spellingQuery);
+    final spellingText = ayah.spellingExactText;
+    if (spellingText != null) {
+      consider(spellingText, query);
+      if (spellingQuery != query) consider(spellingText, spellingQuery);
+    }
+    return best;
+  }
+
   void _scheduleSearch(String rawQuery) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 180), () {
@@ -405,24 +448,33 @@ class _SearchPageState extends State<SearchPage> {
     // The strict variant keeps ة/ه distinct; it decides what counts as an
     // exact match (both for the exact-only filter and the section split).
     final exactQuery = _normalizeText(rawQuery.trim(), exact: true);
+    final spellingQuery = splitQuery(exactQuery);
     final results = <SearchResult>[];
 
     for (final ayah in _searchIndex) {
       // Restrict to the chosen surah when a specific one is selected.
       if (_selectedSurah != 0 && ayah.surah != _selectedSurah) continue;
 
-      final occurrences = _countWholeWord(ayah.exactText, exactQuery);
+      var occurrences = _countWholeWord(ayah.exactText, exactQuery);
+      var spellingMatch = false;
+      if (occurrences == 0) {
+        occurrences = _countSpellingMatches(ayah, exactQuery, spellingQuery);
+        spellingMatch = occurrences > 0;
+      }
       final matchesWholeQuery = occurrences > 0;
 
       // In exact-only mode, skip smart (fuzzy) matches before scoring.
       if (_exactOnly && !matchesWholeQuery) continue;
 
-      final score = _calculateMatchScore(
+      var score = _calculateMatchScore(
         query,
         queryWords,
         ayah.normalizedText,
         ayah.normalizedWords,
       );
+      // A whole-phrase match in another spelling ranks like one in the
+      // ayah's own spelling, whatever the fuzzy scoring made of it.
+      if (spellingMatch && score < 12000) score = 12000;
       if (score > 0) {
         results.add(
           SearchResult(
@@ -434,6 +486,7 @@ class _SearchPageState extends State<SearchPage> {
             score: score,
             containsFullQuery: matchesWholeQuery,
             matchCount: matchesWholeQuery ? occurrences : 1,
+            spellingMatch: spellingMatch,
           ),
         );
       }
@@ -641,7 +694,17 @@ class _SearchPageState extends State<SearchPage> {
     return 0;
   }
 
-  List<InlineSpan> _buildHighlightedTextSpans(String text, String query) {
+  static const TextStyle _highlightStyle = TextStyle(
+    backgroundColor: Color(0xFFF3D36A),
+    color: Color(0xFF2D2112),
+    fontWeight: FontWeight.w800,
+  );
+
+  List<InlineSpan> _buildHighlightedTextSpans(
+    String text,
+    String query, {
+    bool spellingMatch = false,
+  }) {
     // In exact-only mode highlight with the strict (ة-preserving) forms so
     // only true exact occurrences get marked.
     final normalizedQuery = _normalizeText(query.trim(), exact: _exactOnly);
@@ -652,6 +715,11 @@ class _SearchPageState extends State<SearchPage> {
     final mapping = _normalizeTextWithMap(text, exact: _exactOnly);
     if (mapping.normalizedText.isEmpty) {
       return [TextSpan(text: text)];
+    }
+
+    if (spellingMatch) {
+      final spans = _buildSpellingHighlight(text, normalizedQuery, mapping);
+      if (spans != null) return spans;
     }
 
     final spans = <InlineSpan>[];
@@ -689,17 +757,66 @@ class _SearchPageState extends State<SearchPage> {
       spans.add(
         TextSpan(
           text: text.substring(originalStart, originalEnd),
-          style: const TextStyle(
-            backgroundColor: Color(0xFFF3D36A),
-            color: Color(0xFF2D2112),
-            fontWeight: FontWeight.w800,
-          ),
+          style: _highlightStyle,
         ),
       );
       start = originalEnd;
     }
 
     return spans;
+  }
+
+  // Highlights a match that only exists in another spelling: «أين ما» in an
+  // ayah that writes أينما, «يا قوم» in يَٰقَوْمِ, «من ما» in مِمَّا. Spaces
+  // are ignored and the query is tried as typed, separated and joined.
+  // Returns null when none of them is found.
+  List<InlineSpan>? _buildSpellingHighlight(
+    String text,
+    String query,
+    _NormalizedTextMapping mapping,
+  ) {
+    final normalized = mapping.normalizedText;
+    final compact = StringBuffer();
+    final compactToNormalized = <int>[];
+    for (int i = 0; i < normalized.length; i++) {
+      if (normalized[i] == ' ') continue;
+      compact.write(normalized[i]);
+      compactToNormalized.add(i);
+    }
+    final haystack = compact.toString();
+
+    for (final candidate in {query, splitQuery(query), joinQuery(query)}) {
+      final needle = candidate.replaceAll(' ', '');
+      if (needle.isEmpty || !haystack.contains(needle)) continue;
+
+      final spans = <InlineSpan>[];
+      int start = 0;
+      int from = 0;
+      while (true) {
+        final match = haystack.indexOf(needle, from);
+        if (match == -1) break;
+        final originalStart =
+            mapping.originalIndices[compactToNormalized[match]];
+        final last = compactToNormalized[match + needle.length - 1];
+        final originalEnd = last + 1 < mapping.originalIndices.length
+            ? mapping.originalIndices[last + 1]
+            : text.length;
+        if (originalStart > start) {
+          spans.add(TextSpan(text: text.substring(start, originalStart)));
+        }
+        spans.add(
+          TextSpan(
+            text: text.substring(originalStart, originalEnd),
+            style: _highlightStyle,
+          ),
+        );
+        start = originalEnd;
+        from = match + needle.length;
+      }
+      if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+      return spans;
+    }
+    return null;
   }
 
   void _openResult(SearchResult ayah) {
@@ -934,7 +1051,11 @@ class _SearchPageState extends State<SearchPage> {
                   fontWeight: FontWeight.w500,
                   color: Colors.black,
                 ),
-                children: _buildHighlightedTextSpans(ayah.text, _query),
+                children: _buildHighlightedTextSpans(
+                  ayah.text,
+                  _query,
+                  spellingMatch: ayah.spellingMatch,
+                ),
               ),
             ),
             const SizedBox(height: 4),
@@ -1182,3 +1303,8 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 }
+
+/// The search page's text normalization, exposed for tests.
+@visibleForTesting
+String normalizeSearchText(String text, {bool exact = false}) =>
+    _SearchPageState._normalizeText(text, exact: exact);

@@ -238,6 +238,8 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
               const SizedBox(height: 8),
               const _AlertModeRow(),
               const SizedBox(height: 10),
+              const _SpeedRow(),
+              const SizedBox(height: 10),
               const _LocateAnywhereRow(),
               const SizedBox(height: 6),
             ],
@@ -249,6 +251,62 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
 }
 
 /// The two alert dropdowns («عند الخطأ», «عند التصويب») on one row.
+/// «دقة أعلى» / «استجابة أسرع» (see [TasmeeSpeedSetting]).
+class _SpeedRow extends StatefulWidget {
+  const _SpeedRow();
+
+  @override
+  State<_SpeedRow> createState() => _SpeedRowState();
+}
+
+class _SpeedRowState extends State<_SpeedRow> {
+  TasmeeSpeed _mode = TasmeeSpeed.accurate;
+
+  @override
+  void initState() {
+    super.initState();
+    TasmeeSpeedSetting.mode().then((m) {
+      if (mounted) setState(() => _mode = m);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = HifzPalette.of(context);
+    return Row(
+      children: [
+        Icon(Icons.speed_rounded, color: p.title, size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              for (final m in TasmeeSpeed.values)
+                ChoiceChip(
+                  label: Text(TasmeeSpeedSetting.label(m)),
+                  selected: _mode == m,
+                  showCheckmark: false,
+                  selectedColor: p.title,
+                  backgroundColor: p.bg,
+                  side: BorderSide(color: p.border),
+                  labelStyle: TextStyle(
+                    color: _mode == m ? p.onTitle : p.text,
+                    fontSize: 13,
+                  ),
+                  onSelected: (_) async {
+                    setState(() => _mode = m);
+                    await TasmeeSpeedSetting.set(m);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// «التسميع من أي موضع»: off unless chosen.
 class _LocateAnywhereRow extends StatefulWidget {
   const _LocateAnywhereRow();
@@ -294,7 +352,6 @@ class _LocateAnywhereRowState extends State<_LocateAnywhereRow> {
         ),
         Switch(
           value: _on,
-          activeThumbColor: p.title,
           onChanged: (v) async {
             setState(() => _on = v);
             await TasmeeLocateAnywhere.set(v);

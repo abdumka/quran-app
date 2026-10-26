@@ -467,6 +467,24 @@ class MemorizationTestService {
   Map<String, Object?> _recorderInfo = const {};
   String _installId = '';
 
+  /// «استجابة أسرع» (see [TasmeeSpeedSetting]): the judge commits without
+  /// its dwell and settles after half a second; read at every [start].
+  bool _fastJudge = false;
+
+  /// The judge's knobs for the speed setting. «استجابة أسرع» drops the
+  /// commit dwell (a word is judged as soon as the cursor has moved on)
+  /// and halves the settle wait; the recogniser export is chosen by
+  /// `AsrModelManager.fast`.
+  @visibleForTesting
+  static TrackerConfig trackerConfigFor({required bool fast}) =>
+      fast ? const TrackerConfig(commitDwell: 0, settleFrames: 12) : const TrackerConfig();
+
+  /// Wall-clock pause after the last sound before the judge settles.
+  @visibleForTesting
+  static int settleMsFor({required bool fast}) => fast ? 500 : 1000;
+
+  TrackerConfig get _trackerCfg => trackerConfigFor(fast: _fastJudge);
+
   /// Set once the first words of the session are committed: a session that
   /// starts mid-page reveals the ayahs before that point rather than
   /// leaving them masked (they are not being tested).
@@ -715,6 +733,7 @@ class MemorizationTestService {
     }
     _silent = silent;
     _engineOverride = engineOverride;
+    _fastJudge = await TasmeeSpeedSetting.mode() == TasmeeSpeed.fast;
     drillResult.value = null;
     status.value = MemorizationTestStatus.preparing;
 
@@ -832,6 +851,7 @@ class MemorizationTestService {
         // only; an ordinary session may start on any ayah of the page.
         tracker = PhonemeTracker(
           reference,
+          cfg: _trackerCfg,
           startAnywhere: startAyahIndex == null,
           startWord: startAyahIndex == null
               ? 0
@@ -943,7 +963,8 @@ class MemorizationTestService {
           'appVersion': appVersion,
           'platform': Platform.operatingSystem,
           'os': Platform.operatingSystemVersion,
-          'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1_c16.int8' : 'whisper-base-ar-quran',
+          'model': engine.emitsPhonemes ? AsrModelManager.instance.modelFile : 'whisper-base-ar-quran',
+          'speed': _fastJudge ? 'fast' : 'accurate',
           'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
           'stubReason': stubReason.value.name,
         };
@@ -955,7 +976,8 @@ class MemorizationTestService {
             'appVersion': appVersion,
             'platform': Platform.operatingSystem,
             'os': Platform.operatingSystemVersion,
-            'model': engine.emitsPhonemes ? 'zipformer_p_arabic_v3.1_c16.int8' : 'whisper-base-ar-quran',
+            'model': engine.emitsPhonemes ? AsrModelManager.instance.modelFile : 'whisper-base-ar-quran',
+            'speed': _fastJudge ? 'fast' : 'accurate',
             'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
             'stubReason': stubReason.value.name,
             'alertMode': (await TasmeeAlert.mode()).name,
@@ -1115,6 +1137,7 @@ class MemorizationTestService {
     }
 
     final manager = AsrModelManager.instance;
+    manager.fast = _fastJudge;
     if (!await manager.refresh()) {
       debugPrint('MemorizationTestService: ASR model not installed; '
           'not starting.');
@@ -1125,7 +1148,7 @@ class MemorizationTestService {
     if (await manager.hasZipformer()) {
       return ZipformerRecitationEngine(
         ZipformerModelPaths(
-          model: await manager.pathFor(AsrModelManager.zipformerModelFile),
+          model: await manager.pathFor(manager.modelFile),
           tokens: await manager.pathFor('zipformer-tokens.txt'),
         ),
       );
@@ -1672,7 +1695,7 @@ class MemorizationTestService {
       return;
     }
     final settled =
-        DateTime.now().difference(_lastPhonemeAt).inMilliseconds >= 1000;
+        DateTime.now().difference(_lastPhonemeAt).inMilliseconds >= settleMsFor(fast: _fastJudge);
     if (settled && _basmalaBuffer.isNotEmpty) {
       // A pause inside what looked like a basmala: it was not one.
       final chars = _flushBasmala();
@@ -2212,6 +2235,7 @@ class MemorizationTestService {
     if (word < 0 || word >= reference.n) return;
     final tracker = PhonemeTracker(
       reference,
+      cfg: _trackerCfg,
       startAnywhere: false,
       startWord: _soundingWordFrom(reference, word),
     )..heldWord = _holdWord >= 0 ? _holdWord : null;
@@ -2697,6 +2721,7 @@ class MemorizationTestService {
       _reference = reference;
       final tracker = PhonemeTracker(
         reference,
+        cfg: _trackerCfg,
         startAnywhere: false, // a page the session flowed into starts at its top
         startWord: _soundingWordFrom(reference, 0),
       );

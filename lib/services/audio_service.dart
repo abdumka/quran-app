@@ -105,9 +105,17 @@ class AudioService {
   /// Play now retries the ayah the halt happened on.
   bool _halted = false;
 
+  /// «آية فقط» from an ayah's options (see [playFromAyah]): the ayah to stop
+  /// after, the first of its joined group. Playback then waits at its start
+  /// instead of going on, and play recites it again. Dropped as soon as any
+  /// other ayah is played, so ⏭ / ⏮ / another page carry on as usual.
+  (int, int)? _stopAfterAyah;
+
   static const String _offlineNotice =
       'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة '
       'من الإعدادات للاستماع دون اتصال.';
+  static const String _noRecitationNotice =
+      'لا توجد تلاوة لهذه الآية عند هذا القارئ.';
   // Guards against acting twice on a single finished file — see the
   // playerStateStream listener in init() for why it arrives more than once.
   bool _didHandleCompletion = false;
@@ -815,6 +823,107 @@ class AudioService {
     }
   }
 
+  /// «تلاوة» from an ayah's options: what opening التلاوة and pressing play
+  /// does, but starting at ([surah], [ayah]). [readerPageIndex] is the page
+  /// the reader pressed on; the reader stays there when it holds the ayah.
+  ///
+  /// An ayah the reciter recites in one breath with the ones before it starts
+  /// at the first of them: its words are inside that clip, and starting on it
+  /// alone would skip on to the next clip. With [onlyThisAyah] playback stops
+  /// after that clip, so after the whole joined group.
+  Future<void> playFromAyah(
+    int surah,
+    int ayah, {
+    required bool onlyThisAyah,
+    int? readerPageIndex,
+  }) async {
+    if (_quranPages == null) await init();
+    final head = await _joinedGroupHeadOf(surah, ayah);
+    int indexOn(int pageIndex) {
+      if (pageIndex < 0 || pageIndex >= _quranPages!.length) return -1;
+      return _quranPages![pageIndex].ayahs.indexWhere(
+        (a) => a.surah == head.$1 && a.ayah == head.$2,
+      );
+    }
+
+    var pageIndex = readerPageIndex ?? -1;
+    var index = indexOn(pageIndex);
+    if (index < 0) {
+      pageIndex = pageIndexForAyah(head.$1, head.$2);
+      index = indexOn(pageIndex);
+      if (index < 0) return;
+    }
+    // Printed across the break from the reader's page onto the next one
+    // (output.json files it under the page it ends on): start it with the
+    // turn held, as when the recitation reaches it on its own.
+    final held =
+        index == 0 &&
+        readerPageIndex == pageIndex - 1 &&
+        _opensWithHeldTurn(pageIndex, _quranPages![pageIndex].ayahs.first);
+    if (pageIndex != readerPageIndex && !held) {
+      onPageChangeRequired?.call(pageIndex);
+    }
+    // Silence whatever was playing while the new ayah loads.
+    await _player.pause();
+    _stopAfterAyah = onlyThisAyah ? head : null;
+    await _startPage(pageIndex, startFromAyahIndex: index, holdTurn: held);
+  }
+
+  /// The first ayah of the clip ([surah], [ayah]) is recited in: walks back
+  /// over ayat joined to the one before (see [_isJoinedToPrevious]).
+  Future<(int, int)> _joinedGroupHeadOf(int surah, int ayah) async {
+    var at = _ayahData(surah, ayah);
+    if (at == null) return (surah, ayah);
+    await _ensureTimingsFor([at]);
+    for (var i = 0; i < 40 && at!.ayah > 1 && _isJoinedToPrevious(at); i++) {
+      final previous = _ayahData(at.surah, at.ayah - 1);
+      if (previous == null) break;
+      at = previous;
+    }
+    return (at!.surah, at.ayah);
+  }
+
+  QuranAyahData? _ayahData(int surah, int ayah) {
+    final pageIndex = pageIndexForAyah(surah, ayah);
+    if (pageIndex < 0) return null;
+    for (final a in _quranPages![pageIndex].ayahs) {
+      if (a.surah == surah && a.ayah == ayah) return a;
+    }
+    return null;
+  }
+
+  /// Ends «آية فقط»: back to the start of ([surah], [ayah]), paused, the bar
+  /// still open, and the reader on the page where the ayah starts.
+  Future<void> _parkOnAyah(int surah, int ayah) async {
+    final session = _session;
+    await _player.pause();
+    if (session != _session) return;
+    bool isIt(QuranAyahData a) => a.surah == surah && a.ayah == ayah;
+    final pageIndex = _playlistAyahs.any(isIt)
+        ? _currentPageIndex
+        : pageIndexForAyah(surah, ayah);
+    if (pageIndex < 0) return;
+    final ayahs = _quranPages![pageIndex].ayahs;
+    final index = ayahs.indexWhere(isIt);
+    final held =
+        index == 0 &&
+        pageIndex > 0 &&
+        _opensWithHeldTurn(pageIndex, ayahs.first);
+    // The page may have turned inside the clip: bring the reader back.
+    if (held ||
+        pageIndex != _currentPageIndex ||
+        _leadPageIndex != null ||
+        _heldTurnPageIndex != null) {
+      onPageChangeRequired?.call(held ? pageIndex - 1 : pageIndex);
+    }
+    await _startPage(
+      pageIndex,
+      startFromAyahIndex: index,
+      autoPlay: false,
+      holdTurn: held,
+    );
+  }
+
   Future<void> _downloadPageAyahs(List<QuranAyahData> ayahs) async {
     final reciter = ReciterService.instance.selected.value;
     if (reciter.scheme == AudioScheme.timedSurah) {
@@ -878,6 +987,9 @@ class AudioService {
     }
 
     final ayah = _playlistAyahs[_currentGlobalAyahIndex];
+    if (_stopAfterAyah != null && _stopAfterAyah != (ayah.surah, ayah.ayah)) {
+      _stopAfterAyah = null;
+    }
     currentAyah.value = ayah;
     _currentAyahClips = _getClipsForAyah(
       ayah,
@@ -1314,6 +1426,20 @@ class AudioService {
       }
       // Done repeating, move to next
       _currentRepeatIteration = 0;
+    }
+
+    // «آية فقط»: its clip (with any joined ayat in it) is done.
+    final stopAfter = _stopAfterAyah;
+    if (stopAfter != null) {
+      if (_currentAyahClips.isEmpty) {
+        // Nothing was recited (a mirror without this ayah): say so rather
+        // than wait on silence or run on into the next one.
+        _stopAfterAyah = null;
+        _haltPlayback(_noRecitationNotice);
+        return;
+      }
+      _parkOnAyah(stopAfter.$1, stopAfter.$2);
+      return;
     }
 
     // Move to next ayah
@@ -2101,7 +2227,7 @@ class AudioService {
   /// the handful that carry a page break.
   _PageTurn? _pageTurnFor(QuranAyahData ayah, List<AudioClip> clips) {
     final reciter = ReciterService.instance.selected.value;
-    final cues = pageTurnCues[reciter.id];
+    final cues = pageTurnCuesFor(reciter.id);
     if (cues != null) {
       for (final entry in cues.entries) {
         final cue = entry.value;
@@ -2136,7 +2262,7 @@ class AudioService {
   /// a clip of its own that starts on the page before — the turn to that page
   /// then waits inside it (see [_syncPageTurn]).
   bool _opensWithHeldTurn(int pageIndex, QuranAyahData first) {
-    final cues = pageTurnCues[ReciterService.instance.selected.value.id];
+    final cues = pageTurnCuesFor(ReciterService.instance.selected.value.id);
     if (cues == null) return spannedAyahHead.containsKey(pageIndex + 1);
     final cue = cues[pageIndex + 1];
     return cue != null && cue.surah == first.surah && cue.ayah == first.ayah;
@@ -2262,6 +2388,7 @@ class AudioService {
     _player.seek(Duration.zero);
     isPlaying.value = false;
     _halted = false;
+    _stopAfterAyah = null;
     currentAyah.value = null;
     currentAyahGroup.value = const [];
     isRecitationBarVisible.value = false;

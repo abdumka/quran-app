@@ -51,10 +51,14 @@ class SectionHeader extends StatelessWidget {
 class SettingsCard extends StatelessWidget {
   final Widget child;
 
-  const SettingsCard({super.key, required this.child});
+  /// False inside a [SettingsGroupCard], which already frames its tiles.
+  final bool framed;
+
+  const SettingsCard({super.key, required this.child, this.framed = true});
 
   @override
   Widget build(BuildContext context) {
+    if (!framed) return child;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       decoration: BoxDecoration(
@@ -515,8 +519,98 @@ class CompactActionTile extends StatelessWidget {
   }
 }
 
-/// A compact toggle card meant to sit two-per-row: icon, single-line title,
-/// and a switch — for simple on/off settings that don't need a subtitle.
+/// The one layout of an on/off setting: icon, title, ℹ️, switch. Every switch
+/// row in Settings is built from it, so the switches, and the ℹ️ beside them,
+/// sit in one column all the way down a group (they used to step in and out
+/// with the cards some rows had around them).
+class SettingsSwitchRow extends StatelessWidget {
+  final String title;
+
+  /// Null leaves the icon's column empty, which indents a sub-option under
+  /// the setting above it.
+  final IconData? icon;
+
+  /// Custom leading icon, used instead of [icon] when provided.
+  final Widget? iconOverride;
+
+  /// Optional second line under the title (a stepper, a hint).
+  final Widget? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final VoidCallback? onInfo;
+
+  const SettingsSwitchRow({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.icon,
+    this.iconOverride,
+    this.subtitle,
+    this.onInfo,
+  });
+
+  /// Horizontal inset of every switch row inside a group.
+  static const EdgeInsets padding = EdgeInsets.symmetric(
+    horizontal: 12,
+    vertical: 6,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget titleText = Text(
+      title,
+      textDirection: TextDirection.rtl,
+      overflow: TextOverflow.ellipsis,
+      maxLines: 2,
+      style: const TextStyle(
+        fontSize: 13.5,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF2C2C2C),
+        height: 1.3,
+      ),
+    );
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 40),
+      child: Row(
+        textDirection: TextDirection.rtl,
+        children: [
+          SizedBox(
+            width: 22,
+            child: Center(
+              child:
+                  iconOverride ??
+                  (icon == null
+                      ? null
+                      : Icon(icon, color: const Color(0xFF8B7355), size: 20)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: subtitle == null
+                ? titleText
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [titleText, subtitle!],
+                  ),
+          ),
+          if (onInfo != null) InfoHintButton(onTap: onInfo!, hitPadding: 4),
+          const SizedBox(width: 6),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A full-width on/off setting inside a settings group: [SettingsSwitchRow]
+/// with the whole row tappable. No frame of its own; the group draws the
+/// dividers.
 class CompactSwitchTile extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -539,50 +633,17 @@ class CompactSwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => onChanged(!value),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE8DCC8), width: 0.5),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
-          child: Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              iconOverride ??
-                  Icon(icon, color: const Color(0xFF8B7355), size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  textDirection: TextDirection.rtl,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 2,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF2C2C2C),
-                  ),
-                ),
-              ),
-              if (onInfo != null) ...[
-                InfoHintButton(onTap: onInfo!),
-                const SizedBox(width: 2),
-              ],
-              const SizedBox(width: 4),
-              Switch(
-                activeThumbColor: const Color(0xFF8B7355),
-                value: value,
-                onChanged: onChanged,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ],
-          ),
+    return InkWell(
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: SettingsSwitchRow.padding,
+        child: SettingsSwitchRow(
+          title: title,
+          icon: icon,
+          iconOverride: iconOverride,
+          value: value,
+          onChanged: onChanged,
+          onInfo: onInfo,
         ),
       ),
     );
@@ -638,100 +699,58 @@ class RecitationBarAutoHideTile extends StatelessWidget {
     final bool canIncrease =
         enabled && delaySeconds + stepSeconds <= maxSeconds;
 
-    // Layout: [icon] [title / "بعد − ١٥ ث +"] [ℹ] [switch]. The stepper sits
+    // Layout: [icon] [title / "بعد − 15 ث +"] [ℹ] [switch]. The stepper sits
     // under the title instead of beside it so the title never gets clipped on
     // a phone; the tile is still only two short lines tall.
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => onEnabledChanged(!enabled),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE8DCC8), width: 0.5),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
-          child: Row(
-            textDirection: TextDirection.rtl,
-            children: [
-              const Icon(Icons.timer_off_rounded, color: _gold, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'إخفاء شريط التلاوة تلقائيًا',
-                      textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF2C2C2C),
-                      ),
-                    ),
-                    Opacity(
-                      opacity: enabled ? 1 : 0.45,
-                      child: Row(
-                        textDirection: TextDirection.rtl,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text(
-                            'بعد',
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF6B6B6B),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          _stepButton(
-                            Icons.remove_rounded,
-                            canDecrease
-                                ? () =>
-                                      onDelayChanged(delaySeconds - stepSeconds)
-                                : null,
-                          ),
-                          SizedBox(
-                            width: 40,
-                            child: Text(
-                              '$delaySeconds ث',
-                              textAlign: TextAlign.center,
-                              textDirection: TextDirection.rtl,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: _gold,
-                              ),
-                            ),
-                          ),
-                          _stepButton(
-                            Icons.add_rounded,
-                            canIncrease
-                                ? () =>
-                                      onDelayChanged(delaySeconds + stepSeconds)
-                                : null,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+    return InkWell(
+      onTap: () => onEnabledChanged(!enabled),
+      child: Padding(
+        padding: SettingsSwitchRow.padding,
+        child: SettingsSwitchRow(
+          title: 'إخفاء شريط التلاوة تلقائيًا',
+          icon: Icons.timer_off_rounded,
+          value: enabled,
+          onChanged: onEnabledChanged,
+          onInfo: onInfo,
+          subtitle: Opacity(
+            opacity: enabled ? 1 : 0.45,
+            child: Row(
+              textDirection: TextDirection.rtl,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'بعد',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B6B6B)),
                 ),
-              ),
-              if (onInfo != null) ...[
-                InfoHintButton(onTap: onInfo!),
-                const SizedBox(width: 2),
+                const SizedBox(width: 4),
+                _stepButton(
+                  Icons.remove_rounded,
+                  canDecrease
+                      ? () => onDelayChanged(delaySeconds - stepSeconds)
+                      : null,
+                ),
+                SizedBox(
+                  width: 40,
+                  child: Text(
+                    '$delaySeconds ث',
+                    textAlign: TextAlign.center,
+                    textDirection: TextDirection.rtl,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: _gold,
+                    ),
+                  ),
+                ),
+                _stepButton(
+                  Icons.add_rounded,
+                  canIncrease
+                      ? () => onDelayChanged(delaySeconds + stepSeconds)
+                      : null,
+                ),
               ],
-              const SizedBox(width: 4),
-              Switch(
-                activeThumbColor: _gold,
-                value: enabled,
-                onChanged: onEnabledChanged,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1991,28 +2010,19 @@ class MarginImagesTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The margin pages ship inside the app, so this is a plain title + switch
-    // with the same tight padding as the other inline toggle settings.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      child: Row(
-        textDirection: TextDirection.rtl,
-        children: [
-          Expanded(
-            child: SettingsTileHeader(
-              title: 'عرض الهوامش (يمين ويسار الصفحة)',
-              onInfo: onInfo,
-              scaleDownToFit: true,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Switch(
-            activeThumbColor: const Color(0xFF8B7355),
-            value: state.isEnabled,
-            onChanged: onToggleEnabled,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-        ],
+    // The margin pages ship inside the app, so this is a plain switch row
+    // like the other display settings.
+    return InkWell(
+      onTap: () => onToggleEnabled(!state.isEnabled),
+      child: Padding(
+        padding: SettingsSwitchRow.padding,
+        child: SettingsSwitchRow(
+          title: 'عرض الهوامش (يمين ويسار الصفحة)',
+          icon: Icons.border_outer_rounded,
+          value: state.isEnabled,
+          onChanged: onToggleEnabled,
+          onInfo: onInfo,
+        ),
       ),
     );
   }

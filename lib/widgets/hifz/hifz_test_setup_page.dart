@@ -284,7 +284,6 @@ class _SetupPageState extends State<_SetupPage> {
                 'اختبار مفتوح',
                 Switch(
                   value: endless,
-                  activeThumbColor: p.title,
                   onChanged: (v) => _set(_config.copyWith(endless: v)),
                 ),
                 subtitle: _byThumn

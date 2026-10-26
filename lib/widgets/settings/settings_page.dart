@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/reciter.dart';
 import '../../models/tafsir_edition.dart';
 import '../../services/app_update_service.dart';
+import '../../services/content_update_service.dart';
 import '../../services/update_notification_service.dart';
 import '../update_available_dialog.dart';
 import '../whats_new_dialog.dart';
@@ -26,6 +27,8 @@ import '../../services/daily_page_service.dart';
 import '../../services/kahf_reminder_service.dart';
 import '../../services/page_zoom_service.dart';
 import '../../services/spine_shadow_service.dart';
+import '../../services/tanzilat_service.dart';
+import '../quran/tanzilat_overlay.dart';
 import '../../services/page_color_service.dart';
 import '../../services/keep_screen_awake_service.dart';
 import '../../services/margin_images_service.dart';
@@ -145,6 +148,12 @@ class _SettingsPageState extends State<SettingsPage> {
   // measures the — otherwise unmounted — tile).
   final ExpansibleController _recitationTafsirController =
       ExpansibleController();
+
+  // The three groups at the top («إعدادات العرض», «أدوات الحفظ والمراجعة»,
+  // «التذكير والورد اليومي»): opened by a coach step that points into them.
+  final ExpansibleController _displayController = ExpansibleController();
+  final ExpansibleController _hifzToolsController = ExpansibleController();
+  final ExpansibleController _remindersController = ExpansibleController();
 
   final GlobalKey _settingsOverlayKey = GlobalKey();
   final GlobalKey _browseModeCardKey = GlobalKey();
@@ -373,6 +382,21 @@ class _SettingsPageState extends State<SettingsPage> {
     // and can be measured/highlighted (expand() is a no-op if already open).
     if (step == SettingsCoachStep.backgroundPlayback) {
       _recitationTafsirController.expand();
+    }
+    // The display and hifz-tool settings live in collapsible groups too.
+    switch (step) {
+      case SettingsCoachStep.screenBrightness ||
+          SettingsCoachStep.darkMode ||
+          SettingsCoachStep.fullScreen ||
+          SettingsCoachStep.twoPage ||
+          SettingsCoachStep.marginImages ||
+          SettingsCoachStep.browseMode ||
+          SettingsCoachStep.autoScroll:
+        _displayController.expand();
+      case SettingsCoachStep.hideBar || SettingsCoachStep.hifzLens:
+        _hifzToolsController.expand();
+      default:
+        break;
     }
     final targetContext = _coachTargetKey(step).currentContext;
 
@@ -755,6 +779,375 @@ class _SettingsPageState extends State<SettingsPage> {
     _showSettingsNotice(text);
   }
 
+  static const String _tanzilatInfoText =
+      'تُلوَّن على الصفحة كلمات التنزيلات والمتشابهات. '
+      'اضغط مطوّلًا على أي آية واختر «تنزيلات ومتشابهات» لترى كل مواضعها وعددها '
+      'وبيت الدنفاسي فيها، حتى لو كان التلوين مطفأً.';
+
+  /// «إعدادات العرض»: how the page is shown. The tiles are the ones that used
+  /// to stand on their own at the top of the list, moved as they were.
+  Widget _buildDisplaySection(bool landscapeForcesScroll) {
+    return SettingsGroupCard(
+      controller: _displayController,
+      icon: Icons.chrome_reader_mode_rounded,
+      title: 'إعدادات العرض',
+      children: [
+        // A TV has no app-level brightness -- the platform call is a no-op
+        // there -- and on a D-pad the Slider swallows Up/Down, trapping focus
+        // on the first row so the rest of Settings (including the offline
+        // downloads) can never be reached. Phones are unaffected.
+        if (!TvService.instance.isTv)
+          Padding(
+            padding: SettingsSwitchRow.padding,
+            child: Container(
+              key: _brightnessKey,
+              child: Row(
+                textDirection: TextDirection.rtl,
+                children: [
+                  // Same icon column as the switch rows below.
+                  const SizedBox(
+                    width: 22,
+                    child: Icon(
+                      Icons.wb_sunny_rounded,
+                      color: Color(0xFF8B7355),
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'إضاءة الشاشة',
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2C2C2C),
+                    ),
+                  ),
+                  InfoHintButton(
+                    hitPadding: 4,
+                    onTap: () => _presentCoachManually(
+                      SettingsCoachStep.screenBrightness,
+                    ),
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3,
+                        activeTrackColor: const Color(0xFF8D6E3F),
+                        thumbColor: const Color(0xFF8D6E3F),
+                        overlayColor: const Color(
+                          0xFF8D6E3F,
+                        ).withValues(alpha: 0.1),
+                        inactiveTrackColor: const Color(
+                          0xFF8D6E3F,
+                        ).withValues(alpha: 0.1),
+                      ),
+                      child: Slider(
+                        value: _brightness,
+                        onChanged: (v) async {
+                          setState(() => _brightness = v);
+                          await ScreenBrightness()
+                              .setApplicationScreenBrightness(v);
+                        },
+                      ),
+                    ),
+                  ),
+                  // As wide as a switch, so the value sits in their column.
+                  SizedBox(
+                    width: 52,
+                    child: Text(
+                      '${(_brightness * 100).round()}%',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF8D6E3F),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Container(
+          key: _darkModeKey,
+          child: CompactSwitchTile(
+            title: 'الوضع الليلي',
+            icon: Icons.dark_mode_rounded,
+            onInfo: () => _presentCoachManually(SettingsCoachStep.darkMode),
+            value: widget.isDarkMode,
+            onChanged: widget.onToggleDarkMode,
+          ),
+        ),
+        Container(
+          key: _fullScreenKey,
+          child: CompactSwitchTile(
+            title: 'وضع ملء الشاشة',
+            icon: Icons.fullscreen_rounded,
+            onInfo: () => _presentCoachManually(SettingsCoachStep.fullScreen),
+            value: _localFullScreenMode,
+            onChanged: (value) {
+              setState(() => _localFullScreenMode = value);
+              widget.onToggleFullScreenMode(value);
+            },
+          ),
+        ),
+        Container(
+          key: _twoPageKey,
+          child: Opacity(
+            opacity: widget.showTabletLayoutSetting ? 1 : 0.5,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.showTabletLayoutSetting
+                  ? null
+                  : () => _showSettingsNotice(tabletOnlyNotice),
+              child: CompactSwitchTile(
+                title: 'عرض الصفحتين',
+                icon: Icons.auto_stories_rounded,
+                onInfo: () => _presentCoachManually(SettingsCoachStep.twoPage),
+                value: _localTabletLayoutMode,
+                onChanged: widget.showTabletLayoutSetting
+                    ? (value) {
+                        setState(() {
+                          _localTabletLayoutMode = value;
+                          if (value) {
+                            _localAutoScrollEnabled = false;
+                            _localPortraitScrollMode = false;
+                          }
+                        });
+                        widget.onToggleTabletLayoutMode(value);
+                      }
+                    : (_) {},
+              ),
+            ),
+          ),
+        ),
+        Container(
+          key: _marginImagesCardKey,
+          child: SettingsCard(
+            framed: false,
+            child: ValueListenableBuilder<MarginImagesState>(
+              valueListenable: _marginImagesService.state,
+              builder: (context, marginState, _) {
+                return MarginImagesTile(
+                  state: marginState,
+                  onToggleEnabled: _marginImagesService.setEnabled,
+                  onInfo: () => _showInfoNotice(_marginImagesInfoText),
+                );
+              },
+            ),
+          ),
+        ),
+        // "ظلّ الكعب": tells a right page from a left page in the normal view.
+        // Hidden for now: the shade is simply on (SpineShadowService.userSettable).
+        if (SpineShadowService.userSettable)
+          SettingsCard(
+            framed: false,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _spineShadowService.enabled,
+              builder: (context, enabled, _) {
+                return CompactSwitchTile(
+                  title: 'ظلّ الكعب (تمييز اليمنى واليسرى)',
+                  icon: Icons.vertical_split_rounded,
+                  onInfo: () => _showInfoNotice(_spineShadowInfoText),
+                  value: enabled,
+                  onChanged: _spineShadowService.setEnabled,
+                );
+              },
+            ),
+          ),
+        Container(
+          key: _browseModeCardKey,
+          child: CompactSwitchTile(
+            title: 'وضع التمرير',
+            icon: Icons.swap_calls_rounded,
+            onInfo: () => _presentCoachManually(SettingsCoachStep.browseMode),
+            value: landscapeForcesScroll ? true : _localPortraitScrollMode,
+            onChanged:
+                (landscapeForcesScroll ? false : _localAllowPortraitScrollMode)
+                ? (value) {
+                    setState(() {
+                      _localPortraitScrollMode = value;
+                    });
+                    widget.onTogglePortraitScrollMode(value);
+                  }
+                : (_) => _showSettingsNotice(
+                    landscapeForcesScroll
+                        ? 'في الوضع الأفقي يكون التصفح دائمًا على التمرير.'
+                        : scrollUnavailableInTabletNotice,
+                  ),
+          ),
+        ),
+        Container(
+          key: _autoScrollCardKey,
+          child: CompactSwitchTile(
+            title: autoScrollTitle,
+            icon: Icons.swap_vert_rounded,
+            onInfo: () => _presentCoachManually(SettingsCoachStep.autoScroll),
+            value: _localAutoScrollEnabled,
+            onChanged: (value) {
+              if (value &&
+                  (_localTabletLayoutMode || !_localAllowPortraitScrollMode)) {
+                _showSettingsNotice(autoScrollUnavailableNotice);
+                return;
+              }
+
+              setState(() {
+                if (value && !_localPortraitScrollMode) {
+                  _localPortraitScrollMode = true;
+                }
+                _localAutoScrollEnabled = value;
+              });
+              widget.onToggleAutoScroll(value);
+              if (value) {
+                Navigator.pop(context);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// «أدوات الحفظ والمراجعة»: the hide bar, the hifz lens and the tanzilat
+  /// colouring.
+  Widget _buildHifzToolsSection() {
+    return SettingsGroupCard(
+      controller: _hifzToolsController,
+      icon: Icons.school_rounded,
+      title: 'أدوات الحفظ والمراجعة',
+      children: [
+        // Both hifz controls are touch-only: the hide bar is dragged by its
+        // golden frame and the lens is revealed by sliding a finger over the
+        // page. Neither can be operated with a remote, and enabling one leaves
+        // a TV showing a permanently blurred page, so they are hidden there.
+        if (!TvService.instance.isTv) ...[
+          Container(
+            key: _hideBarCardKey,
+            child: CompactSwitchTile(
+              title: 'شريط الإخفاء',
+              icon: Icons.visibility_off_rounded,
+              onInfo: () => _presentCoachManually(SettingsCoachStep.hideBar),
+              value: widget.isHideBarEnabled,
+              onChanged: (value) {
+                widget.onToggleHideBar(value);
+                Navigator.pop(context);
+              },
+            ),
+          ),
+          Container(
+            key: _hifzLensKey,
+            child: CompactSwitchTile(
+              title: 'عدسة الإخفاء',
+              icon: Icons.psychology_rounded,
+              iconOverride: const HifzLensIcon(
+                size: 20,
+                color: Color(0xFF8B7355),
+              ),
+              onInfo: () => _presentCoachManually(SettingsCoachStep.hifzLens),
+              value: widget.isHifzModeEnabled,
+              onChanged: (value) {
+                widget.onToggleHifzMode(value);
+                Navigator.pop(context);
+              },
+            ),
+          ),
+        ],
+        _buildTanzilatSection(),
+      ],
+    );
+  }
+
+  /// «التذكير والورد اليومي»: «صفحة اليوم» and «سورة الكهف» (not on the web,
+  /// which has no local notifications).
+  Widget _buildRemindersSection() {
+    return SettingsGroupCard(
+      controller: _remindersController,
+      icon: Icons.notifications_active_rounded,
+      title: 'التذكير والورد اليومي',
+      children: [_buildDailyPageSection(), _buildKahfReminderSection()],
+    );
+  }
+
+  /// «تلوين التنزيلات»: the switch, and below it while it is on the
+  /// colour-per-count switch with its legend (غريبة, 2, 3, 4, 5+).
+  Widget _buildTanzilatSection() {
+    return SettingsCard(
+      framed: false,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([
+          TanzilatSetting.enabled,
+          TanzilatSetting.colorByCount,
+        ]),
+        builder: (context, _) {
+          final enabled = TanzilatSetting.enabled.value;
+          final byCount = TanzilatSetting.colorByCount.value;
+          return Padding(
+            padding: SettingsSwitchRow.padding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SettingsSwitchRow(
+                  title: 'تلوين التنزيلات والمتشابهات',
+                  icon: Icons.format_color_text_rounded,
+                  value: enabled,
+                  onChanged: TanzilatSetting.setEnabled,
+                  onInfo: () => _showInfoNotice(_tanzilatInfoText),
+                ),
+                if (enabled) ...[
+                  // No icon: indented under the switch it belongs to.
+                  SettingsSwitchRow(
+                    title: 'لون لكل عدد',
+                    value: byCount,
+                    onChanged: TanzilatSetting.setColorByCount,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      right: 32,
+                      top: 2,
+                      bottom: 4,
+                    ),
+                    child: Wrap(
+                      textDirection: TextDirection.rtl,
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        for (var i = 0; i < TanzilatColors.labels.length; i++)
+                          if (byCount || i == 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: byCount
+                                    ? TanzilatColors.light[i]
+                                    : TanzilatColors.single,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                byCount
+                                    ? TanzilatColors.labels[i]
+                                    : 'كل التنزيلات',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   String get _marginImagesInfoText =>
       'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.';
 
@@ -780,12 +1173,33 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_isCheckingForUpdate) return;
     setState(() => _isCheckingForUpdate = true);
     try {
-      final info = await _appUpdateService.fetchIfUpdateAvailable();
+      // The store release and the server-updated data (tanzilat, word
+      // colouring, reciters) are checked together; the data check never
+      // throws and installs whatever is newer on its own.
+      final content = ContentUpdateService.instance.check(manual: true);
+      AppUpdateInfo? info;
+      Object? appError;
+      try {
+        info = await _appUpdateService.fetchIfUpdateAvailable();
+      } catch (e) {
+        appError = e;
+      }
+      final data = await content;
       if (!mounted) return;
+      final dataMessage = data.message;
       if (info == null) {
-        _showSettingsNotice('أنت تستخدم أحدث إصدار من التطبيق.');
+        if (dataMessage != null) {
+          _showSettingsNotice(dataMessage);
+        } else if (appError != null || data.failed) {
+          _showSettingsNotice(
+            'تعذر التحقق من التحديثات. تحقق من اتصالك بالإنترنت.',
+          );
+        } else {
+          _showSettingsNotice('أنت تستخدم أحدث إصدار من التطبيق وبياناته.');
+        }
         return;
       }
+      if (dataMessage != null) _showSettingsNotice(dataMessage);
       await _appUpdateService.markSurfaced(info);
       if (!mounted) return;
       await UpdateAvailableDialog.show(context, info);
@@ -950,17 +1364,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _ensureLandscapeScrollMode(bool isLandscape) {
-    if (!isLandscape || _localPortraitScrollMode) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _localPortraitScrollMode) return;
-      setState(() {
-        _localPortraitScrollMode = true;
-      });
-      widget.onTogglePortraitScrollMode(true);
-    });
-  }
-
   /// The "صفحة اليوم" card. Hidden on the web, which has no local-notification
   /// scheduling to hang a daily reminder off.
   Widget _buildDailyPageSection() {
@@ -976,6 +1379,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ]),
       builder: (context, _) {
         return DailyPageTile(
+          framed: false,
           enabled: _dailyPageService.enabled.value,
           mode: _dailyPageService.mode.value,
           fixedMinutes: _dailyPageService.fixedMinutes.value,
@@ -1005,6 +1409,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ]),
       builder: (context, _) {
         return KahfReminderTile(
+          framed: false,
           enabled: _kahfReminderService.enabled.value,
           minutes: _kahfReminderService.minutes.value,
           nextReminderAt: _kahfReminderService.nextReminderAt.value,
@@ -1055,23 +1460,20 @@ class _SettingsPageState extends State<SettingsPage> {
           },
         ),
       ),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Container(
-          key: _backgroundPlaybackKey,
-          child: ValueListenableBuilder<bool>(
-            valueListenable: _backgroundPlaybackService.enabled,
-            builder: (context, enabled, _) {
-              return CompactSwitchTile(
-                title: 'تشغيل التلاوة في الخلفية',
-                icon: Icons.headset_rounded,
-                onInfo: () =>
-                    _presentCoachManually(SettingsCoachStep.backgroundPlayback),
-                value: enabled,
-                onChanged: _backgroundPlaybackService.setEnabled,
-              );
-            },
-          ),
+      Container(
+        key: _backgroundPlaybackKey,
+        child: ValueListenableBuilder<bool>(
+          valueListenable: _backgroundPlaybackService.enabled,
+          builder: (context, enabled, _) {
+            return CompactSwitchTile(
+              title: 'تشغيل التلاوة في الخلفية',
+              icon: Icons.headset_rounded,
+              onInfo: () =>
+                  _presentCoachManually(SettingsCoachStep.backgroundPlayback),
+              value: enabled,
+              onChanged: _backgroundPlaybackService.setEnabled,
+            );
+          },
         ),
       ),
       ValueListenableBuilder<TafsirEdition>(
@@ -1147,23 +1549,17 @@ class _SettingsPageState extends State<SettingsPage> {
           return ValueListenableBuilder<int>(
             valueListenable: RecitationBarAutoHideService.instance.delaySeconds,
             builder: (context, autoHideSeconds, _) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                child: RecitationBarAutoHideTile(
-                  enabled: autoHideEnabled,
-                  delaySeconds: autoHideSeconds,
-                  minSeconds: RecitationBarAutoHideService.minDelaySeconds,
-                  maxSeconds: RecitationBarAutoHideService.maxDelaySeconds,
-                  stepSeconds: RecitationBarAutoHideService.delayStepSeconds,
-                  onEnabledChanged:
-                      RecitationBarAutoHideService.instance.setEnabled,
-                  onDelayChanged:
-                      RecitationBarAutoHideService.instance.setDelaySeconds,
-                  onInfo: () => _showInfoNotice(_recitationBarAutoHideInfoText),
-                ),
+              return RecitationBarAutoHideTile(
+                enabled: autoHideEnabled,
+                delaySeconds: autoHideSeconds,
+                minSeconds: RecitationBarAutoHideService.minDelaySeconds,
+                maxSeconds: RecitationBarAutoHideService.maxDelaySeconds,
+                stepSeconds: RecitationBarAutoHideService.delayStepSeconds,
+                onEnabledChanged:
+                    RecitationBarAutoHideService.instance.setEnabled,
+                onDelayChanged:
+                    RecitationBarAutoHideService.instance.setDelaySeconds,
+                onInfo: () => _showInfoNotice(_recitationBarAutoHideInfoText),
               );
             },
           );
@@ -1176,32 +1572,26 @@ class _SettingsPageState extends State<SettingsPage> {
         ValueListenableBuilder<bool>(
           valueListenable: _keepScreenAwakeService.enabled,
           builder: (context, keepAwakeEnabled, _) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: CompactSwitchTile(
-                title: 'استخدام إعدادات الهاتف لقفل وإطفاء الشاشة',
-                icon: Icons.screen_lock_portrait_rounded,
-                onInfo: () => _showInfoNotice(_systemScreenTimeoutInfoText),
-                value: !keepAwakeEnabled,
-                onChanged: (useSystemScreenTimeout) {
-                  _keepScreenAwakeService.setEnabled(!useSystemScreenTimeout);
-                },
-              ),
+            return CompactSwitchTile(
+              title: 'استخدام إعدادات الهاتف لقفل وإطفاء الشاشة',
+              icon: Icons.screen_lock_portrait_rounded,
+              onInfo: () => _showInfoNotice(_systemScreenTimeoutInfoText),
+              value: !keepAwakeEnabled,
+              onChanged: (useSystemScreenTimeout) {
+                _keepScreenAwakeService.setEnabled(!useSystemScreenTimeout);
+              },
             );
           },
         ),
       ValueListenableBuilder<bool>(
         valueListenable: _pageZoomService.enabled,
         builder: (context, zoomEnabled, _) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: CompactSwitchTile(
-              title: 'تكبير الصفحة بتقريب الأصابع',
-              icon: Icons.zoom_in_rounded,
-              onInfo: () => _showInfoNotice(_pageZoomInfoText),
-              value: zoomEnabled,
-              onChanged: _pageZoomService.setEnabled,
-            ),
+          return CompactSwitchTile(
+            title: 'تكبير الصفحة بتقريب الأصابع',
+            icon: Icons.zoom_in_rounded,
+            onInfo: () => _showInfoNotice(_pageZoomInfoText),
+            value: zoomEnabled,
+            onChanged: _pageZoomService.setEnabled,
           );
         },
       ),
@@ -1249,15 +1639,12 @@ class _SettingsPageState extends State<SettingsPage> {
       ValueListenableBuilder<UpdateNotifyMode>(
         valueListenable: _appUpdateService.notifyMode,
         builder: (context, mode, _) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: CompactSwitchTile(
-              title: 'إشعار عند توفر تحديث',
-              icon: Icons.notifications_active_rounded,
-              onInfo: () => _showInfoNotice(_updateNotifyInfoText),
-              value: mode == UpdateNotifyMode.notification,
-              onChanged: _handleToggleUpdateNotifications,
-            ),
+          return CompactSwitchTile(
+            title: 'إشعار عند توفر تحديث',
+            icon: Icons.notifications_active_rounded,
+            onInfo: () => _showInfoNotice(_updateNotifyInfoText),
+            value: mode == UpdateNotifyMode.notification,
+            onChanged: _handleToggleUpdateNotifications,
           );
         },
       ),
@@ -1314,11 +1701,13 @@ class _SettingsPageState extends State<SettingsPage> {
     final isTablet = ResponsiveHelper.isTablet(context);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
-    // On a phone, landscape means "held sideways" so we lock into scroll mode.
-    // On the web the window is just wide, so don't force/lock scroll there —
-    // the user can freely switch between paged and scroll mode.
+    // On a phone, landscape means "held sideways": the reader scrolls there
+    // whatever the setting, so the switch shows on and is locked. Only shown,
+    // never saved: turning the phone upright again restores the reader's own
+    // choice (saving it here switched scroll mode on for good the moment the
+    // settings were opened sideways). On the web the window is just wide, so
+    // scroll mode is not forced there.
     final landscapeForcesScroll = isLandscape && !kIsWeb;
-    _ensureLandscapeScrollMode(landscapeForcesScroll);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F1E5),
@@ -1359,378 +1748,13 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     children: [
                       const SizedBox(height: 4),
-                      SettingsCard(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 5,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // A TV has no app-level brightness -- the
-                              // platform call is a no-op there -- and on a
-                              // D-pad the Slider swallows Up/Down, trapping
-                              // focus on the first row so the rest of Settings
-                              // (including the offline downloads) can never be
-                              // reached. Phones are unaffected.
-                              if (!TvService.instance.isTv) ...[
-                                // Screen brightness on a single compact line:
-                                // label, slider and percentage side by side.
-                                Container(
-                                  key: _brightnessKey,
-                                  child: Row(
-                                    textDirection: TextDirection.rtl,
-                                    children: [
-                                      const Icon(
-                                        Icons.wb_sunny_rounded,
-                                        color: Color(0xFF8B7355),
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'إضاءة الشاشة',
-                                        textDirection: TextDirection.rtl,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF2C2C2C),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 2),
-                                      InfoHintButton(
-                                        onTap: () => _presentCoachManually(
-                                          SettingsCoachStep.screenBrightness,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: SliderTheme(
-                                          data: SliderTheme.of(context)
-                                              .copyWith(
-                                                trackHeight: 3,
-                                                activeTrackColor: const Color(
-                                                  0xFF8D6E3F,
-                                                ),
-                                                thumbColor: const Color(
-                                                  0xFF8D6E3F,
-                                                ),
-                                                overlayColor: const Color(
-                                                  0xFF8D6E3F,
-                                                ).withValues(alpha: 0.1),
-                                                inactiveTrackColor: const Color(
-                                                  0xFF8D6E3F,
-                                                ).withValues(alpha: 0.1),
-                                              ),
-                                          child: Slider(
-                                            value: _brightness,
-                                            onChanged: (v) async {
-                                              setState(() => _brightness = v);
-                                              await ScreenBrightness()
-                                                  .setApplicationScreenBrightness(
-                                                    v,
-                                                  );
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: 38,
-                                        child: Text(
-                                          '${(_brightness * 100).round()}%',
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF8D6E3F),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const Divider(height: 12),
-                              ],
-                              Container(
-                                key: _darkModeKey,
-                                child: Row(
-                                  textDirection: TextDirection.rtl,
-                                  children: [
-                                    const Icon(
-                                      Icons.dark_mode_rounded,
-                                      color: Color(0xFF8B7355),
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'الوضع الليلي',
-                                      textDirection: TextDirection.rtl,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF2C2C2C),
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    InfoHintButton(
-                                      onTap: () => _presentCoachManually(
-                                        SettingsCoachStep.darkMode,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Switch(
-                                      value: widget.isDarkMode,
-                                      onChanged: widget.onToggleDarkMode,
-                                      activeThumbColor: const Color(0xFF8D6E3F),
-                                      materialTapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      _buildDisplaySection(landscapeForcesScroll),
                       const SizedBox(height: 6),
-                      // Every setting on its own full-width line; no sections.
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Both hifz controls are touch-only: the hide bar
-                            // is dragged by its golden frame and the lens is
-                            // revealed by sliding a finger over the page.
-                            // Neither can be operated with a remote, and
-                            // enabling one leaves a TV showing a permanently
-                            // blurred page, so they are hidden there.
-                            if (!TvService.instance.isTv) ...[
-                              Container(
-                                key: _hideBarCardKey,
-                                child: CompactSwitchTile(
-                                  title: 'شريط الإخفاء',
-                                  icon: Icons.visibility_off_rounded,
-                                  onInfo: () => _presentCoachManually(
-                                    SettingsCoachStep.hideBar,
-                                  ),
-                                  value: widget.isHideBarEnabled,
-                                  onChanged: (value) {
-                                    widget.onToggleHideBar(value);
-                                    Navigator.pop(context);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Container(
-                                key: _hifzLensKey,
-                                child: CompactSwitchTile(
-                                  title: 'عدسة الإخفاء',
-                                  icon: Icons.psychology_rounded,
-                                  iconOverride: const HifzLensIcon(
-                                    size: 20,
-                                    color: Color(0xFF8B7355),
-                                  ),
-                                  onInfo: () => _presentCoachManually(
-                                    SettingsCoachStep.hifzLens,
-                                  ),
-                                  value: widget.isHifzModeEnabled,
-                                  onChanged: (value) {
-                                    widget.onToggleHifzMode(value);
-                                    Navigator.pop(context);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                            ],
-                            Container(
-                              key: _browseModeCardKey,
-                              child: CompactSwitchTile(
-                                title: 'وضع التمرير',
-                                icon: Icons.swap_calls_rounded,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.browseMode,
-                                ),
-                                value: landscapeForcesScroll
-                                    ? true
-                                    : _localPortraitScrollMode,
-                                onChanged:
-                                    (landscapeForcesScroll
-                                        ? false
-                                        : _localAllowPortraitScrollMode)
-                                    ? (value) {
-                                        setState(() {
-                                          _localPortraitScrollMode = value;
-                                        });
-                                        widget.onTogglePortraitScrollMode(
-                                          value,
-                                        );
-                                      }
-                                    : (_) => _showSettingsNotice(
-                                        landscapeForcesScroll
-                                            ? 'في الوضع الأفقي يكون التصفح دائمًا على التمرير.'
-                                            : scrollUnavailableInTabletNotice,
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              key: _autoScrollCardKey,
-                              child: CompactSwitchTile(
-                                title: autoScrollTitle,
-                                icon: Icons.swap_vert_rounded,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.autoScroll,
-                                ),
-                                value: _localAutoScrollEnabled,
-                                onChanged: (value) {
-                                  if (value &&
-                                      (_localTabletLayoutMode ||
-                                          !_localAllowPortraitScrollMode)) {
-                                    _showSettingsNotice(
-                                      autoScrollUnavailableNotice,
-                                    );
-                                    return;
-                                  }
-
-                                  setState(() {
-                                    if (value && !_localPortraitScrollMode) {
-                                      _localPortraitScrollMode = true;
-                                    }
-                                    _localAutoScrollEnabled = value;
-                                  });
-                                  widget.onToggleAutoScroll(value);
-                                  if (value) {
-                                    Navigator.pop(context);
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              key: _fullScreenKey,
-                              child: CompactSwitchTile(
-                                title: 'وضع ملء الشاشة',
-                                icon: Icons.fullscreen_rounded,
-                                onInfo: () => _presentCoachManually(
-                                  SettingsCoachStep.fullScreen,
-                                ),
-                                value: _localFullScreenMode,
-                                onChanged: (value) {
-                                  setState(() => _localFullScreenMode = value);
-                                  widget.onToggleFullScreenMode(value);
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              key: _twoPageKey,
-                              child: Opacity(
-                                opacity: widget.showTabletLayoutSetting
-                                    ? 1
-                                    : 0.5,
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: widget.showTabletLayoutSetting
-                                      ? null
-                                      : () => _showSettingsNotice(
-                                          tabletOnlyNotice,
-                                        ),
-                                  child: CompactSwitchTile(
-                                    title: 'عرض الصفحتين',
-                                    icon: Icons.auto_stories_rounded,
-                                    onInfo: () => _presentCoachManually(
-                                      SettingsCoachStep.twoPage,
-                                    ),
-                                    value: _localTabletLayoutMode,
-                                    onChanged: widget.showTabletLayoutSetting
-                                        ? (value) {
-                                            setState(() {
-                                              _localTabletLayoutMode = value;
-                                              if (value) {
-                                                _localAutoScrollEnabled = false;
-                                                _localPortraitScrollMode =
-                                                    false;
-                                              }
-                                            });
-                                            widget.onToggleTabletLayoutMode(
-                                              value,
-                                            );
-                                          }
-                                        : (_) {},
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      // Margin images (هوامش) ship inside the app; this is a
-                      // plain title + switch.
-                      Container(
-                        key: _marginImagesCardKey,
-                        child: SettingsCard(
-                          child: ValueListenableBuilder<MarginImagesState>(
-                            valueListenable: _marginImagesService.state,
-                            builder: (context, marginState, _) {
-                              return MarginImagesTile(
-                                state: marginState,
-                                onToggleEnabled:
-                                    _marginImagesService.setEnabled,
-                                onInfo: () =>
-                                    _showInfoNotice(_marginImagesInfoText),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      // "ظلّ الكعب": tells a right page from a left page in
-                      // the normal view. Same title + switch shape as the
-                      // margin tile above it. Hidden for now: the shade is
-                      // simply on (SpineShadowService.userSettable).
-                      if (SpineShadowService.userSettable)
+                      _buildHifzToolsSection(),
+                      if (!kIsWeb) ...[
                         const SizedBox(height: 6),
-                      if (SpineShadowService.userSettable)
-                        SettingsCard(
-                          child: ValueListenableBuilder<bool>(
-                            valueListenable: _spineShadowService.enabled,
-                            builder: (context, enabled, _) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 5,
-                                ),
-                                child: Row(
-                                  textDirection: TextDirection.rtl,
-                                  children: [
-                                    Expanded(
-                                      child: SettingsTileHeader(
-                                        title:
-                                            'ظلّ الكعب (تمييز اليمنى واليسرى)',
-                                        onInfo: () => _showInfoNotice(
-                                          _spineShadowInfoText,
-                                        ),
-                                        scaleDownToFit: true,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Switch(
-                                      activeThumbColor: const Color(0xFF8B7355),
-                                      value: enabled,
-                                      onChanged: _spineShadowService.setEnabled,
-                                      materialTapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      const SizedBox(height: 6),
-                      _buildDailyPageSection(),
-                      const SizedBox(height: 6),
-                      _buildKahfReminderSection(),
+                        _buildRemindersSection(),
+                      ],
                       const SizedBox(height: 6),
                       _buildRecitationTafsirSection(),
                       const SizedBox(height: 6),

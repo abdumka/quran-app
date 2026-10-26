@@ -112,13 +112,25 @@ class WordRegionPageData {
   final Color? paper;
   final Color? marginPaper;
 
+  /// The opening words of an ayah that is printed across the break onto the
+  /// next page (`cont` in the asset): its word list is full length, with
+  /// boxes only for the words on this page. Kept out of [ayahs], which holds
+  /// one entry per ayah for the Tasmee code; only the tanzilat colouring
+  /// reads it.
+  final WordRegionAyah? continued;
+
   const WordRegionPageData({
     required this.page,
     required this.ayahs,
     this.marginRect,
     this.paper,
     this.marginPaper,
+    this.continued,
   });
+
+  /// [ayahs] plus [continued]: every ayah with word boxes on this page.
+  List<WordRegionAyah> get allAyahs =>
+      continued == null ? ayahs : [...ayahs, continued!];
 
   static Color? _color(Object? rgb) {
     if (rgb is! List || rgb.length != 3) return null;
@@ -155,6 +167,13 @@ class WordRegionPageData {
             ),
       paper: _color(json['paper']),
       marginPaper: _color(json['hwPaper']),
+      continued: json['cont'] is Map<String, dynamic>
+          ? WordRegionAyah.fromJson(
+              json['cont'] as Map<String, dynamic>,
+              pageWidth: imageWidth,
+              pageHeight: imageHeight,
+            )
+          : null,
     );
   }
 }

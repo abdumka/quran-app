@@ -517,10 +517,120 @@ class Reciter {
   /// this is the default, not the first entry.
   static const Reciter fallback = naihiQaloun;
 
+  /// Reciters that reached this phone through a server update (see
+  /// `ContentUpdateService` and `ReciterService.applyRemote`), and the
+  /// bundled ones as that update adjusted them. Replaced wholesale, never
+  /// edited in place.
+  static List<Reciter> remote = const [];
+  static Map<String, Reciter> _overridden = const {};
+
+  /// What the picker shows: [all] (with any server override, e.g. a newer
+  /// timings revision) followed by the server-added reciters.
+  static List<Reciter> get offered => [
+    for (final r in all) _overridden[r.id] ?? r,
+    ...remote,
+  ];
+
   static Reciter byId(String? id) {
-    return all.firstWhere(
-      (r) => r.id == id,
-      orElse: () => fallback,
+    return offered.firstWhere((r) => r.id == id, orElse: () => fallback);
+  }
+
+  /// Installs a parsed `reciters_v<N>.json` (see [fromJson]). Server-added
+  /// reciters whose id a later build bundles are skipped: the bundled
+  /// definition wins, so an app update never shows one twice.
+  static void installRemote(Map<String, dynamic> json) {
+    final bundledIds = {for (final r in all) r.id};
+    final added = <Reciter>[];
+    for (final item in (json['reciters'] as List<dynamic>? ?? const [])) {
+      if (item is! Map<String, dynamic>) continue;
+      final r = Reciter.fromJson(item);
+      if (r == null || bundledIds.contains(r.id)) continue;
+      if (added.any((x) => x.id == r.id)) continue;
+      added.add(r);
+    }
+    final overrides = <String, Reciter>{};
+    final raw = json['overrides'];
+    if (raw is Map<String, dynamic>) {
+      for (final r in all) {
+        final o = raw[r.id];
+        if (o is! Map<String, dynamic>) continue;
+        final rev = o['timingsRevision'];
+        if (rev is int && rev > r.timingsRevision) {
+          overrides[r.id] = r.copyWith(timingsRevision: rev);
+        }
+      }
+    }
+    remote = List.unmodifiable(added);
+    _overridden = Map.unmodifiable(overrides);
+  }
+
+  Reciter copyWith({int? timingsRevision}) => Reciter(
+    id: id,
+    name: name,
+    shortName: shortName,
+    riwaya: riwaya,
+    audioBaseUrl: audioBaseUrl,
+    cacheFolder: cacheFolder,
+    scheme: scheme,
+    coveredAyat: coveredAyat,
+    breathCombining: breathCombining,
+    continuationsAsset: continuationsAsset,
+    missingAyat: missingAyat,
+    timingsBaseUrlOverride: timingsBaseUrlOverride,
+    timingsRevision: timingsRevision ?? this.timingsRevision,
+  );
+
+  static final RegExp _idRe = RegExp(r'^[a-z][a-z0-9_]{1,39}$');
+
+  /// A server-added reciter. Only the [AudioScheme.timedSurah] scheme is
+  /// accepted: its timing files carry everything the other schemes keep in
+  /// Dart tables, so nothing else has to ship with the app. The audio and the
+  /// timings must be on our own hosts. Returns null for anything else, so a
+  /// bad entry is dropped rather than offered.
+  ///
+  ///     {"id": "x_qaloun", "name": "…", "shortName": "…",
+  ///      "riwaya": "رواية قالون",
+  ///      "audioBaseUrl": "https://audio.mushaf-qaloon.com/x/",
+  ///      "timingsBaseUrl": "https://quran-content.mushaf-qaloon.com/timings/x/",
+  ///      "cacheFolder": "audio_cache_x", "timingsRevision": 1}
+  static Reciter? fromJson(Map<String, dynamic> j) {
+    final id = j['id'];
+    final name = j['name'];
+    final audio = j['audioBaseUrl'];
+    final timings = j['timingsBaseUrl'];
+    if (id is! String || !_idRe.hasMatch(id)) return null;
+    if (name is! String || name.trim().isEmpty) return null;
+    if (j['scheme'] != 'timedSurah') return null;
+    if (!_ourUrl(audio) || !_ourUrl(timings)) return null;
+    final cache = j['cacheFolder'];
+    final cacheFolder = cache is String && _idRe.hasMatch(cache)
+        ? cache
+        : 'audio_cache_$id';
+    final rev = j['timingsRevision'];
+    final shortName = j['shortName'];
+    final riwaya = j['riwaya'];
+    return Reciter(
+      id: id,
+      name: name.trim(),
+      shortName: shortName is String && shortName.trim().isNotEmpty
+          ? shortName.trim()
+          : null,
+      riwaya: riwaya is String && riwaya.trim().isNotEmpty
+          ? riwaya.trim()
+          : 'رواية قالون',
+      audioBaseUrl: audio as String,
+      cacheFolder: cacheFolder,
+      scheme: AudioScheme.timedSurah,
+      timingsBaseUrlOverride: timings as String,
+      timingsRevision: rev is int && rev > 0 ? rev : 1,
     );
+  }
+
+  static bool _ourUrl(Object? v) {
+    if (v is! String || !v.endsWith('/')) return false;
+    final u = Uri.tryParse(v);
+    return u != null &&
+        u.scheme == 'https' &&
+        (u.host == 'mushaf-qaloon.com' || u.host.endsWith('.mushaf-qaloon.com'));
   }
 }

@@ -87,6 +87,13 @@ session does not start and a snackbar says why (`StubReason` kept its name).
   when heard exactly and complete and no lexicon word begins with it (`lexicon.extendsEntry(exp)`
   false; 60.7 % of words). Replay of 256 sessions: commit lag median 0.64 → 0.52 s, p90 1.26 →
   1.04 s, final verdicts identical, flips +2. Test: `phoneme_tracker_cursor_commit_test.dart`.
+- **«دقة أعلى» / «استجابة أسرع» (2026-10-23, setting in إعدادات التسميع, `TasmeeSpeedSetting`, pref
+  `tasmee_speed`, default accurate):** fast = the chunk-8 export (`AsrModelManager.fast` → `zipformer_p_arabic_v3.1_c8.int8.onnx`,
+  on R2 `asr/`, same 72,705,392 bytes, downloaded by the usual prompt at the next start) + `TrackerConfig(commitDwell: 0,
+  settleFrames: 12)` + a 500 ms wall-clock settle (`settleMsFor`). Measured on 256 owner sessions (`research_2026-10-05/
+  run_speed_study.sh`, `sp_*`): commit lag median 0.50 → 0.38 s, p90 1.06 → 0.78 s; stops +15 % (≈ +1 false stop per 100
+  words), skipped +10 %. The judge alone (dwell 0) only trims the tail (p90 −21 %). Harness mirror: env `TASMEE_DWELL`,
+  `TASMEE_SETTLE`. Logged as `speed` in the session header.
 - Where the session starts is the only free choice (any ayah of the page); no forward jumps.
 - **Mistake**: hold at the word (pink, alert). Released by a correct re-read (`ok`, or
   distance ≤ 0.3), a help button, or 12 correct words further on. **Nothing after a word with a
@@ -373,6 +380,7 @@ margin placement of pages 1, 69, 289 was refitted on the text block (`tools/refi
 | 09-23 | Basmala filter; extra-word notice; repeat-ayah page-back; readable reports; upload hint | «الٓمٓصٓ» flagged after a basmala; «قد وجدنا» passed; reports showed «مءهلكنامن» |
 | 09-24 | إسرائيل data fix; no riwaya names in UI; two alert kinds; floating bar; first-use guide; what's-new list; draft update.json | — |
 | 10-06 | Chunk-16 re-export of the model; early commit in the judge (tag `pre-tasmee-fast-2026-10-06`) | Reveal lag median 1.09 s (0.44 chunk wait + 0.1 compute + 0.48 dwell) → see `research_2026-10-05/RESULTS.txt` |
+| 10-23 | «دقة أعلى» / «استجابة أسرع» setting (chunk-8 export + dwell 0 + settle 0.5 s) | Reveal lag at the fast level: median −0.12 s, p90 −0.28 s; +1 false stop per 100 words (replay of 256 sessions) |
 
 Recovery tags: `pre-tasmee-cleanup-2026-09-20`, `pre-tasmee-round8-2026-09-21`,
 `pre-masks-highlight-2026-09-21`, `pre-group-highlight-2026-09-21`.

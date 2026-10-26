@@ -59,14 +59,34 @@ class AsrModelManager {
   /// the model waits 0.1 s less for every sound, at no measured cost on the
   /// sheikh audits (`tasmee_work/research_2026-10-05/RESULTS.txt`).
   /// Exported by `tasmee_work/research_2026-10-05/export_chunks.py`.
-  static const Map<String, int> zipformerFiles = {
-    zipformerModelFile: 72705392,
-    'zipformer-tokens.txt': 2346,
-  };
+  Map<String, int> get zipformerFiles => {
+        modelFile: 72705392,
+        zipformerTokensFile: 2346,
+      };
 
-  /// File name of the recognizer the session loads.
+  /// The recognizer of «دقة أعلى» (16-frame chunks).
   static const String zipformerModelFile =
       'zipformer_p_arabic_v3.1_c16.int8.onnx';
+
+  /// The recognizer of «استجابة أسرع»: the same checkpoint exported with
+  /// 8-frame chunks (0.16 s of audio per step); same size.
+  static const String zipformerFastModelFile =
+      'zipformer_p_arabic_v3.1_c8.int8.onnx';
+
+  static const String zipformerTokensFile = 'zipformer-tokens.txt';
+
+  /// Which recognizer the session loads (from `TasmeeSpeedSetting`, set
+  /// before [refresh] or [download]). The other export, if downloaded, is
+  /// kept so the setting can be switched back without a download.
+  bool fast = false;
+
+  /// File name of the recognizer the session loads.
+  String get modelFile => fast ? zipformerFastModelFile : zipformerModelFile;
+
+  static bool _isZipformerFile(String name) =>
+      name == zipformerModelFile ||
+      name == zipformerFastModelFile ||
+      name == zipformerTokensFile;
 
   /// Earlier recognizer exports that a previous build downloaded; removed
   /// from the download directory once the current set is complete.
@@ -118,7 +138,7 @@ class AsrModelManager {
   }
 
   Future<String> pathFor(String fileName) async {
-    final set = zipformerFiles.containsKey(fileName) ? zipformerFiles : _files;
+    final set = _isZipformerFile(fileName) ? zipformerFiles : _files;
     final dir = await effectiveModelDirectory(set);
     return '${dir.path}${Platform.pathSeparator}$fileName';
   }

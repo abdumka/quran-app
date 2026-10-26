@@ -163,3 +163,13 @@ const Map<String, Map<int, PageTurnCue>> pageTurnCues = {
     356: PageTurnCue(24, 42, '024.mp3', 1124970),
   },
 };
+
+/// Cues of reciters added by a server update (see `ContentUpdateService`):
+/// reciter id -> page -> cue, read from `reciters_v<N>.json`.
+Map<String, Map<int, PageTurnCue>> remotePageTurnCues = {};
+
+/// The page-turn cues of [reciterId]: the measured ones compiled above, else
+/// the ones a server-added reciter came with, else null (the audio layer then
+/// estimates the turn).
+Map<int, PageTurnCue>? pageTurnCuesFor(String reciterId) =>
+    pageTurnCues[reciterId] ?? remotePageTurnCues[reciterId];

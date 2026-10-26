@@ -59,6 +59,9 @@ class DailyPageTile extends StatelessWidget {
   final void Function(int start, int end) onWindowChanged;
   final VoidCallback? onInfo;
 
+  /// False inside a settings group, which already frames it.
+  final bool framed;
+
   const DailyPageTile({
     super.key,
     required this.enabled,
@@ -72,40 +75,30 @@ class DailyPageTile extends StatelessWidget {
     required this.onFixedMinutesChanged,
     required this.onWindowChanged,
     this.onInfo,
+    this.framed = true,
   });
 
   @override
   Widget build(BuildContext context) {
     return SettingsCard(
+      framed: framed,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              textDirection: TextDirection.rtl,
-              children: [
-                // Not auto_stories_rounded: "عرض الصفحتين" already uses it two
-                // tiles up, and two identical icons in one list read as the
-                // same kind of setting.
-                const Icon(Icons.today_rounded, color: _gold, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: SettingsTileHeader(
-                    title: 'صفحة اليوم',
-                    onInfo: onInfo,
-                  ),
-                ),
-                Switch(
-                  activeThumbColor: _gold,
-                  value: enabled,
-                  onChanged: onToggle,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ],
+            // Not auto_stories_rounded: "عرض الصفحتين" already uses it two
+            // tiles up, and two identical icons in one list read as the
+            // same kind of setting.
+            SettingsSwitchRow(
+              title: 'صفحة اليوم',
+              icon: Icons.today_rounded,
+              value: enabled,
+              onChanged: onToggle,
+              onInfo: onInfo,
             ),
             const Padding(
-              padding: EdgeInsets.only(top: 2, bottom: 2),
+              padding: EdgeInsets.only(right: 32, top: 2, bottom: 2),
               child: Text(
                 'تذكير يومي بقراءة صفحة واحدة على الأقل، مع صفحة عشوائية تُفتح بالضغط على الإشعار.',
                 textDirection: TextDirection.rtl,

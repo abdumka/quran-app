@@ -392,6 +392,10 @@ void main() {
       expect(find.text('عند التصويب'), findsOneWidget);
       // Both default to tone and vibration.
       expect(find.text('اهتزاز وصوت'), findsNWidgets(2));
+      // The speed choice, «دقة أعلى» chosen unless changed.
+      expect(find.text('دقة أعلى'), findsOneWidget);
+      expect(find.text('استجابة أسرع'), findsOneWidget);
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'دقة أعلى')).selected, isTrue);
     });
   });
 

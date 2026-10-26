@@ -239,6 +239,43 @@ class TasmeeLocateAnywhere {
   }
 }
 
+/// «دقة أعلى» (the default) or «استجابة أسرع»: the faster recogniser export
+/// (8-frame chunks instead of 16) and a judge that commits without waiting.
+/// Measured 2026-10-23 on 256 owner sessions: words show about 0.1 s sooner
+/// at the median and 0.3 s sooner at the 90th percentile, for about one
+/// more false stop per 100 words (`research_2026-10-05/RESULTS.txt`).
+enum TasmeeSpeed { accurate, fast }
+
+class TasmeeSpeedSetting {
+  static const String _pref = 'tasmee_speed';
+  static TasmeeSpeed? _value;
+
+  static String label(TasmeeSpeed m) =>
+      m == TasmeeSpeed.fast ? 'استجابة أسرع' : 'دقة أعلى';
+
+  static Future<TasmeeSpeed> mode() async {
+    final v = _value;
+    if (v != null) return v;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final i = prefs.getInt(_pref);
+      return _value = i != null && i >= 0 && i < TasmeeSpeed.values.length
+          ? TasmeeSpeed.values[i]
+          : TasmeeSpeed.accurate;
+    } catch (_) {
+      return _value = TasmeeSpeed.accurate;
+    }
+  }
+
+  static Future<void> set(TasmeeSpeed m) async {
+    _value = m;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_pref, m.index);
+    } catch (_) {}
+  }
+}
+
 /// How the app signals a mistake during Tasmee.
 enum TasmeeAlertMode { vibrateAndSound, vibrate, sound, none }
 

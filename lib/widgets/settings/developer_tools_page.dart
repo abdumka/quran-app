@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/app_update_service.dart';
+import '../../services/content_update_service.dart';
 import '../../services/notification_center.dart';
 import '../../services/push_notification_service.dart';
+import '../../services/tanzilat_service.dart';
 
 const Color _gold = Color(0xFF8B7355);
 const Color _border = Color(0xFFE8DCC8);
@@ -158,7 +160,6 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                   valueListenable: _push.testTopicEnabled,
                   builder: (context, enabled, _) {
                     return SwitchListTile(
-                      activeThumbColor: _gold,
                       value: enabled,
                       onChanged: _busy ? null : _setTestTopic,
                       title: const Text(
@@ -192,6 +193,70 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                       ),
                     ),
                   ),
+                ),
+              ],
+            ),
+            _Section(
+              title: 'التنزيلات',
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: TanzilatSetting.doubleTapOpensTanzilat,
+                  builder: (context, enabled, _) {
+                    return SwitchListTile(
+                      value: enabled,
+                      onChanged: TanzilatSetting.setDoubleTapOpensTanzilat,
+                      title: const Text(
+                        'النقر المزدوج يفتح التنزيلات مباشرة',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'انقر نقرتين على آية لتظهر «تنزيلات ومتشابهات» فورًا. الضغط المطوّل يبقى للقائمة المعتادة (علامة، تفسير، تنزيلات). الآية التي لا تنزيلة فيها تفتح القائمة المعتادة.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF888888),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            // Which server-updated data this phone runs on (see
+            // ContentUpdateService): the bundled version, or the downloaded
+            // one when it is newer. «التحقق من وجود تحديث» in the settings
+            // fetches anything newer.
+            _Section(
+              title: 'بيانات الخادم',
+              children: [
+                ValueListenableBuilder<int>(
+                  valueListenable: ContentUpdateService.instance.revision,
+                  builder: (context, _, _) {
+                    final s = ContentUpdateService.instance;
+                    String line(String item, String label) {
+                      final v = s.versionOf(item);
+                      final bundled =
+                          ContentUpdateService.bundledVersions[item];
+                      final from = v == bundled ? 'مع التطبيق' : 'من الخادم';
+                      return '$label: الإصدار $v ($from)';
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: Text(
+                        [
+                          line('tanzilat', 'التنزيلات'),
+                          line('word_masks', 'تصحيحات تلوين الكلمات'),
+                          line('reciters', 'القرّاء'),
+                          if (s.pendingRestart.isNotEmpty)
+                            'نُزِّل تحديث يظهر عند فتح التطبيق من جديد.',
+                        ].join('\n'),
+                        style: const TextStyle(fontSize: 12, height: 1.6),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

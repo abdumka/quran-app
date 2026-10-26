@@ -11,6 +11,7 @@ import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/page_image_crop.dart';
 import 'widgets/quran/playing_ayah_highlight.dart';
+import 'widgets/quran/tanzilat_overlay.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
 import 'widgets/quran/spine_shadow.dart';
 
@@ -31,6 +32,7 @@ class ContinuousQuranView extends StatefulWidget {
     required this.onMoveBookmarkEnd,
     required this.onAutoScrollInterrupted,
     this.onTap,
+    this.onDoubleTapPage,
     this.hifzModeEnabled = false,
     this.memorizationTestPageIndex = -1,
     this.filterQuality = FilterQuality.low,
@@ -61,6 +63,11 @@ class ContinuousQuranView extends StatefulWidget {
   final Future<void> Function() onMoveBookmarkEnd;
   final VoidCallback onAutoScrollInterrupted;
   final VoidCallback? onTap;
+
+  /// A double tap on a page, in the same coordinates as [onSaveBookmark]:
+  /// the reader opens that ayah's options.
+  final Function(int page, double x, double y, double width, double height)?
+      onDoubleTapPage;
   final bool hifzModeEnabled;
 
   /// 0-based index of the page whose ayahs the memorization test is
@@ -103,6 +110,7 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   // cancel the animation on the very next tick.
   bool _isCatchingUpToRecitation = false;
   Timer? _pendingLongPressTimer;
+  Offset? _lastDoubleTapPosition;
   Offset? _pendingLongPressStart;
   int? _pendingLongPressPage;
   double? _pendingLongPressWidth;
@@ -610,6 +618,28 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: widget.onTap,
+              // Not in Hifz mode nor during Tasmee (a double-tap recognizer
+              // delays every single tap).
+              onDoubleTapDown: widget.onDoubleTapPage == null ||
+                      widget.hifzModeEnabled ||
+                      widget.memorizationTestPageIndex >= 0
+                  ? null
+                  : (details) => _lastDoubleTapPosition = details.localPosition,
+              onDoubleTap: widget.onDoubleTapPage == null ||
+                      widget.hifzModeEnabled ||
+                      widget.memorizationTestPageIndex >= 0
+                  ? null
+                  : () {
+                      final p = _lastDoubleTapPosition;
+                      if (p == null) return;
+                      widget.onDoubleTapPage!(
+                        index,
+                        p.dx,
+                        p.dy,
+                        widget.viewportWidth,
+                        _pageHeight,
+                      );
+                    },
               child: Listener(
                 behavior: HitTestBehavior.opaque,
                 onPointerDown: (event) {
@@ -686,6 +716,16 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
                                           Theme.of(context).brightness ==
                                           Brightness.dark,
                                     ),
+                                  // Under the Tasmee masks: a covered word
+                                  // hides its colour and shows it when
+                                  // revealed.
+                                  TanzilatOverlay(
+                                    pageNumber: index + 1,
+                                    marginView: widget.marginView,
+                                    dark:
+                                        Theme.of(context).brightness ==
+                                        Brightness.dark,
+                                  ),
                                   if (widget.memorizationTestPageIndex >= 0)
                                     MemorizationTestOverlay(
                                       pageNumber: index + 1,
