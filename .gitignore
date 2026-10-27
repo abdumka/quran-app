@@ -143,3 +143,17 @@ tool/tasmee_r2.txt
 # an old set out of git history.
 store_assets/screenshots/
 tools/capture_store_screenshots.py
+
+# Local-only files (cleanup 2026-10-26)
+.wrangler/
+.claude/settings.local.json
+*.pem
+*.jsonOLD
+/scratch*
+/fix_*.dart
+/refactor_*.dart
+/test_injection.dart
+/screen_*.png
+/crop_*.png
+/huawei-store-assets/
+/sites/

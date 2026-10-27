@@ -20,7 +20,9 @@ import '../thumn_data.dart';
 import '../utils/joined_ayah_group.dart';
 import 'audio_ayah_map_service.dart';
 import 'quran_json_service.dart';
+import 'audio_download_service.dart';
 import 'reciter_service.dart';
+import 'segment_cached_audio_source.dart';
 import 'surah_timings_service.dart';
 
 /// Repeat mode for ayah playback.
@@ -306,10 +308,32 @@ class AudioService {
   /// source is set, and without this it would end the new clip before it began.
   bool _sawPositionInsideClip = false;
 
+  /// Where the armed clip starts in the loaded surah file, and the position
+  /// the watch saw last: together they tell a seek the app did not make (the
+  /// bar in the media notification) from the app's own, which always land at
+  /// a clip's start. See [_onExternalSeek].
+  Duration? _clipStart;
+  Duration? _lastWatchedPosition;
+
+  /// A move between two consecutive position samples (at most ~40 ms apart)
+  /// larger than this is a seek, not playback.
+  static const Duration _seekJump = Duration(milliseconds: 1500);
+
+  /// Set for one [_playClip] call to keep the player where it is when that
+  /// is inside the clip (an external seek being re-synced), rather than
+  /// moving it to the clip's start.
+  bool _keepPositionOnce = false;
+
   /// The whole-surah file currently loaded for [AudioScheme.timedSurah], if the
-  /// player is holding one. Non-null means the next ayah of that same surah can
-  /// be reached with a seek instead of a reload — see [_playClip].
-  Uri? _loadedSurahUri;
+  /// player is holding one: its remote URL, which names the file regardless
+  /// of whether it is being played from disk, from the segment cache or
+  /// streamed. Non-null means the next ayah of that same surah can be reached
+  /// with a seek instead of a reload (see [_playClip]).
+  String? _loadedSurahKey;
+
+  /// The cache-as-you-stream source behind [_loadedSurahKey], when the surah
+  /// is not (yet) a complete file on disk (see [SegmentCachedAudioSource]).
+  SegmentCachedAudioSource? _loadedSurahCache;
 
   /// The page the recitation has turned to while the reader is still held on
   /// the one before it: the page opens with an ayah printed across the break,
@@ -383,6 +407,38 @@ class AudioService {
           maxPeriod: const Duration(milliseconds: 40),
         )
         .listen(_onClipPosition);
+
+    _player.errorStream.listen(_onPlayerError);
+  }
+
+  /// A failure the player reports while a loaded surah is playing, as opposed
+  /// to one while loading, which [_playClip] catches itself.
+  ///
+  /// It arrives when a streamed surah loses the network part-way, or when a
+  /// region the segment cache does not hold is reached offline. The player
+  /// is idle after it, and without this nothing told the listener: the bar
+  /// just stopped, and the play button did nothing. Halting shows the usual
+  /// offline notice and leaves the bar on the ayah, so play retries it.
+  void _onPlayerError(PlayerException e) {
+    if (_loadedSurahKey == null || _halted) return;
+    if (!isPlaying.value && _clipEndTarget == null) return;
+    debugPrint('AudioService: playback error ${e.code}: ${e.message}');
+    _haltPlayback(_offlineNotice);
+  }
+
+  /// Forgets the whole-surah source the player was holding; it is being
+  /// stopped or replaced, so the next ayah must load rather than seek.
+  void _dropLoadedSurah() {
+    _loadedSurahKey = null;
+    _loadedSurahCache?.dispose();
+    _loadedSurahCache = null;
+  }
+
+  /// The segment cache has just completed a surah file: the downloads
+  /// screen's counters are computed once and would otherwise keep showing it
+  /// as absent until the next app start.
+  void _onSurahCacheComplete() {
+    AudioDownloadService.instance.refresh();
   }
 
   /// Pause the recitation when another app/the phone takes audio focus (incoming
@@ -1082,11 +1138,20 @@ class AudioService {
   /// of a surah's ayat share one URL, and a MediaItem whose id never changes
   /// leaves the notification stuck on the first ayah's title. The clip's span is
   /// therefore folded into the id.
+  ///
+  /// A whole-surah source is loaded once and then seeked within for the rest
+  /// of the surah, so its item is never replaced as the ayat go by: the title
+  /// names only the surah (an ayah number there would be the first ayah's
+  /// for the whole surah), and the duration is left to the player, which
+  /// reports the file's, so the notification's bar spans the surah.
   MediaItem _mediaItemFor(Uri uri, AudioClip clip) {
     final ayah = currentAyah.value;
     final reciter = ReciterService.instance.selected.value;
+    final wholeSurah = clip.isClipped && clip.end != null;
     final title = ayah == null
         ? 'القرآن الكريم'
+        : wholeSurah
+        ? 'سورة ${ayah.surahName}'
         : 'سورة ${ayah.surahName} - الآية ${ayah.ayah}';
     final id = clip.isClipped
         ? '$uri#${clip.start?.inMilliseconds ?? 0}-${clip.end?.inMilliseconds ?? 0}'
@@ -1096,7 +1161,7 @@ class AudioService {
       title: title,
       album: reciter.shortName,
       artist: reciter.riwaya,
-      duration: clip.duration,
+      duration: wholeSurah ? null : clip.duration,
     );
   }
 
@@ -1109,33 +1174,15 @@ class AudioService {
     // Nothing to watch until the new source is armed below; a target left over
     // from the previous clip must never fire against this one.
     _clipEndTarget = null;
+    final keepPosition = _keepPositionOnce;
+    _keepPositionOnce = false;
     var streamed = kIsWeb; // the source is a remote URL, not a cached file
     // Closed while one of the awaits below was pending: arm, play and report
     // nothing — the recitation this clip belonged to is over.
     final session = _session;
     try {
-      final Uri uri;
-      if (kIsWeb) {
-        // Web has no local file cache — always stream from the reciter mirror.
-        uri = Uri.parse('$_baseUrl$fileName');
-      } else {
-        final dir = _cacheDir ?? await _getAudioCacheDir();
-        final localFile = File(p.join(dir.path, fileName));
-
-        final hasLocalFile = localFile.existsSync();
-        if (!hasLocalFile && !await _hasInternetConnection()) {
-          if (session == _session) _haltPlayback(_offlineNotice);
-          return false;
-        }
-        if (session != _session) return false;
-
-        streamed = !hasLocalFile;
-        uri = hasLocalFile
-            ? Uri.file(localFile.path)
-            : Uri.parse('$_baseUrl$fileName'); // fallback: stream directly
-      }
       // Under the timed scheme every ayah of a surah lives in ONE file, so
-      // re-loading that file per ayah buys nothing and costs a full prepare —
+      // re-loading that file per ayah buys nothing and costs a full prepare,
       // a fresh HTTP fetch and re-buffer while streaming. Measured on an
       // emulator: 0.2–1.9 s streamed, ~0.17 s from a downloaded file, against
       // ~5 ms to seek within the file already open. That wait is silent, and
@@ -1143,10 +1190,15 @@ class AudioService {
       // a gap ("there is no audio at all between the two ayat"). So when the
       // surah is already loaded, move inside it instead of loading it again.
       //
-      // Checked before the web reset below on purpose: stopping the player
+      // Checked first, before anything below touches the disk or the network:
+      // the file check and the connectivity probe are for a file about to be
+      // loaded, and when they ran between every two ayat of a streamed surah
+      // each boundary cost a DNS lookup's worth of silence (seconds on a poor
+      // connection). Also before the web reset below: stopping the player
       // would throw away the very source this path exists to reuse.
-      final canSeekWithinSurah =
-          clip.isClipped && clip.end != null && _loadedSurahUri == uri;
+      final surahKey = '$_baseUrl$fileName';
+      final timedSurah = clip.isClipped && clip.end != null;
+      final canSeekWithinSurah = timedSurah && _loadedSurahKey == surahKey;
       if (canSeekWithinSurah) {
         // Consecutive ayat share a boundary — ayah N's end IS ayah N+1's start
         // — and the clip watch stops within a few tens of ms of it, so playing
@@ -1158,11 +1210,15 @@ class AudioService {
         // a little either side of the pause; being a few tens of ms out just
         // means the handful of ms around the boundary — silence in both
         // directions — is heard once more or once less, which is inaudible.
-        final drift = clip.start == null
-            ? _player.position
-            : _player.position - clip.start!;
+        final position = _player.position;
+        final drift = clip.start == null ? position : position - clip.start!;
         const slack = Duration(milliseconds: 120);
-        final seekNeeded = drift < -slack || drift > slack;
+        // An external seek that landed inside this clip stays where it is.
+        final inside = keepPosition &&
+            clip.start != null &&
+            position >= clip.start! &&
+            position < clip.end!;
+        final seekNeeded = !inside && (drift < -slack || drift > slack);
         if (seekNeeded) {
           await _player.seek(clip.start ?? Duration.zero);
           if (session != _session) return false;
@@ -1172,6 +1228,43 @@ class AudioService {
           _player.play();
         }
         return true;
+      }
+
+      final Uri uri;
+      File? localFile;
+      if (kIsWeb) {
+        // Web has no local file cache: always stream from the reciter mirror.
+        uri = Uri.parse(surahKey);
+      } else {
+        final dir = _cacheDir ?? await _getAudioCacheDir();
+        localFile = File(p.join(dir.path, fileName));
+
+        final hasLocalFile = localFile.existsSync();
+        if (!hasLocalFile) {
+          // A timed surah heard before has some of its bytes in the segment
+          // cache (see [SegmentCachedAudioSource]); those play offline, so
+          // the connectivity probe only decides when nothing is cached at
+          // all. A region that turns out to be missing surfaces as a player
+          // error and halts with the same notice (see [_onPlayerError]).
+          var cachedSomething = false;
+          if (timedSurah) {
+            cachedSomething = await SegmentCachedAudioSource(
+              Uri.parse(surahKey),
+              finalFile: localFile,
+            ).hasAnyBytes();
+            if (session != _session) return false;
+          }
+          if (!cachedSomething && !await _hasInternetConnection()) {
+            if (session == _session) _haltPlayback(_offlineNotice);
+            return false;
+          }
+        }
+        if (session != _session) return false;
+
+        streamed = !hasLocalFile;
+        uri = hasLocalFile
+            ? Uri.file(localFile.path)
+            : Uri.parse(surahKey); // fallback: stream directly
       }
 
       if (kIsWeb) {
@@ -1194,17 +1287,42 @@ class AudioService {
       // gives that up (the clip end is watched by [_onClipPosition] from here
       // on) but is what makes the seek above possible for the rest of the
       // surah. Whole-file reciters keep the plain source they always had.
-      final timedSurah = clip.isClipped && clip.end != null;
-      AudioSource buildSource() => timedSurah
-          ? AudioSource.uri(uri, tag: tag)
-          : clip.isClipped
-          ? ClippingAudioSource(
-              child: AudioSource.uri(uri),
-              start: clip.start,
-              end: clip.end,
-              tag: tag,
-            )
-          : AudioSource.uri(uri, tag: tag);
+      //
+      // A timed surah that is not a complete file on disk goes through the
+      // segment cache, which streams it from the mirror and keeps every byte
+      // heard, so it is never fetched twice and plays offline later. Web has
+      // no file system (and no proxy), so it streams directly as before.
+      final useSegmentCache = !kIsWeb && timedSurah && streamed;
+      AudioSource buildSource() {
+        if (useSegmentCache) {
+          _loadedSurahCache?.dispose();
+          final playing = currentAyah.value;
+          final timings = playing == null
+              ? null
+              : SurahTimingsService.instance.cached(
+                  ReciterService.instance.selected.value,
+                  playing.surah,
+                );
+          return _loadedSurahCache = SegmentCachedAudioSource(
+            uri,
+            finalFile: localFile!,
+            tag: tag,
+            onComplete: _onSurahCacheComplete,
+            playerPosition: () => _player.position,
+            mediaDuration: timings?.duration,
+          );
+        }
+        return timedSurah
+            ? AudioSource.uri(uri, tag: tag)
+            : clip.isClipped
+            ? ClippingAudioSource(
+                child: AudioSource.uri(uri),
+                start: clip.start,
+                end: clip.end,
+                tag: tag,
+              )
+            : AudioSource.uri(uri, tag: tag);
+      }
       try {
         await _player.setAudioSource(buildSource());
       } on PlayerException catch (_) {
@@ -1224,7 +1342,11 @@ class AudioService {
         await _player.setAudioSource(buildSource());
       }
       if (session != _session) return false;
-      _loadedSurahUri = timedSurah ? uri : null;
+      _loadedSurahKey = timedSurah ? surahKey : null;
+      if (!useSegmentCache) {
+        _loadedSurahCache?.dispose();
+        _loadedSurahCache = null;
+      }
 
       if (timedSurah) {
         await _player.seek(clip.start ?? Duration.zero);
@@ -1293,6 +1415,8 @@ class AudioService {
   void _armClipEnd(AudioClip clip, {bool absolute = false}) {
     if (absolute) {
       _clipEndTarget = clip.end;
+      _clipStart = clip.start;
+      _lastWatchedPosition = null;
       _sawPositionInsideClip = false;
       return;
     }
@@ -1310,12 +1434,39 @@ class AudioService {
   Future<void> _onClipPosition(Duration position) async {
     final target = _clipEndTarget;
     if (target == null) return;
+    if (_loadedSurahKey != null) {
+      final last = _lastWatchedPosition;
+      _lastWatchedPosition = position;
+      final jumped = last != null && (position - last).abs() > _seekJump;
+      // A jump that stays within this ayah changes nothing the watch cares
+      // about, and one landing just past its end is its end. Only a jump
+      // clear of the ayah needs the highlight re-synced. (The app's own
+      // seeks happen before the watch is armed, so they are never seen.)
+      final start = _clipStart ?? Duration.zero;
+      final outside =
+          position < start - _seekJump || position > target + _seekJump;
+      if (jumped && outside) {
+        _clipEndTarget = null;
+        _onExternalSeek(position);
+        return;
+      }
+    }
     if (position < target) {
       _sawPositionInsideClip = true;
       return;
     }
     if (!_sawPositionInsideClip) return;
     _clipEndTarget = null; // disarm before the first await
+    if (_continuesWithoutPause()) {
+      // The recitation simply goes on into the next ayah, which begins in
+      // the loaded file exactly where this one ends: what the player is
+      // sounding right now IS that ayah's opening, so there is nothing to
+      // silence. The completion handler moves the highlight on and re-arms
+      // this watch without a seek (see [_playClip]); the player never stops,
+      // which is what removes the gap between ayat for whole-surah reciters.
+      _handleAyahCompleted();
+      return;
+    }
     // Silence first, then advance: _playCurrentAyah awaits the next source
     // before it can swap it in, and every millisecond of that wait would be the
     // next ayah's opening playing early.
@@ -1324,6 +1475,71 @@ class AudioService {
     // ProcessingState.completed and advance a second time.
     _didHandleCompletion = true;
     _handleAyahCompleted();
+  }
+
+  /// A seek the app did not make: the listener dragged the bar in the media
+  /// notification or on the lock screen.
+  ///
+  /// Under the timed scheme the whole surah is loaded, so the player simply
+  /// played on from the new place while the highlight stayed where it was,
+  /// and the clip watch, still armed on the old ayah's end, pulled the
+  /// recitation back to the next ayah as soon as the new position passed it
+  /// (a forward drag looked like it did nothing). Re-syncs to the ayah under
+  /// [position], turning the page if it is on another one, and keeps the
+  /// position itself rather than restarting that ayah.
+  void _onExternalSeek(Duration position) {
+    final playing = currentAyah.value;
+    if (playing == null) return;
+    final surah = playing.surah;
+    final timings = SurahTimingsService.instance.cached(
+      ReciterService.instance.selected.value,
+      surah,
+    );
+    if (timings == null) return;
+
+    // The ayah whose span holds the position; in a silence between spans the
+    // one about to start; past the last span (the trailing silence) the last.
+    int? target;
+    int? next;
+    Duration? nextStart;
+    int? last;
+    Duration? lastStart;
+    for (final entry in timings.spans.entries) {
+      if (entry.key < 1) continue;
+      final (start, end) = entry.value;
+      if (position >= start && position < end) {
+        target = entry.key;
+        break;
+      }
+      if (start > position && (nextStart == null || start < nextStart)) {
+        next = entry.key;
+        nextStart = start;
+      }
+      if (lastStart == null || start > lastStart) {
+        last = entry.key;
+        lastStart = start;
+      }
+    }
+    target ??= next ?? last;
+    if (target == null) return;
+
+    _currentRepeatIteration = 0;
+    _currentFileIndexWithinAyah = 0;
+    _keepPositionOnce = true;
+    final wasPlaying = isPlaying.value;
+    bool isTarget(QuranAyahData a) => a.surah == surah && a.ayah == target;
+    final onPage = _playlistAyahs.indexWhere(isTarget);
+    if (onPage >= 0) {
+      _currentGlobalAyahIndex = onPage;
+      _playCurrentAyah(autoPlay: wasPlaying);
+      return;
+    }
+    final pageIndex = pageIndexForAyah(surah, target);
+    if (pageIndex < 0) return;
+    final index = getAyahsForPage(pageIndex).indexWhere(isTarget);
+    if (index < 0) return;
+    onPageChangeRequired?.call(pageIndex);
+    _startPage(pageIndex, startFromAyahIndex: index, autoPlay: wasPlaying);
   }
 
   // ─────────────────────────────────────
@@ -1352,7 +1568,7 @@ class AudioService {
     _halted = true;
     _cancelPageTurn();
     _clipEndTarget = null;
-    _loadedSurahUri = null;
+    _dropLoadedSurah();
     _player.stop(); // drop the stale source; the position is not kept
     isPlaying.value = false;
     _showPlaybackNotice(message);
@@ -1396,6 +1612,63 @@ class AudioService {
   // ─────────────────────────────────────
   //  COMPLETION & NAVIGATION
   // ─────────────────────────────────────
+
+  /// Whether [_handleAyahCompleted], run now, would do nothing but step on to
+  /// the next ayah, and that ayah's clip starts in the loaded surah file
+  /// exactly where the clip now playing ends. Then the player need not be
+  /// paused at the boundary: the sound simply continues (see
+  /// [_onClipPosition]).
+  ///
+  /// Mirrors the handler's decision tree read-only, in its order; any new
+  /// branch there (a repeat, a stop, a boundary) needs its "false" here, or
+  /// a few tens of ms of the next ayah would be heard before it acts.
+  bool _continuesWithoutPause() {
+    if (_loadedSurahKey == null) return false; // not a whole-surah source
+    if (_currentAyahClips.isEmpty ||
+        _currentFileIndexWithinAyah >= _currentAyahClips.length) {
+      return false;
+    }
+    if (_currentFileIndexWithinAyah + 1 < _currentAyahClips.length) {
+      return false; // another clip of this ayah follows
+    }
+    final current = _currentAyahClips[_currentFileIndexWithinAyah];
+    if (current.end == null) return false;
+
+    final mode = repeatMode.value;
+    if (mode == AyahRepeatMode.infinite) return false;
+    if (mode == AyahRepeatMode.count &&
+        _currentRepeatIteration + 1 < repeatCount.value) {
+      return false;
+    }
+    if (_stopAfterAyah != null) return false;
+
+    // The handler advances past ayat with no clip of their own (recited inside
+    // a neighbour's breath) one at a time, re-checking the section boundaries
+    // at each; do the same, within the same limit it halts at.
+    var index = _currentGlobalAyahIndex + 1;
+    for (var steps = 0; steps <= _maxEmptyAdvances; steps++, index++) {
+      if (index >= _playlistAyahs.length) return false; // page end: handler
+      final next = _playlistAyahs[index];
+      if (rangeRepeatMode.value != AyahRepeatMode.off &&
+          !_isInsideRange(next.surah, next.ayah)) {
+        return false;
+      }
+      if (thumnRepeatMode.value != AyahRepeatMode.off &&
+          _thumnStartSurah > 0 &&
+          !_isBeforeThumnEnd(next.surah, next.ayah)) {
+        return false;
+      }
+      final clips = _getClipsForAyah(next, pageNumber: _currentPageIndex + 1);
+      if (clips.isEmpty) continue;
+      final first = clips.first;
+      if (first.file != current.file || first.start == null) return false;
+      // Spans are cut to share their boundary exactly; a hand-edited file
+      // might be off by a hair, which the drift window in _playClip absorbs.
+      return (first.start! - current.end!).abs() <=
+          const Duration(milliseconds: 60);
+    }
+    return false;
+  }
 
   /// Called when a single audio file finishes.
   void _handleAyahCompleted() {
@@ -2383,7 +2656,7 @@ class AudioService {
     _clipEndTarget = null;
     // stop() drops the loaded source, so the next ayah must load it again
     // rather than seek into a player that is no longer holding the surah.
-    _loadedSurahUri = null;
+    _dropLoadedSurah();
     _player.stop();
     _player.seek(Duration.zero);
     isPlaying.value = false;

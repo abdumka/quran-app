@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- just_audio serves cache-as-you-stream surah audio to the player through a
+     local HTTP proxy on 127.0.0.1 (see lib/services/segment_cached_audio_source.dart).
+     Cleartext is allowed for that address only; everything else stays HTTPS. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

@@ -31,6 +31,14 @@
 	     encryption. Revisit this if the app ever encrypts user data itself. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- just_audio serves cache-as-you-stream surah audio to the player through
+	     a local HTTP proxy on 127.0.0.1 (lib/services/segment_cached_audio_source.dart).
+	     Only local networking is opened; remote loads stay HTTPS-only. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
