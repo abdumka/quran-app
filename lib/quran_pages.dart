@@ -42,6 +42,8 @@ import 'services/kahf_reminder_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
 import 'services/spine_shadow_service.dart';
+import 'services/chat_service.dart';
+import 'widgets/chat/chat_screen.dart';
 import 'services/push_notification_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
@@ -79,7 +81,11 @@ import 'widgets/hifz/tasmee_logs_page.dart';
 import 'widgets/hifz/tasmee_reports_page.dart';
 import 'widgets/hifz/tasmee_weak_points_sheet.dart';
 import 'services/tasmee_report_store.dart'
-    show TasmeeError, TasmeeLocateAnywhere, TasmeeReport, TasmeeReportStore, TasmeeSpeed, TasmeeSpeedSetting;
+    show
+        TasmeeError,
+        TasmeeLocateAnywhere,
+        TasmeeReport,
+        TasmeeReportStore;
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
@@ -412,12 +418,20 @@ class _QuranPagesState extends State<QuranPages>
   // 0-based index of the page the live session is bound to (-1 when none).
   int _memorizationTestPageIndex = -1;
 
-  /// True while the session is being moved to another page (see
-  /// [_followMemorizationTestToPage]).
   /// Sessions being moved to another page right now (a page turn during a
-  /// move must not read as the mode ending).
+  /// move must not read as the mode ending). Each move checks for an end it
+  /// hid once it is over (see [_checkTasmeeSessionEnded]).
   int _memorizationTestMoves = 0;
   bool get _memorizationTestMoving => _memorizationTestMoves > 0;
+
+  /// Bumped by every session start the reader asks for and by ending the
+  /// mode: a start that comes back to an older value was overtaken, and
+  /// what overtook it settles the outcome.
+  int _tasmeeStartGen = 0;
+
+  /// Counts the pages turned by hand during a test; a question set up for
+  /// an earlier turn gives way to the latest one.
+  int _testFollowGen = 0;
 
   /// The user's last choices in the تكرار مقطع picker, kept across launches:
   /// passes of the section (0 = ∞), plays of each ayah (1 = no repeat), and
@@ -683,7 +697,8 @@ class _QuranPagesState extends State<QuranPages>
   /// the bar: after إغلاق the bar was gone, the flag stayed true, and the
   /// menu showed no ring while Left/Right moved an invisible one.
   bool get _tvOnBar =>
-      _tvRecitationFocused && AudioService.instance.isRecitationBarVisible.value;
+      _tvRecitationFocused &&
+      AudioService.instance.isRecitationBarVisible.value;
 
   // ط¸â€‍ط¸â€‍ط·ع¾ط·آ¬ط·آ±ط¸ظ¹ط·آ¨ ط·آ¨ط¸ظ¹ط¸â€  contain / cover / fill
   BoxFit currentFit = BoxFit.contain;
@@ -808,6 +823,8 @@ class _QuranPagesState extends State<QuranPages>
       KahfReminderService.instance.refreshSchedule();
       // Firebase too stays off the launch path. A push tapped while the app was
       // closed is still delivered: FCM holds it until getInitialMessage asks.
+      ChatService.instance.attachOpener(_openChatFromNotification);
+      ChatService.instance.start();
       PushNotificationService.instance.start();
     });
     _keepScreenAwakeService.enabled.addListener(_handleKeepScreenAwakeChanged);
@@ -910,8 +927,16 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
+  void _openChatFromNotification() {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ChatScreen()),
+    );
+  }
+
   @override
   void dispose() {
+    _tasmeeLoadingWatch?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     MemorizationTestService.instance.status.removeListener(
       _handleMemorizationTestStatus,
@@ -1437,19 +1462,19 @@ class _QuranPagesState extends State<QuranPages>
         ? const Color(0xFFD6B35D)
         : const Color(0xFF8D6E3F);
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return Center(child: CircularProgressIndicator(color: borderColor));
-      },
+    final waiting = _showWaitDialog(
+      (context) => Center(child: CircularProgressIndicator(color: borderColor)),
     );
-
-    // Pre-warm the data cache
-    await TafsirService.getTafsirForPage(pageIndex);
-
-    if (!mounted) return;
-    Navigator.of(context).pop(); // dismiss loading
+    bool cancelled;
+    try {
+      // Pre-warm the data cache
+      await TafsirService.getTafsirForPage(pageIndex);
+    } finally {
+      // Back closed the spinner: the reader no longer wants the tafsir.
+      cancelled = !waiting.isOpen();
+      waiting.close();
+    }
+    if (!mounted || cancelled) return;
 
     await showModalBottomSheet(
       context: context,
@@ -1960,15 +1985,11 @@ class _QuranPagesState extends State<QuranPages>
       surah: hit.$1,
       ayah: hit.$2,
     );
-    // Tiny and parsed once; needed to know whether to offer the tanzilat.
-    await TanzilatService.instance.load();
     await AyahPlaySetting.load();
     if (!mounted) return;
     // The testers' switch: a double tap goes straight to the tanzilat.
     final action =
-        fromDoubleTap &&
-            TanzilatSetting.doubleTapOpensTanzilat.value &&
-            TanzilatService.instance.forAyah(hit.$1, hit.$2).isNotEmpty
+        fromDoubleTap && TanzilatSetting.doubleTapOpensTanzilat.value
         ? _AyahAction.tanzilat
         : await _showAyahActionsSheet(hit.$1, hit.$2);
     if (!mounted) return;
@@ -2189,13 +2210,13 @@ class _QuranPagesState extends State<QuranPages>
                   label: 'تفسير الآية',
                   action: _AyahAction.tafsir,
                 ),
-                // Offered whether or not the colouring is on.
-                if (TanzilatService.instance.forAyah(surah, ayah).isNotEmpty)
-                  option(
-                    icon: const Icon(Icons.compare_arrows_rounded),
-                    label: 'تنزيلات ومتشابهات',
-                    action: _AyahAction.tanzilat,
-                  ),
+                // Every ayah, whether or not the colouring is on: one with no
+                // tanzilah still has the reader's own notes.
+                option(
+                  icon: const Icon(Icons.compare_arrows_rounded),
+                  label: 'تنزيلات ومتشابهات',
+                  action: _AyahAction.tanzilat,
+                ),
                 // Not during التسميع: the microphone is listening.
                 if (!_isMemorizationTestEnabled) ...[
                   Divider(
@@ -3597,43 +3618,82 @@ class _QuranPagesState extends State<QuranPages>
     showTasmeeRunSummary(context, reports);
   }
 
+  static bool _tasmeeEnded(MemorizationTestStatus s) =>
+      s == MemorizationTestStatus.idle || s == MemorizationTestStatus.failed;
+
+  /// The mode is on but the service has no session (the bar's «إنهاء», or
+  /// a restart that failed): the mode goes off, never left on with every
+  /// page covered and no bar. Moving the session to another page restarts
+  /// it and passes through `idle`, so nothing is decided during a move (the
+  /// move checks again when it is over), and a restart of the same page
+  /// blips through idle too: decide a moment later, when a real end is
+  /// still idle and a restart is not.
+  void _checkTasmeeSessionEnded() {
+    final service = MemorizationTestService.instance;
+    if (!mounted ||
+        !_isMemorizationTestEnabled ||
+        _memorizationTestMoving ||
+        !_tasmeeEnded(service.status.value)) {
+      return;
+    }
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
+      final now = MemorizationTestService.instance.status.value;
+      if (!mounted ||
+          !_isMemorizationTestEnabled ||
+          _memorizationTestMoving ||
+          MemorizationTestService.instance.isStarting ||
+          !_tasmeeEnded(now)) {
+        return;
+      }
+      _endTasmeeFromSession(failed: now == MemorizationTestStatus.failed);
+    });
+  }
+
+  /// Turns the mode off after its session ended on the service's side: the
+  /// bar's «إنهاء» (also while a turned-to page was still getting ready) or
+  /// a start that failed. The service is stopped for good (a start still on
+  /// its way is called off). An end shows the run's summary, as «إنهاء»
+  /// promises; a failure says why instead.
+  void _endTasmeeFromSession({bool failed = false}) {
+    final service = MemorizationTestService.instance;
+    final stub = service.stubReason.value;
+    _tasmeeStartGen++;
+    service.stop();
+    setState(() {
+      _isMemorizationTestEnabled = false;
+      _memorizationTestPageIndex = -1;
+    });
+    final run = _hifzTest;
+    _onTasmeeModeEnded();
+    if (failed) {
+      final message = switch (stub) {
+        StubReason.micPermissionDenied =>
+          'إذن الميكروفون مرفوض. فعّل الميكروفون من الإعدادات لمتابعة التسميع.',
+        StubReason.modelNotInstalled =>
+          'لم يتم تثبيت نموذج التعرف على التلاوة بعد.',
+        _ => 'تعذّر متابعة التسميع على هذه الصفحة',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
+      );
+      return;
+    }
+    // A test ended from the bar's «إنهاء»: its score is the summary that
+    // matters (the page reports are saved all the same).
+    if (run != null) {
+      service.takeRunReports();
+      if (run.answered > 0 || run.pagesRead > 0) {
+        showHifzTestSummary(context, run);
+      }
+    } else {
+      _showTasmeeRunSummary();
+    }
+  }
+
   void _handleMemorizationTestStatus() {
     final service = MemorizationTestService.instance;
     if (!mounted) return;
-    // Moving the session to another page restarts it, and a restart passes
-    // through `idle`; only an idle outside such a move means the user (or
-    // the service) really ended the mode.
-    if (service.status.value == MemorizationTestStatus.idle &&
-        _isMemorizationTestEnabled &&
-        !_memorizationTestMoving) {
-      // A restart of the same page also blips through idle: decide a moment
-      // later, when a real end is still idle and a restart is not.
-      Future<void>.delayed(const Duration(milliseconds: 400), () {
-        if (!mounted ||
-            !_isMemorizationTestEnabled ||
-            _memorizationTestMoving ||
-            MemorizationTestService.instance.status.value !=
-                MemorizationTestStatus.idle) {
-          return;
-        }
-        setState(() {
-          _isMemorizationTestEnabled = false;
-          _memorizationTestPageIndex = -1;
-        });
-        // A test ended from the bar's «إنهاء»: its score is the summary
-        // that matters (the page reports are saved all the same).
-        final run = _hifzTest;
-        _onTasmeeModeEnded();
-        if (run != null) {
-          MemorizationTestService.instance.takeRunReports();
-          if (run.answered > 0 || run.pagesRead > 0) {
-            showHifzTestSummary(context, run);
-          }
-        } else {
-          _showTasmeeRunSummary();
-        }
-      });
-    }
+    _checkTasmeeSessionEnded();
     // A finished page flows into the next one: after a short pause to read
     // the summary line, turn the page; the session follows it.
     if (service.status.value == MemorizationTestStatus.completed &&
@@ -3780,24 +3840,32 @@ class _QuranPagesState extends State<QuranPages>
   }
 
   Future<void> _startHifzTest(HifzTestRun run) async {
-    if (_isMemorizationTestEnabled) {
-      await MemorizationTestService.instance.stop();
-      if (!mounted) return;
+    // A session already on goes, and its idle is part of this move, not
+    // the mode ending.
+    _memorizationTestMoves++;
+    try {
+      if (_isMemorizationTestEnabled) {
+        await MemorizationTestService.instance.stop();
+        if (!mounted) return;
+      }
+      _hifzTest = run;
+      // Between the questions of a microphone test the recognizer stays
+      // live, so the next question starts without the loading notice.
+      MemorizationTestService.instance.keepEngineWarm = !run.silent;
+      _drillQueue
+        ..clear()
+        ..addAll([
+          for (var i = 0; i < run.questions.length; i++)
+            run.questions[i].toDrill(
+              i + 1,
+              run.endless ? 0 : run.questions.length,
+            ),
+        ]);
+      await _runNextTasmeeDrill();
+    } finally {
+      _memorizationTestMoves--;
+      _checkTasmeeSessionEnded();
     }
-    _hifzTest = run;
-    // Between the questions of a microphone test the recognizer stays
-    // live, so the next question starts without the loading notice.
-    MemorizationTestService.instance.keepEngineWarm = !run.silent;
-    _drillQueue
-      ..clear()
-      ..addAll([
-        for (var i = 0; i < run.questions.length; i++)
-          run.questions[i].toDrill(
-            i + 1,
-            run.endless ? 0 : run.questions.length,
-          ),
-      ]);
-    await _runNextTasmeeDrill();
   }
 
   /// Keeps the mistake pool in step with what the reader said of a
@@ -3834,11 +3902,13 @@ class _QuranPagesState extends State<QuranPages>
     // question, its ayahs marked wrong as its notes.
     final words = q.ayahs.fold<int>(
       0,
-      (n, a) => n + a.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
+      (n, a) =>
+          n + a.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
     );
     final missedWords = missed.fold<int>(
       0,
-      (n, a) => n + a.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
+      (n, a) =>
+          n + a.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length,
     );
     TasmeeReportStore.save(
       TasmeeReport(
@@ -3880,12 +3950,15 @@ class _QuranPagesState extends State<QuranPages>
   /// before the weak spot and starts Tasmee there, on that ayah.
   Future<void> _runNextTasmeeDrill() async {
     if (_drillQueue.isEmpty || !mounted) return;
-    final drill = _drillQueue.removeAt(0);
+    final followGen = _testFollowGen;
     // Where to begin: up to two ayahs before the target on its page; when
     // the target opens its page, the last two ayahs of the page before it
     // (the session then flows over the page turn by itself).
     final data = await QuranJsonService.loadQuranPages();
-    if (!mounted) return;
+    // The page was turned by hand meanwhile: that turn sets up the next
+    // question itself (two of these at once used to fight over the page).
+    if (!mounted || followGen != _testFollowGen || _drillQueue.isEmpty) return;
+    final drill = _drillQueue.removeAt(0);
     int ayahCount(int pageNumber) {
       for (final p in data) {
         if (p.page == pageNumber) return p.ayahs.length;
@@ -3921,10 +3994,13 @@ class _QuranPagesState extends State<QuranPages>
     final closeLoading = MemorizationTestService.instance.hasWarmEngine
         ? () {}
         : _showTasmeeLoading();
+    final gen = ++_tasmeeStartGen;
     _memorizationTestMoves++;
     bool started;
     try {
       if (!_isMemorizationTestEnabled) {
+        // A new run: the summary at its end lists only its own pages.
+        MemorizationTestService.instance.takeRunReports();
         await _prepareForTasmeeMode();
         if (!mounted) return;
       }
@@ -3933,6 +4009,17 @@ class _QuranPagesState extends State<QuranPages>
         _memorizationTestPageIndex = startPage - 1;
       });
       _goToPage(startPage);
+      // An open self-test reads on: when the next question opens on the page
+      // after this one ends, the end of this one waits on its page (as a
+      // page turn inside a question does) so the last word shown stays up.
+      final run = _hifzTest;
+      final upNext = _drillQueue.isEmpty ? null : _drillQueue.first;
+      MemorizationTestService.instance.nextQuestionTurnsPage =
+          run != null &&
+          run.endless &&
+          run.silent &&
+          upNext != null &&
+          (upNext.startPage ?? upNext.page) == drill.page + 1;
       started = await MemorizationTestService.instance.start(
         pageNumber: startPage,
         startAyahIndex: startAyahIndex,
@@ -3942,16 +4029,28 @@ class _QuranPagesState extends State<QuranPages>
     } finally {
       _memorizationTestMoves--;
       closeLoading();
+      _checkTasmeeSessionEnded();
     }
     if (!mounted) return;
+    // Overtaken by a newer start (the page turned meanwhile) or the mode was
+    // ended: they settle the outcome.
+    if (gen != _tasmeeStartGen || !_isMemorizationTestEnabled) return;
     if (!started) {
+      final service = MemorizationTestService.instance;
+      // Another start took over (the bar's «الصفحة»): it is the session now.
+      if (service.isStarting) return;
+      if (service.status.value != MemorizationTestStatus.failed) {
+        // «إنهاء» pressed while the question was getting ready.
+        _endTasmeeFromSession();
+        return;
+      }
       _drillQueue.clear();
+      _tasmeeStartGen++;
       setState(() {
         _isMemorizationTestEnabled = false;
         _memorizationTestPageIndex = -1;
       });
       _onTasmeeModeEnded();
-      final service = MemorizationTestService.instance;
       final message = switch (service.stubReason.value) {
         StubReason.micPermissionDenied =>
           'إذن الميكروفون مرفوض. فعّل الميكروفون من الإعدادات لبدء الاختبار.',
@@ -3980,7 +4079,10 @@ class _QuranPagesState extends State<QuranPages>
       run.results.add(result);
       final hasNext = _drillQueue.isNotEmpty;
       final bool next;
-      final questionIndex = (result.drill.index - 1).clamp(0, run.questions.length - 1);
+      final questionIndex = (result.drill.index - 1).clamp(
+        0,
+        run.questions.length - 1,
+      );
       if (run.endless) {
         // An open test is not interrupted: page after page until the
         // reader ends it (the microphone notes what it hears; a self-test
@@ -4013,6 +4115,9 @@ class _QuranPagesState extends State<QuranPages>
         );
       }
       if (!mounted) return;
+      // Closed while its dialog was open (the app went to the background):
+      // the test is already counted, and counting it again doubled it.
+      if (_hifzTest != run) return;
       if (next && hasNext) {
         await _runNextTasmeeDrill();
         return;
@@ -4043,8 +4148,6 @@ class _QuranPagesState extends State<QuranPages>
   /// for download once) and, the first time, shows the guide. False when
   /// the model is still missing or the page went away.
   Future<bool> _ensureTasmeeReady() async {
-    AsrModelManager.instance.fast =
-        await TasmeeSpeedSetting.mode() == TasmeeSpeed.fast;
     if (!await AsrModelManager.instance.refresh()) {
       if (!mounted) return false;
       await _promptAndDownloadAsrModel();
@@ -4084,6 +4187,8 @@ class _QuranPagesState extends State<QuranPages>
 
   void _onTasmeeModeEnded() {
     _drillQueue.clear();
+    // Nothing is getting ready any more: no notice may outlive the mode.
+    _dismissTasmeeLoading();
     // A test ended from the bar (or by turning the page): what was answered
     // still counts.
     final run = _hifzTest;
@@ -4111,13 +4216,16 @@ class _QuranPagesState extends State<QuranPages>
   /// toolbar icon never lies about a session being active.
   Future<void> _toggleMemorizationTest(bool value) async {
     if (!value) {
-      await MemorizationTestService.instance.stop();
+      // Off first: a start still on its way then finds the mode ended and
+      // leaves it to this (no second ending, no summary).
+      _tasmeeStartGen++;
       if (mounted) {
         setState(() {
           _isMemorizationTestEnabled = false;
           _memorizationTestPageIndex = -1;
         });
       }
+      await MemorizationTestService.instance.stop();
       _onTasmeeModeEnded();
       return;
     }
@@ -4141,17 +4249,29 @@ class _QuranPagesState extends State<QuranPages>
     final pageIndex = _currentPage;
     final closeLoading = _showTasmeeLoading();
     bool started;
+    // A new run: the summary at its end lists only its own pages (an end
+    // from أدوات الحفظ or a finished test leaves its reports behind).
+    service.takeRunReports();
+    final gen = ++_tasmeeStartGen;
     try {
       await _prepareForTasmeeMode();
       if (!mounted) return;
-      started = await service.start(
-        pageNumber: pageIndex + 1,
-        locateAnywhere: await TasmeeLocateAnywhere.enabled(),
-      );
+      started =
+          gen == _tasmeeStartGen &&
+          await service.start(
+            pageNumber: pageIndex + 1,
+            locateAnywhere: await TasmeeLocateAnywhere.enabled(),
+          );
     } finally {
       closeLoading();
     }
     if (!mounted) return;
+    if (gen != _tasmeeStartGen) {
+      // Called off while getting ready (the app went to the background, or
+      // another mode took over): nothing may stay listening.
+      if (started) service.stop();
+      started = false;
+    }
     setState(() {
       _isMemorizationTestEnabled = started;
       _memorizationTestPageIndex = started ? pageIndex : -1;
@@ -4172,60 +4292,178 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
+  /// Shows a waiting dialog; `close` takes down that dialog only, and only
+  /// while it is still up. Back, or a jump to the first route, may have
+  /// closed it already, and a blind pop() then closed the reader itself (a
+  /// black screen). `isOpen` says whether it is still up.
+  ({VoidCallback close, bool Function() isOpen}) _showWaitDialog(
+    WidgetBuilder builder,
+  ) {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    Route<dynamic>? route;
+    var open = true;
+    showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        route ??= ModalRoute.of(dialogContext);
+        return builder(dialogContext);
+      },
+    ).then((_) => open = false);
+    return (
+      close: () {
+        if (!open) return;
+        open = false;
+        final r = route;
+        // Not built yet means just pushed: it is still the top route.
+        if (r == null || r.isCurrent) {
+          navigator.pop();
+        } else if (r.isActive) {
+          navigator.removeRoute(r);
+        }
+      },
+      isOpen: () => open,
+    );
+  }
+
+  /// The one «جارٍ تجهيز التسميع…» notice on screen, shared by every start
+  /// that wants it, and how many of them still do.
+  ({VoidCallback close, bool Function() isOpen})? _tasmeeLoading;
+  int _tasmeeLoadingId = 0;
+  int _tasmeeLoadingHolds = 0;
+  Timer? _tasmeeLoadingWatch;
+
   /// A small "getting ready" notice over the page while Tasmee starts. It
-  /// blocks taps until the returned callback closes it.
+  /// blocks taps until the returned callback closes it. Starts that overlap
+  /// (quick page turns during a test) share ONE notice: each used to open
+  /// its own, and a blind pop() closed the wrong one, leaving a notice up
+  /// for good with no way past it (owner, 2026-10-31). A watchdog takes it
+  /// down once nothing is starting any more, whatever a caller forgot.
   VoidCallback _showTasmeeLoading() {
+    final current = _tasmeeLoading;
+    if (current == null || !current.isOpen()) {
+      _tasmeeLoadingId++;
+      _tasmeeLoadingHolds = 0;
+      _tasmeeLoading = _openTasmeeLoadingDialog();
+      _watchTasmeeLoading();
+    }
+    final id = _tasmeeLoadingId;
+    _tasmeeLoadingHolds++;
+    var released = false;
+    return () {
+      if (released || id != _tasmeeLoadingId) return;
+      released = true;
+      if (--_tasmeeLoadingHolds <= 0) _dismissTasmeeLoading();
+    };
+  }
+
+  /// Takes the notice down now (every holder of it is let go).
+  void _dismissTasmeeLoading() {
+    _tasmeeLoadingWatch?.cancel();
+    _tasmeeLoadingWatch = null;
+    _tasmeeLoadingHolds = 0;
+    _tasmeeLoadingId++;
+    final dialog = _tasmeeLoading;
+    _tasmeeLoading = null;
+    dialog?.close();
+  }
+
+  /// Closes the notice after 3 s in which no start was on its way (the
+  /// rotation to portrait and a model load both keep one in flight).
+  void _watchTasmeeLoading() {
+    _tasmeeLoadingWatch?.cancel();
+    var quiet = 0;
+    _tasmeeLoadingWatch = Timer.periodic(const Duration(milliseconds: 500), (
+      t,
+    ) {
+      final dialog = _tasmeeLoading;
+      if (!mounted || dialog == null || !dialog.isOpen()) {
+        t.cancel();
+        if (identical(_tasmeeLoadingWatch, t)) _tasmeeLoadingWatch = null;
+        return;
+      }
+      final service = MemorizationTestService.instance;
+      final busy =
+          service.isStarting ||
+          _memorizationTestMoving ||
+          service.status.value == MemorizationTestStatus.preparing;
+      quiet = busy ? 0 : quiet + 1;
+      if (quiet >= 6) {
+        service.logUi('loadingWatchdog');
+        _dismissTasmeeLoading();
+      }
+    });
+  }
+
+  ({VoidCallback close, bool Function() isOpen}) _openTasmeeLoadingDialog() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final navigator = Navigator.of(context, rootNavigator: true);
+    Route<dynamic>? route;
     var open = true;
     showDialog<void>(
       context: context,
       useRootNavigator: true,
       barrierDismissible: false,
       barrierColor: Colors.black26,
-      builder: (_) => PopScope(
-        canPop: false,
-        child: Center(
-          child: Material(
-            color: isDark ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE),
-            elevation: 6,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                textDirection: TextDirection.rtl,
-                children: [
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.4,
-                      color: Color(0xFFB08A3C),
+      builder: (dialogContext) {
+        route ??= ModalRoute.of(dialogContext);
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Material(
+              color: isDark ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE),
+              elevation: 6,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 16,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Color(0xFFB08A3C),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
-                  Text(
-                    'جارٍ تجهيز التسميع…',
-                    style: TextStyle(
-                      fontFamily: 'Tajawal',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : const Color(0xFF35250E),
+                    const SizedBox(width: 14),
+                    Text(
+                      'جارٍ تجهيز التسميع…',
+                      style: TextStyle(
+                        fontFamily: 'Tajawal',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF35250E),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     ).then((_) => open = false);
-    return () {
-      if (!open) return;
-      open = false;
-      navigator.pop();
-    };
+    return (
+      close: () {
+        if (!open) return;
+        open = false;
+        final r = route;
+        // Remove this notice only: a pop() could take whatever is on top.
+        if (r == null || r.isCurrent) {
+          navigator.pop();
+        } else if (r.isActive) {
+          navigator.removeRoute(r);
+        }
+      },
+      isOpen: () => open,
+    );
   }
 
   /// Offers to download the on-device recognition model (~160 MB, once),
@@ -4238,7 +4476,7 @@ class _QuranPagesState extends State<QuranPages>
         title: const Text('تنزيل نموذج التلاوة'),
         content: const Text(
           'لتفعيل التحقق الحقيقي من تلاوتك عبر الميكروفون، يلزم تنزيل نموذج '
-          'التعرّف مرة واحدة (حوالي ٧٥ ميغابايت). بدونه لا يعمل التسميع. '
+          'التعرّف مرة واحدة (حوالي 75 ميغابايت). بدونه لا يعمل التسميع. '
           'تنبيه: التقييم الآلي للتلاوة والتجويد قد يخطئ ولا '
           'يغني عن المعلّم المتقن. هل تريد التنزيل الآن؟',
         ),
@@ -4257,25 +4495,20 @@ class _QuranPagesState extends State<QuranPages>
     if (wantsDownload != true || !mounted) return;
 
     final manager = AsrModelManager.instance;
-    // Blocking, non-dismissible progress dialog bound to the manager's
-    // progress notifier.
+    // Progress dialog bound to the manager's progress notifier.
     final downloadFuture = manager.download();
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('جارٍ تنزيل النموذج…'),
-          content: ValueListenableBuilder<double>(
-            valueListenable: manager.progress,
-            builder: (context, progress, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LinearProgressIndicator(value: progress == 0 ? null : progress),
-                const SizedBox(height: 12),
-                Text('${(progress * 100).clamp(0, 100).toStringAsFixed(0)}٪'),
-              ],
-            ),
+    final progressDialog = _showWaitDialog(
+      (dialogContext) => AlertDialog(
+        title: const Text('جارٍ تنزيل النموذج…'),
+        content: ValueListenableBuilder<double>(
+          valueListenable: manager.progress,
+          builder: (context, progress, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(value: progress == 0 ? null : progress),
+              const SizedBox(height: 12),
+              Text('${(progress * 100).clamp(0, 100).toStringAsFixed(0)}٪'),
+            ],
           ),
         ),
       ),
@@ -4283,7 +4516,7 @@ class _QuranPagesState extends State<QuranPages>
 
     await downloadFuture;
     if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pop(); // close progress dialog
+    progressDialog.close();
 
     if (manager.state.value != AsrModelState.ready) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4302,37 +4535,54 @@ class _QuranPagesState extends State<QuranPages>
   /// leaving the mic icon claiming a session that isn't there.
   Future<void> _followMemorizationTestToPage(int pageIndex) async {
     final run = _hifzTest;
+    final service = MemorizationTestService.instance;
+    if (run != null &&
+        service.silentTurnPending &&
+        pageIndex + 1 == (service.activePage ?? 0) + 1) {
+      // A self-test page held after its last word was shown, turned on by
+      // hand: the question goes on there, nothing uncovered yet.
+      _memorizationTestPageIndex = pageIndex;
+      service.continueSilentTurn();
+      return;
+    }
     if (run != null) {
       // A page turned by hand during a test: the test goes on, in its own
       // mode, with that page as its next question. An open test simply
       // continues from there, forwards or backwards; a closed one takes
       // the page as an extra question before the rest.
-      await _continueTestOnPage(run, pageIndex + 1);
+      _memorizationTestPageIndex = pageIndex;
+      await _continueTestOnPage(run, pageIndex + 1, ++_testFollowGen);
       return;
     }
     // Turning the page by hand leaves a drill round.
     _drillQueue.clear();
-    _hifzTest = null;
-    MemorizationTestService.instance.keepEngineWarm = false;
-    if (run != null) _finishHifzTest(run);
+    service.keepEngineWarm = false;
     _memorizationTestPageIndex = pageIndex;
+    final gen = ++_tasmeeStartGen;
     _memorizationTestMoves++;
     bool started;
     try {
-      started = await MemorizationTestService.instance.start(
+      started = await service.start(
         pageNumber: pageIndex + 1,
         locateAnywhere: await TasmeeLocateAnywhere.enabled(),
       );
     } finally {
       _memorizationTestMoves--;
+      _checkTasmeeSessionEnded();
     }
-    if (!mounted || _memorizationTestPageIndex != pageIndex) return;
-    if (started) {
-      _isMemorizationTestEnabled = true;
-    } else if (MemorizationTestService.instance.activePage == null) {
-      _isMemorizationTestEnabled = false;
-      _memorizationTestPageIndex = -1;
-      _onTasmeeModeEnded();
+    // Overtaken by a newer start (another page turn) or the mode was ended:
+    // they settle the outcome.
+    if (!mounted || gen != _tasmeeStartGen || !_isMemorizationTestEnabled) {
+      return;
+    }
+    if (!started && !service.isStarting) {
+      // «إنهاء» pressed while the new page was getting ready (the service
+      // is idle), or the page could not be started: the mode goes off. It
+      // used to stay on here with every page covered and no bar.
+      _endTasmeeFromSession(
+        failed: service.status.value == MemorizationTestStatus.failed,
+      );
+      return;
     }
     setState(() {});
   }
@@ -4340,7 +4590,11 @@ class _QuranPagesState extends State<QuranPages>
   /// Makes the page [page] (whole, in order, split only at a surah end)
   /// the next question(s) of [run]; an open test then runs on from there
   /// to the end of the mushaf.
-  Future<void> _continueTestOnPage(HifzTestRun run, int page) async {
+  Future<void> _continueTestOnPage(
+    HifzTestRun run,
+    int page,
+    int followGen,
+  ) async {
     final config = run.config.copyWith(
       range: HifzRange(
         HifzRangeKind.pages,
@@ -4350,9 +4604,21 @@ class _QuranPagesState extends State<QuranPages>
       endless: true,
       source: HifzTestSource.random,
     );
-    final index = QuranAyahIndex.fromPages(await QuranJsonService.loadQuranPages());
-    final questions = HifzTestPlanner.plan(index: index, config: config, pool: const []);
-    if (!mounted || _hifzTest != run || questions.isEmpty) return;
+    final index = QuranAyahIndex.fromPages(
+      await QuranJsonService.loadQuranPages(),
+    );
+    final questions = HifzTestPlanner.plan(
+      index: index,
+      config: config,
+      pool: const [],
+    );
+    // Another page turn came after this one: only the last one counts.
+    if (!mounted ||
+        _hifzTest != run ||
+        questions.isEmpty ||
+        followGen != _testFollowGen) {
+      return;
+    }
     if (run.endless) {
       // The pages not reached are replaced by the new run of pages: keep
       // only the questions already asked.
@@ -4369,7 +4635,11 @@ class _QuranPagesState extends State<QuranPages>
     final shown = run.results.length;
     final drills = [
       for (var i = 0; i < questions.length; i++)
-        questions[i].toDrill(first + i + 1, total, number: run.endless ? shown + i + 1 : null),
+        questions[i].toDrill(
+          first + i + 1,
+          total,
+          number: run.endless ? shown + i + 1 : null,
+        ),
     ];
     if (run.endless) {
       _drillQueue
@@ -4386,7 +4656,14 @@ class _QuranPagesState extends State<QuranPages>
   /// or the app is backgrounded — a live listening session should never
   /// keep running invisibly).
   void _stopMemorizationTestIfActive() {
-    if (!_isMemorizationTestEnabled) return;
+    // Also calls off a start still getting ready (the mode only goes on once
+    // the session is up), so nothing comes up listening in the background.
+    _tasmeeStartGen++;
+    if (!_isMemorizationTestEnabled) {
+      final service = MemorizationTestService.instance;
+      if (service.isStarting) service.stop();
+      return;
+    }
     _isMemorizationTestEnabled = false;
     _memorizationTestPageIndex = -1;
     MemorizationTestService.instance.stop();
@@ -5039,7 +5316,8 @@ class _QuranPagesState extends State<QuranPages>
                 // Double tap = the ayah's options. Not in Hifz mode, and not
                 // during Tasmee: a double-tap recognizer delays every single
                 // tap by 300 ms (the session bar's buttons included).
-                onDoubleTapDown: _isHifzModeEnabled || _isMemorizationTestEnabled
+                onDoubleTapDown:
+                    _isHifzModeEnabled || _isMemorizationTestEnabled
                     ? null
                     : (details) =>
                           _lastDoubleTapPosition = details.globalPosition,
@@ -5268,8 +5546,7 @@ class _QuranPagesState extends State<QuranPages>
                         TanzilatOverlay(
                           pageNumber: pageIndex + 1,
                           marginView: _isMarginImagesEnabled,
-                          dark:
-                              Theme.of(context).brightness == Brightness.dark,
+                          dark: Theme.of(context).brightness == Brightness.dark,
                         ),
                         if (_isMemorizationTestEnabled)
                           MemorizationTestOverlay(
@@ -7880,8 +8157,8 @@ class _QuranPagesState extends State<QuranPages>
                                   borderRadius: BorderRadius.circular(12),
                                   menuMaxHeight:
                                       ReciterService.pickerMenuMaxHeight(
-                                    kMinInteractiveDimension,
-                                  ),
+                                        kMinInteractiveDimension,
+                                      ),
                                   items: [
                                     for (final reciter
                                         in reciterService.reciters)

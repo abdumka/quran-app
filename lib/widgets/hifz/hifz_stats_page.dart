@@ -4,6 +4,7 @@ import '../../quran_index_page.dart' show kQuranPageCount;
 import '../../services/hifz_test_stats_store.dart';
 import '../../services/tasmee_report_store.dart';
 import '../../utils/quran_display_text.dart';
+import 'hifz_clear_sheet.dart';
 import 'hifz_palette.dart';
 
 /// «الإحصاءات»: what the saved Tasmee reports and test records add up to --
@@ -21,6 +22,20 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
 
   static Future<(List<TasmeeReport>, List<HifzTestRecord>)> _load() async =>
       (await TasmeeReportStore.loadAll(), await HifzTestStatsStore.loadAll());
+
+  /// 🗑: two taps (the icon, then «مسح»), with «تراجع» after.
+  Future<void> _clear() async {
+    final done = await showHifzClearSheet(context, forMistakes: false);
+    if (done == null || !mounted) return;
+    showHifzClearedSnack(
+      context,
+      undo: done.undo,
+      summary: done.summary,
+      reload: () {
+        if (mounted) setState(() => _data = _load());
+      },
+    );
+  }
 
   static String duration(num seconds) {
     final s = seconds.round();
@@ -97,23 +112,24 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
     // The mushaf's 602 pages over 60 hizbs and 30 juz.
     final perHizb = perPage * kQuranPageCount / 60;
     final perJuz = perPage * kQuranPageCount / 30;
-    final errors = reports.fold<int>(0, (s, r) => s + r.errors.length);
+    // Mistakes = what the reader uncovered or skipped by hand; the
+    // microphone's stops are alerts, not counted (TasmeeError.counts).
+    final errors = reports.fold<int>(0, (s, r) => s + r.mistakes.length);
+    final alerts = reports.fold<int>(0, (s, r) => s + r.alerts);
     final holds = reports.fold<int>(0, (s, r) => s + r.holds);
     final repairs = reports.fold<int>(0, (s, r) => s + r.repairs);
     final allSeconds = reports.fold<int>(0, (s, r) => s + r.seconds);
     final kinds = <String, int>{};
-    final categories = <String, int>{};
     for (final r in reports) {
-      for (final e in r.errors) {
+      for (final e in r.mistakes) {
         kinds[e.kindLabel] = (kinds[e.kindLabel] ?? 0) + 1;
-        categories[e.category] = (categories[e.category] ?? 0) + 1;
       }
     }
     final topKinds = kinds.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final weekAgo = DateTime.now().subtract(const Duration(days: 7));
     final thisWeek = reports.where((r) => r.at.isAfter(weekAgo)).length;
-    final cleanPages = reports.where((r) => r.errors.isEmpty).length;
+    final cleanPages = reports.where((r) => r.mistakes.isEmpty).length;
     return [
       _grid([
         _stat(p, 'صفحات سُمِّعت', '${reports.length}', note: '$pages مكتملة · $thisWeek هذا الأسبوع'),
@@ -143,16 +159,13 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
           note: 'مرات التوقف عند كلمة / أعدتها صحيحة',
         ),
       ]),
-      if (errors > 0) ...[
-        const SizedBox(height: 8),
-        Text(
-          [
-            for (final c in const ['repaired', 'asked', 'wrong'])
-              '${TasmeeError.categoryLabel(c)} ${categories[c] ?? 0}',
-          ].join(' · '),
-          style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.5),
-        ),
-      ],
+      const SizedBox(height: 8),
+      Text(
+        'الخطأ هو ما كشفته بزر «كلمة» أو «الآية» أو تخطّيته بنفسك. '
+        'توقّف الميكروفون عند كلمة (الكلمة الوردية) تنبيه لا يُحسب خطأ'
+        '${alerts > 0 ? ' ($alerts تنبيه)' : ''}.',
+        style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.5),
+      ),
       if (topKinds.isNotEmpty) ...[
         const SizedBox(height: 4),
         Text(
@@ -185,7 +198,7 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
         ),
         _stat(
           p,
-          'آخر ٥ اختبارات',
+          'آخر 5 اختبارات',
           recentAnswered == 0 ? '—' : '${(recentCorrect * 100 / recentAnswered).round()}٪',
         ),
         _stat(p, 'مواضع الخطأ فيها', '${tests.fold<int>(0, (s, t) => s + t.mistakes)}'),
@@ -228,6 +241,13 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
           backgroundColor: p.bg,
           foregroundColor: p.title,
           title: const Text('إحصاءات الحفظ'),
+          actions: [
+            IconButton(
+              tooltip: 'مسح الإحصاءات',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: _clear,
+            ),
+          ],
         ),
         body: FutureBuilder<(List<TasmeeReport>, List<HifzTestRecord>)>(
           future: _data,

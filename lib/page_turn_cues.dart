@@ -127,8 +127,8 @@ const Map<String, Map<int, PageTurnCue>> pageTurnCues = {
     356: PageTurnCue(24, 42, '024.mp3', 1087090),
   },
   'almislati_qaloun': {
-    // 2:218 «والاخرة», pause 0.86s.
-    35: PageTurnCue(2, 218, '002.mp3', 4759390),
+    // 2:218 «والاخرة», pause 0.86s — read inside 2:217.
+    35: PageTurnCue(2, 217, '002.mp3', 4759390),
     // 4:44 «السبيل», pause 0.61s.
     86: PageTurnCue(4, 44, '004.mp3', 1216410),
     // 14:27 «السماء», read on, dip -24 dB.

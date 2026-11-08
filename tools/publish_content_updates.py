@@ -5,6 +5,7 @@
     data/manifest.json                       what is current (never cached long)
     data/tanzilat/tanzilat_v<N>.json         assets/data/tanzilat.json, N = its "ver"
     data/word_masks/patch_v<N>.json          tools/content_updates/word_masks_patch.json
+    data/tanzilat_paint/paint_v<N>.bin       assets/data/tanzilat_paint.bin, N = its header's "ver"
     data/reciters/reciters_v<N>.json         tools/content_updates/reciters.json
 
 Each payload is uploaded under its version (immutable, cached for a year) and
@@ -14,7 +15,9 @@ overwritten: bump "ver" in the source file instead.
 
 Bumping: a tanzilat change -> VER in build_tanzilat_data.py; a word-box fix ->
 "ver" in word_masks_patch.json (the list is cumulative); a new reciter -> "ver"
-in reciters.json. A build's ContentUpdateService.bundledVersions must equal the
+in reciters.json; repainted colours or ANY tanzilat bump -> rebuild the pictures
+(build_tanzilat_paint.py, bump its VER): a pack is shown only with the tanzilat
+version it names. A build's ContentUpdateService.bundledVersions must equal the
 versions its assets carry; "minBuild" below is the first build that reads this
 data at all.
 
@@ -27,6 +30,7 @@ tafsir mirror; never print the secret.
 import hashlib
 import io
 import json
+import struct
 import sys
 import urllib.request
 from pathlib import Path
@@ -34,6 +38,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "tools" / "content_updates"
 MIN_BUILD = 126  # the first build with ContentUpdateService
+MIN_BUILD_OF = {"tanzilat_paint": 133}  # the first build that shows the pictures
 PUBLIC = "https://quran-content.mushaf-qaloon.com/"
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -42,6 +47,7 @@ ITEMS = {
     "tanzilat": (ROOT / "assets" / "data" / "tanzilat.json", "data/tanzilat/tanzilat_v{ver}.json"),
     "word_masks": (SRC / "word_masks_patch.json", "data/word_masks/patch_v{ver}.json"),
     "reciters": (SRC / "reciters.json", "data/reciters/reciters_v{ver}.json"),
+    "tanzilat_paint": (ROOT / "assets" / "data" / "tanzilat_paint.bin", "data/tanzilat_paint/paint_v{ver}.bin"),
 }
 EASTERN = set("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹")
 
@@ -64,8 +70,16 @@ def secret_block(bucket):
     sys.exit(f"ABORT: no credentials block for bucket {bucket!r}")
 
 
+def paint_header(body):
+    if body[:4] != b"TZP1":
+        sys.exit("ABORT: tanzilat_paint.bin has a bad magic")
+    n = struct.unpack("<I", body[4:8])[0]
+    return json.loads(body[8:8 + n])
+
+
 def main():
     dry = "--dry-run" in sys.argv
+    tanzilat_ver = json.loads((ROOT / "assets" / "data" / "tanzilat.json").read_bytes()).get("ver")
     manifest = {"v": 1, "items": {}}
     uploads = []
     for name, (src, pattern) in ITEMS.items():
@@ -73,7 +87,7 @@ def main():
             print(f"{name}: no source file ({src.relative_to(ROOT)}), left out of the manifest")
             continue
         body = src.read_bytes()
-        data = json.loads(body)
+        data = paint_header(body) if name == "tanzilat_paint" else json.loads(body)
         ver = data.get("ver")
         if not isinstance(ver, int) or ver < 1:
             print(f"{name}: no usable \"ver\" in {src.name}, left out")
@@ -84,7 +98,9 @@ def main():
             sys.exit(f"ABORT: {src} has no patches list")
         if name == "reciters" and not isinstance(data.get("reciters"), list):
             sys.exit(f"ABORT: {src} has no reciters list")
-        if name != "tanzilat" and any(c in EASTERN for c in body.decode("utf-8")):
+        if name == "tanzilat_paint" and data.get("tz") != tanzilat_ver:
+            sys.exit(f"ABORT: the pictures are for tanzilat v{data.get('tz')}, the data is v{tanzilat_ver}: rebuild them")
+        if name not in ("tanzilat", "tanzilat_paint") and any(c in EASTERN for c in body.decode("utf-8")):
             sys.exit(f"ABORT: Eastern digits in {src}")
         key = pattern.format(ver=ver)
         manifest["items"][name] = {
@@ -92,7 +108,7 @@ def main():
             "url": key,
             "sha256": hashlib.sha256(body).hexdigest(),
             "bytes": len(body),
-            "minBuild": MIN_BUILD,
+            "minBuild": MIN_BUILD_OF.get(name, MIN_BUILD),
         }
         uploads.append((name, key, body))
         print(f"{name}: v{ver} {len(body):,} bytes -> {key}")
@@ -125,7 +141,8 @@ def main():
         except ClientError as e:
             if e.response["Error"]["Code"] not in ("404", "NoSuchKey", "NotFound"):
                 raise
-        s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json; charset=utf-8",
+        ct = "application/octet-stream" if key.endswith(".bin") else "application/json; charset=utf-8"
+        s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=ct,
                       CacheControl="public, max-age=31536000, immutable")
         got = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
         assert got == body, key

@@ -392,10 +392,13 @@ void main() {
       expect(find.text('عند التصويب'), findsOneWidget);
       // Both default to tone and vibration.
       expect(find.text('اهتزاز وصوت'), findsNWidgets(2));
-      // The speed choice, «دقة أعلى» chosen unless changed.
-      expect(find.text('دقة أعلى'), findsOneWidget);
-      expect(find.text('استجابة أسرع'), findsOneWidget);
-      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'دقة أعلى')).selected, isTrue);
+      // One behaviour since 2026-11-07: no speed choice, and the lab-only
+      // microphone row is absent in a normal build.
+      expect(find.text('دقة أعلى'), findsNothing);
+      expect(find.text('استجابة أسرع'), findsNothing);
+      expect(find.text('تحقّق قبل التنبيه'), findsNothing);
+      expect(find.textContaining('مصدر الميكروفون'), findsNothing);
+      expect(find.text('التسميع من أي موضع'), findsOneWidget);
     });
   });
 

@@ -10,6 +10,8 @@ import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'recitation_engine.dart';
+import 'tasmee_report_store.dart'
+    show TasmeeMicSource, TasmeeMicSourceSetting;
 
 /// Paths to the on-device model files (see `AsrModelManager`).
 class SherpaModelPaths {
@@ -71,6 +73,14 @@ class SherpaRecitationEngine extends RecitationEngine {
   StreamSubscription<Uint8List>? _micSub;
   ReceivePort? _receivePort;
 
+  /// Set by [stop]. A [start] still loading the models or opening the
+  /// microphone then returns without opening it.
+  bool _stopped = false;
+
+  /// Completes with the worker's port once the models are loaded, with null
+  /// when [stop] comes first, or with an error when they fail to load.
+  Completer<SendPort?>? _ready;
+
   /// Interim (mid-utterance) results with fewer words than this are
   /// discarded outright -- one-word interims are most exposed to
   /// half-spoken-word noise.
@@ -99,11 +109,19 @@ class SherpaRecitationEngine extends RecitationEngine {
     //    keeps us from dropping the first utterance).
     final receivePort = ReceivePort();
     _receivePort = receivePort;
-    final readyCompleter = Completer<SendPort>();
+    final readyCompleter = Completer<SendPort?>();
+    _ready = readyCompleter;
 
     receivePort.listen((message) {
       if (message is SendPort) {
-        readyCompleter.complete(message);
+        if (_stopped) {
+          // Stopped while the models were loading: the worker frees them
+          // and ends on its own.
+          message.send(const _WorkerShutdown());
+          receivePort.close();
+        } else if (!readyCompleter.isCompleted) {
+          readyCompleter.complete(message);
+        }
       } else if (message is _SegmentEvent) {
         // Lag = how long ago the last sample of this segment was captured.
         final micStart = _micStartedAt;
@@ -134,7 +152,14 @@ class SherpaRecitationEngine extends RecitationEngine {
         );
       } else if (message is _WorkerError) {
         debugPrint('SherpaRecitationEngine worker error: ${message.message}');
-        if (!_controller.isClosed) _controller.addError(message.message);
+        if (!readyCompleter.isCompleted) {
+          // The models did not load: the start fails instead of waiting.
+          readyCompleter.completeError(StateError(message.message));
+        } else if (_stopped) {
+          receivePort.close();
+        } else if (!_controller.isClosed) {
+          _controller.addError(message.message);
+        }
       }
     });
 
@@ -143,22 +168,40 @@ class SherpaRecitationEngine extends RecitationEngine {
       _WorkerInit(receivePort.sendPort, _paths),
       debugName: 'sherpa-asr-worker',
     );
-    _workerPort = await readyCompleter.future;
+    final workerPort = await readyCompleter.future;
+    if (workerPort == null) return;
+    _workerPort = workerPort;
 
     // 2. Open the mic as a 16kHz mono PCM16 stream and forward chunks.
     final micStream = await _recorder.startStream(
-      const RecordConfig(
+      RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
+        // Lab builds may ask for the raw or the speech-recognition source
+        // (see TasmeeMicSourceSetting); the shipped app uses the default.
+        androidConfig: AndroidRecordConfig(
+          audioSource: switch (await TasmeeMicSourceSetting.mode()) {
+            TasmeeMicSource.system => AndroidAudioSource.defaultSource,
+            TasmeeMicSource.unprocessed => AndroidAudioSource.unprocessed,
+            TasmeeMicSource.voiceRecognition =>
+              AndroidAudioSource.voiceRecognition,
+          },
+        ),
         // iOS mutes haptics and system sounds while an app records unless
         // told otherwise, which silenced the mistake alerts (vibration and
         // tone) there. Android ignores this.
-        iosConfig: IosRecordConfig(
+        iosConfig: const IosRecordConfig(
           allowHapticsAndSystemSoundsDuringRecording: true,
         ),
       ),
     );
+    if (_stopped) {
+      try {
+        await _recorder.stop();
+      } catch (_) {}
+      return;
+    }
     _micStartedAt = DateTime.now();
     if (!kIsWeb && Platform.isIOS) {
       // Set once more after the mic is live: the alerts (haptics and tone)
@@ -178,6 +221,12 @@ class SherpaRecitationEngine extends RecitationEngine {
 
   @override
   Future<void> stop() async {
+    _stopped = true;
+    // Still loading the models: [start] gives up now, and the worker shuts
+    // itself down once loaded (killing it mid-load would leak them).
+    final ready = _ready;
+    final loading = ready != null && !ready.isCompleted;
+    if (loading) ready.complete(null);
     await _micSub?.cancel();
     _micSub = null;
     try {
@@ -187,10 +236,12 @@ class SherpaRecitationEngine extends RecitationEngine {
     _workerPort?.send(const _WorkerShutdown());
     // Give the worker a beat to free native resources before killing it.
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    _isolate?.kill(priority: Isolate.beforeNextEvent);
+    if (!loading) {
+      _isolate?.kill(priority: Isolate.beforeNextEvent);
+      _receivePort?.close();
+    }
     _isolate = null;
     _workerPort = null;
-    _receivePort?.close();
     _receivePort = null;
     audioLevel.value = 0;
     busy.value = false;

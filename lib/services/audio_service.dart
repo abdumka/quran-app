@@ -893,8 +893,12 @@ class AudioService {
     required bool onlyThisAyah,
     int? readerPageIndex,
   }) async {
+    // Closing the bar (or starting Tasmee) while the timings load must not
+    // be undone by this play: the recitation stays closed.
+    final session = _session;
     if (_quranPages == null) await init();
     final head = await _joinedGroupHeadOf(surah, ayah);
+    if (session != _session) return;
     int indexOn(int pageIndex) {
       if (pageIndex < 0 || pageIndex >= _quranPages!.length) return -1;
       return _quranPages![pageIndex].ayahs.indexWhere(
@@ -921,6 +925,7 @@ class AudioService {
     }
     // Silence whatever was playing while the new ayah loads.
     await _player.pause();
+    if (session != _session) return;
     _stopAfterAyah = onlyThisAyah ? head : null;
     await _startPage(pageIndex, startFromAyahIndex: index, holdTurn: held);
   }
@@ -1470,7 +1475,10 @@ class AudioService {
     // Silence first, then advance: _playCurrentAyah awaits the next source
     // before it can swap it in, and every millisecond of that wait would be the
     // next ayah's opening playing early.
+    final session = _session;
     await _player.pause();
+    // Closed during the pause: the next ayah must not start with no bar.
+    if (session != _session) return;
     // A clip that ends where the file does would otherwise ALSO arrive as
     // ProcessingState.completed and advance a second time.
     _didHandleCompletion = true;
@@ -2262,7 +2270,9 @@ class AudioService {
   Future<void> _parkAt(int surah, int ayah) async {
     // A finished file leaves the player "playing"; a new source would start
     // by itself.
+    final session = _session;
     await _player.pause();
+    if (session != _session) return; // closed meanwhile: stays closed
     final pageIndex = pageIndexForAyah(surah, ayah);
     if (pageIndex < 0) return;
     final index = _quranPages![pageIndex].ayahs.indexWhere(

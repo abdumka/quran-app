@@ -48,7 +48,10 @@ MockClient clientFor(String manifest, Map<String, String> bodies) {
 }
 
 void main() {
-  const tanzilatV2 = '{"v":2,"ver":2,"dan":{},"groups":[],"nopaint":{}}';
+  // One version above what this build bundles (so it is always "newer").
+  final tb = ContentUpdateService.bundledVersions['tanzilat']!, tn = tb + 1;
+  final tanzilatV2 = '{"v":2,"ver":$tn,"dan":{},"groups":[],"nopaint":{}}';
+  final wn = ContentUpdateService.bundledVersions['word_masks']! + 1;
   late Directory dir;
   final service = ContentUpdateService.instance;
 
@@ -104,16 +107,16 @@ void main() {
   test('a newer tanzilat is downloaded, verified, applied and kept', () async {
     var applied = 0;
     service.registerItem('tanzilat', apply: () async => applied++);
-    final manifest = manifestFor({'tanzilat': (2, tanzilatV2)});
-    final client = clientFor(manifest, {'tanzilat_v2.json': tanzilatV2});
+    final manifest = manifestFor({'tanzilat': (tn, tanzilatV2)});
+    final client = clientFor(manifest, {'tanzilat_v$tn.json': tanzilatV2});
     final result = await service.check(manual: true, client: client);
     expect(result.updated, ['tanzilat']);
     expect(result.pendingRestart, isEmpty);
     expect(result.message, 'تم تحديث التنزيلات.');
     expect(applied, 1);
-    expect(service.versionOf('tanzilat'), 2);
+    expect(service.versionOf('tanzilat'), tn);
     expect(await service.readFor('tanzilat'), tanzilatV2);
-    expect(File('${dir.path}/tanzilat_v2.json').existsSync(), isTrue);
+    expect(File('${dir.path}/tanzilat_v$tn.json').existsSync(), isTrue);
     expect(service.revision.value, greaterThan(0));
     // Nothing is fetched again within the day unless asked by hand.
     final again = await service.check(client: client);
@@ -127,12 +130,12 @@ void main() {
     'a wrong checksum, an old version or a too-new file is refused',
     () async {
       final manifest = manifestFor(
-        {'tanzilat': (2, tanzilatV2)},
+        {'tanzilat': (tn, tanzilatV2)},
         badSha: {'tanzilat': 'f' * 64},
       );
       var result = await service.check(
         manual: true,
-        client: clientFor(manifest, {'tanzilat_v2.json': tanzilatV2}),
+        client: clientFor(manifest, {'tanzilat_v$tn.json': tanzilatV2}),
       );
       expect(result.updated, isEmpty);
       expect(result.failed, isFalse);
@@ -142,8 +145,8 @@ void main() {
       // Same version as the bundle: nothing to do.
       result = await service.check(
         manual: true,
-        client: clientFor(manifestFor({'tanzilat': (1, tanzilatV2)}), {
-          'tanzilat_v1.json': tanzilatV2,
+        client: clientFor(manifestFor({'tanzilat': (tb, tanzilatV2)}), {
+          'tanzilat_v$tb.json': tanzilatV2,
         }),
       );
       expect(result.updated, isEmpty);
@@ -154,10 +157,10 @@ void main() {
         manual: true,
         client: clientFor(
           manifestFor(
-            {'tanzilat': (2, tanzilatV2)},
+            {'tanzilat': (tn, tanzilatV2)},
             minBuild: {'tanzilat': 126},
           ),
-          {'tanzilat_v2.json': tanzilatV2},
+          {'tanzilat_v$tn.json': tanzilatV2},
         ),
       );
       expect(result.updated, isEmpty);
@@ -165,12 +168,12 @@ void main() {
       // Not the shape of a tanzilat file.
       result = await service.check(
         manual: true,
-        client: clientFor(manifestFor({'tanzilat': (2, '{"ver":2}')}), {
-          'tanzilat_v2.json': '{"ver":2}',
+        client: clientFor(manifestFor({'tanzilat': (tn, '{"ver":$tn}')}), {
+          'tanzilat_v$tn.json': '{"ver":$tn}',
         }),
       );
       expect(result.updated, isEmpty);
-      expect(service.versionOf('tanzilat'), 1);
+      expect(service.versionOf('tanzilat'), tb);
     },
   );
 
@@ -184,19 +187,19 @@ void main() {
   test(
     'word-box patches wait for the next launch once boxes are loaded',
     () async {
-      const patch =
-          '{"ver":1,"patches":[{"page":480,"surah":41,"ayah":43,"words":[[[1,2,3,4]]]}]}';
+      final patch =
+          '{"ver":$wn,"patches":[{"page":480,"surah":41,"ayah":43,"words":[[[1,2,3,4]]]}]}';
       service.registerItem('word_masks', isLoaded: () => true);
       final result = await service.check(
         manual: true,
-        client: clientFor(manifestFor({'word_masks': (1, patch)}), {
-          'word_masks_v1.json': patch,
+        client: clientFor(manifestFor({'word_masks': (wn, patch)}), {
+          'word_masks_v$wn.json': patch,
         }),
       );
       expect(result.updated, ['word_masks']);
       expect(result.pendingRestart, ['word_masks']);
       expect(result.message, contains('عند فتح التطبيق من جديد'));
-      expect(File('${dir.path}/word_masks_patch_v1.json').existsSync(), isTrue);
+      expect(File('${dir.path}/word_masks_patch_v$wn.json').existsSync(), isTrue);
     },
   );
 

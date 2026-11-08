@@ -70,6 +70,10 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>لا يستخدم التطبيق الكاميرا إلا إذا اخترت التقاط صورة لإرفاقها برسالتك.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>تختار صورة لإرفاقها برسالتك إلى الفريق، ولا يرى التطبيق غيرها.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>يُستخدم الميكروفون في وضع اختبار الحفظ للاستماع إلى تلاوتك والتحقق منها على جهازك، دون إرسال الصوت إلى أي خادم.</string>
 	<key>UILaunchStoryboardName</key>

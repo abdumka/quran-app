@@ -64,34 +64,24 @@ class AsrModelManager {
         zipformerTokensFile: 2346,
       };
 
-  /// The recognizer of «دقة أعلى» (16-frame chunks).
+  /// The recognizer the session loads (16-frame chunks).
   static const String zipformerModelFile =
       'zipformer_p_arabic_v3.1_c16.int8.onnx';
 
-  /// The recognizer of «استجابة أسرع»: the same checkpoint exported with
-  /// 8-frame chunks (0.16 s of audio per step); same size.
-  static const String zipformerFastModelFile =
-      'zipformer_p_arabic_v3.1_c8.int8.onnx';
-
   static const String zipformerTokensFile = 'zipformer-tokens.txt';
 
-  /// Which recognizer the session loads (from `TasmeeSpeedSetting`, set
-  /// before [refresh] or [download]). The other export, if downloaded, is
-  /// kept so the setting can be switched back without a download.
-  bool fast = false;
-
   /// File name of the recognizer the session loads.
-  String get modelFile => fast ? zipformerFastModelFile : zipformerModelFile;
+  String get modelFile => zipformerModelFile;
 
   static bool _isZipformerFile(String name) =>
-      name == zipformerModelFile ||
-      name == zipformerFastModelFile ||
-      name == zipformerTokensFile;
+      name == zipformerModelFile || name == zipformerTokensFile;
 
   /// Earlier recognizer exports that a previous build downloaded; removed
-  /// from the download directory once the current set is complete.
+  /// from the download directory once the current set is complete. The
+  /// `_c8` export served the «استجابة أسرع» level of builds 126-2132.
   static const List<String> obsoleteFiles = [
     'zipformer_p_arabic_v3.1.int8.onnx',
+    'zipformer_p_arabic_v3.1_c8.int8.onnx',
   ];
 
   final ValueNotifier<AsrModelState> state =
@@ -178,7 +168,23 @@ class AsrModelManager {
       state.value =
           allPresent ? AsrModelState.ready : AsrModelState.notDownloaded;
     }
+    if (allPresent) {
+      try {
+        await _deleteObsolete(await modelDirectory());
+      } catch (_) {}
+    }
     return allPresent;
+  }
+
+  /// Removes exports an earlier build downloaded (a user who never downloads
+  /// again would otherwise keep them for good).
+  Future<void> _deleteObsolete(Directory dir) async {
+    for (final name in obsoleteFiles) {
+      final stale = File('${dir.path}${Platform.pathSeparator}$name');
+      try {
+        if (await stale.exists()) await stale.delete();
+      } catch (_) {}
+    }
   }
 
   /// Downloads any missing model files. No-op if already [AsrModelState.ready]
@@ -244,12 +250,7 @@ class AsrModelManager {
         doneBytes += entry.value;
       }
 
-      for (final name in obsoleteFiles) {
-        final stale = File('${dir.path}${Platform.pathSeparator}$name');
-        try {
-          if (await stale.exists()) await stale.delete();
-        } catch (_) {}
-      }
+      await _deleteObsolete(dir);
 
       state.value = AsrModelState.ready;
       progress.value = 1;

@@ -111,4 +111,33 @@ class HifzTestStatsStore {
     _queue = next;
     return next;
   }
+
+  /// Removes the records [remove] picks; returns the whole list as it was
+  /// before, for [replaceAll] («تراجع»).
+  static Future<List<HifzTestRecord>> removeWhere(
+    bool Function(HifzTestRecord r) remove,
+  ) {
+    var before = const <HifzTestRecord>[];
+    final next = _queue.then((_) async {
+      before = await loadAll();
+      await _write([for (final r in before) if (!remove(r)) r]);
+    });
+    _queue = next;
+    return next.then((_) => before);
+  }
+
+  static Future<void> replaceAll(List<HifzTestRecord> records) {
+    final next = _queue.then((_) => _write(records));
+    _queue = next;
+    return next;
+  }
+
+  static Future<void> _write(List<HifzTestRecord> list) async {
+    try {
+      final f = await _file();
+      f.writeAsStringSync(json.encode([for (final r in list) r.toJson()]));
+    } catch (e) {
+      debugPrint('HifzTestStatsStore: save failed: $e');
+    }
+  }
 }

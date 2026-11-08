@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../../models/quran_page_data.dart';
 import '../../services/quran_json_service.dart';
+import '../../services/tanzilat_notes_store.dart';
 import '../../services/tanzilat_service.dart';
 import '../../surah_data.dart';
 import '../../utils/quran_display_text.dart';
@@ -35,30 +38,53 @@ String _surahName(int surah) =>
         as String? ??
     '';
 
-/// «في N مواضع» with the Arabic number agreement (always after «في», so the
-/// dual is genitive: «في موضعين»).
-String tanzilahCountText(int n) {
-  if (n <= 1) return 'موضع واحد';
-  if (n == 2) return 'موضعين';
-  if (n <= 10) return '$n مواضع';
-  return '$n موضعًا';
-}
-
-/// The places a card lists: a spelling rule its own, a tanzilah every row's.
-List<TanzilahPlace> _placesOf(TanzilahHit hit) => hit.row.rule
-    ? hit.row.places
-    : [for (final r in hit.group.rows) ...r.places];
-
-String _headingOf(TanzilahHit hit) {
-  if (hit.row.rule) {
-    final word = quranDisplayText(hit.row.word ?? '');
-    return hit.row.places.isEmpty
-        ? '«$word» لا تُلوَّن'
-        : '«$word» تُكتب هكذا حيث وردت';
+/// The places a card lists: every row's, its «متكررة» rows too, one entry
+/// per ayah (البينة 5 has two of 911's words: one place, both coloured).
+List<TanzilahPlace> _placesOf(TanzilahHit hit) {
+  final byAyah = <(int, int), Set<int>>{};
+  for (final r in hit.group.rows) {
+    for (final p in r.places) {
+      byAyah.putIfAbsent((p.surah, p.ayah), () => {}).addAll(p.words);
+    }
   }
-  if (hit.group.isGharibah) return 'غريبة: لا نظير لها';
-  return 'تتكرر في ${tanzilahCountText(hit.group.count)}';
+  return [
+    for (final e in byAyah.entries)
+      TanzilahPlace(e.key.$1, e.key.$2, e.value.toList()..sort()),
+  ];
 }
+
+/// The card's title: the one the reviewers gave the tanzilah, else its
+/// first words («أذيً، مسميً، ضحيً …»). Its count is in the coloured badge.
+String _headingOf(TanzilahHit hit, List<String>? Function(int, int) wordsAt) {
+  final title = hit.group.title;
+  if (title != null && title.isNotEmpty) return title;
+  final names = <String>[];
+  for (final r in hit.group.rows) {
+    if (r.rule) {
+      if (r.places.isNotEmpty && r.word != null) {
+        names.add(quranDisplayText(r.word!));
+      }
+      continue;
+    }
+    for (final p in r.places) {
+      final w = wordsAt(p.surah, p.ayah);
+      if (w == null) continue;
+      names.add(
+        [
+          for (final i in p.words)
+            if (i < w.length) quranDisplayText(w[i]),
+        ].join(' '),
+      );
+    }
+  }
+  final unique = names.where((n) => n.isNotEmpty).toSet().toList();
+  if (unique.isEmpty) return hit.group.isGharibah ? 'غريبة' : 'تنزيلة';
+  return unique.take(3).join('، ') + (unique.length > 3 ? ' …' : '');
+}
+
+/// The badge's content, for the copied text (it has no coloured circle).
+String _countOf(TanzilahHit hit) =>
+    hit.group.isGharibah ? 'غريبة' : '${hit.group.count}';
 
 /// The words shown for a place: a few around the coloured ones.
 (int, int) _snippetRange(TanzilahPlace p, List<String> words) {
@@ -77,44 +103,68 @@ String tanzilatCopyText(
   int surah,
   int ayah,
   List<TanzilahHit> hits,
+  Map<(int, int), List<String>> words, {
+  String note = '',
+}) {
+  final out = StringBuffer(
+    'تنزيلات ومتشابهات — سورة ${_surahName(surah)} $ayah\n',
+  );
+  if (note.trim().isNotEmpty) out.write('\nملاحظاتي:\n${note.trim()}\n');
+  for (final hit in hits) {
+    _writeTanzilah(out, surah, ayah, hit, words);
+  }
+  return out.toString().trimRight();
+}
+
+/// One tanzilah of the sheet as plain text, for the small copy icon on its
+/// card: the same lines «نسخ الكل» writes for it, under the ayah's line.
+String tanzilahCopyText(
+  int surah,
+  int ayah,
+  TanzilahHit hit,
   Map<(int, int), List<String>> words,
 ) {
   final out = StringBuffer(
     'تنزيلات ومتشابهات — سورة ${_surahName(surah)} $ayah\n',
   );
-  for (final hit in hits) {
-    out.write('\n${_headingOf(hit)}');
-    final places = _placesOf(hit);
-    if (hit.row.rule && places.isNotEmpty) {
-      out.write(' (في ${tanzilahCountText(places.length)})');
-    }
-    out.write('\n');
-    for (final p in places) {
-      final w = words[(p.surah, p.ayah)] ?? const <String>[];
-      final (from, to) = _snippetRange(p, w);
-      final marked = p.words.toSet();
-      // neighbouring coloured words share one «»: «لعلكم تشكرون»
-      final text = [
-        for (var i = from; i < to; i++)
-          [
-            if (marked.contains(i) && !marked.contains(i - 1)) '«',
-            quranDisplayText(w[i]),
-            if (marked.contains(i) && !marked.contains(i + 1)) '»',
-          ].join(),
-      ].join(' ');
-      final here = p.surah == surah && p.ayah == ayah ? ' (هذه الآية)' : '';
-      final head = from > 0 ? '… ' : '';
-      final tail = to < w.length ? ' …' : '';
-      out.write('- ${_surahName(p.surah)} ${p.ayah}$here: $head$text$tail\n');
-    }
-    for (final d in hit.danfasi) {
-      out.write('قال الدنفاسي («${d.title}»):\n');
-      for (final line in d.lines) {
-        out.write('$line\n');
-      }
+  _writeTanzilah(out, surah, ayah, hit, words);
+  return out.toString().trimRight();
+}
+
+void _writeTanzilah(
+  StringBuffer out,
+  int surah,
+  int ayah,
+  TanzilahHit hit,
+  Map<(int, int), List<String>> words,
+) {
+  final heading = _headingOf(hit, (s, a) => words[(s, a)]);
+  out.write('\n$heading (${_countOf(hit)})\n');
+  final places = _placesOf(hit);
+  for (final p in places) {
+    final w = words[(p.surah, p.ayah)] ?? const <String>[];
+    final (from, to) = _snippetRange(p, w);
+    final marked = p.words.toSet();
+    // neighbouring coloured words share one «»: «لعلكم تشكرون»
+    final text = [
+      for (var i = from; i < to; i++)
+        [
+          if (marked.contains(i) && !marked.contains(i - 1)) '«',
+          quranDisplayText(w[i]),
+          if (marked.contains(i) && !marked.contains(i + 1)) '»',
+        ].join(),
+    ].join(' ');
+    final here = p.surah == surah && p.ayah == ayah ? ' (هذه الآية)' : '';
+    final head = from > 0 ? '… ' : '';
+    final tail = to < w.length ? ' …' : '';
+    out.write('- ${_surahName(p.surah)} ${p.ayah}$here: $head$text$tail\n');
+  }
+  for (final d in hit.danfasi) {
+    out.write('قال الدنفاسي («${d.title}»):\n');
+    for (final line in d.lines) {
+      out.write('$line\n');
     }
   }
-  return out.toString().trimRight();
 }
 
 /// The «تنزيلات ومتشابهات» sheet of one ayah: every tanzilah touching it, its
@@ -128,6 +178,7 @@ Future<void> showTanzilatSheet(
   required void Function(int page, int surah, int ayah) onOpenPlace,
 }) async {
   await TanzilatService.instance.load();
+  await TanzilatNotesStore.instance.load();
   if (!context.mounted) return;
   final isDarkMode = Theme.of(context).brightness == Brightness.dark;
   await showModalBottomSheet<void>(
@@ -189,13 +240,9 @@ class TanzilatSheetContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Rarest first: a غريبة is the one most worth knowing; the spelling
-    // rules (hundreds of places) go last.
+    // Rarest first: a غريبة is the one most worth knowing.
     final hits = [...TanzilatService.instance.forAyah(surah, ayah)]
-      ..sort((a, b) {
-        if (a.row.rule != b.row.rule) return a.row.rule ? 1 : -1;
-        return a.count.compareTo(b.count);
-      });
+      ..sort((a, b) => a.count.compareTo(b.count));
     return Directionality(
       textDirection: TextDirection.rtl,
       child: FutureBuilder<Map<(int, int), _AyahInfo>>(
@@ -238,12 +285,23 @@ class TanzilatSheetContent extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (index != null && hits.isNotEmpty)
+                    // Also on an ayah with no tanzilah: it may have a note.
+                    if (index != null)
                       _CopyAllButton(
                         colour: _accent,
-                        text: () => tanzilatCopyText(surah, ayah, hits, {
-                          for (final e in index.entries) e.key: e.value.words,
-                        }),
+                        text: () => tanzilatCopyText(
+                          surah,
+                          ayah,
+                          hits,
+                          {
+                            for (final e in index.entries)
+                              e.key: e.value.words,
+                          },
+                          note: TanzilatNotesStore.instance.noteOf(
+                            surah,
+                            ayah,
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -252,6 +310,16 @@ class TanzilatSheetContent extends StatelessWidget {
                   'اضغط على أي موضع لتنتقل إلى صفحته.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12.5, color: _accent),
+                ),
+                const SizedBox(height: 10),
+                _NotesCard(
+                  surah: surah,
+                  ayah: ayah,
+                  dark: dark,
+                  title: _title,
+                  accent: _accent,
+                  border: _border,
+                  card: _card,
                 ),
                 const SizedBox(height: 10),
                 if (hits.isEmpty)
@@ -293,13 +361,137 @@ class TanzilatSheetContent extends StatelessWidget {
   }
 }
 
+/// «ملاحظاتي»: the reader's note on this ayah, at the top of the sheet. One
+/// line while empty (the hint names it), growing with the text up to 6 lines
+/// and then scrolling; the label moves above once there is text. Saved as it
+/// is typed; the keyboard opens only on a touch.
+class _NotesCard extends StatefulWidget {
+  const _NotesCard({
+    required this.surah,
+    required this.ayah,
+    required this.dark,
+    required this.title,
+    required this.accent,
+    required this.border,
+    required this.card,
+  });
+
+  final int surah;
+  final int ayah;
+  final bool dark;
+  final Color title;
+  final Color accent;
+  final Color border;
+  final Color card;
+
+  @override
+  State<_NotesCard> createState() => _NotesCardState();
+}
+
+class _NotesCardState extends State<_NotesCard> {
+  static const Color _gold = Color(0xFFD6B35D);
+
+  late final TextEditingController _controller = TextEditingController(
+    text: TanzilatNotesStore.instance.noteOf(widget.surah, widget.ayah),
+  );
+  final FocusNode _focus = FocusNode();
+  Timer? _saveTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() => setState(() {}));
+  }
+
+  void _changed(String text) {
+    setState(() {});
+    _saveTimer?.cancel();
+    _saveTimer = Timer(
+      const Duration(milliseconds: 400),
+      () => TanzilatNotesStore.instance.setNote(widget.surah, widget.ayah, text),
+    );
+  }
+
+  @override
+  void dispose() {
+    // Closing the sheet mid-word still keeps the last letters.
+    if (_saveTimer?.isActive ?? false) {
+      _saveTimer!.cancel();
+      TanzilatNotesStore.instance.setNote(
+        widget.surah,
+        widget.ayah,
+        _controller.text,
+      );
+    }
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasText = _controller.text.isNotEmpty;
+    final focused = _focus.hasFocus;
+    final hint = widget.accent.withValues(alpha: widget.dark ? 0.55 : 0.6);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: EdgeInsets.fromLTRB(12, hasText ? 6 : 8, 12, 8),
+      decoration: BoxDecoration(
+        color: widget.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: focused ? _gold : widget.border, width: 1.5),
+        boxShadow: [
+          if (focused)
+            BoxShadow(color: _gold.withValues(alpha: 0.18), spreadRadius: 3),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasText)
+            Text(
+              'ملاحظاتي',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: widget.accent,
+              ),
+            ),
+          TextField(
+            controller: _controller,
+            focusNode: _focus,
+            onChanged: _changed,
+            onTapOutside: (_) => _focus.unfocus(),
+            minLines: 1,
+            maxLines: 6,
+            keyboardType: TextInputType.multiline,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontSize: 15, height: 1.6, color: widget.title),
+            decoration: InputDecoration.collapsed(
+              hintText: 'ملاحظاتي: اكتب هنا ملاحظاتك عن متشابهات هذه الآية…',
+              hintStyle: TextStyle(fontSize: 14.5, color: hint),
+            ).copyWith(hintMaxLines: 1),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// «نسخ الكل»: copies the whole sheet; says so for a moment (a snack bar
-/// would sit behind the sheet).
+/// would sit behind the sheet). [iconOnly] is the small icon on one
+/// tanzilah's card, which copies that tanzilah only.
 class _CopyAllButton extends StatefulWidget {
-  const _CopyAllButton({required this.colour, required this.text});
+  const _CopyAllButton({
+    required this.colour,
+    required this.text,
+    this.iconOnly = false,
+  });
 
   final Color colour;
   final String Function() text;
+  final bool iconOnly;
 
   @override
   State<_CopyAllButton> createState() => _CopyAllButtonState();
@@ -318,6 +510,20 @@ class _CopyAllButtonState extends State<_CopyAllButton> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.iconOnly) {
+      return IconButton(
+        onPressed: _copy,
+        tooltip: _copied ? 'تم النسخ' : 'نسخ هذه التنزيلة',
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        padding: EdgeInsets.zero,
+        icon: Icon(
+          _copied ? Icons.check_rounded : Icons.copy_rounded,
+          size: 18,
+          color: widget.colour,
+        ),
+      );
+    }
     return TextButton.icon(
       onPressed: _copy,
       icon: Icon(
@@ -383,7 +589,7 @@ class _TanzilahCardState extends State<_TanzilahCard> {
       shown = places.take(_collapsedCount).toList();
       if (ownIndex >= _collapsedCount) shown = [...shown, places[ownIndex]];
     }
-    final heading = _headingOf(hit);
+    final heading = _headingOf(hit, (s, a) => widget.index[(s, a)]?.words);
     return Container(
       decoration: BoxDecoration(
         color: widget.card,
@@ -406,9 +612,7 @@ class _TanzilahCardState extends State<_TanzilahCard> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  hit.row.rule
-                      ? '${hit.row.places.length}'
-                      : (hit.group.isGharibah ? 'غريبة' : hit.group.label),
+                  hit.group.isGharibah ? 'غريبة' : hit.group.label,
                   style: TextStyle(
                     color: widget.dark ? Colors.black : Colors.white,
                     fontWeight: FontWeight.bold,
@@ -427,16 +631,16 @@ class _TanzilahCardState extends State<_TanzilahCard> {
                   ),
                 ),
               ),
+              // at the far left of the title (the row is right to left)
+              _CopyAllButton(
+                colour: widget.accent,
+                iconOnly: true,
+                text: () => tanzilahCopyText(widget.surah, widget.ayah, hit, {
+                  for (final e in widget.index.entries) e.key: e.value.words,
+                }),
+              ),
             ],
           ),
-          if (hit.row.rule && places.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'في ${tanzilahCountText(places.length)}',
-                style: TextStyle(fontSize: 12.5, color: widget.accent),
-              ),
-            ),
           const SizedBox(height: 6),
           for (final p in shown) _placeTile(p, colour),
           if (shown.length < places.length)

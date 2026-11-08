@@ -65,15 +65,16 @@ class TanzilahPlace {
 }
 
 /// One row of «مذكرة التنزيل». Most rows are one place; a [rule] row is a
-/// spelling written the same way wherever it occurs («متكررة»), so it holds
-/// every place of that word.
+/// spelling written the same way wherever it occurs («متكررة»), so it can
+/// hold several places of that word. Either way the row belongs to its
+/// tanzilah: the card and the colour are the whole group's.
 class TanzilahRow {
   /// The memo's word, kept for [rule] rows (their title in the sheet).
   final String? word;
   final bool rule;
   final List<TanzilahPlace> places;
 
-  /// الدنفاسي's verse about a [rule] row (a spelling rule has its own card).
+  /// الدنفاسي's verse about a [rule] row (shown on its tanzilah's card).
   final List<DanfasiVerse> danfasi;
 
   const TanzilahRow({
@@ -103,11 +104,16 @@ class TanzilahGroup {
   final List<TanzilahRow> rows;
   final List<DanfasiVerse> danfasi;
 
+  /// The title the reviewers gave it in the editor, or null (the card then
+  /// names it by its first words).
+  final String? title;
+
   const TanzilahGroup({
     required this.id,
     required this.label,
     required this.rows,
     this.danfasi = const [],
+    this.title,
   });
 
   bool get isGharibah => label == 'غ';
@@ -123,13 +129,18 @@ class TanzilahHit {
 
   const TanzilahHit(this.group, this.row);
 
-  /// The count the colour stands for: the group's count, but a spelling rule
-  /// counts its own places (its group's number counts words, not places).
-  int get count => row.rule ? row.places.length : group.count;
+  /// The count the colour stands for: the memo's count of the whole
+  /// tanzilah, its «متكررة» rows too (911 «8» = الصلوة، الزكوة، … one
+  /// tanzilah, owner 2026-10-22).
+  int get count => group.count;
 
-  /// الدنفاسي's verses on this hit's card: a spelling rule's own, else the
-  /// group's.
-  List<DanfasiVerse> get danfasi => row.rule ? row.danfasi : group.danfasi;
+  /// الدنفاسي's verses on this hit's card: the group's and its rows'.
+  List<DanfasiVerse> get danfasi => [
+    ...group.danfasi,
+    for (final r in group.rows)
+      for (final d in r.danfasi)
+        if (!group.danfasi.any((x) => x.title == d.title)) d,
+  ];
 }
 
 /// The colour bucket of a count: 0 = غريبة, 1..3 = 2..4, 4 = five or more.
@@ -202,7 +213,8 @@ class TanzilatService {
         for (final p in r.places) {
           final key = (p.surah, p.ayah);
           final hits = byAyah.putIfAbsent(key, () => []);
-          if (!hits.any((h) => h.group == g && h.row == r)) {
+          // one card per tanzilah, however many of its rows are here
+          if (!hits.any((h) => h.group == g)) {
             hits.add(TanzilahHit(g, r));
           }
           final w = words.putIfAbsent(key, () => {});
@@ -222,8 +234,8 @@ class TanzilatService {
     _loaded = true;
   }
 
-  /// The tanzilat touching one ayah (one entry per group and row), in the
-  /// memo's order.
+  /// The tanzilat touching one ayah (one entry per group), in the memo's
+  /// order.
   List<TanzilahHit> forAyah(int surah, int ayah) =>
       _byAyah[(surah, ayah)] ?? const [];
 
@@ -304,4 +316,5 @@ TanzilahGroup _group(
       ),
   ],
   danfasi: versesOf(g),
+  title: g['t'] as String?,
 );

@@ -678,6 +678,21 @@ def write_dart(reciters, results, pages):
                 page, c['surah'], c['ayah'], c['file'], c['at_ms']))
         lines.append('  },')
     lines.append('};')
+    # Server-added reciters bring their own cues (ContentUpdateService); the
+    # audio layer reads every cue through pageTurnCuesFor, so these lines must
+    # survive every regeneration of this file.
+    lines += [
+        '',
+        '/// Cues of reciters added by a server update (see `ContentUpdateService`):',
+        '/// reciter id -> page -> cue, read from `reciters_v<N>.json`.',
+        'Map<String, Map<int, PageTurnCue>> remotePageTurnCues = {};',
+        '',
+        '/// The page-turn cues of [reciterId]: the measured ones compiled above, else',
+        '/// the ones a server-added reciter came with, else null (the audio layer then',
+        '/// estimates the turn).',
+        'Map<int, PageTurnCue>? pageTurnCuesFor(String reciterId) =>',
+        '    pageTurnCues[reciterId] ?? remotePageTurnCues[reciterId];',
+    ]
     lines.append('')
     DART_OUT.write_text('\n'.join(lines), encoding='utf-8')
 

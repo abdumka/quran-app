@@ -27,6 +27,27 @@ class _ManualEngine extends RecitationEngine {
   }
 }
 
+/// Like the real recognizers: start() waits for the model to load, and a
+/// stop() meanwhile makes it return without opening the microphone.
+class _LoadingEngine extends RecitationEngine {
+  final _controller = StreamController<RecognizedSegment>.broadcast();
+  final _loaded = Completer<void>();
+  bool stopped = false;
+
+  @override
+  Stream<RecognizedSegment> get segments => _controller.stream;
+
+  @override
+  Future<void> start() => _loaded.future;
+
+  @override
+  Future<void> stop() async {
+    stopped = true;
+    if (!_loaded.isCompleted) _loaded.complete();
+    await _controller.close();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -175,6 +196,44 @@ void main() {
     expect(await second, isTrue);
     expect(service.activePage, 2);
     expect(service.status.value, MemorizationTestStatus.listening);
+  });
+
+  // A page turned and «إنهاء» pressed while the new page was still getting
+  // ready: the start used to carry on and bring the session back (or wait
+  // forever on the stopped recognizer), leaving every page covered.
+  test('stop while the recognizer loads calls the start off', () async {
+    final engine = _LoadingEngine();
+    final starting = service.start(
+      pageNumber: 1,
+      engineOverride: engine,
+      stopPlayback: false,
+    );
+    // The page is set up and the bar shows «جارٍ التحضير…» with «إنهاء».
+    while (service.activePage != 1) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(service.status.value, MemorizationTestStatus.preparing);
+    expect(service.isStarting, isTrue);
+
+    await service.stop();
+    expect(await starting, isFalse);
+    expect(engine.stopped, isTrue);
+    expect(service.status.value, MemorizationTestStatus.idle);
+    expect(service.activePage, isNull);
+    expect(service.isStarting, isFalse);
+  });
+
+  test('stop right after start leaves the service idle', () async {
+    final starting = service.start(
+      pageNumber: 1,
+      engineOverride: _ManualEngine(),
+      stopPlayback: false,
+    );
+    await service.stop();
+    expect(await starting, isFalse);
+    expect(service.status.value, MemorizationTestStatus.idle);
+    expect(service.activePage, isNull);
+    expect(service.isStarting, isFalse);
   });
 
   test('stop clears everything back to idle', () async {

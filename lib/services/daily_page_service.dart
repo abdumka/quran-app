@@ -108,6 +108,9 @@ class DailyPageService {
   bool _loaded = false;
   bool _rescheduling = false;
 
+  /// Set when [reschedule] is asked for while one is running.
+  bool _rescheduleAgain = false;
+
   /// Tail of the chained prefs writes for [pendingOpenPage]; see
   /// [_setPendingOpenPage].
   Future<void>? _pendingPageWrite;
@@ -302,8 +305,15 @@ class DailyPageService {
   /// Rebuilds the whole queue: cancels the reserved id block and schedules a
   /// fresh horizon of reminders, each with its own random page.
   Future<void> reschedule() async {
-    if (kIsWeb || _rescheduling) return;
+    if (kIsWeb) return;
+    if (_rescheduling) {
+      // A change (the time, the switch) while the queue is being built: it
+      // used to be dropped. The running build stops and starts over with it.
+      _rescheduleAgain = true;
+      return;
+    }
     _rescheduling = true;
+    _rescheduleAgain = false;
     try {
       final center = NotificationCenter.instance;
       await center.ensureInitialized();
@@ -322,6 +332,7 @@ class DailyPageService {
       final scheduled = <DateTime>[];
 
       for (var i = 0; i < occurrences.length; i++) {
+        if (!enabled.value || _rescheduleAgain) break;
         final when = occurrences[i];
         final page = _drawPage(drawn);
         drawn.add(page);
@@ -343,6 +354,13 @@ class DailyPageService {
           debugPrint('DailyPageService schedule failed: $error\n$stack');
         }
       }
+      // Switched off meanwhile: what this run queued goes too (the switch's
+      // own cancel may have come before some of it).
+      if (!enabled.value) {
+        await _cancelAll();
+        return;
+      }
+      if (_rescheduleAgain) return; // the rerun below writes the queue
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_scheduledOnPrefKey, _dateKey(DateTime.now()));
@@ -357,6 +375,7 @@ class DailyPageService {
       _publishNextReminder(prefs);
     } finally {
       _rescheduling = false;
+      if (_rescheduleAgain) await reschedule();
     }
   }
 

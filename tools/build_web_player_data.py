@@ -152,15 +152,13 @@ RECITERS = [
         # The sheikh's own Telegram khatma (t.me/Nouraldinrecitation), timed
         # scheme (2026-10-15). الاستعاذة is cut out of every file but al-Fatiha
         # (owner's request). Review page logs to the shared tracker under the
-        # slug "almislati".
+        # slug "almislati". Review finished 2026-11-07 (owner): no badge.
         "id": "almislati",
         "name": "نورالدين المسلاتي",
         "riwaya": "رواية قالون",
         "folder": "almislati",
         "scheme": "timed",
         "timingsDir": "C:/Down/MislatiTimed/timings",
-        "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_almislati.html",
     },
     {
         # midad collection 461010, timed scheme (2026-10-15). Source is 16 kHz
@@ -188,8 +186,6 @@ RECITERS = [
         "folder": "zarrouq",
         "scheme": "timed",
         "timingsDir": "C:/Down/ZarrouqTimed/timings",
-        "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_zarrouq.html",
     },
 ]
 

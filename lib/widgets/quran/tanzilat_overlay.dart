@@ -1,6 +1,9 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import '../../models/word_region_data.dart';
+import '../../services/tanzilat_paint_service.dart';
 import '../../services/tanzilat_service.dart';
 import '../../services/word_region_service.dart';
 
@@ -34,12 +37,35 @@ class TanzilatColors {
     return (dark ? TanzilatColors.dark : light)[tanzilahBucket(count)];
   }
 
+  /// What to paint for each bucket under [BlendMode.lighten]. The dark theme
+  /// inverts the page after this layer, so there the inverse is painted.
+  static List<Color> paintedBuckets({
+    required bool dark,
+    required bool byCount,
+  }) {
+    final wanted = byCount
+        ? (dark ? TanzilatColors.dark : light)
+        : List<Color>.filled(light.length, dark ? singleDark : single);
+    return [for (final c in wanted) dark ? inverted(c) : c];
+  }
+
+  static Color inverted(Color c) => Color.fromARGB(
+    255,
+    255 - (c.r * 255).round(),
+    255 - (c.g * 255).round(),
+    255 - (c.b * 255).round(),
+  );
+
   /// The legend's labels, in bucket order.
   static const List<String> labels = ['غريبة', '2', '3', '4', '5+'];
 }
 
 /// Colours the tanzilat words of one page: only the ink of each word turns
 /// coloured, the paper stays as it is.
+///
+/// The colours come from the page's picture ([TanzilatPaintService], exactly
+/// what the reviewers' brush painted); a page without one falls back to the
+/// word boxes.
 ///
 /// Placed like `PlayingAyahHighlight`: inside the box that renders the page
 /// `Image` (`BoxFit.fill`), under the reader's `ColorFiltered`, so ratio
@@ -69,6 +95,7 @@ class TanzilatOverlay extends StatelessWidget {
         TanzilatSetting.enabled,
         TanzilatSetting.colorByCount,
         TanzilatService.instance.revision,
+        TanzilatPaintService.instance.revision,
       ]),
       builder: (context, _) {
         if (!TanzilatSetting.enabled.value) return const SizedBox.shrink();
@@ -97,22 +124,38 @@ class TanzilatOverlay extends StatelessWidget {
               dark: dark,
             );
             if (marks.isEmpty) return const SizedBox.shrink();
-            // Its own raster: the Tasmee masks above repaint at every
-            // revealed word, and this layer must not be redrawn with them.
-            return IgnorePointer(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  size: Size.infinite,
-                  isComplex: true,
-                  willChange: false,
-                  painter: TanzilatPainter(
-                    marks,
-                    margin,
-                    dark,
-                    holes: tanzilatHoles(words),
-                  ),
-                ),
+            final byCount = TanzilatSetting.colorByCount.value;
+            return FutureBuilder<ui.Image?>(
+              key: ValueKey('$pageNumber|$dark|$byCount'),
+              future: TanzilatPaintService.instance.imageFor(
+                pageNumber,
+                TanzilatColors.paintedBuckets(dark: dark, byCount: byCount),
               ),
+              builder: (context, picture) {
+                if (picture.connectionState != ConnectionState.done) {
+                  return const SizedBox.shrink();
+                }
+                final image = picture.data;
+                // Its own raster: the Tasmee masks above repaint at every
+                // revealed word, and this layer must not be redrawn with them.
+                return IgnorePointer(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      size: Size.infinite,
+                      isComplex: true,
+                      willChange: false,
+                      painter: image != null
+                          ? TanzilatPicturePainter(image, margin)
+                          : TanzilatPainter(
+                              marks,
+                              margin,
+                              dark,
+                              holes: tanzilatHoles(words),
+                            ),
+                    ),
+                  ),
+                );
+              },
             );
           },
         );
@@ -151,6 +194,40 @@ List<Rect> tanzilatHoles(WordRegionPageData page) {
       for (final index in service.wordsOf(ayah.surah, ayah.ayah).keys)
         ...service.noPaintOf(ayah.surah, ayah.ayah, index),
   ];
+}
+
+/// Draws a page's colour picture over the page: it covers the 720x1640 page
+/// area, which is [margin] of the scan in the margin view.
+class TanzilatPicturePainter extends CustomPainter {
+  const TanzilatPicturePainter(this.image, this.margin);
+
+  final ui.Image image;
+  final Rect? margin;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final m = margin;
+    final target = m == null
+        ? Offset.zero & size
+        : Rect.fromLTRB(
+            m.left * size.width,
+            m.top * size.height,
+            m.right * size.width,
+            m.bottom * size.height,
+          );
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      target,
+      Paint()
+        ..blendMode = BlendMode.lighten
+        ..filterQuality = FilterQuality.low,
+    );
+  }
+
+  @override
+  bool shouldRepaint(TanzilatPicturePainter old) =>
+      old.image != image || old.margin != margin;
 }
 
 class TanzilatPainter extends CustomPainter {
@@ -200,14 +277,7 @@ class TanzilatPainter extends CustomPainter {
     }
     marks.forEach((colour, rects) {
       final paint = Paint()
-        ..color = dark
-            ? Color.fromARGB(
-                255,
-                255 - (colour.r * 255).round(),
-                255 - (colour.g * 255).round(),
-                255 - (colour.b * 255).round(),
-              )
-            : colour
+        ..color = dark ? TanzilatColors.inverted(colour) : colour
         ..blendMode = BlendMode.lighten;
       final path = Path();
       for (final r in rects) {

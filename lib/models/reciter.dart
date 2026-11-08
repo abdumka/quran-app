@@ -423,6 +423,11 @@ class Reciter {
   /// Timings revision 2 (2026-10-19): where he reads ayat without stopping, the
   /// group is one clip on its first ayah (452 ayat in 368 groups, e.g. 20:24-29)
   /// and the others have no span, as for the other joining reciters.
+  ///
+  /// Timings revision 3 (2026-11-07, owner's list): 56:70, 84:12 and 92:10
+  /// joined; 3:33, 11:81, 15:92, 16:43 and 25:41 start at his second reading,
+  /// the first one (read alone before the joined re-reading) is in no span.
+  /// Builds that bundle revision 2 get 3 from the server `reciters` override.
   static const Reciter almislatiQaloun = Reciter(
     id: 'almislati_qaloun',
     name: 'نورالدين المسلاتي',
@@ -435,7 +440,7 @@ class Reciter {
     // web build could not fetch these from beside the MP3s.
     timingsBaseUrlOverride:
         'https://quran-content.mushaf-qaloon.com/timings/almislati/',
-    timingsRevision: 2,
+    timingsRevision: 3,
   );
 
   /// Ahmad Khadr Al-Trabulsi (أحمد خضر الطرابلسي) — Qaloun.

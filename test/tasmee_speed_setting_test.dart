@@ -7,16 +7,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('«دقة أعلى» is the default; «استجابة أسرع» is remembered', () async {
-    SharedPreferences.setMockInitialValues({});
-    expect(await TasmeeSpeedSetting.mode(), TasmeeSpeed.accurate);
+  test('«تحقّق قبل التنبيه» is the only behaviour; an old stored level is ignored', () async {
+    SharedPreferences.setMockInitialValues({'tasmee_speed': TasmeeSpeed.fast.index});
+    expect(await TasmeeSpeedSetting.mode(), TasmeeSpeed.verified);
+    // Tests may still force the other two, in memory only.
     await TasmeeSpeedSetting.set(TasmeeSpeed.fast);
     expect(await TasmeeSpeedSetting.mode(), TasmeeSpeed.fast);
     expect((await SharedPreferences.getInstance()).getInt('tasmee_speed'), TasmeeSpeed.fast.index);
-    await TasmeeSpeedSetting.set(TasmeeSpeed.accurate);
+    await TasmeeSpeedSetting.set(TasmeeSpeed.verified);
+    expect(await TasmeeSpeedSetting.mode(), TasmeeSpeed.verified);
   });
 
-  test('the fast setting drops the judge dwell, halves the settle and picks the chunk-8 export', () {
+  test('the fast judge knobs still exist for the replay tests; the app loads the chunk-16 export', () {
     final slow = MemorizationTestService.trackerConfigFor(fast: false);
     final fast = MemorizationTestService.trackerConfigFor(fast: true);
     expect(slow.commitDwell, 6);
@@ -29,12 +31,10 @@ void main() {
     expect(MemorizationTestService.settleMsFor(fast: false), 1000);
     expect(MemorizationTestService.settleMsFor(fast: true), 500);
     final m = AsrModelManager.instance;
-    m.fast = false;
     expect(m.modelFile, 'zipformer_p_arabic_v3.1_c16.int8.onnx');
-    expect(m.zipformerFiles.keys, contains('zipformer-tokens.txt'));
-    m.fast = true;
-    expect(m.modelFile, 'zipformer_p_arabic_v3.1_c8.int8.onnx');
     expect(m.zipformerFiles[m.modelFile], 72705392);
-    m.fast = false;
+    expect(m.zipformerFiles.keys, contains('zipformer-tokens.txt'));
+    // The chunk-8 export of the retired «استجابة أسرع» level is cleaned up.
+    expect(AsrModelManager.obsoleteFiles, contains('zipformer_p_arabic_v3.1_c8.int8.onnx'));
   });
 }

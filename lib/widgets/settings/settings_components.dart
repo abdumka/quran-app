@@ -444,6 +444,9 @@ class CompactActionTile extends StatelessWidget {
   /// where a phone-width cell is too narrow for icon + title on one line.
   final bool stacked;
 
+  /// A small red dot on the icon, for something waiting behind this tile.
+  final bool showDot;
+
   const CompactActionTile({
     super.key,
     required this.title,
@@ -451,6 +454,7 @@ class CompactActionTile extends StatelessWidget {
     required this.onTap,
     this.onInfo,
     this.stacked = false,
+    this.showDot = false,
   });
 
   @override
@@ -500,7 +504,25 @@ class CompactActionTile extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        PremiumIconWrapper(icon: icon),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            PremiumIconWrapper(icon: icon),
+            if (showDot)
+              PositionedDirectional(
+                top: -2,
+                end: -2,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFC2412D),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 6),
         Text(
           title,

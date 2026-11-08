@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:share_plus/share_plus.dart';
@@ -75,6 +77,11 @@ class MemorizationTestOverlay extends StatelessWidget {
               width: constraints.maxWidth,
               height: constraints.maxHeight,
             );
+            // The page before the session's page, held in view while the
+            // opening words of an ayah that begins at its foot are recited.
+            if (service.isActive && service.headPage == pageNumber) {
+              return _headLayer(service, constraints.maxWidth, constraints.maxHeight);
+            }
             if (!service.isActive || service.activePage != pageNumber) {
               return cover;
             }
@@ -111,15 +118,13 @@ class MemorizationTestOverlay extends StatelessWidget {
             }
             // On the five pages whose last ayah runs on to the next page,
             // the words of that ayah printed here belong to the next page's
-            // text: they are covered like the rest and show once every ayah
-            // of this page is done (the reader then turns the page).
+            // text: they stay covered here, and are uncovered word by word
+            // once the session has moved on to that text (see _headLayer).
             final head = regions.continuing;
             if (head != null) {
-              final done = states.isNotEmpty &&
-                  states.every((s) => s == AyahRevealState.revealed);
               _collectAyah(
                 head,
-                done ? AyahRevealState.revealed : AyahRevealState.hidden,
+                AyahRevealState.hidden,
                 map,
                 wordBoxes: null,
                 wordStatuses: const [],
@@ -159,12 +164,92 @@ class MemorizationTestOverlay extends StatelessWidget {
                 // the page area (over the page's lower margin).
                 // The bar floats over the page; the reciter drags it (long
                 // press) wherever it is in the way least.
-                Positioned.fill(child: _SessionBar(service: service)),
+                Positioned.fill(
+                  child: _SessionBar(
+                    service: service,
+                    readingLine: _readingLine(service, regions, states, map),
+                  ),
+                ),
               ],
             );
           },
         );
       },
+    );
+  }
+
+  /// The page line (page-box pixels, full line height) of the first word
+  /// still to be uncovered: the line the reciter is on. The bar keeps
+  /// clear of it.
+  static Rect? _readingLine(
+    MemorizationTestService service,
+    AyahRegionPageData regions,
+    List<AyahRevealState> states,
+    _RatioMapper map,
+  ) {
+    for (var i = 0; i < regions.ayahs.length; i++) {
+      if (states[i] == AyahRevealState.revealed) continue;
+      final rects = regions.ayahs[i].rects;
+      if (rects.isEmpty) continue;
+      final boxes = service.wordBoxesFor(i);
+      final statuses = service.wordStatusesOf(i);
+      var line = rects.first;
+      if (boxes != null && boxes.length == statuses.length) {
+        final w = statuses.indexWhere(
+          (s) => s != WordStatus.correct && s != WordStatus.revealed,
+        );
+        if (w < 0) continue;
+        final cy = boxes[w].bounds.center.dy;
+        for (final r in rects) {
+          if (cy >= r.y && cy <= r.y + r.height) {
+            line = r;
+            break;
+          }
+        }
+      }
+      return map.rect(Rect.fromLTWH(line.x, line.y, line.width, line.height));
+    }
+    return null;
+  }
+
+  /// The opening words of the session page's first ayah, printed at the
+  /// foot of this page, masked by their statuses; the bar stays here too.
+  Widget _headLayer(MemorizationTestService service, double width, double height) {
+    final data = service.headRegions;
+    final cont = data?.continued;
+    final statuses = service.headStatuses;
+    final masks = <MaskPiece>[];
+    final margin = marginView ? data?.marginRect : null;
+    if (data != null && cont != null && (!marginView || margin != null)) {
+      final map = _RatioMapper(width, height, margin);
+      final paper = (marginView ? data.marginPaper : data.paper) ?? _paperColor;
+      for (var w = 0; w < statuses.length && w < cont.words.length; w++) {
+        if (statuses[w] == WordStatus.correct) continue;
+        final color = switch (statuses[w]) {
+          WordStatus.mistake => _mistakeMask,
+          WordStatus.skipped => _skippedMask,
+          WordStatus.unclear => _unclearMask,
+          WordStatus.revealed => _flaggedWash,
+          _ => paper,
+        };
+        final box = cont.words[w];
+        final unit = Object();
+        for (final p in box.parts.isEmpty ? [box.bounds] : box.parts) {
+          masks.add(MaskPiece(map.rect(p), color, unit));
+        }
+      }
+    }
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: MemorizationMaskPainter(masks, const [], _currentBorder),
+            ),
+          ),
+        ),
+        Positioned.fill(child: _SessionBar(service: service)),
+      ],
     );
   }
 
@@ -525,10 +610,48 @@ class _OpeningCueState extends State<_OpeningCue> {
   }
 }
 
+/// Where the session bar should step to so it does not cover [line] (the
+/// line being read): the new shift (fraction of [pageHeight], from the bar's
+/// own place at [homeTop]), or null to stay where it is. It steps only when
+/// the line comes within a line of the bar, to 2 lines above the line (or 2
+/// below when there is no room above), and back home only once the reading
+/// has gone back up above its place. Pure, for tests.
+@visibleForTesting
+double? tasmeeBarShift({
+  required Rect line,
+  required double homeTop,
+  required double barHeight,
+  required double pageHeight,
+  required double shift,
+}) {
+  final h = pageHeight;
+  final top = homeTop + shift * h;
+  final lh = line.height;
+  bool covers(double t) => line.bottom + lh > t && line.top - lh < t + barHeight;
+  double? next;
+  if (shift != 0 &&
+      line.bottom < top &&
+      !covers(homeTop) &&
+      line.bottom + 3 * lh < homeTop) {
+    next = 0; // the reading went back up the page: home again
+  } else if (covers(top)) {
+    var t = line.top - 2 * lh - barHeight;
+    if (t < 0) t = line.bottom + 2 * lh;
+    t = t.clamp(0.0, math.max(0.0, h - barHeight)).toDouble();
+    if (covers(t)) return null; // nowhere clear: stay put
+    next = (t - homeTop) / h;
+  }
+  if (next == null || (next - shift).abs() * h < 1) return null;
+  return next;
+}
+
 class _SessionBar extends StatefulWidget {
-  const _SessionBar({required this.service});
+  const _SessionBar({required this.service, this.readingLine});
 
   final MemorizationTestService service;
+
+  /// The line being read, in page-box pixels (null: nothing to keep clear).
+  final Rect? readingLine;
 
   @override
   State<_SessionBar> createState() => _SessionBarState();
@@ -546,6 +669,18 @@ class _SessionBarState extends State<_SessionBar> {
   final GlobalKey _barKey = GlobalKey();
   Offset? _dragOrigin; // bar top-left (px) when the drag started
   Offset? _dragStart; // finger (global) when the drag started
+
+  /// How far the bar has stepped out of the way of the line being read,
+  /// as a fraction of the page height (0 = in its own place). It moves
+  /// once when that line comes within a line of it, to 2 lines above the
+  /// line (below it when there is no room above), and stays there while
+  /// the reading goes on down the page: one move, no back and forth. It
+  /// goes back to its place when the reading jumps back up above that
+  /// place (a restart), or on the next page (a new bar). In fractions,
+  /// so it keeps to the same text if the page box changes size.
+  double _shift = 0;
+
+  bool _avoidQueued = false;
 
   @override
   void initState() {
@@ -616,6 +751,11 @@ class _SessionBarState extends State<_SessionBar> {
     if (tl == null) return;
     _dragOrigin = tl;
     _dragStart = d.globalPosition;
+    if (_shift != 0) {
+      // Where the bar shows now becomes its place.
+      _shift = 0;
+      _setPosPx(tl);
+    }
     HapticFeedback.selectionClick();
     service.logUi('barDragStart');
   }
@@ -652,36 +792,95 @@ class _SessionBarState extends State<_SessionBar> {
     });
   }
 
-  /// Places [child] at the saved spot, or bottom centre by default.
-  Widget _place(Widget child) {
+  /// Checks, once the frame is laid out, whether the bar covers the line
+  /// being read (see [_shift]).
+  void _scheduleAvoid() {
+    if (_avoidQueued) return;
+    _avoidQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _avoidQueued = false;
+      if (mounted) _avoid();
+    });
+  }
+
+  void _avoid() {
+    if (_dragOrigin != null) return;
+    final line = widget.readingLine;
+    final page = _pageBox;
+    final bar = _barBox;
+    if (line == null || page == null || bar == null || !page.hasSize || !bar.hasSize) {
+      return;
+    }
+    final h = page.size.height;
+    final barH = bar.size.height;
+    final p = _pos;
+    // The bar's own place (as _place puts it).
+    final homeTop = p == null ? h - h * 0.006 - barH : p.dy * h;
+    final next = tasmeeBarShift(
+      line: line,
+      homeTop: homeTop,
+      barHeight: barH,
+      pageHeight: h,
+      shift: _shift,
+    );
+    if (next == null) return;
+    service.logUi('barAvoid', {'shift': double.parse(next.toStringAsFixed(3))});
+    setState(() => _shift = next);
+  }
+
+  /// Places [child] at the saved spot, or bottom centre by default, moved
+  /// by [_shift] out of the way of the line being read. The move changes
+  /// the bar's real position (AnimatedPositioned), not only where it is
+  /// painted: a painted-only shift left its buttons answering at the old
+  /// spot, so after a move nothing in the bar worked (owner, 2026-11-03).
+  Widget _place(Widget bar) {
     final page = _pageBox;
     final p = _pos;
+    _scheduleAvoid();
+    final shiftPx = page != null && page.hasSize ? _shift * page.size.height : 0.0;
+    // Under the finger a drag must follow at once.
+    final duration = _dragOrigin != null
+        ? Duration.zero
+        : const Duration(milliseconds: 220);
     final movable = GestureDetector(
       key: _barKey,
       behavior: HitTestBehavior.opaque,
       onLongPressStart: _onDragStart,
       onLongPressMoveUpdate: _onDragMove,
       onLongPressEnd: _onDragEnd,
-      child: child,
+      child: bar,
     );
     if (p == null || page == null || !page.hasSize) {
+      final bottom = page != null && page.hasSize ? page.size.height * 0.006 : 6.0;
       return Stack(
         children: [
-          Positioned(
+          AnimatedPositioned(
+            duration: duration,
+            curve: Curves.easeOutCubic,
             left: 6,
             right: 6,
-            bottom: page != null && page.hasSize ? page.size.height * 0.006 : 6,
+            bottom: bottom - shiftPx,
             child: Center(child: movable),
           ),
         ],
       );
     }
+    final left = p.dx * page.size.width;
     return Stack(
       children: [
-        Positioned(
-          left: p.dx * page.size.width,
-          top: p.dy * page.size.height,
-          child: movable,
+        AnimatedPositioned(
+          duration: duration,
+          curve: Curves.easeOutCubic,
+          left: left,
+          top: p.dy * page.size.height + shiftPx,
+          // Never wider than the room to the page's right edge: a long
+          // message wraps instead of pushing the bar off the page.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: (page.size.width - left).clamp(80.0, double.infinity),
+            ),
+            child: movable,
+          ),
         ),
       ],
     );
@@ -799,6 +998,13 @@ class _SessionBarState extends State<_SessionBar> {
       constraints: const BoxConstraints(maxWidth: 560),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        // A bar the reader has moved is pinned by its left edge: the buttons
+        // keep to that edge, so a message growing or shrinking above them
+        // never slides «أعد الآية» under a finger aimed at «كلمة». Centred
+        // in its default place, where the centre is what stays put.
+        textDirection: TextDirection.ltr,
+        crossAxisAlignment:
+            _pos == null ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
           if (message != null)
             Container(

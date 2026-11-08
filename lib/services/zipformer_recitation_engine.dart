@@ -10,6 +10,8 @@ import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'recitation_engine.dart';
+import 'tasmee_report_store.dart'
+    show TasmeeMicSource, TasmeeMicSourceSetting;
 
 /// Model files of the streaming phoneme recognizer.
 class ZipformerModelPaths {
@@ -45,8 +47,36 @@ class ZipformerRecitationEngine extends RecitationEngine {
   StreamSubscription<Uint8List>? _micSub;
   ReceivePort? _receivePort;
 
+  /// Set by [stop]. A [start] still loading the model or opening the
+  /// microphone then returns without opening it (the session ended while
+  /// it was getting ready).
+  bool _stopped = false;
+
+  /// Completes with the worker's port once the model is loaded, with null
+  /// when [stop] comes first, or with an error when the model fails to load.
+  Completer<SendPort?>? _ready;
+
+  /// Fresh re-decodes in flight ([verify]), by request id.
+  final Map<int, Completer<List<String>?>> _verifies = {};
+  int _verifySeq = 0;
+
   @override
   Stream<RecognizedSegment> get segments => _controller.stream;
+
+  /// Wall-clock milliseconds the most recent [verify] decode took in the
+  /// worker (0 until one has run).
+  final ValueNotifier<int> lastVerifyMs = ValueNotifier(0);
+
+  @override
+  Future<List<String>?> verify({required int fromMs, required int toMs}) {
+    final port = _workerPort;
+    if (port == null || _stopped) return Future.value(null);
+    final id = ++_verifySeq;
+    final completer = Completer<List<String>?>();
+    _verifies[id] = completer;
+    port.send(_VerifyRequest(id, fromMs, toMs));
+    return completer.future;
+  }
 
   @override
   bool get emitsPhonemes => true;
@@ -55,11 +85,19 @@ class ZipformerRecitationEngine extends RecitationEngine {
   Future<void> start() async {
     final receivePort = ReceivePort();
     _receivePort = receivePort;
-    final readyCompleter = Completer<SendPort>();
+    final readyCompleter = Completer<SendPort?>();
+    _ready = readyCompleter;
 
     receivePort.listen((message) {
       if (message is SendPort) {
-        readyCompleter.complete(message);
+        if (_stopped) {
+          // Stopped while the model was loading: the worker frees it and
+          // ends on its own.
+          message.send(const _WorkerShutdown());
+          receivePort.close();
+        } else if (!readyCompleter.isCompleted) {
+          readyCompleter.complete(message);
+        }
       } else if (message is _PhonemeEvent) {
         final micStart = _micStartedAt;
         final lag = micStart == null
@@ -82,9 +120,20 @@ class ZipformerRecitationEngine extends RecitationEngine {
         audioLevel.value = message.level;
       } else if (message is _DecodeStats) {
         lastDecodeMs.value = message.milliseconds;
+      } else if (message is _VerifyResult) {
+        lastVerifyMs.value = message.milliseconds;
+        _verifies.remove(message.id)?.complete(message.tokens);
       } else if (message is _WorkerError) {
         debugPrint('ZipformerRecitationEngine worker error: ${message.message}');
-        if (!_controller.isClosed) _controller.addError(message.message);
+        if (!readyCompleter.isCompleted) {
+          // The model did not load: the start fails instead of waiting for
+          // a worker that has already given up.
+          readyCompleter.completeError(StateError(message.message));
+        } else if (_stopped) {
+          receivePort.close();
+        } else if (!_controller.isClosed) {
+          _controller.addError(message.message);
+        }
       }
     });
 
@@ -93,21 +142,39 @@ class ZipformerRecitationEngine extends RecitationEngine {
       _WorkerInit(receivePort.sendPort, _paths),
       debugName: 'zipformer-asr-worker',
     );
-    _workerPort = await readyCompleter.future;
+    final workerPort = await readyCompleter.future;
+    if (workerPort == null) return;
+    _workerPort = workerPort;
 
     final micStream = await _recorder.startStream(
-      const RecordConfig(
+      RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
+        // Lab builds may ask for the raw or the speech-recognition source
+        // (see TasmeeMicSourceSetting); the shipped app uses the default.
+        androidConfig: AndroidRecordConfig(
+          audioSource: switch (await TasmeeMicSourceSetting.mode()) {
+            TasmeeMicSource.system => AndroidAudioSource.defaultSource,
+            TasmeeMicSource.unprocessed => AndroidAudioSource.unprocessed,
+            TasmeeMicSource.voiceRecognition =>
+              AndroidAudioSource.voiceRecognition,
+          },
+        ),
         // iOS mutes haptics and system sounds while an app records unless
         // told otherwise, which silenced the mistake alerts (vibration and
         // tone) there. Android ignores this.
-        iosConfig: IosRecordConfig(
+        iosConfig: const IosRecordConfig(
           allowHapticsAndSystemSoundsDuringRecording: true,
         ),
       ),
     );
+    if (_stopped) {
+      try {
+        await _recorder.stop();
+      } catch (_) {}
+      return;
+    }
     _micStartedAt = DateTime.now();
     if (!kIsWeb && Platform.isIOS) {
       // Set once more after the mic is live: the alerts (haptics and tone)
@@ -127,6 +194,17 @@ class ZipformerRecitationEngine extends RecitationEngine {
 
   @override
   Future<void> stop() async {
+    _stopped = true;
+    // Still loading the model: [start] gives up now, and the worker shuts
+    // itself down once loaded (the port stays open to tell it so; killing
+    // it mid-load would leak the native model).
+    final ready = _ready;
+    final loading = ready != null && !ready.isCompleted;
+    if (loading) ready.complete(null);
+    for (final c in _verifies.values) {
+      c.complete(null);
+    }
+    _verifies.clear();
     await _micSub?.cancel();
     _micSub = null;
     try {
@@ -135,10 +213,12 @@ class ZipformerRecitationEngine extends RecitationEngine {
     _recorder.dispose();
     _workerPort?.send(const _WorkerShutdown());
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    _isolate?.kill(priority: Isolate.beforeNextEvent);
+    if (!loading) {
+      _isolate?.kill(priority: Isolate.beforeNextEvent);
+      _receivePort?.close();
+    }
     _isolate = null;
     _workerPort = null;
-    _receivePort?.close();
     _receivePort = null;
     audioLevel.value = 0;
     busy.value = false;
@@ -156,6 +236,24 @@ class _PhonemeEvent {
 
 class _DecodeStats {
   const _DecodeStats(this.milliseconds);
+  final int milliseconds;
+}
+
+/// Main -> worker: decode this window of the recent audio with a fresh
+/// stream (see [RecitationEngine.verify]).
+class _VerifyRequest {
+  const _VerifyRequest(this.id, this.fromMs, this.toMs);
+  final int id;
+  final int fromMs;
+  final int toMs;
+}
+
+/// Worker -> main: the tokens the fresh decode heard (null when the window
+/// was no longer in the buffer), and how long it took.
+class _VerifyResult {
+  const _VerifyResult(this.id, this.tokens, this.milliseconds);
+  final int id;
+  final List<String>? tokens;
   final int milliseconds;
 }
 
@@ -180,6 +278,15 @@ class _LevelEvent {
 }
 
 const int _sampleRate = 16000;
+
+/// How much recent audio the worker keeps for [RecitationEngine.verify]:
+/// the window is up to 6 s, and a second of slack covers the audio that
+/// arrives while a request is on its way.
+const int _ringSeconds = 7;
+
+/// Silence appended to a verify window so the recognizer flushes the last
+/// word's tokens (its decode runs a chunk behind the input).
+const int _verifyPadSamples = _sampleRate ~/ 2;
 
 /// Worker isolate: owns the sherpa objects; PCM bytes in, phoneme events out.
 Future<void> _workerMain(_WorkerInit init) async {
@@ -217,6 +324,9 @@ Future<void> _workerMain(_WorkerInit init) async {
   var carry = Uint8List(0);
   var audioSamples = 0;
   var sentTokens = 0;
+  // Ring buffer of the most recent audio, for fresh re-decodes.
+  final ring = Float32List(_ringSeconds * _sampleRate);
+  var ringPos = 0;
   var lastLevelSent = DateTime.fromMillisecondsSinceEpoch(0);
   var peakRms = 0.0;
   var pendingSamples = 0;
@@ -224,6 +334,22 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   await for (final message in commandPort) {
     if (message is _WorkerShutdown) break;
+    if (message is _VerifyRequest) {
+      final started = DateTime.now();
+      final tokens = _verifyWindow(
+        recognizer,
+        ring,
+        audioSamples,
+        message.fromMs,
+        message.toMs,
+      );
+      init.replyTo.send(_VerifyResult(
+        message.id,
+        tokens,
+        DateTime.now().difference(started).inMilliseconds,
+      ));
+      continue;
+    }
     if (message is! Uint8List) continue;
 
     final bytes = carry.isEmpty
@@ -254,6 +380,10 @@ Future<void> _workerMain(_WorkerInit init) async {
       peakRms = 0.0;
     }
 
+    for (var i = 0; i < sampleCount; i++) {
+      ring[ringPos] = float32[i];
+      ringPos = ringPos + 1 == ring.length ? 0 : ringPos + 1;
+    }
     audioSamples += sampleCount;
     pendingSamples += sampleCount;
     stream.acceptWaveform(samples: float32, sampleRate: _sampleRate);
@@ -292,4 +422,35 @@ Future<void> _workerMain(_WorkerInit init) async {
   recognizer.free();
   commandPort.close();
   Isolate.exit();
+}
+
+/// Decodes [fromMs, toMs] of the audio in [ring] (whose last sample is
+/// sample number [audioSamples] of the stream) with a fresh stream of
+/// [recognizer]; null when the window is not in the buffer any more.
+List<String>? _verifyWindow(
+  sherpa.OnlineRecognizer recognizer,
+  Float32List ring,
+  int audioSamples,
+  int fromMs,
+  int toMs,
+) {
+  final oldest = math.max(0, audioSamples - ring.length);
+  final from = math.max(oldest, fromMs * _sampleRate ~/ 1000);
+  final to = math.min(audioSamples, toMs * _sampleRate ~/ 1000);
+  if (to - from < _sampleRate ~/ 2) return null;
+  final clip = Float32List(to - from + _verifyPadSamples);
+  for (var s = from; s < to; s++) {
+    clip[s - from] = ring[s % ring.length];
+  }
+  final stream = recognizer.createStream();
+  try {
+    stream.acceptWaveform(samples: clip, sampleRate: _sampleRate);
+    stream.inputFinished();
+    while (recognizer.isReady(stream)) {
+      recognizer.decode(stream);
+    }
+    return List<String>.of(recognizer.getResult(stream).tokens);
+  } finally {
+    stream.free();
+  }
 }

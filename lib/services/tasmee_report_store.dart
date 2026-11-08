@@ -34,20 +34,29 @@ class TasmeeError {
   /// released by a repair), as opposed to moving on or asking for it.
   bool repaired;
 
-  /// How the mistakes log files it: `repaired` (stumbled, then got it
-  /// right), `asked` (uncovered or skipped with a button), or `wrong`
+  /// How the mistakes log files it: `asked` (uncovered or skipped with a
+  /// button, or judged wrong in a self-test: the counted mistakes), or a
+  /// microphone stop that was `repaired` (said right after) or `wrong`
   /// (never put right in that session).
-  String get category => repaired
-      ? 'repaired'
-      : switch (kind) {
-          'revealed' || 'skippedAyah' => 'asked',
-          _ => 'wrong',
-        };
+  String get category => counts
+      ? 'asked'
+      : (repaired ? 'repaired' : 'wrong');
+
+  /// Whether this counts as a mistake. Only what the reader asked for (a
+  /// word or an ayah uncovered, an ayah skipped with the button) or judged
+  /// wrong themself in a self-test counts. A stop the microphone made
+  /// (the pink word) does not: the model misses some words that were said
+  /// right, so a stop is an alert, kept in the report but not counted
+  /// (owner, 2026-10-31).
+  bool get counts =>
+      kind == 'revealed' || kind == 'skippedAyah' || kind == 'recall';
 
   static String categoryLabel(String category) => switch (category) {
-        'repaired' => 'تعثّر ثم أصاب',
-        'asked' => 'كُشفت أو تُخطّيت بطلب',
-        _ => 'لم تُصوَّب',
+        // Only `asked` counts as a mistake (see [counts]); the other two
+        // are the microphone's stops.
+        'repaired' => 'تنبيه ثم أصاب',
+        'asked' => 'تُحسب أخطاء',
+        _ => 'تنبيه لم يُصحَّح',
       };
 
   String get kindLabel => switch (kind) {
@@ -115,6 +124,15 @@ class TasmeeReport {
   final int holds;
   final int repairs;
 
+  /// The errors that count as mistakes (see [TasmeeError.counts]).
+  List<TasmeeError> get mistakes => [
+        for (final e in errors)
+          if (e.counts) e,
+      ];
+
+  /// The microphone's stops, kept for the record but not counted.
+  int get alerts => errors.length - mistakes.length;
+
   Map<String, Object?> toJson() => {
         'page': page,
         'at': at.toIso8601String(),
@@ -126,6 +144,22 @@ class TasmeeReport {
         'holds': holds,
         'repairs': repairs,
       };
+
+  /// The same report with only the errors [keep] accepts.
+  TasmeeReport withErrors(bool Function(TasmeeError e) keep) => TasmeeReport(
+        page: page,
+        at: at,
+        seconds: seconds,
+        words: words,
+        correct: correct,
+        errors: [
+          for (final e in errors)
+            if (keep(e)) e,
+        ],
+        finished: finished,
+        holds: holds,
+        repairs: repairs,
+      );
 
   factory TasmeeReport.fromJson(Map<String, dynamic> j) => TasmeeReport(
         page: j['page'] as int? ?? 0,
@@ -210,6 +244,53 @@ class TasmeeReportStore {
       return const [];
     }
   }
+
+  /// Runs [change] over every saved report: null deletes it, the same
+  /// object keeps it, another report replaces it. Returns the original
+  /// contents of every file it touched (path -> JSON), for [restore].
+  static Future<Map<String, String>> edit(
+    TasmeeReport? Function(TasmeeReport report) change,
+  ) async {
+    final originals = <String, String>{};
+    try {
+      final dir = await _dir();
+      for (final f in _reportFiles(dir)) {
+        final String raw;
+        final TasmeeReport report;
+        try {
+          raw = f.readAsStringSync();
+          report = TasmeeReport.fromJson(json.decode(raw) as Map<String, dynamic>);
+        } catch (_) {
+          continue;
+        }
+        final next = change(report);
+        if (identical(next, report)) continue;
+        originals[f.path] = raw;
+        if (next == null) {
+          f.deleteSync();
+        } else {
+          final tmp = File('${f.path}.tmp')
+            ..writeAsStringSync(json.encode(next.toJson()));
+          tmp.renameSync(f.path);
+        }
+      }
+    } catch (e) {
+      debugPrint('TasmeeReportStore: edit failed: $e');
+    }
+    return originals;
+  }
+
+  /// Puts back the files [edit] changed («تراجع»).
+  static Future<void> restore(Map<String, String> originals) async {
+    for (final e in originals.entries) {
+      try {
+        final tmp = File('${e.key}.tmp')..writeAsStringSync(e.value);
+        tmp.renameSync(e.key);
+      } catch (err) {
+        debugPrint('TasmeeReportStore: restore failed: $err');
+      }
+    }
+  }
 }
 
 /// «التسميع من أي موضع»: open any page and recite from anywhere in the
@@ -239,35 +320,82 @@ class TasmeeLocateAnywhere {
   }
 }
 
-/// «دقة أعلى» (the default) or «استجابة أسرع»: the faster recogniser export
-/// (8-frame chunks instead of 16) and a judge that commits without waiting.
-/// Measured 2026-10-23 on 256 owner sessions: words show about 0.1 s sooner
-/// at the median and 0.3 s sooner at the 90th percentile, for about one
-/// more false stop per 100 words (`research_2026-10-05/RESULTS.txt`).
-enum TasmeeSpeed { accurate, fast }
+/// How the judge runs. Since 2026-11-07 the app has one behaviour,
+/// [TasmeeSpeed.verified]; the other two were user-selectable levels from
+/// 2026-10-23 to 2026-11-07 and stay here for the session logs, the replay
+/// harness and the tests.
+///
+/// `accurate`: the plain judge. `fast`: the 8-frame recogniser export plus a
+/// judge that commits without waiting, 0.12 s sooner for about 8 % more
+/// false stops. `verified`: the plain judge plus a second opinion before a
+/// wrong-word stop: the last few seconds are decoded once more with a fresh
+/// recognizer state, and a stop whose fresh decode hears the expected word in
+/// place is withdrawn (the live decode carries the memory of what came before
+/// and can drop a word's first sound). About 11 % fewer stops at the same
+/// reveal lag; costs about half a second at a stop, nothing elsewhere
+/// (`research_2026-10-05/RESULTS.txt`, 2026-11-06 and 2026-11-07).
+enum TasmeeSpeed { accurate, fast, verified }
 
 class TasmeeSpeedSetting {
-  static const String _pref = 'tasmee_speed';
   static TasmeeSpeed? _value;
 
-  static String label(TasmeeSpeed m) =>
-      m == TasmeeSpeed.fast ? 'استجابة أسرع' : 'دقة أعلى';
+  static String label(TasmeeSpeed m) => switch (m) {
+        TasmeeSpeed.fast => 'استجابة أسرع',
+        TasmeeSpeed.verified => 'تحقّق قبل التنبيه',
+        TasmeeSpeed.accurate => 'دقة أعلى',
+      };
 
-  static Future<TasmeeSpeed> mode() async {
+  /// Always [TasmeeSpeed.verified] in the app; a stored `tasmee_speed`
+  /// preference from an earlier build is ignored.
+  static Future<TasmeeSpeed> mode() async => _value ?? TasmeeSpeed.verified;
+
+  /// In-memory override for tests of the other two behaviours.
+  @visibleForTesting
+  static Future<void> set(TasmeeSpeed m) async {
+    _value = m;
+  }
+}
+
+/// Which Android audio source the Tasmee microphone opens. `system` is the
+/// recorder default (the phone may apply noise suppression and gain control
+/// tuned for calls, which can swallow the first sound of a word);
+/// `unprocessed` asks for the raw microphone (Android 7+; a phone without
+/// support records as default); `voiceRecognition` is the source tuned for
+/// speech recognisers. iOS ignores the setting. مُكث (2026-11-07 teardown)
+/// records unprocessed with a voice-recognition fallback.
+enum TasmeeMicSource { system, unprocessed, voiceRecognition }
+
+/// Lab switch: shown only in test builds (`--dart-define=TASMEE_LAB=true`),
+/// so the shipped app keeps one behaviour while a candidate is tried on the
+/// owner's phone. The session log header carries the value as `micSource`.
+class TasmeeMicSourceSetting {
+  static const bool labBuild = bool.fromEnvironment('TASMEE_LAB');
+  static const String _pref = 'tasmee_mic_source';
+  static TasmeeMicSource? _value;
+
+  static String label(TasmeeMicSource m) => switch (m) {
+        TasmeeMicSource.system => 'افتراضي',
+        TasmeeMicSource.unprocessed => 'بدون معالجة',
+        TasmeeMicSource.voiceRecognition => 'تعرّف على الكلام',
+      };
+
+  /// [TasmeeMicSource.system] unless a lab build stored another value.
+  static Future<TasmeeMicSource> mode() async {
     final v = _value;
     if (v != null) return v;
+    if (!labBuild) return _value = TasmeeMicSource.system;
     try {
       final prefs = await SharedPreferences.getInstance();
       final i = prefs.getInt(_pref);
-      return _value = i != null && i >= 0 && i < TasmeeSpeed.values.length
-          ? TasmeeSpeed.values[i]
-          : TasmeeSpeed.accurate;
+      return _value = i != null && i >= 0 && i < TasmeeMicSource.values.length
+          ? TasmeeMicSource.values[i]
+          : TasmeeMicSource.system;
     } catch (_) {
-      return _value = TasmeeSpeed.accurate;
+      return _value = TasmeeMicSource.system;
     }
   }
 
-  static Future<void> set(TasmeeSpeed m) async {
+  static Future<void> set(TasmeeMicSource m) async {
     _value = m;
     try {
       final prefs = await SharedPreferences.getInstance();

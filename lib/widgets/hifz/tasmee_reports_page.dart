@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'hifz_clear_sheet.dart';
 import 'hifz_palette.dart';
+import '../../services/hifz_data_cleaner.dart';
 import '../../services/tasmee_report_store.dart';
 import '../../utils/quran_display_text.dart';
 
@@ -21,6 +23,22 @@ class TasmeeReportsPage extends StatefulWidget {
 class _TasmeeReportsPageState extends State<TasmeeReportsPage> {
   late Future<List<TasmeeReport>> _reports = TasmeeReportStore.loadAll();
 
+  void _reload() {
+    if (mounted) setState(() => _reports = TasmeeReportStore.loadAll());
+  }
+
+  /// 🗑: old mistakes in bulk (the same sheet as the statistics' clear).
+  Future<void> _clear() async {
+    final done = await showHifzClearSheet(context, forMistakes: true);
+    if (done == null || !mounted) return;
+    showHifzClearedSnack(
+      context,
+      undo: done.undo,
+      summary: done.summary,
+      reload: _reload,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = HifzPalette.of(context);
@@ -34,11 +52,21 @@ class _TasmeeReportsPageState extends State<TasmeeReportsPage> {
             backgroundColor: p.bg,
             foregroundColor: p.title,
             title: const Text('تقارير التسميع والأخطاء'),
+            actions: [
+              IconButton(
+                tooltip: 'حذف الأخطاء',
+                icon: const Icon(Icons.delete_outline_rounded),
+                onPressed: _clear,
+              ),
+            ],
             bottom: TabBar(
               labelColor: p.title,
               unselectedLabelColor: p.sub,
               indicatorColor: p.title,
-              tabs: const [Tab(text: 'الجلسات'), Tab(text: 'الأخطاء')],
+              tabs: const [
+                Tab(text: 'الجلسات'),
+                Tab(text: 'الأخطاء'),
+              ],
             ),
           ),
           body: FutureBuilder<List<TasmeeReport>>(
@@ -51,7 +79,11 @@ class _TasmeeReportsPageState extends State<TasmeeReportsPage> {
               return TabBarView(
                 children: [
                   _sessions(p, list),
-                  _MistakesLog(reports: list, onGoToPage: widget.onGoToPage),
+                  _MistakesLog(
+                    reports: list,
+                    onGoToPage: widget.onGoToPage,
+                    onChanged: _reload,
+                  ),
                 ],
               );
             },
@@ -68,7 +100,7 @@ class _TasmeeReportsPageState extends State<TasmeeReportsPage> {
       );
     }
     return RefreshIndicator(
-      onRefresh: () async => setState(() => _reports = TasmeeReportStore.loadAll()),
+      onRefresh: () async => _reload(),
       child: ListView.separated(
         padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
         itemCount: list.length,
@@ -81,10 +113,10 @@ class _TasmeeReportsPageState extends State<TasmeeReportsPage> {
 
 /// One line of an error as the report tile shows it.
 String tasmeeErrorLine(TasmeeError e) => quranDisplayText(
-      e.kind == 'extra' && e.heard.isNotEmpty
-          ? '${e.kindLabel}: «${e.heard}» قبل «${e.expected}»'
-          : '${e.kindLabel}: «${e.expected}»',
-    );
+  e.kind == 'extra' && e.heard.isNotEmpty
+      ? '${e.kindLabel}: «${e.heard}» قبل «${e.expected}»'
+      : '${e.kindLabel}: «${e.expected}»',
+);
 
 class TasmeeReportTile extends StatelessWidget {
   const TasmeeReportTile({super.key, required this.report});
@@ -99,8 +131,11 @@ class TasmeeReportTile extends StatelessWidget {
     final when =
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} '
         '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-    final clean = r.errors.isEmpty;
-    final repaired = r.errors.where((e) => e.repaired).length;
+    // Only counted mistakes make a page "with mistakes"; the microphone's
+    // stops are listed too, as alerts (TasmeeError.counts).
+    final mistakes = r.mistakes.length;
+    final clean = mistakes == 0;
+    final alerts = r.alerts;
     return ExpansionTile(
       iconColor: p.title,
       collapsedIconColor: p.title,
@@ -114,12 +149,12 @@ class TasmeeReportTile extends StatelessWidget {
       ),
       subtitle: Text(
         '$when · ${r.correct} من ${r.words} كلمة · '
-        '${clean ? 'بلا أخطاء' : notesCount(r.errors.length)}'
-        '${repaired > 0 ? ' · أصاب بعد تعثّر $repaired' : ''}',
+        '${clean ? 'بلا أخطاء' : notesCount(mistakes)}'
+        '${alerts > 0 ? ' · تنبيهات لا تُحسب $alerts' : ''}',
         style: TextStyle(color: p.sub, fontSize: 12.5),
       ),
       children: [
-        if (clean)
+        if (r.errors.isEmpty)
           Padding(
             padding: EdgeInsets.all(12),
             child: Text('أحسنت، لا ملاحظات.', style: TextStyle(color: p.sub)),
@@ -169,14 +204,22 @@ class _LogEntry {
   final Map<String, int> byCategory = {};
   DateTime last = DateTime(2000);
   int get count => byCategory.values.fold(0, (a, b) => a + b);
+  String get key => '$surah:$ayah:$word';
 }
 
 /// The mistakes of every saved report gathered per word (see
 /// [TasmeeError.category]); a chip row narrows to one category.
 class _MistakesLog extends StatefulWidget {
-  const _MistakesLog({required this.reports, this.onGoToPage});
+  const _MistakesLog({
+    required this.reports,
+    this.onGoToPage,
+    required this.onChanged,
+  });
   final List<TasmeeReport> reports;
   final void Function(int page)? onGoToPage;
+
+  /// After a word was deleted (and again after «تراجع»).
+  final VoidCallback onChanged;
 
   @override
   State<_MistakesLog> createState() => _MistakesLogState();
@@ -185,7 +228,25 @@ class _MistakesLog extends StatefulWidget {
 class _MistakesLogState extends State<_MistakesLog> {
   String? _category; // null = all
 
-  static const List<String> _categories = ['repaired', 'asked', 'wrong'];
+  /// Words swiped away, hidden at once while the reload runs.
+  final Set<String> _gone = {};
+
+  Future<void> _delete(_LogEntry e) async {
+    setState(() => _gone.add(e.key));
+    final undo = await HifzDataCleaner.deleteWord(e.key);
+    if (!mounted) return;
+    showHifzClearedSnack(
+      context,
+      undo: undo,
+      summary: quranDisplayText('حُذف «${e.expected}» من الأخطاء'),
+      reload: () {
+        if (mounted) setState(() => _gone.clear());
+        widget.onChanged();
+      },
+    );
+  }
+
+  static const List<String> _categories = ['asked', 'repaired', 'wrong'];
 
   /// Entries newest-miss first, with the category totals.
   (List<_LogEntry>, Map<String, int>) _gather() {
@@ -195,8 +256,13 @@ class _MistakesLogState extends State<_MistakesLog> {
       for (final e in r.errors) {
         if (e.surah <= 0 || e.ayah <= 0) continue;
         final key = '${e.surah}:${e.ayah}:${e.wordInAyah}';
-        final entry = byKey[key] ??=
-            _LogEntry(e.surah, e.ayah, e.wordInAyah, e.expected, r.page);
+        final entry = byKey[key] ??= _LogEntry(
+          e.surah,
+          e.ayah,
+          e.wordInAyah,
+          e.expected,
+          r.page,
+        );
         final c = e.category;
         entry.byCategory[c] = (entry.byCategory[c] ?? 0) + 1;
         totals[c] = (totals[c] ?? 0) + 1;
@@ -206,7 +272,10 @@ class _MistakesLogState extends State<_MistakesLog> {
         }
       }
     }
-    final list = byKey.values.toList()..sort((a, b) => b.last.compareTo(a.last));
+    final list = [
+      for (final e in byKey.values)
+        if (!_gone.contains(e.key)) e,
+    ]..sort((a, b) => b.last.compareTo(a.last));
     return (list, totals);
   }
 
@@ -216,26 +285,29 @@ class _MistakesLogState extends State<_MistakesLog> {
     final (all, totals) = _gather();
     final shown = _category == null
         ? all
-        : [for (final e in all) if (e.byCategory.containsKey(_category)) e];
+        : [
+            for (final e in all)
+              if (e.byCategory.containsKey(_category)) e,
+          ];
     if (all.isEmpty) {
       return Center(
         child: Text('لا أخطاء مسجّلة بعد', style: TextStyle(color: p.sub)),
       );
     }
     Widget chip(String label, String? value, int count) => ChoiceChip(
-          label: Text('$label ($count)'),
-          selected: _category == value,
-          showCheckmark: false,
-          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-          selectedColor: p.title,
-          backgroundColor: p.raised,
-          side: BorderSide(color: p.border),
-          labelStyle: TextStyle(
-            color: _category == value ? p.onTitle : p.text,
-            fontSize: 12.5,
-          ),
-          onSelected: (_) => setState(() => _category = value),
-        );
+      label: Text('$label ($count)'),
+      selected: _category == value,
+      showCheckmark: false,
+      visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+      selectedColor: p.title,
+      backgroundColor: p.raised,
+      side: BorderSide(color: p.border),
+      labelStyle: TextStyle(
+        color: _category == value ? p.onTitle : p.text,
+        fontSize: 12.5,
+      ),
+      onSelected: (_) => setState(() => _category = value),
+    );
     return Column(
       children: [
         Padding(
@@ -254,8 +326,9 @@ class _MistakesLogState extends State<_MistakesLog> {
               ),
               const SizedBox(height: 4),
               Text(
-                'من آخر ${widget.reports.length} صفحة سُمِّعت. تعثّر ثم أصاب: توقّف عند الكلمة '
-                'ثم قالها صحيحة. بطلب: كشفها بزر «كلمة» أو «الآية» أو تخطّاها.',
+                'من آخر ${widget.reports.length} صفحة سُمِّعت. بطلب: كشفتها بزر «كلمة» أو «الآية» '
+                'أو تخطّيتها، وهذه وحدها تُحسب أخطاء. الباقي تنبيهات من الميكروفون (الكلمة الوردية) '
+                'لا تُحسب. اسحب الكلمة جانبًا لحذفها.',
                 style: TextStyle(color: p.sub, fontSize: 11.5, height: 1.4),
               ),
             ],
@@ -263,7 +336,9 @@ class _MistakesLogState extends State<_MistakesLog> {
         ),
         Expanded(
           child: ListView.separated(
-            padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.paddingOf(context).bottom,
+            ),
             itemCount: shown.length,
             separatorBuilder: (_, _) => Divider(height: 1, color: p.border),
             itemBuilder: (context, i) {
@@ -273,26 +348,45 @@ class _MistakesLogState extends State<_MistakesLog> {
                   if ((e.byCategory[c] ?? 0) > 0)
                     '${TasmeeError.categoryLabel(c)} ×${e.byCategory[c]}',
               ];
-              return ListTile(
-                dense: true,
-                title: Text(
-                  quranDisplayText('«${e.expected}»'),
-                  style: TextStyle(color: p.text, fontSize: 16),
+              Widget swipeBg(AlignmentGeometry align) => Container(
+                color: p.bad,
+                alignment: align,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: const Text(
+                  'حذف',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                subtitle: Text(
-                  'سورة ${e.surah}، الآية ${e.ayah}، الكلمة ${e.word} · صفحة ${e.page}\n'
-                  '${parts.join(' · ')}',
-                  style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.4),
+              );
+              // A swipe either way deletes the word (with «تراجع»).
+              return Dismissible(
+                key: ValueKey(e.key),
+                background: swipeBg(AlignmentDirectional.centerStart),
+                secondaryBackground: swipeBg(AlignmentDirectional.centerEnd),
+                onDismissed: (_) => _delete(e),
+                child: ListTile(
+                  dense: true,
+                  title: Text(
+                    quranDisplayText('«${e.expected}»'),
+                    style: TextStyle(color: p.text, fontSize: 16),
+                  ),
+                  subtitle: Text(
+                    'سورة ${e.surah}، الآية ${e.ayah}، الكلمة ${e.word} · صفحة ${e.page}\n'
+                    '${parts.join(' · ')}',
+                    style: TextStyle(color: p.sub, fontSize: 12.5, height: 1.4),
+                  ),
+                  trailing: widget.onGoToPage == null
+                      ? null
+                      : Icon(Icons.menu_book_rounded, color: p.title, size: 20),
+                  onTap: widget.onGoToPage == null
+                      ? null
+                      : () {
+                          Navigator.of(context).pop();
+                          widget.onGoToPage!(e.page);
+                        },
                 ),
-                trailing: widget.onGoToPage == null
-                    ? null
-                    : Icon(Icons.menu_book_rounded, color: p.title, size: 20),
-                onTap: widget.onGoToPage == null
-                    ? null
-                    : () {
-                        Navigator.of(context).pop();
-                        widget.onGoToPage!(e.page);
-                      },
               );
             },
           ),
@@ -303,9 +397,12 @@ class _MistakesLogState extends State<_MistakesLog> {
 }
 
 /// Shown when a Tasmee run ends: the pages just recited with their errors.
-Future<void> showTasmeeRunSummary(BuildContext context, List<TasmeeReport> reports) {
+Future<void> showTasmeeRunSummary(
+  BuildContext context,
+  List<TasmeeReport> reports,
+) {
   final p = HifzPalette.of(context);
-  final errors = reports.fold<int>(0, (a, r) => a + r.errors.length);
+  final errors = reports.fold<int>(0, (a, r) => a + r.mistakes.length);
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -317,7 +414,9 @@ Future<void> showTasmeeRunSummary(BuildContext context, List<TasmeeReport> repor
       textDirection: TextDirection.rtl,
       child: SafeArea(
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -327,7 +426,11 @@ Future<void> showTasmeeRunSummary(BuildContext context, List<TasmeeReport> repor
                   errors == 0
                       ? 'تقرير الجلسة: أحسنت، بلا أخطاء'
                       : 'تقرير الجلسة: ${notesCount(errors)} في ${pagesCount(reports.length)}',
-                  style: TextStyle(color: p.title, fontSize: 18, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: p.title,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               Text(
@@ -337,7 +440,9 @@ Future<void> showTasmeeRunSummary(BuildContext context, List<TasmeeReport> repor
               Flexible(
                 child: ListView(
                   shrinkWrap: true,
-                  children: [for (final r in reports) TasmeeReportTile(report: r)],
+                  children: [
+                    for (final r in reports) TasmeeReportTile(report: r),
+                  ],
                 ),
               ),
             ],

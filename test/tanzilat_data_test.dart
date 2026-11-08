@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/services/quran_json_service.dart';
+import 'package:islamic_dawah_mushaf/services/tanzilat_notes_store.dart';
 import 'package:islamic_dawah_mushaf/services/tanzilat_service.dart';
 import 'package:islamic_dawah_mushaf/widgets/quran/tanzilat_sheet.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// assets/data/tanzilat.json points at words by their index in output.json's
 /// ayah text; an output.json edit that adds or splits words would silently
@@ -71,14 +73,10 @@ void main() {
     expect(hit.keys, contains(3)); // إِنِّيَ أُرِيدُ أَن تَبُوٓأَ
     expect(hit.keys, isNot(contains(4))); // not the Tanzil app's «بإثمي»
     expect(hit[3]!.group.isGharibah, isTrue);
-    // «ادع» is 23 and «ظل» 33.
-    expect(groups.firstWhere((g) => g.id == 945).label, '23');
-    expect(groups.firstWhere((g) => g.id == 946).label, '33');
-    // لفظ الجلالة is never coloured.
-    expect(
-      groups.expand((g) => g.rows).where((r) => r.rule && r.places.isEmpty),
-      isNotEmpty,
-    );
+    // «ادع» (23), «ظل» (33) and the «لله / اللاعنون …» list (with its
+    // uncoloured لفظ الجلالة row) were deleted by the owner in the editor
+    // (2026-10-29).
+    expect(groups.where((g) => const {936, 945, 946}.contains(g.id)), isEmpty);
     // الدنفاسي's verses sit on the card of their own word (2026-10-21: the
     // old links put «الحيوٰة» on «الموت» and «وقر» on «هدى»).
     List<String> versesAt(int s, int a) => [
@@ -124,6 +122,30 @@ void main() {
     final line = copy.split('\n').firstWhere((l) => l.startsWith('- النحل 78'));
     expect(RegExp('«[^» ]+ [^» ]+»\$').hasMatch(line), isTrue, reason: line);
     expect('«'.allMatches(line).length, 1, reason: line);
+
+    // the small icon on one card copies that tanzilah only, as «نسخ الكل»
+    // writes it
+    final hits = service.forAyah(16, 78);
+    for (final hit in hits) {
+      final one = tanzilahCopyText(16, 78, hit, words);
+      final block = one.substring(one.indexOf('\n'));
+      expect(copy.contains(block), isTrue, reason: one);
+      expect(one.startsWith(copy.split('\n').first), isTrue);
+    }
+  });
+
+  test('a «متكررة» row is part of its tanzilah: one card, its colour', () {
+    final service = TanzilatService.instance..setGroups(groups);
+    // 911 «8»: مشكوة، النجوة، منوة، الغدوة، الصلوة، الزكوة، الحيوة، الربوا
+    // (2026-11-02: البقرة 2 showed «الصلوة» alone, in موضعين's colour).
+    final hits = service.forAyah(2, 2).where((h) => h.group.id == 911);
+    expect(hits.length, 1);
+    expect(hits.single.count, 8);
+    expect(hits.single.group.title, 'كلمات رسمت بمحذوف فوق الواو');
+    expect(hits.single.group.rows.length, 8);
+    // البينة 5 holds two of its words: still one card
+    expect(service.forAyah(98, 5).where((h) => h.group.id == 911).length, 1);
+    expect(service.wordsOf(2, 2)[4]!.count, 8);
   });
 
   test('«صه» stop marks above coloured words are never coloured', () {
@@ -188,8 +210,8 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: TanzilatSheetContent(
-            surah: 2,
-            ayah: 60,
+            surah: 3,
+            ayah: 48,
             dark: false,
             onOpenPlace: (page, s, a) => opened = (page, s, a),
           ),
@@ -198,30 +220,82 @@ void main() {
     );
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pumpAndSettle();
-    expect(find.textContaining('تتكرر في 23 موضعًا'), findsOneWidget);
+    // The card is titled by the tanzilah's title; its count is the badge.
+    expect(find.text('ءلاية: بالإفراد'), findsOneWidget);
+    expect(find.text('20'), findsOneWidget);
     // Every text can be marked, and «نسخ الكل» copies the whole sheet,
     // the folded places too.
     expect(find.byType(SelectionArea), findsOneWidget);
     await tester.tap(find.text('نسخ الكل'));
     await tester.pump();
-    expect(copied, startsWith('تنزيلات ومتشابهات — سورة البقرة 60'));
-    expect(copied, contains('تتكرر في 23 موضعًا'));
-    expect('\n- '.allMatches(copied!).length, greaterThanOrEqualTo(23));
-    expect(copied, contains('- الماعون 2'));
+    expect(copied, startsWith('تنزيلات ومتشابهات — سورة آل عمران 48'));
+    expect(copied, contains('ءلاية: بالإفراد (20)'));
+    expect('\n- '.allMatches(copied!).length, greaterThanOrEqualTo(20));
+    expect(copied, contains('- سبأ 9'));
     expect(copied, contains('(هذه الآية)'));
     expect(copied, isNot(matches(RegExp('[٠-٩۰-۹]'))));
     await tester.pump(const Duration(seconds: 3));
-    // 23 places, collapsed to 8 behind «عرض كل المواضع».
-    await tester.ensureVisible(find.textContaining('عرض كل المواضع (23)'));
+    // 20 places, collapsed to 8 behind «عرض كل المواضع».
+    await tester.ensureVisible(find.textContaining('عرض كل المواضع (20)'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('عرض كل المواضع (23)'));
+    await tester.tap(find.textContaining('عرض كل المواضع (20)'));
     await tester.pumpAndSettle();
-    expect(find.text('الماعون 2'), findsOneWidget);
-    await tester.ensureVisible(find.text('الأعراف 133'));
+    expect(find.text('سبأ 9'), findsOneWidget);
+    await tester.ensureVisible(find.text('العنكبوت 44'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('الأعراف 133'));
-    expect(opened?.$2, 7);
-    expect(opened?.$3, 133);
+    await tester.tap(find.text('العنكبوت 44'));
+    expect(opened?.$2, 29);
+    expect(opened?.$3, 44);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('«ملاحظاتي»: one line when empty, saved, copied', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    TanzilatService.instance.setGroups(groups);
+    await tester.runAsync(TanzilatNotesStore.instance.load);
+    await tester.runAsync(QuranJsonService.loadQuranPages);
+    // الفاتحة 1 has no tanzilah, yet its sheet opens for the note.
+    expect(TanzilatService.instance.forAyah(1, 1), isEmpty);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TanzilatSheetContent(
+            surah: 1,
+            ayah: 1,
+            dark: false,
+            onOpenPlace: (_, _, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    const hint = 'ملاحظاتي: اكتب هنا ملاحظاتك عن متشابهات هذه الآية…';
+    expect(find.text(hint), findsOneWidget);
+    expect(find.text('لا توجد تنزيلة في هذه الآية.'), findsOneWidget);
+    final field = find.byType(TextField);
+    final emptyHeight = tester.getSize(field).height;
+    expect(emptyHeight, lessThan(40));
+    // A long paste grows the field, at most 6 lines.
+    final long = List.filled(40, 'ملاحظة طويلة').join(' ');
+    await tester.enterText(field, long);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    final grown = tester.getSize(field).height;
+    expect(grown, greaterThan(emptyHeight * 3));
+    expect(grown, lessThanOrEqualTo(emptyHeight * 6 + 1));
+    expect(find.text('ملاحظاتي'), findsOneWidget);
+    expect(TanzilatNotesStore.instance.noteOf(1, 1), long);
+    // «نسخ الكل» copies the note too. (Checked through its text: the sheet's
+    // ayah index was cached under the test above's fake clock.)
+    expect(
+      tanzilatCopyText(1, 1, const [], const {}, note: long),
+      contains('ملاحظاتي:\n$long'),
+    );
     expect(tester.takeException(), isNull);
   });
 }

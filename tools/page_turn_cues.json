@@ -197,35 +197,36 @@
    "word": "السماء"
   },
   "35": {
-   "at_in_clip": 10.86,
+   "at_in_clip": 31.59,
    "at_ms": 4759390,
-   "ayah": 218,
-   "clip_seconds": 37.75,
+   "ayah": 217,
+   "clip_seconds": 58.48,
    "clips": [
     [
      "002.mp3",
-     4748530,
+     4727800,
      4786280
     ]
    ],
    "ctc_next": [
-    11.68,
-    12.96
+    32.4,
+    33.7
    ],
    "ctc_word": [
-    9.66,
-    10.72
+    30.4,
+    31.46
    ],
    "file": "002.mp3",
    "how": "pause 0.86s",
-   "joined": false,
-   "pause_end": 11.62,
+   "joined": true,
+   "pause_end": 32.35,
    "recited": [
+    "2:217",
     "2:218"
    ],
    "spanning_ayah": 218,
    "surah": 2,
-   "voice_end": 10.76,
+   "voice_end": 31.49,
    "word": "والاخرة"
   },
   "355": {

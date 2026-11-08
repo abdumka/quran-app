@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint;
@@ -16,6 +17,8 @@ import 'app_update_service.dart';
 ///                    file as `assets/data/tanzilat.json`;
 ///   * `word_masks` — corrections to the word boxes of `word_masks.json`,
 ///                    as a cumulative list of ayat whose boxes are replaced;
+///   * `tanzilat_paint` — the colours as the reviewers' brush painted them, one
+///                    picture per page (see `TanzilatPaintService`);
 ///   * `reciters`   — reciters added after this build shipped (timed-surah
 ///                    scheme only, with their page-turn cues) and small
 ///                    overrides for the bundled ones (a timings revision).
@@ -27,6 +30,7 @@ import 'app_update_service.dart';
 ///     data/manifest.json                      (never cached for long)
 ///     data/tanzilat/tanzilat_v<N>.json        (immutable once published)
 ///     data/word_masks/patch_v<N>.json
+///     data/tanzilat_paint/paint_v<N>.bin
 ///     data/reciters/reciters_v<N>.json
 ///
 /// The manifest names each item's version, file, size and SHA-256. A file is
@@ -46,18 +50,25 @@ class ContentUpdateService {
 
   /// The item names this build understands. Anything else in the manifest
   /// is ignored, so a future item never trips an old build.
-  static const List<String> items = ['tanzilat', 'word_masks', 'reciters'];
+  static const List<String> items = [
+    'tanzilat',
+    'word_masks',
+    'reciters',
+    'tanzilat_paint',
+  ];
 
   /// What the assets of THIS build carry. A download older than or equal to
   /// this is never used (an app update can ship newer data than a phone had
   /// downloaded). `tanzilat` matches the `ver` field of
   /// `assets/data/tanzilat.json` (a test keeps them in step);
   /// `word_masks` is the patch level folded into the bundled boxes; `reciters`
-  /// is the list in `Reciter.all`.
+  /// is the list in `Reciter.all`; `tanzilat_paint` matches the `ver` in the
+  /// header of `assets/data/tanzilat_paint.bin`.
   static const Map<String, int> bundledVersions = {
-    'tanzilat': 1,
-    'word_masks': 0,
+    'tanzilat': 4,
+    'word_masks': 3,
     'reciters': 0,
+    'tanzilat_paint': 1,
   };
 
   static const Duration _checkInterval = Duration(hours: 24);
@@ -122,6 +133,7 @@ class ContentUpdateService {
   File _fileOf(String item, int ver) {
     final name = switch (item) {
       'word_masks' => 'word_masks_patch_v$ver.json',
+      'tanzilat_paint' => 'tanzilat_paint_v$ver.bin',
       _ => '${item}_v$ver.json',
     };
     return File('${_dir!.path}${Platform.pathSeparator}$name');
@@ -147,6 +159,19 @@ class ContentUpdateService {
     if (f == null) return null;
     try {
       return await f.readAsString();
+    } catch (e) {
+      debugPrint('ContentUpdateService: cannot read $item: $e');
+      return null;
+    }
+  }
+
+  /// The same for a binary item: the downloaded file's bytes, or null.
+  Future<Uint8List?> bytesFor(String item) async {
+    await init();
+    final f = fileFor(item);
+    if (f == null) return null;
+    try {
+      return await f.readAsBytes();
     } catch (e) {
       debugPrint('ContentUpdateService: cannot read $item: $e');
       return null;
@@ -284,7 +309,11 @@ class ContentUpdateService {
     // It must at least be JSON of the right shape before it replaces the
     // bundled data; a bad file would otherwise brick the feature until the
     // next version.
-    validate(item, utf8.decode(body));
+    if (item == 'tanzilat_paint') {
+      validatePaintPack(body);
+    } else {
+      validate(item, utf8.decode(body));
+    }
     await _dir!.create(recursive: true);
     final target = _fileOf(item, entry.ver);
     final part = File('${target.path}.part');
@@ -297,6 +326,26 @@ class ContentUpdateService {
       try {
         await _fileOf(item, old).delete();
       } catch (_) {}
+    }
+  }
+
+  /// Throws [FormatException] unless [body] starts like a picture pack
+  /// (`TanzilatPaintPack` reads the rest).
+  static void validatePaintPack(Uint8List body) {
+    const magic = [0x54, 0x5A, 0x50, 0x31];
+    if (body.length < 8) throw const FormatException('paint: too short');
+    for (var i = 0; i < magic.length; i++) {
+      if (body[i] != magic[i]) throw const FormatException('paint: bad magic');
+    }
+    final headerLength = ByteData.sublistView(
+      body,
+    ).getUint32(4, Endian.little);
+    if (8 + headerLength > body.length) {
+      throw const FormatException('paint: short header');
+    }
+    final header = json.decode(utf8.decode(body.sublist(8, 8 + headerLength)));
+    if (header is! Map<String, dynamic> || header['pages'] is! Map) {
+      throw const FormatException('paint: no pages');
     }
   }
 
@@ -433,6 +482,7 @@ class ContentCheckResult {
   static const Map<String, String> _labels = {
     'tanzilat': 'التنزيلات',
     'word_masks': 'تلوين الكلمات',
+    'tanzilat_paint': 'تلوين الكلمات',
     'reciters': 'القرّاء',
   };
 
@@ -443,11 +493,13 @@ class ContentCheckResult {
     final later = pendingRestart;
     final parts = <String>[];
     if (live.isNotEmpty) {
-      parts.add('تم تحديث ${live.map((i) => _labels[i] ?? i).join(' و')}.');
+      parts.add(
+        'تم تحديث ${live.map((i) => _labels[i] ?? i).toSet().join(' و')}.',
+      );
     }
     if (later.isNotEmpty) {
       parts.add(
-        'نُزِّل تحديث ${later.map((i) => _labels[i] ?? i).join(' و')}، '
+        'نُزِّل تحديث ${later.map((i) => _labels[i] ?? i).toSet().join(' و')}، '
         'ويظهر عند فتح التطبيق من جديد.',
       );
     }

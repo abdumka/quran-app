@@ -114,7 +114,9 @@ class RecitationFeedback {
 /// Words are aligned individually (the aligner is word-level) but the page
 /// is revealed per ayah, using the ayah regions generated for every page.
 class MemorizationTestService {
-  MemorizationTestService._internal();
+  MemorizationTestService._internal() {
+    revision.addListener(_maybeEndHead);
+  }
   static final MemorizationTestService instance =
       MemorizationTestService._internal();
 
@@ -344,6 +346,23 @@ class MemorizationTestService {
   /// starts at once instead of loading the model again (1-3 s).
   bool keepEngineWarm = false;
 
+  /// Set by the reader before a self-test question starts: the next question
+  /// begins on the page after this one ends (an open test), so ending this
+  /// one turns the page.
+  bool nextQuestionTurnsPage = false;
+
+  /// A self-test page whose last word the reader has just uncovered stays
+  /// up so it can be read (the turn used to come at once, taking the word
+  /// away). This goes on: the next «كلمة» or «الآية» turns the page and
+  /// uncovers the next page's first word or ayah, and turning the page by
+  /// hand goes on without uncovering anything ([continueSilentTurn]).
+  VoidCallback? _silentTurn;
+  bool get silentTurnPending => _silentTurn != null;
+
+  /// What to uncover on the page [_afterSilentTurnPage] once it is up.
+  void Function()? _afterSilentTurn;
+  int _afterSilentTurnPage = 0;
+
   /// The engine kept between two questions (see [keepEngineWarm]).
   RecitationEngine? _parkedEngine;
   bool get hasWarmEngine => _parkedEngine != null;
@@ -404,7 +423,9 @@ class MemorizationTestService {
     );
     _errors.add(e);
     _errorByWord[word] = e;
-    if (_drill != null) {
+    // A test question fails on a counted mistake only, not on a stop the
+    // microphone made (see TasmeeError.counts).
+    if (_drill != null && e.counts) {
       _drillMissed.add('${e.surah}:${e.ayah}:${e.wordInAyah}');
       _drillErrors.add(e);
     }
@@ -456,7 +477,8 @@ class MemorizationTestService {
     _recorder?.log('report', report.toJson());
     _runReports.add(report);
     TasmeeReportStore.save(report);
-    TasmeeWeakPointStore.addErrors(report.page, report.errors, report.at);
+    // Only counted mistakes come back in «من الأخطاء» tests.
+    TasmeeWeakPointStore.addErrors(report.page, report.mistakes, report.at);
     _errors.clear();
     _errorKeys.clear();
     _errorByWord.clear();
@@ -467,9 +489,70 @@ class MemorizationTestService {
   Map<String, Object?> _recorderInfo = const {};
   String _installId = '';
 
-  /// «استجابة أسرع» (see [TasmeeSpeedSetting]): the judge commits without
-  /// its dwell and settles after half a second; read at every [start].
+  /// «استجابة أسرع» (see [TasmeeSpeedSetting]; never chosen in the app since
+  /// 2026-11-07, kept for tests): the judge commits without its dwell and
+  /// settles after half a second; read at every [start].
   bool _fastJudge = false;
+
+  /// «تحقّق قبل التنبيه» (see [TasmeeSpeedSetting]; the app's only behaviour
+  /// since 2026-11-07): a wrong-word stop waits for a fresh re-decode of the
+  /// last seconds ([RecitationEngine.verify]) and is withdrawn when that
+  /// hears the expected word in place.
+  bool _verifyStops = false;
+
+  /// Words of the page the fresh decode has answered for: true when it
+  /// heard the word (the stop was withdrawn and the word revealed), false
+  /// when it did not (the stop stands, and is not re-verified).
+  final Map<int, bool> _verified = {};
+
+  /// Word a fresh decode is running for, or -1 (one at a time: a decode
+  /// holds the worker for up to a second).
+  int _verifyingWord = -1;
+
+  /// Audio position (ms in the microphone stream) of the last phonemes
+  /// received: the end of a verify window.
+  int _lastAudioEndMs = 0;
+
+  /// When the last phoneme segment arrived and how far it ran behind the
+  /// audio, so the audio clock can be estimated between segments.
+  DateTime _lastSegmentAt = DateTime.now();
+  int _lastSegmentLagMs = 0;
+
+  /// Sounds timed before this audio moment are ignored: a help button
+  /// («أعد الآية», «كلمة») was pressed, and what the recognizer still emits
+  /// for the audio before the press belongs to the attempt the reciter gave
+  /// up on. Without it the tail of «والآخرة» said while pressing «أعد الآية»
+  /// stopped the reciter on «أولئك» (owner, 2026-11-01).
+  int _ignoreAudioBeforeMs = 0;
+
+  /// Audio-clock margin after a help button press that still counts as the
+  /// old attempt (the recognizer stamps a sound ~0.1-0.2 s late, and the
+  /// reciter needs longer than that to start again).
+  @visibleForTesting
+  static int controlBarrierMs = 500;
+
+  /// Where the audio clock is now, estimated from the last segment.
+  int _audioNowMs() =>
+      _lastAudioEndMs +
+      (_lastSegmentLagMs < 0 ? 0 : _lastSegmentLagMs) +
+      DateTime.now().difference(_lastSegmentAt).inMilliseconds;
+
+  /// Ignores what the recognizer still has to say about the audio before a
+  /// help button press.
+  void _barrierAfterControl() {
+    if (controlBarrierMs <= 0) return; // tests drive the audio clock by hand
+    _ignoreAudioBeforeMs = _audioNowMs() + controlBarrierMs;
+  }
+
+  /// Audio before the held word a fresh decode gets as context, and after
+  /// its last sound (the next word anchors the match); the worker keeps
+  /// about 7 s, so the window is capped at 6 s.
+  static const int _verifyBeforeMs = 3000;
+  static const int _verifyAfterMs = 800;
+  static const int _verifyMaxMs = 6000;
+
+  String get _speedName =>
+      _fastJudge ? 'fast' : (_verifyStops ? 'verified' : 'accurate');
 
   /// The judge's knobs for the speed setting. «استجابة أسرع» drops the
   /// commit dwell (a word is judged as soon as the cursor has moved on)
@@ -713,7 +796,39 @@ class MemorizationTestService {
     bool silent = false,
     bool locateAnywhere = false,
   }) async {
+    _startsInFlight++;
+    try {
+      return await _start(
+        pageNumber: pageNumber,
+        engineOverride: engineOverride,
+        stopPlayback: stopPlayback,
+        startAyahIndex: startAyahIndex,
+        drill: drill,
+        silent: silent,
+        locateAnywhere: locateAnywhere,
+      );
+    } finally {
+      _startsInFlight--;
+    }
+  }
+
+  int _startsInFlight = 0;
+
+  /// True while a [start] is on its way: an `idle` seen now is the restart
+  /// passing through, not the session ending.
+  bool get isStarting => _startsInFlight > 0;
+
+  Future<bool> _start({
+    required int pageNumber,
+    RecitationEngine? engineOverride,
+    required bool stopPlayback,
+    int? startAyahIndex,
+    TasmeeDrill? drill,
+    required bool silent,
+    required bool locateAnywhere,
+  }) async {
     final token = ++_startToken;
+    _clearHead();
     // The page the last session was on: a session opening at the top of
     // the page after it may go back to that page's last ayah.
     final prevPage = _activePage;
@@ -721,7 +836,7 @@ class MemorizationTestService {
     // is reused below; anything else about the old session goes.
     var parked = _parkedEngine;
     _parkedEngine = null;
-    await stop();
+    await _endSession();
     if (token != _startToken) {
       await parked?.stop();
       return false;
@@ -731,9 +846,30 @@ class MemorizationTestService {
       await parked.stop();
       parked = null;
     }
+    final speed = await TasmeeSpeedSetting.mode();
+    final fastJudge = speed == TasmeeSpeed.fast;
+    final verifyStops = speed == TasmeeSpeed.verified;
+    // Every await below may find this start called off by stop() or a newer
+    // start: it then writes nothing more and leaves the status to them.
+    if (token != _startToken) {
+      await parked?.stop();
+      return false;
+    }
+    bool fail() {
+      if (token == _startToken) status.value = MemorizationTestStatus.failed;
+      return false;
+    }
+
     _silent = silent;
     _engineOverride = engineOverride;
-    _fastJudge = await TasmeeSpeedSetting.mode() == TasmeeSpeed.fast;
+    _fastJudge = fastJudge;
+    _verifyStops = verifyStops;
+    _verified.clear();
+    _verifyingWord = -1;
+    _lastAudioEndMs = 0;
+    _ignoreAudioBeforeMs = 0;
+    _lastSegmentAt = DateTime.now();
+    _lastSegmentLagMs = 0;
     drillResult.value = null;
     status.value = MemorizationTestStatus.preparing;
 
@@ -746,11 +882,11 @@ class MemorizationTestService {
     try {
       final regions = await AyahRegionService.forPage(pageNumber);
       final wordRegions = await WordRegionService.forPage(pageNumber);
-      _wordMarginRect = wordRegions?.marginRect;
-      _paper = wordRegions?.paper;
-      _marginPaper = wordRegions?.marginPaper;
       final pages = await QuranJsonService.loadQuranPages();
-      if (token != _startToken) return false;
+      if (token != _startToken) {
+        await parked?.stop();
+        return false;
+      }
 
       QuranPageData? page;
       for (final p in pages) {
@@ -764,13 +900,11 @@ class MemorizationTestService {
           'MemorizationTestService: no data for page $pageNumber',
         );
         await parked?.stop();
-        status.value = MemorizationTestStatus.failed;
-        return false;
+        return fail();
       }
       if (!_regionsMatchText(regions, page)) {
         await parked?.stop();
-        status.value = MemorizationTestStatus.failed;
-        return false;
+        return fail();
       }
 
       final expectedWords = <String>[];
@@ -784,8 +918,7 @@ class MemorizationTestService {
       starts.add(expectedWords.length);
       if (expectedWords.isEmpty) {
         await parked?.stop();
-        status.value = MemorizationTestStatus.failed;
-        return false;
+        return fail();
       }
       final openings = _openingsOf(page, starts);
       final embedded = _embeddedOf(openings, expectedWords);
@@ -821,8 +954,7 @@ class MemorizationTestService {
         if (real == null) {
           // stubReason was set by _tryBuildRealEngine.
           usingRealEngine.value = false;
-          status.value = MemorizationTestStatus.failed;
-          return false;
+          return fail();
         }
         engine = real;
         usingRealEngine.value = true;
@@ -842,11 +974,9 @@ class MemorizationTestService {
               'page $pageNumber (${phonemes?.words.length} vs '
               '${expectedWords.length} words)');
           await engine.stop();
-          status.value = MemorizationTestStatus.failed;
-          return false;
+          return fail();
         }
         final reference = _referenceFor(phonemes, embedded);
-        _reference = reference;
         // A drill (or any session told where to begin) starts on that ayah
         // only; an ordinary session may start on any ayah of the page.
         tracker = PhonemeTracker(
@@ -860,7 +990,13 @@ class MemorizationTestService {
                   starts[startAyahIndex.clamp(0, starts.length - 2).toInt()],
                 ),
         );
-        tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
+        final lexicon = await _loadLexicon();
+        if (token != _startToken) {
+          await engine.stop();
+          return false;
+        }
+        _reference = reference;
+        tracer = VerdictTracer(tracker, lexicon: lexicon);
       }
       _tracker = tracker;
       _tracer = tracer;
@@ -908,6 +1044,9 @@ class MemorizationTestService {
 
       _aligner = aligner;
       _regions = regions;
+      _wordMarginRect = wordRegions?.marginRect;
+      _paper = wordRegions?.paper;
+      _marginPaper = wordRegions?.marginPaper;
       _wordBoxes = _usableWordBoxes(wordRegions, page);
       _page = page;
       _expectedWords = expectedWords;
@@ -957,6 +1096,9 @@ class MemorizationTestService {
           final pkg = await PackageInfo.fromPlatform();
           appVersion = '${pkg.version}+${pkg.buildNumber}';
         } catch (_) {}
+        final micSource = (await TasmeeMicSourceSetting.mode()).name;
+        // Called off meanwhile: the stop already let go of the engine.
+        if (token != _startToken) return false;
         _installId = installId;
         _recorderInfo = {
           'installId': installId,
@@ -964,11 +1106,12 @@ class MemorizationTestService {
           'platform': Platform.operatingSystem,
           'os': Platform.operatingSystemVersion,
           'model': engine.emitsPhonemes ? AsrModelManager.instance.modelFile : 'whisper-base-ar-quran',
-          'speed': _fastJudge ? 'fast' : 'accurate',
+          'speed': _speedName,
+          'micSource': micSource,
           'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
           'stubReason': stubReason.value.name,
         };
-        _recorder = await TasmeeSessionRecorder.begin(
+        final recorder = await TasmeeSessionRecorder.begin(
           page: pageNumber,
           installId: installId,
           info: {
@@ -977,7 +1120,8 @@ class MemorizationTestService {
             'platform': Platform.operatingSystem,
             'os': Platform.operatingSystemVersion,
             'model': engine.emitsPhonemes ? AsrModelManager.instance.modelFile : 'whisper-base-ar-quran',
-            'speed': _fastJudge ? 'fast' : 'accurate',
+            'speed': _speedName,
+            'micSource': micSource,
             'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
             'stubReason': stubReason.value.name,
             'alertMode': (await TasmeeAlert.mode()).name,
@@ -1002,12 +1146,19 @@ class MemorizationTestService {
               },
           },
         );
+        if (token != _startToken) {
+          await recorder?.finish();
+          return false;
+        }
+        _recorder = recorder;
         final audio = engine.audioChunks;
-        if (audio != null && _recorder != null) {
-          _audioSub = audio.listen(_recorder!.addAudio);
+        if (audio != null && recorder != null) {
+          _audioSub = audio.listen(recorder.addAudio);
         }
       }
 
+      // A stop() while the recognizer loads stops it too, and its start()
+      // then returns at once: the token check below ends this start.
       if (!reused) await engine.start();
       if (token != _startToken) return false;
       status.value = MemorizationTestStatus.listening;
@@ -1024,12 +1175,17 @@ class MemorizationTestService {
         );
       }
       revision.value++;
+      // A self-test page turned by «كلمة» or «الآية»: the start of this
+      // page shows at once.
+      final then = _afterSilentTurn;
+      _afterSilentTurn = null;
+      if (then != null && silent && pageNumber == _afterSilentTurnPage) then();
       return true;
     } catch (error, stack) {
       debugPrint('MemorizationTestService: start failed: $error\n$stack');
       if (token == _startToken) {
-        await stop();
-        status.value = MemorizationTestStatus.failed;
+        await _endSession();
+        return fail();
       }
       return false;
     }
@@ -1137,7 +1293,6 @@ class MemorizationTestService {
     }
 
     final manager = AsrModelManager.instance;
-    manager.fast = _fastJudge;
     if (!await manager.refresh()) {
       debugPrint('MemorizationTestService: ASR model not installed; '
           'not starting.');
@@ -1178,6 +1333,12 @@ class MemorizationTestService {
       unawaited(_afterFlip(showHint));
       return;
     }
+    if (_silentTurn != null) {
+      // The same in a self-test: the page held for the word just shown
+      // turns now, and the next page's first word shows.
+      continueSilentTurn(showHint);
+      return;
+    }
     final aligner = _aligner;
     if (aligner == null || status.value != MemorizationTestStatus.listening) {
       return;
@@ -1196,6 +1357,7 @@ class MemorizationTestService {
     word = _passEmbeddedAt(word); // a basmala in the text is not a hint
     if (word >= aligner.length) return;
     _recorder?.log('control', {'action': 'hint', 'word': word});
+    _barrierAfterControl();
     final wasHard = _holdHard && _holdWord == word;
     if (_holdWord == word) _releaseHold('control');
     // In a self-test uncovering a word is how the reader checks themself:
@@ -1232,6 +1394,7 @@ class MemorizationTestService {
     var ayah = currentAyahIndex;
     if (ayah < 0) ayah = _ayahWordStarts.length - 2;
     final started = aligner.cursor > _ayahWordStarts[ayah];
+    _barrierAfterControl();
     // At the top of a page the session flowed into, the ayah to repeat is
     // the last one of the page before: go back there.
     final from = _continuedFrom;
@@ -1243,6 +1406,7 @@ class MemorizationTestService {
     if (!started && ayah > 0) ayah -= 1;
     _recorder?.log('control', {'action': 'repeatAyah', 'ayah': ayah});
     _releaseHold('control');
+    _silentTurn = null; // the page is not finished any more
     aligner.resetRange(_ayahWordStarts[ayah], aligner.length);
     // As if the ayah had never been read: the tracker forgets what it heard
     // and waits at the ayah's first word (its old verdicts would otherwise
@@ -1274,8 +1438,6 @@ class MemorizationTestService {
     final next = page + 1;
     final startPage = _drillStartPage;
     final startAyah = _drillStartAyahIndex;
-    pageAdvanced.value = 0;
-    pageAdvanced.value = next;
     final ok = await start(
       pageNumber: next,
       startAyahIndex: 0,
@@ -1287,6 +1449,13 @@ class MemorizationTestService {
       _drillStartPage = startPage;
       _drillStartAyahIndex = startAyah;
     }
+    // The view turns now, or once the opening words of an ayah that begins
+    // at the foot of [page] are through.
+    if (!ok || !await _holdViewForHead(page, next)) {
+      pageAdvanced.value = 0;
+      pageAdvanced.value = next;
+    }
+    revision.value++;
   }
 
   /// Tests only: pretends the active page was flowed into from [page].
@@ -1296,7 +1465,9 @@ class MemorizationTestService {
   /// Restarts the session on [pageNumber] at its last ayah, the page view
   /// following (the same way a drill restart does).
   Future<void> _repeatLastAyahOf(int pageNumber) async {
+    final token = _startToken;
     final pages = await QuranJsonService.loadQuranPages();
+    if (token != _startToken) return; // ended meanwhile: stays ended
     QuranPageData? page;
     for (final p in pages) {
       if (p.page == pageNumber) page = p;
@@ -1309,6 +1480,7 @@ class MemorizationTestService {
     final override = _engineOverride ?? engineFactoryForTest?.call();
     if (_engine != null && usingRealEngine.value) {
       await _stopEngineOnly(park: true);
+      if (token != _startToken) return _stopParked();
     }
     pageAdvanced.value = 0;
     pageAdvanced.value = pageNumber;
@@ -1332,6 +1504,12 @@ class MemorizationTestService {
       // Finished page, stuck on the next page's first ayah: turn the page
       // and reveal (or skip) that ayah.
       unawaited(_afterFlip(() => _resolveCurrentAyah(action, mark)));
+      return;
+    }
+    if (_silentTurn != null) {
+      // A self-test page held after its last reveal: «الآية» turns it and
+      // shows the next page's first ayah, as «كلمة» shows its first word.
+      continueSilentTurn(() => _resolveCurrentAyah(action, mark));
       return;
     }
     final aligner = _aligner;
@@ -1566,11 +1744,19 @@ class MemorizationTestService {
     final tokens = segment.phonemes!;
     if (tokens.isEmpty) return;
     final times = segment.phonemeTimesMs ?? const <int>[];
+    if (segment.audioEndMs > _lastAudioEndMs) _lastAudioEndMs = segment.audioEndMs;
+    _lastSegmentAt = DateTime.now();
+    _lastSegmentLagMs = segment.lagMs;
     _lastVoiceOrSegment = DateTime.now();
     _silenceWarned = false;
     final chars = <HeardChar>[];
+    var stale = 0;
     for (var k = 0; k < tokens.length; k++) {
       final ms = k < times.length ? times[k] : segment.audioEndMs;
+      if (ms < _ignoreAudioBeforeMs) {
+        stale++;
+        continue;
+      }
       final frame = (ms / 40).round();
       for (final r in collapseMadd(tokens[k]).runes) {
         chars.add(HeardChar(String.fromCharCode(r), frame));
@@ -1581,7 +1767,9 @@ class MemorizationTestService {
       'timesMs': times,
       'audioEndMs': segment.audioEndMs,
       'lagMs': segment.lagMs,
+      if (stale > 0) 'stale': stale,
     });
+    if (chars.isEmpty) return;
     if (_pageDoneWaiting) {
       // The reciter went on: these sounds belong to the next page.
       _pendingChars.addAll(chars);
@@ -1660,6 +1848,7 @@ class MemorizationTestService {
   /// report, the view flips, and what was heard is replayed on the new page
   /// so it starts where those words are.
   Future<void> _relocateTo(QuranLocation hit) async {
+    final token = _startToken;
     final from = _activePage;
     final override = _engineOverride;
     final buffer = List<HeardChar>.of(_locateBuffer);
@@ -1672,6 +1861,7 @@ class MemorizationTestService {
       'distance': hit.distance,
     });
     await _stopEngineOnly(park: true);
+    if (token != _startToken) return _stopParked();
     pageAdvanced.value = 0;
     pageAdvanced.value = hit.page;
     final ok = await start(
@@ -1781,6 +1971,23 @@ class MemorizationTestService {
               _halfSaidWhileSounding(v)) {
             waiting.add(v.word);
             break;
+          }
+          // «تحقّق قبل التنبيه»: a distance or substitution stop is raised
+          // only once a fresh decode of the moment has failed to hear the
+          // expected word; while it runs the word stays pending (and the
+          // words after it masked, see below). A stop the fresh decode
+          // clears reveals the word instead. Hafs-habit, final-vowel and
+          // extra-word stops are not second-guessed.
+          if (_verifyStops && (v.reason.isEmpty || v.reason == 'word')) {
+            final heardFresh = _verified[v.word];
+            if (heardFresh == true) {
+              updates[v.word] = WordStatus.correct;
+              break;
+            }
+            if (heardFresh == null) {
+              if (settled || v.word < cursorWord - 1) _requestVerify(v);
+              break;
+            }
           }
           if (v.reason == 'hafs' || settled || v.word < cursorWord - 1) {
             final target = _mistakeTarget(v, aligner);
@@ -1949,7 +2156,8 @@ class MemorizationTestService {
         final w = _mistakeTarget(v, aligner) ?? -1;
         if (w < 0 ||
             aligner.statuses[w] != WordStatus.pending ||
-            (w == v.word && updates[w] == WordStatus.correct)) {
+            (w == v.word && updates[w] == WordStatus.correct) ||
+            _verified[v.word] == true) {
           continue;
         }
         if (firstWrong < 0 || w < firstWrong) firstWrong = w;
@@ -2132,6 +2340,109 @@ class MemorizationTestService {
     _finishIfComplete();
   }
 
+  /// Asks the engine for a fresh decode of the moment of [v] and, once it
+  /// answers, judges the page again: the word is revealed when the fresh
+  /// decode heard it in place, otherwise the stop is raised as usual.
+  void _requestVerify(WordVerdict v) {
+    if (_verifyingWord >= 0) return;
+    final engine = _engine;
+    final tracker = _tracker;
+    final reference = _reference;
+    final heard = tracker?.heard;
+    if (engine == null ||
+        tracker == null ||
+        reference == null ||
+        heard == null ||
+        v.spanFrom < 0 ||
+        v.spanFrom >= heard.length) {
+      _verified[v.word] = false;
+      return;
+    }
+    final startMs = heard[v.spanFrom].frame * 40;
+    final endIdx = math.max(v.spanFrom, math.min(v.spanTo, heard.length) - 1);
+    final endMs = heard[endIdx].frame * 40;
+    final toMs = math.min(_lastAudioEndMs, endMs + _verifyAfterMs);
+    final fromMs = math.max(0, math.max(startMs - _verifyBeforeMs, toMs - _verifyMaxMs));
+    if (toMs - fromMs < 800) {
+      _verified[v.word] = false;
+      return;
+    }
+    final word = v.word;
+    final token = _startToken;
+    final started = DateTime.now();
+    _verifyingWord = word;
+    engine.verify(fromMs: fromMs, toMs: toMs).then((tokens) {
+      if (token != _startToken || !identical(_tracker, tracker)) return;
+      _verifyingWord = -1;
+      final cleared = tokens != null && verifyHears(tokens.join(), reference.words, word);
+      _verified[word] = cleared;
+      _recorder?.log('verify', {
+        'word': word,
+        'from': fromMs,
+        'to': toMs,
+        'ms': DateTime.now().difference(started).inMilliseconds,
+        'cleared': cleared,
+        'app': v.heard,
+        'fresh': tokens?.join() ?? '',
+      });
+      if (status.value != MemorizationTestStatus.listening) return;
+      final settled = DateTime.now().difference(_lastPhonemeAt).inMilliseconds >=
+          settleMsFor(fast: _fastJudge);
+      _applyTrackerVerdicts(settled: settled);
+    }, onError: (Object e) {
+      if (token != _startToken || !identical(_tracker, tracker)) return;
+      _verifyingWord = -1;
+      _verified[word] = false;
+    });
+  }
+
+  /// Whether the fresh decode [decoded] holds word [w] of [words] (its
+  /// phonemes, an accepted form, or its connected form for a word that
+  /// begins with hamzat al-wasl) anchored on a neighbour: the last three
+  /// sounds of the word before or the first three of the word after. A
+  /// bare substring match would clear too much («من» is inside «لمن»).
+  @visibleForTesting
+  static bool verifyHears(String decoded, List<PhonemeWord> words, int w) {
+    if (w < 0 || w >= words.length) return false;
+    final d = collapseMadd(decoded);
+    final wd = words[w];
+    final phon = collapseMadd(wd.phon);
+    final forms = <String>{phon, for (final a in wd.accept) collapseMadd(a)};
+    if (wd.wasl && phon.startsWith('ء') && phon.runes.length > 2) {
+      forms.add(String.fromCharCodes(phon.runes.skip(2)));
+    }
+    final prev = w > 0 ? collapseMadd(words[w - 1].phon) : '';
+    final next = w + 1 < words.length ? collapseMadd(words[w + 1].phon) : '';
+    String tail(String s, int n) {
+      final r = s.runes.toList();
+      return String.fromCharCodes(r.length <= n ? r : r.sublist(r.length - n));
+    }
+    String head(String s, int from, int to) {
+      final r = s.runes.toList();
+      if (r.length <= from) return '';
+      return String.fromCharCodes(r.sublist(from, math.min(to, r.length)));
+    }
+    // A match anchored only on the next word cannot see what stands before
+    // it: «وَمَا» said for «مَا» holds «مَا» + the next word. A particle the
+    // page does not have right before the match means it was added.
+    bool afterNoStrayParticle(String pattern) {
+      for (var i = d.indexOf(pattern); i >= 0; i = d.indexOf(pattern, i + 1)) {
+        final before = d.substring(math.max(0, i - 2), i);
+        if (!_verifyParticles.contains(before) || prev.endsWith(before)) return true;
+      }
+      return false;
+    }
+    for (final f in forms) {
+      if (f.isEmpty) continue;
+      if (prev.isNotEmpty && d.contains(tail(prev, 3) + f)) return true;
+      if (next.isNotEmpty && afterNoStrayParticle(f + head(next, 0, 3))) return true;
+      if (next.startsWith('ء') && afterNoStrayParticle(f + head(next, 2, 5))) return true;
+    }
+    return false;
+  }
+
+  static const Set<String> _verifyParticles = {'وَ', 'فَ', 'لَ', 'لِ', 'بِ', 'كَ'};
+
   /// Whether [v] is the word being said right now, heard exactly right as far
   /// as it goes, with the voice still sounding. A long madd holds one sound
   /// for well over a second while the recognizer sends nothing (it sends the
@@ -2250,6 +2561,8 @@ class MemorizationTestService {
     _settledApplied = false;
     _startResolved = true;
     _basmalaBuffer.clear();
+    _verified.clear();
+    _verifyingWord = -1;
     _cancelPendingFlip();
     _recorder?.log('rewind', {'word': word, 'barrier': tracker.maxCell});
   }
@@ -2267,7 +2580,42 @@ class MemorizationTestService {
       (a) => a.surah == drill.surah && a.ayah == drill.ayah,
     );
     if (idx < 0 || aligner.cursor < _ayahWordStarts[idx + 1]) return false;
+    // An open self-test whose next question starts on the next page: ending
+    // this one turns the page, so it waits like a page the question runs on
+    // from.
+    if (_silent && nextQuestionTurnsPage && aligner.isComplete) {
+      return _holdSilentTurn(() => _endDrill(drill));
+    }
     return _endDrill(drill);
+  }
+
+  /// Holds a finished self-test page (see [_silentTurn]); [go] turns it.
+  bool _holdSilentTurn(VoidCallback go) {
+    if (_silentTurn != null) return true;
+    _silentTurn = go;
+    _setFeedback(
+      const RecitationFeedback(
+        FeedbackKind.info,
+        'اكتملت الصفحة: اقلبها لتتابع، أو اضغط «كلمة» أو «الآية»',
+      ),
+      sticky: true,
+      show: true,
+    );
+    revision.value++;
+    return true;
+  }
+
+  /// Goes on from a self-test page held after its last reveal: the page
+  /// turns (or the question ends and the next one opens on the next page),
+  /// and [then], when given, uncovers the start of that page once it is up.
+  void continueSilentTurn([void Function()? then]) {
+    final go = _silentTurn;
+    if (go == null) return;
+    _silentTurn = null;
+    _afterSilentTurn = then;
+    _afterSilentTurnPage = (_activePage ?? 0) + 1;
+    _setFeedback(null);
+    go();
   }
 
   /// Ends an open-ended test question now (the reciter chose to move on):
@@ -2283,6 +2631,7 @@ class MemorizationTestService {
   }
 
   bool _endDrill(TasmeeDrill drill) {
+    _silentTurn = null; // «سؤال جديد» on a held page ends it too
     final passed = [
       for (final t in drill.targets)
         if (!_drillMissed.contains(t.key)) t,
@@ -2507,7 +2856,7 @@ class MemorizationTestService {
     // next page opens fully covered and the question continues there.
     final drill = _drill;
     if (_silent && drill != null && (_activePage ?? 0) < drill.page) {
-      unawaited(_continueSilentToNextPage());
+      _holdSilentTurn(() => unawaited(_continueSilentToNextPage()));
       return;
     }
     // The phoneme engine flows into the next page without stopping: the
@@ -2656,6 +3005,9 @@ class MemorizationTestService {
       final phonemes = data.phonemes;
       final expectedWords = data.expectedWords;
       final starts = data.starts;
+      // The finished page's word boxes (cached since its start): its `cont`
+      // tells whether the next page's first ayah begins at its foot.
+      final doneWords = await WordRegionService.forPage(donePage);
       if (token != _startToken ||
           status.value != MemorizationTestStatus.listening) {
         return;
@@ -2664,11 +3016,20 @@ class MemorizationTestService {
       // Speech already heard beyond this page's last word (the tail of the
       // batch that finished it) goes to the next page too, in front of what
       // came after; it is fed through the basmala filter with that.
+      // Only when that last word was heard: after a «كلمة» press that
+      // revealed it, the sounds before the press were the reciter's failed
+      // attempt («من ولي ولا نصير» for «ناصرين»), and carrying them stopped
+      // the next page on its first word before anything was said.
       final oldTracker = _tracker!;
       final oldAligner = _aligner!;
       var from = oldTracker.heard.length;
       for (final v in _tracer!.verdicts(settled: true)) {
-        if (v.word == oldAligner.length - 1 && v.spanTo >= 0) from = v.spanTo;
+        if (v.word == oldAligner.length - 1 &&
+            v.spanTo >= 0 &&
+            v.state != VerdictState.wrong &&
+            v.state != VerdictState.skipped) {
+          from = v.spanTo;
+        }
       }
       final carry =
           oldTracker.heard.sublist(math.min(from, oldTracker.heard.length));
@@ -2704,6 +3065,10 @@ class MemorizationTestService {
         return;
       }
       await _audioSub?.cancel();
+      if (token != _startToken) {
+        await newRecorder?.finish();
+        return;
+      }
       _recorder = newRecorder;
       final audio = _engine?.audioChunks;
       _audioSub = (audio != null && newRecorder != null)
@@ -2718,15 +3083,20 @@ class MemorizationTestService {
       final openings = _openingsOf(page, starts);
       final embedded = _embeddedOf(openings, expectedWords);
       final reference = _referenceFor(phonemes, embedded);
-      _reference = reference;
       final tracker = PhonemeTracker(
         reference,
         cfg: _trackerCfg,
         startAnywhere: false, // a page the session flowed into starts at its top
         startWord: _soundingWordFrom(reference, 0),
       );
+      final lexicon = await _loadLexicon();
+      // Ended meanwhile: the stop already closed the new page's log.
+      if (token != _startToken) return;
+      _reference = reference;
       _tracker = tracker;
-      _tracer = VerdictTracer(tracker, lexicon: await _loadLexicon());
+      _tracer = VerdictTracer(tracker, lexicon: lexicon);
+      _verified.clear();
+      _verifyingWord = -1;
       final newAligner = QuranWordAligner(expectedWords)
         ..onWordResolved = (_) => revision.value++;
       _aligner = newAligner;
@@ -2758,11 +3128,16 @@ class MemorizationTestService {
       _recorder?.log('listening', {'carriedChars': carry.length});
       _lastPhonemeAt = DateTime.now();
       _setFeedback(null); // the "page done" line has served its purpose
-      // A ValueNotifier is silent when its value does not change, and the
-      // same page can be flowed into twice in one run of the app (p130 ->
-      // p131, back, and again): pulse through 0 so every advance fires.
-      pageAdvanced.value = 0;
-      pageAdvanced.value = next;
+      // An ayah that begins at the foot of the finished page: the view
+      // stays there until its opening words have been recited.
+      final holdView = _setHeadHold(doneWords, donePage);
+      if (!holdView) {
+        // A ValueNotifier is silent when its value does not change, and the
+        // same page can be flowed into twice in one run of the app (p130 ->
+        // p131, back, and again): pulse through 0 so every advance fires.
+        pageAdvanced.value = 0;
+        pageAdvanced.value = next;
+      }
       revision.value++;
     } catch (e) {
       debugPrint('MemorizationTestService: could not continue to page $next: $e');
@@ -2854,8 +3229,99 @@ class MemorizationTestService {
     }
   }
 
-  /// Ends the session and clears all state. Safe to call when idle.
-  Future<void> stop() async {
+  /// Ends the session and clears all state. Safe to call when idle. A
+  /// [start] still getting ready is called off: it returns false and leaves
+  /// the service idle (it used to carry on and bring the ended session back,
+  /// or wait forever on a recognizer this had already stopped).
+  /// Five ayat begin at the foot of one page and end on the next (the
+  /// ayah is listed under the page it ends on: 2:218 on p35 begins with
+  /// «قل العفو» at the foot of p34). When the earlier page is done the
+  /// session moves on to the next page's text, but the view stays on the
+  /// earlier page while those opening words, printed there, are recited
+  /// (masked word by word with that page's own boxes); it turns once they
+  /// are through, at «والآخرة» on p34.
+  int? _headPage;
+  int _headWords = 0;
+  WordRegionPageData? _headRegions;
+
+  /// The page the view is held on while the head of the active page's
+  /// first ayah is recited there, or null.
+  int? get headPage => _headPage;
+
+  /// That page's word data (its `continued` boxes are the head words).
+  WordRegionPageData? get headRegions => _headRegions;
+
+  /// The statuses of the head words (the active page's first words).
+  List<WordStatus> get headStatuses {
+    final aligner = _aligner;
+    if (_headPage == null || aligner == null) return const [];
+    return aligner.statuses.sublist(0, math.min(_headWords, aligner.length));
+  }
+
+  void _clearHead() {
+    _headPage = null;
+    _headWords = 0;
+    _headRegions = null;
+  }
+
+  /// Whether the session, now on [next], should keep the view on [donePage]
+  /// because [next]'s first ayah begins there; sets the hold up if so.
+  Future<bool> _holdViewForHead(int donePage, int next) async =>
+      _setHeadHold(await WordRegionService.forPage(donePage), donePage);
+
+  /// [_holdViewForHead] with [donePage]'s word data already loaded (the page
+  /// swap must not wait: sounds arriving meanwhile would reach the new page
+  /// ahead of the ones carried over).
+  bool _setHeadHold(WordRegionPageData? data, int donePage) {
+    final cont = data?.continued;
+    final page = _page;
+    final aligner = _aligner;
+    if (cont == null || page == null || aligner == null || page.ayahs.isEmpty) return false;
+    if (page.ayahs.first.surah != cont.surah || page.ayahs.first.ayah != cont.ayah) return false;
+    var n = 0;
+    while (n < cont.words.length && (cont.words[n].width > 0 || cont.words[n].parts.isNotEmpty)) {
+      n++;
+    }
+    if (n == 0 || n >= aligner.length) return false;
+    _headPage = donePage;
+    _headWords = n;
+    _headRegions = data;
+    _recorder?.log('headHold', {'page': donePage, 'words': n});
+    return true;
+  }
+
+  /// Turns the page once every head word has been dealt with.
+  void _maybeEndHead() {
+    final held = _headPage;
+    final aligner = _aligner;
+    final next = _activePage;
+    if (held == null || aligner == null || next == null) return;
+    final n = math.min(_headWords, aligner.length);
+    for (var w = 0; w < n; w++) {
+      if (aligner.statuses[w] == WordStatus.pending) return;
+    }
+    _clearHead();
+    _recorder?.log('headDone', {'page': next});
+    pageAdvanced.value = 0;
+    pageAdvanced.value = next;
+  }
+
+  Future<void> stop() {
+    _startToken++;
+    _afterSilentTurn = null;
+    _clearHead();
+    return _endSession();
+  }
+
+  /// A recognizer parked for a restart that a stop() called off in the
+  /// meantime: nothing will pick it up, so its microphone closes here.
+  Future<void> _stopParked() async {
+    final parked = _parkedEngine;
+    _parkedEngine = null;
+    await parked?.stop();
+  }
+
+  Future<void> _endSession() async {
     if (status.value == MemorizationTestStatus.listening) {
       _saveReport(finished: false);
     }
@@ -2895,6 +3361,7 @@ class MemorizationTestService {
     drillLabel.value = null;
     _continuedFrom = null;
     _cancelPendingFlip();
+    _silentTurn = null;
     _surahOpenings = const [];
     _basmalaBuffer.clear();
     _basmalaArmed = false;

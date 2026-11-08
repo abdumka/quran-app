@@ -307,6 +307,22 @@ class TasmeeWeakPointStore {
 
   static Future<void> clear() => _locked(() => _save([]));
 
+  /// Removes the points [remove] picks; returns the pool as it was before,
+  /// for [replaceAll] («تراجع»).
+  static Future<List<TasmeeWeakPoint>> removeWhere(
+    bool Function(TasmeeWeakPoint p) remove,
+  ) async {
+    var before = const <TasmeeWeakPoint>[];
+    await _locked(() async {
+      before = await load();
+      await _save([for (final p in before) if (!remove(p)) p]);
+    });
+    return before;
+  }
+
+  static Future<void> replaceAll(List<TasmeeWeakPoint> pool) =>
+      _locked(() => _save(pool));
+
   /// Groups the pool into drills, one per ayah: most-missed first, then the
   /// ones missed longest ago.
   static List<TasmeeDrill> plan(List<TasmeeWeakPoint> pool) {

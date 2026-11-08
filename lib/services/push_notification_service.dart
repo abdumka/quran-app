@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../firebase_options.dart';
 import 'app_update_service.dart';
+import 'chat_service.dart';
 import 'daily_page_service.dart';
 import 'debug_log_service.dart';
 import 'notification_center.dart';
@@ -33,6 +34,8 @@ import 'notification_center.dart';
 ///  * `update:<store url>` — opens that exact store page.
 ///  * `url:<https link>` — opens the link in the browser.
 ///  * `page:<1-602>` — opens that mushaf page.
+///  * `chat:<id>` opens the «راسلنا مباشرة» conversation. These are the only
+///    messages sent to one device's token rather than to a topic.
 ///
 /// While the app is closed or in the background the OS displays the
 /// notification itself, so no Dart background handler is registered (that
@@ -48,6 +51,13 @@ class PushNotificationService {
   static const String _channelId = 'announcements';
   static const String _channelName = 'إعلانات';
   static const String _channelDescription = 'أخبار وإعلانات من المصحف الجامع';
+
+  // Replies have their own channel, so muting news doesn't mute them. The
+  // Worker names this id in the push it sends.
+  static const String _chatChannelId = 'messages';
+  static const String _chatChannelName = 'الرسائل';
+  static const String _chatChannelDescription =
+      'ردود فريق المصحف الجامع على رسائلك';
 
   /// The token and topic set the current subscriptions were made for.
   /// Subscriptions belong to a token, so a new token (app data restored onto a
@@ -105,6 +115,8 @@ class PushNotificationService {
       final initial = await messaging.getInitialMessage();
       if (initial != null) _handleOpened(initial);
 
+      FirebaseMessaging.onMessage.listen(_refreshChatIfNeeded);
+
       if (defaultTargetPlatform == TargetPlatform.iOS) {
         // iOS can show the banner itself while the app is open.
         await messaging.setForegroundNotificationPresentationOptions(
@@ -119,9 +131,15 @@ class PushNotificationService {
         FirebaseMessaging.onMessage.listen(_showWhileInForeground);
       }
 
-      messaging.onTokenRefresh.listen(_subscribe);
+      messaging.onTokenRefresh.listen((token) {
+        _subscribe(token);
+        ChatService.instance.updatePushToken(token);
+      });
       final token = await _getToken(messaging);
-      if (token != null) await _subscribe(token);
+      if (token != null) {
+        await _subscribe(token);
+        await ChatService.instance.updatePushToken(token);
+      }
     } catch (error, stack) {
       _log('start failed: $error\n$stack');
     }
@@ -146,6 +164,16 @@ class PushNotificationService {
           : AppUpdateService.playStoreUrl;
       launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     });
+    center.registerTapHandler('chat', (_) {
+      ChatService.instance.requestOpen();
+    });
+  }
+
+  static bool _isChatPush(RemoteMessage message) =>
+      (message.data[payloadKey] ?? '').startsWith('chat:');
+
+  void _refreshChatIfNeeded(RemoteMessage message) {
+    if (_isChatPush(message)) ChatService.instance.handleForegroundPush();
   }
 
   void _handleOpened(RemoteMessage message) {
@@ -275,11 +303,26 @@ class PushNotificationService {
             importance: Importance.high,
           ),
         );
+    await center.plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _chatChannelId,
+            _chatChannelName,
+            description: _chatChannelDescription,
+            importance: Importance.high,
+          ),
+        );
   }
 
   Future<void> _showWhileInForeground(RemoteMessage message) async {
     final notification = message.notification;
     if (notification == null) return;
+    final isChat = _isChatPush(message);
+    // The reply is already appearing in the open chat.
+    if (isChat && ChatService.instance.chatOpen) return;
     try {
       final center = NotificationCenter.instance;
       if (!await center.areNotificationsEnabled()) return;
@@ -287,11 +330,13 @@ class PushNotificationService {
         (message.messageId ?? '${DateTime.now()}').hashCode & 0x7fffffff,
         notification.title,
         notification.body,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
-            _channelId,
-            _channelName,
-            channelDescription: _channelDescription,
+            isChat ? _chatChannelId : _channelId,
+            isChat ? _chatChannelName : _channelName,
+            channelDescription: isChat
+                ? _chatChannelDescription
+                : _channelDescription,
             importance: Importance.high,
             priority: Priority.high,
           ),

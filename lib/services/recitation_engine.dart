@@ -94,6 +94,16 @@ abstract class RecitationEngine {
   /// Stops producing segments and releases resources. The engine cannot be
   /// restarted after [stop]; create a new instance instead.
   Future<void> stop();
+
+  /// Decodes the microphone audio between [fromMs] and [toMs] (positions in
+  /// the stream, as in [RecognizedSegment.audioEndMs]) once more with a
+  /// FRESH recognizer state, and returns the phoneme tokens it hears. A
+  /// second opinion for «تحقّق قبل التنبيه»: the live decode carries the
+  /// memory of everything before, which can overwrite a word's first
+  /// sound («لقد» heard «قد»); the fresh pass has no such memory. Null when
+  /// the engine keeps no audio, the window is gone, or it has stopped.
+  Future<List<String>?> verify({required int fromMs, required int toMs}) async =>
+      null;
 }
 
 /// No microphone at all: the self-test (اختبار ذاتي) covers the page and

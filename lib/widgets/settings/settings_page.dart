@@ -48,6 +48,7 @@ import '../hifz_lens_icon.dart';
 import 'downloads_management_page.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
+import '../../services/chat_service.dart';
 import '../menu/fullscreen_menu_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -1779,16 +1780,21 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: CompactActionTile(
-                                title: 'تواصل معنا',
-                                icon: Icons.alternate_email_rounded,
-                                stacked: true,
-                                onTap: () => _openFullscreenMenuPage(
-                                  title: 'تواصل معنا',
-                                  child: ContactContent(
-                                    onOpenLink: _openUsefulLink,
-                                  ),
-                                ),
+                              child: ValueListenableBuilder<int>(
+                                valueListenable: ChatService.instance.unread,
+                                builder: (context, unread, _) =>
+                                    CompactActionTile(
+                                      title: 'تواصل معنا',
+                                      icon: Icons.alternate_email_rounded,
+                                      stacked: true,
+                                      showDot: unread > 0,
+                                      onTap: () => _openFullscreenMenuPage(
+                                        title: 'تواصل معنا',
+                                        child: ContactContent(
+                                          onOpenLink: _openUsefulLink,
+                                        ),
+                                      ),
+                                    ),
                               ),
                             ),
                             const SizedBox(width: 10),

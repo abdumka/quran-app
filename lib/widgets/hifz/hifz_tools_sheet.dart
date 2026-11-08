@@ -170,7 +170,7 @@ Future<void> showHifzToolsSheet(
                   tile(
                     icon: Icons.fact_check_rounded,
                     title: 'تقارير التسميع والأخطاء',
-                    subtitle: 'كل صفحة سُمِّعت، وسجل الأخطاء: تعثّر ثم أصاب، أو كُشفت بطلب',
+                    subtitle: 'كل صفحة سُمِّعت، وسجل الأخطاء وتنبيهات الميكروفون، وحذفها',
                     keepOpen: true,
                     onTap: onReports,
                   ),
@@ -209,13 +209,15 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: p.bg,
+    // Scrolls when the screen is short (a phone held sideways).
+    isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (sheetContext) => SafeArea(
       child: Directionality(
         textDirection: TextDirection.rtl,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -238,9 +240,11 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
               const SizedBox(height: 8),
               const _AlertModeRow(),
               const SizedBox(height: 10),
-              const _SpeedRow(),
-              const SizedBox(height: 10),
               const _LocateAnywhereRow(),
+              if (TasmeeMicSourceSetting.labBuild) ...[
+                const SizedBox(height: 10),
+                const _MicSourceRow(),
+              ],
               const SizedBox(height: 6),
             ],
           ),
@@ -250,22 +254,22 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
   );
 }
 
-/// The two alert dropdowns («عند الخطأ», «عند التصويب») on one row.
-/// «دقة أعلى» / «استجابة أسرع» (see [TasmeeSpeedSetting]).
-class _SpeedRow extends StatefulWidget {
-  const _SpeedRow();
+/// Lab builds only: which Android microphone source Tasmee opens (see
+/// [TasmeeMicSourceSetting]). Never shown in the shipped app.
+class _MicSourceRow extends StatefulWidget {
+  const _MicSourceRow();
 
   @override
-  State<_SpeedRow> createState() => _SpeedRowState();
+  State<_MicSourceRow> createState() => _MicSourceRowState();
 }
 
-class _SpeedRowState extends State<_SpeedRow> {
-  TasmeeSpeed _mode = TasmeeSpeed.accurate;
+class _MicSourceRowState extends State<_MicSourceRow> {
+  TasmeeMicSource _mode = TasmeeMicSource.system;
 
   @override
   void initState() {
     super.initState();
-    TasmeeSpeedSetting.mode().then((m) {
+    TasmeeMicSourceSetting.mode().then((m) {
       if (mounted) setState(() => _mode = m);
     });
   }
@@ -275,30 +279,40 @@ class _SpeedRowState extends State<_SpeedRow> {
     final p = HifzPalette.of(context);
     return Row(
       children: [
-        Icon(Icons.speed_rounded, color: p.title, size: 24),
+        Icon(Icons.mic_rounded, color: p.title, size: 24),
         const SizedBox(width: 12),
         Expanded(
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 4,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (final m in TasmeeSpeed.values)
-                ChoiceChip(
-                  label: Text(TasmeeSpeedSetting.label(m)),
-                  selected: _mode == m,
-                  showCheckmark: false,
-                  selectedColor: p.title,
-                  backgroundColor: p.bg,
-                  side: BorderSide(color: p.border),
-                  labelStyle: TextStyle(
-                    color: _mode == m ? p.onTitle : p.text,
-                    fontSize: 13,
-                  ),
-                  onSelected: (_) async {
-                    setState(() => _mode = m);
-                    await TasmeeSpeedSetting.set(m);
-                  },
-                ),
+              Text(
+                'مصدر الميكروفون (نسخة تجريبية)',
+                style: TextStyle(color: p.text, fontSize: 14.5, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final m in TasmeeMicSource.values)
+                    ChoiceChip(
+                      label: Text(TasmeeMicSourceSetting.label(m)),
+                      selected: _mode == m,
+                      showCheckmark: false,
+                      selectedColor: p.title,
+                      backgroundColor: p.bg,
+                      side: BorderSide(color: p.border),
+                      labelStyle: TextStyle(
+                        color: _mode == m ? p.onTitle : p.text,
+                        fontSize: 13,
+                      ),
+                      onSelected: (_) async {
+                        setState(() => _mode = m);
+                        await TasmeeMicSourceSetting.set(m);
+                      },
+                    ),
+                ],
+              ),
             ],
           ),
         ),

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../services/chat_service.dart';
+import '../chat/chat_screen.dart';
+
 class ContactContent extends StatelessWidget {
   final Future<void> Function(String url) onOpenLink;
 
@@ -18,6 +21,9 @@ class ContactContent extends StatelessWidget {
       required IconData icon,
       required VoidCallback onTap,
       required Color accentColor,
+      TextDirection subtitleDirection = TextDirection.ltr,
+      bool highlighted = false,
+      int badge = 0,
     }) {
       return InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -25,9 +31,16 @@ class ContactContent extends StatelessWidget {
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
-            color: cardColor,
+            color: highlighted
+                ? Color.alphaBlend(
+                    accentColor.withValues(alpha: 0.10),
+                    cardColor,
+                  )
+                : cardColor,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor),
+            border: highlighted
+                ? Border.all(color: accentColor, width: 1.5)
+                : Border.all(color: borderColor),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
@@ -65,7 +78,7 @@ class ContactContent extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      textDirection: TextDirection.ltr,
+                      textDirection: subtitleDirection,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -75,6 +88,27 @@ class ContactContent extends StatelessWidget {
                   ],
                 ),
               ),
+              if (badge > 0) ...[
+                const SizedBox(width: 10),
+                Container(
+                  constraints: const BoxConstraints(minWidth: 22),
+                  height: 22,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFC2412D),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Text(
+                    '$badge',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -84,6 +118,24 @@ class ContactContent extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (ChatService.isAvailable) ...[
+          ValueListenableBuilder<int>(
+            valueListenable: ChatService.instance.unread,
+            builder: (context, unread, _) => buildContactButton(
+              title: 'راسلنا مباشرة',
+              subtitle: 'ونردّ عليك هنا في التطبيق',
+              subtitleDirection: TextDirection.rtl,
+              icon: Icons.forum_rounded,
+              accentColor: const Color(0xFF8B7355),
+              highlighted: true,
+              badge: unread,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ChatScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         buildContactButton(
           title: 'صفحة فيسبوك',
           subtitle: 'AlMushafAlJami',
