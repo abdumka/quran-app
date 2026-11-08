@@ -1987,9 +1987,9 @@ class _QuranPagesState extends State<QuranPages>
     );
     await AyahPlaySetting.load();
     if (!mounted) return;
-    // The testers' switch: a double tap goes straight to the tanzilat.
-    final action =
-        fromDoubleTap && TanzilatSetting.doubleTapOpensTanzilat.value
+    // A double tap opens the ayah's tanzilat straight away; the long press
+    // shows the full menu (tafsir, recite, tanzilat, bookmark).
+    final action = fromDoubleTap
         ? _AyahAction.tanzilat
         : await _showAyahActionsSheet(hit.$1, hit.$2);
     if (!mounted) return;
@@ -5320,7 +5320,7 @@ class _QuranPagesState extends State<QuranPages>
             children: [
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                // Double tap = the ayah's options. Not in Hifz mode, and not
+                // Double tap = the ayah's tanzilat. Not in Hifz mode, and not
                 // during Tasmee: a double-tap recognizer delays every single
                 // tap by 300 ms (the session bar's buttons included).
                 onDoubleTapDown:
@@ -5502,7 +5502,7 @@ class _QuranPagesState extends State<QuranPages>
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              // Double tap = the ayah's options (as in the paged view).
+              // Double tap = the ayah's tanzilat (as in the paged view).
               onDoubleTapDown: _isHifzModeEnabled || _isMemorizationTestEnabled
                   ? null
                   : (details) =>

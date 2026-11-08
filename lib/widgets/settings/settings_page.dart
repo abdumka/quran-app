@@ -267,7 +267,8 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       SettingsTourStop(
         _tanzilatSwitchKey,
-        'هنا «تلوين التنزيلات والمتشابهات»، وهو مفعّل. أوقفه أو شغّله من هنا متى شئت.',
+        'هنا «تلوين التنزيلات والمتشابهات»، وهو مفعّل. أوقفه أو شغّله من هنا متى شئت.\n'
+        'وعلى الصفحة: اضغط مرتين على آية لتنزيلاتها، ومطوّلًا لقائمتها (التفسير والتلاوة والتنزيلات والعلامة).',
         before: _hifzToolsController.expand,
       ),
     ];
@@ -896,8 +897,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   static const String _tanzilatInfoText =
       'تُلوَّن على الصفحة كلمات التنزيلات والمتشابهات. '
-      'اضغط مطوّلًا على أي آية واختر «تنزيلات ومتشابهات» لترى كل مواضعها وعددها '
-      'وبيت الدنفاسي فيها، حتى لو كان التلوين مطفأً.';
+      'اضغط مرتين على أي آية لترى تنزيلاتها: كل مواضعها وعددها وبيت الدنفاسي فيها، '
+      'حتى لو كان التلوين مطفأً. والضغط المطوّل يفتح قائمة الآية كاملة.';
 
   /// «إعدادات العرض»: how the page is shown. The tiles are the ones that used
   /// to stand on their own at the top of the list, moved as they were.

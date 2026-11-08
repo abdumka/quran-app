@@ -5,7 +5,6 @@ import '../../services/app_update_service.dart';
 import '../../services/content_update_service.dart';
 import '../../services/notification_center.dart';
 import '../../services/push_notification_service.dart';
-import '../../services/tanzilat_service.dart';
 
 const Color _gold = Color(0xFF8B7355);
 const Color _border = Color(0xFFE8DCC8);
@@ -193,34 +192,6 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            _Section(
-              title: 'التنزيلات',
-              children: [
-                ValueListenableBuilder<bool>(
-                  valueListenable: TanzilatSetting.doubleTapOpensTanzilat,
-                  builder: (context, enabled, _) {
-                    return SwitchListTile(
-                      value: enabled,
-                      onChanged: TanzilatSetting.setDoubleTapOpensTanzilat,
-                      title: const Text(
-                        'النقر المزدوج يفتح التنزيلات مباشرة',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      subtitle: const Text(
-                        'انقر نقرتين على آية لتظهر «تنزيلات ومتشابهات» فورًا. الضغط المطوّل يبقى للقائمة المعتادة (علامة، تفسير، تنزيلات). الآية التي لا تنزيلة فيها تفتح القائمة المعتادة.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF888888),
-                        ),
-                      ),
-                    );
-                  },
                 ),
               ],
             ),

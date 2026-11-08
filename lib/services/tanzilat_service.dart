@@ -21,24 +21,10 @@ class TanzilatSetting {
   /// the reader learns the count from the colour; off = everything red.
   static final ValueNotifier<bool> colorByCount = ValueNotifier(true);
 
-  /// Testers' switch in «أدوات الاختبار»: a double tap on an ayah opens its
-  /// tanzilat straight away (the long press keeps the usual options).
-  static final ValueNotifier<bool> doubleTapOpensTanzilat = ValueNotifier(
-    false,
-  );
-  static const String _doubleTapKey = 'tanzilatDoubleTapDirect';
-
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     enabled.value = prefs.getBool(_enabledKey) ?? true;
     colorByCount.value = prefs.getBool(_byCountKey) ?? true;
-    doubleTapOpensTanzilat.value = prefs.getBool(_doubleTapKey) ?? false;
-  }
-
-  static Future<void> setDoubleTapOpensTanzilat(bool value) async {
-    doubleTapOpensTanzilat.value = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_doubleTapKey, value);
   }
 
   static Future<void> setEnabled(bool value) async {
