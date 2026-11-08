@@ -90,6 +90,7 @@ import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
 import 'widgets/settings/settings_page.dart';
+import 'widgets/settings/settings_tour_overlay.dart';
 import 'widgets/update_available_dialog.dart';
 import 'widgets/whats_new_dialog.dart';
 import 'search_page.dart';
@@ -684,6 +685,8 @@ class _QuranPagesState extends State<QuranPages>
         _armHideControlsTimer();
         return;
       }
+      // the ⚙ button stays up while «أرني أين» points at it
+      if (_settingsLessonActive) return;
       setState(() {
         // The top bar and bottom menu are one piece of chrome — auto-hide
         // them together after a period of inactivity.
@@ -5136,8 +5139,62 @@ class _QuranPagesState extends State<QuranPages>
       WhatsNewService.currentReleaseChanges,
       tour: true,
     );
-    if (showMe && mounted) _openSettings(startTour: true);
+    if (showMe && mounted) _showHowToOpenSettings();
     return true;
+  }
+
+  final GlobalKey _settingsButtonKey = GlobalKey();
+  bool _settingsLessonActive = false;
+
+  /// The first two stops of «أرني أين», on the reader itself, so the user
+  /// learns the way in: «المس الصفحة» (their tap brings up the toolbar),
+  /// then the ⚙ button lit until they tap it, which opens Settings and the
+  /// rest of the tour. Nothing else can be tapped meanwhile.
+  void _showHowToOpenSettings() {
+    // start from a bare page, so their own tap is what brings the bar up
+    if (_showIndex) setState(() => _showIndex = false);
+    _settingsLessonActive = true;
+    var step = 0;
+    Rect? gear;
+    late final OverlayEntry entry;
+    void openSettings() {
+      if (!_settingsLessonActive) return;
+      _settingsLessonActive = false;
+      entry.remove();
+      _openSettings(startTour: true);
+    }
+
+    Future<void> pageTapped() async {
+      if (step != 0) return;
+      step = -1; // no second tap while the bar slides in
+      if (!_showIndex) _handleReaderTap();
+      _hideControlsTimer?.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!mounted || !_settingsLessonActive) return;
+      final box =
+          _settingsButtonKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) {
+        openSettings(); // no button to point at: go straight on
+        return;
+      }
+      gear = box.localToGlobal(Offset.zero) & box.size;
+      step = 1;
+      entry.markNeedsBuild();
+    }
+
+    entry = OverlayEntry(
+      builder: (_) => SettingsTourOverlay(
+        targetRect: step == 1 ? gear : null,
+        text: step == 1
+            ? 'هذا زر الإعدادات. اضغطه لتفتحها.'
+            : 'المس الصفحة في أي مكان لتظهر الأدوات وزر الإعدادات.',
+        index: step == 1 ? 1 : 0,
+        count: SettingsPage.tourStops + 2,
+        onTapAnywhere: step == 0 ? pageTapped : null,
+        onTargetTap: step == 1 ? openSettings : null,
+      ),
+    );
+    Overlay.of(context).insert(entry);
   }
 
   /// After the startup popups close, shows the OS notification permission
@@ -7004,6 +7061,7 @@ class _QuranPagesState extends State<QuranPages>
                         getHizbNumber: _getHizbNumber,
                         getSurahName: _getSurahName,
                         onSettingsPressed: _openSettings,
+                        settingsKey: _settingsButtonKey,
                         isHideBarEnabled: _isHideBarEnabled,
                         onToggleHideBar: _toggleHideBar,
                         isFullScreenMode: _isFullScreenMode,

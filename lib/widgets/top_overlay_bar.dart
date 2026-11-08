@@ -24,6 +24,9 @@ class TopOverlayBar extends StatelessWidget {
   /// couch distance.
   final int? tvFocusedIndex;
 
+  /// On the ⚙ button, so the «أرني أين» tour can light it up.
+  final GlobalKey? settingsKey;
+
   const TopOverlayBar({
     super.key,
     required this.show,
@@ -40,6 +43,7 @@ class TopOverlayBar extends StatelessWidget {
     this.onPageAreaPressed,
     this.onSurahAreaPressed,
     this.tvFocusedIndex,
+    this.settingsKey,
   });
 
   Widget _tvRing(int index, Widget child) {
@@ -226,6 +230,7 @@ class TopOverlayBar extends StatelessWidget {
                       _tvRing(
                         2,
                         IconButton(
+                          key: settingsKey,
                           icon: Icon(
                             Icons.settings_outlined,
                             color: const Color(0xFFD2B97E),

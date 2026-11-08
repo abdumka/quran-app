@@ -94,7 +94,12 @@ class SettingsPage extends StatefulWidget {
   });
 
   /// Runs the «أرني أين» tour as soon as the page is open (from «ما الجديد»).
+  /// The reader has already shown its two stops (tap the page, tap ⚙), so the
+  /// progress dots go on from there.
   final bool startTour;
+
+  /// How many stops the tour has on this page (for the reader's dots).
+  static int get tourStops => kIsWeb ? 5 : 6;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -1997,8 +2002,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: SettingsTourOverlay(
                     targetRect: _tourRect!,
                     text: _tourText,
-                    index: _tourIndex,
-                    count: _tourCount,
+                    // after the reader's two stops when it came from there
+                    index: _tourIndex + (widget.startTour ? 2 : 0),
+                    count: _tourCount + (widget.startTour ? 2 : 0),
                     onDone: _tourLast ? () => _tourDone?.complete() : null,
                   ),
                 ),

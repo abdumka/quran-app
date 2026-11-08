@@ -16,7 +16,9 @@ class SettingsTourStop {
 /// [targetRect], which gets a gold frame, and a caption card on the half of
 /// the screen the target is not on. It swallows every touch, so the tour
 /// cannot be skipped; only [onDone] (the «فهمت» button, shown on the last
-/// stop) ends it.
+/// stop) ends it. On the reader it also waits for the user's own taps:
+/// [onTapAnywhere] for «المس الصفحة» (no [targetRect], nothing lit) and
+/// [onTargetTap] for a tap inside the lit spot (the ⚙ button).
 class SettingsTourOverlay extends StatelessWidget {
   const SettingsTourOverlay({
     super.key,
@@ -25,13 +27,17 @@ class SettingsTourOverlay extends StatelessWidget {
     required this.index,
     required this.count,
     this.onDone,
+    this.onTapAnywhere,
+    this.onTargetTap,
   });
 
-  final Rect targetRect;
+  final Rect? targetRect;
   final String text;
   final int index;
   final int count;
   final VoidCallback? onDone;
+  final VoidCallback? onTapAnywhere;
+  final VoidCallback? onTargetTap;
 
   static const Color _gold = Color(0xFFD6B35D);
   static const Color _brown = Color(0xFF8D6E3F);
@@ -40,8 +46,9 @@ class SettingsTourOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, box) {
-        final hole = targetRect.inflate(4);
-        final captionBelow = hole.center.dy < box.maxHeight / 2;
+        final hole = targetRect?.inflate(4);
+        final captionBelow =
+            hole == null || hole.center.dy < box.maxHeight / 2;
         final caption = Container(
           margin: const EdgeInsets.symmetric(horizontal: 16),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
@@ -107,7 +114,15 @@ class SettingsTourOverlay extends StatelessWidget {
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {},
+                  onTapUp: (d) {
+                    if (hole != null &&
+                        onTargetTap != null &&
+                        hole.inflate(8).contains(d.localPosition)) {
+                      onTargetTap!();
+                    } else {
+                      onTapAnywhere?.call();
+                    }
+                  },
                   child: CustomPaint(painter: _HolePainter(hole)),
                 ),
               ),
@@ -129,10 +144,18 @@ class SettingsTourOverlay extends StatelessWidget {
 class _HolePainter extends CustomPainter {
   _HolePainter(this.hole);
 
-  final Rect hole;
+  final Rect? hole;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final hole = this.hole;
+    if (hole == null) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = const Color(0x73140E04),
+      );
+      return;
+    }
     final r = RRect.fromRectAndRadius(hole, const Radius.circular(16));
     final dim = Path()
       ..fillType = PathFillType.evenOdd
