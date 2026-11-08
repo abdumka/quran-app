@@ -5130,7 +5130,13 @@ class _QuranPagesState extends State<QuranPages>
 
     await WhatsNewService.instance.markSeen();
     if (!mounted) return false;
-    await WhatsNewDialog.show(context, WhatsNewService.currentReleaseChanges);
+    // «أرني أين» is its only button: it opens Settings and walks through it
+    final showMe = await WhatsNewDialog.show(
+      context,
+      WhatsNewService.currentReleaseChanges,
+      tour: true,
+    );
+    if (showMe && mounted) _openSettings(startTour: true);
     return true;
   }
 
@@ -5177,7 +5183,7 @@ class _QuranPagesState extends State<QuranPages>
     await UpdateAvailableDialog.show(context, info);
   }
 
-  void _openSettings() {
+  void _openSettings({bool startTour = false}) {
     if (_isAutoScrollEnabled) {
       _setAutoScrollEnabled(false);
     }
@@ -5208,6 +5214,7 @@ class _QuranPagesState extends State<QuranPages>
             isFullScreenMode: _isFullScreenMode,
             onToggleFullScreenMode: _toggleFullScreenMode,
             onResetAllSettings: _resetAllSettings,
+            startTour: startTour,
           ),
         ),
       ),

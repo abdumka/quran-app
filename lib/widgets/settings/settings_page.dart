@@ -41,6 +41,7 @@ import '../../utils/responsive_helper.dart';
 
 import 'settings_components.dart';
 import 'settings_coach_overlay.dart';
+import 'settings_tour_overlay.dart';
 import 'daily_page_tile.dart';
 import 'developer_tools_page.dart';
 import 'kahf_reminder_tile.dart';
@@ -89,7 +90,11 @@ class SettingsPage extends StatefulWidget {
     required this.isFullScreenMode,
     required this.onToggleFullScreenMode,
     required this.onResetAllSettings,
+    this.startTour = false,
   });
+
+  /// Runs the «أرني أين» tour as soon as the page is open (from «ما الجديد»).
+  final bool startTour;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -174,6 +179,20 @@ class _SettingsPageState extends State<SettingsPage> {
   final GlobalKey _audioDownloadKey = GlobalKey();
   final GlobalKey _downloadsManagementKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
+  // The «أرني أين» tour: one key per group, and the tanzilat switch it ends on.
+  final GlobalKey _displayGroupKey = GlobalKey();
+  final GlobalKey _hifzGroupKey = GlobalKey();
+  final GlobalKey _remindersGroupKey = GlobalKey();
+  final GlobalKey _recitationGroupKey = GlobalKey();
+  final GlobalKey _advancedGroupKey = GlobalKey();
+  final GlobalKey _tanzilatSwitchKey = GlobalKey();
+  bool _touring = false;
+  Rect? _tourRect;
+  String _tourText = '';
+  int _tourIndex = 0;
+  int _tourCount = 0;
+  bool _tourLast = false;
+  Completer<void>? _tourDone;
   Offset? _lastTapPosition;
   Offset? _noticePosition;
   String? _settingsNoticeText;
@@ -211,6 +230,101 @@ class _SettingsPageState extends State<SettingsPage> {
     });
     _loadGuidePreferences();
     _loadCurrentBrightness();
+    if (widget.startTour) {
+      // after the page's slide-in and its staggered list have settled
+      Future.delayed(const Duration(milliseconds: 700), () {
+        if (mounted) _runTour();
+      });
+    }
+  }
+
+  /// «أرني أين»: lights up each settings group with one line about what is
+  /// in it, then opens «أدوات الحفظ والمراجعة» and stops on the tanzilat
+  /// switch until «فهمت». Touches and Back are blocked meanwhile.
+  Future<void> _runTour() async {
+    if (_touring || _activeCoachStep != null) return;
+    final stops = <SettingsTourStop>[
+      SettingsTourStop(
+        _displayGroupKey,
+        'إعدادات العرض: الوضع الليلي، والإضاءة، وعرض الصفحتين، ووضع التمرير، وملء الشاشة.',
+      ),
+      SettingsTourStop(
+        _hifzGroupKey,
+        'أدوات الحفظ والمراجعة: شريط الإخفاء، وعدسة الإخفاء، وتلوين التنزيلات.',
+      ),
+      if (!kIsWeb)
+        SettingsTourStop(
+          _remindersGroupKey,
+          'التذكير والورد اليومي: «صفحة اليوم» وتذكير سورة الكهف.',
+        ),
+      SettingsTourStop(
+        _recitationGroupKey,
+        'إعدادات التلاوة والتفسير: القارئ، والتفسير وتحميله، والتلاوة في الخلفية.',
+      ),
+      SettingsTourStop(
+        _advancedGroupKey,
+        'إعدادات متقدمة: شريط التلاوة، وقفل الشاشة، والتكبير بالأصابع، والتحديثات، وإعادة الإرشادات.',
+      ),
+      SettingsTourStop(
+        _tanzilatSwitchKey,
+        'هنا «تلوين التنزيلات والمتشابهات»، وهو مفعّل. أوقفه أو شغّله من هنا متى شئت.',
+        before: _hifzToolsController.expand,
+      ),
+    ];
+    _displayController.collapse();
+    _hifzToolsController.collapse();
+    _remindersController.collapse();
+    _recitationTafsirController.collapse();
+    setState(() {
+      _touring = true;
+      _tourCount = stops.length;
+    });
+    for (var i = 0; i < stops.length; i++) {
+      final stop = stops[i];
+      stop.before?.call();
+      // let a group that was just opened lay out
+      await Future<void>.delayed(const Duration(milliseconds: 320));
+      if (!mounted) return;
+      final target = stop.target.currentContext;
+      if (target == null || !target.mounted) continue;
+      await Scrollable.ensureVisible(
+        target,
+        alignment: 0.35,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (!mounted) return;
+      final rect = _measureTourRect(stop.target);
+      if (rect == null) continue;
+      final last = i == stops.length - 1;
+      setState(() {
+        _tourRect = rect;
+        _tourText = stop.text;
+        _tourIndex = i;
+        _tourLast = last;
+      });
+      if (last) {
+        _tourDone = Completer<void>();
+        await _tourDone!.future;
+      } else {
+        await Future<void>.delayed(const Duration(milliseconds: 1900));
+      }
+      if (!mounted) return;
+    }
+    setState(() {
+      _touring = false;
+      _tourRect = null;
+    });
+  }
+
+  Rect? _measureTourRect(GlobalKey key) {
+    final overlayBox =
+        _settingsOverlayKey.currentContext?.findRenderObject() as RenderBox?;
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
+    if (overlayBox == null || box == null) return null;
+    if (!overlayBox.hasSize || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero, ancestor: overlayBox) & box.size;
   }
 
   Future<void> _loadCurrentBrightness() async {
@@ -789,6 +903,7 @@ class _SettingsPageState extends State<SettingsPage> {
   /// to stand on their own at the top of the list, moved as they were.
   Widget _buildDisplaySection(bool landscapeForcesScroll) {
     return SettingsGroupCard(
+      key: _displayGroupKey,
       controller: _displayController,
       icon: Icons.chrome_reader_mode_rounded,
       title: 'إعدادات العرض',
@@ -1014,6 +1129,7 @@ class _SettingsPageState extends State<SettingsPage> {
   /// colouring.
   Widget _buildHifzToolsSection() {
     return SettingsGroupCard(
+      key: _hifzGroupKey,
       controller: _hifzToolsController,
       icon: Icons.school_rounded,
       title: 'أدوات الحفظ والمراجعة',
@@ -1063,6 +1179,7 @@ class _SettingsPageState extends State<SettingsPage> {
   /// which has no local notifications).
   Widget _buildRemindersSection() {
     return SettingsGroupCard(
+      key: _remindersGroupKey,
       controller: _remindersController,
       icon: Icons.notifications_active_rounded,
       title: 'التذكير والورد اليومي',
@@ -1074,6 +1191,7 @@ class _SettingsPageState extends State<SettingsPage> {
   /// colour-per-count switch with its legend (غريبة, 2, 3, 4, 5+).
   Widget _buildTanzilatSection() {
     return SettingsCard(
+      key: _tanzilatSwitchKey,
       framed: false,
       child: ListenableBuilder(
         listenable: Listenable.merge([
@@ -1219,8 +1337,13 @@ class _SettingsPageState extends State<SettingsPage> {
   /// startup dialog, but on demand and every time it's tapped (it doesn't
   /// touch the "seen" flag, so it never affects whether the automatic startup
   /// popup fires).
-  void _handleShowWhatsNew() {
-    WhatsNewDialog.show(context, WhatsNewService.currentReleaseChanges);
+  Future<void> _handleShowWhatsNew() async {
+    final showMe = await WhatsNewDialog.show(
+      context,
+      WhatsNewService.currentReleaseChanges,
+      tour: !TvService.instance.isTv,
+    );
+    if (showMe && mounted) _runTour();
   }
 
   Future<void> _handleToggleUpdateNotifications(bool useNotifications) async {
@@ -1501,6 +1624,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ];
 
     return SettingsGroupCard(
+      key: _recitationGroupKey,
       controller: _recitationTafsirController,
       icon: Icons.headphones_rounded,
       title: 'إعدادات التلاوة والتفسير',
@@ -1689,6 +1813,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ];
 
     return SettingsGroupCard(
+      key: _advancedGroupKey,
       icon: Icons.tune_rounded,
       title: 'إعدادات متقدمة',
       onInfoTap: () => _showInfoNotice(_advancedSettingsInfoText),
@@ -1731,7 +1856,7 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               AnimationLimiter(
                 child: ListView(
-                  physics: _activeCoachStep != null
+                  physics: _activeCoachStep != null || _touring
                       ? const NeverScrollableScrollPhysics()
                       : const AlwaysScrollableScrollPhysics(),
                   controller: _scrollController,
@@ -1865,6 +1990,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   actionLabel: _hasAnotherCoachStep ? 'التالي' : 'فهمت',
                   onAction: _closeActiveCoachForNow,
                   onDontShowAgain: _dismissActiveCoachForever,
+                ),
+              if (_touring && _tourRect != null)
+                Positioned.fill(
+                  child: SettingsTourOverlay(
+                    targetRect: _tourRect!,
+                    text: _tourText,
+                    index: _tourIndex,
+                    count: _tourCount,
+                    onDone: _tourLast ? () => _tourDone?.complete() : null,
+                  ),
+                ),
+              // blocks Back before the first stop is drawn
+              if (_touring && _tourRect == null)
+                const Positioned.fill(
+                  child: PopScope(canPop: false, child: SizedBox.expand()),
                 ),
             ],
           ),
