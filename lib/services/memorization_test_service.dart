@@ -500,6 +500,12 @@ class MemorizationTestService {
   /// hears the expected word in place.
   bool _verifyStops = false;
 
+  /// Lab builds, «ثقة النموذج» (see [TasmeeVerifyMethodSetting]): the verify
+  /// window is also force-aligned over the model's posteriors
+  /// ([RecitationEngine.verifyScored]); a stop is withdrawn when either the
+  /// fresh decode or the alignment rule clears it.
+  bool _posteriorVerify = false;
+
   /// Words of the page the fresh decode has answered for: true when it
   /// heard the word (the stop was withdrawn and the word revealed), false
   /// when it did not (the stop stands, and is not re-verified).
@@ -849,6 +855,8 @@ class MemorizationTestService {
     final speed = await TasmeeSpeedSetting.mode();
     final fastJudge = speed == TasmeeSpeed.fast;
     final verifyStops = speed == TasmeeSpeed.verified;
+    final posteriorVerify = verifyStops &&
+        await TasmeeVerifyMethodSetting.mode() == TasmeeVerifyMethod.posterior;
     // Every await below may find this start called off by stop() or a newer
     // start: it then writes nothing more and leaves the status to them.
     if (token != _startToken) {
@@ -864,6 +872,7 @@ class MemorizationTestService {
     _engineOverride = engineOverride;
     _fastJudge = fastJudge;
     _verifyStops = verifyStops;
+    _posteriorVerify = posteriorVerify;
     _verified.clear();
     _verifyingWord = -1;
     _lastAudioEndMs = 0;
@@ -1108,6 +1117,7 @@ class MemorizationTestService {
           'model': engine.emitsPhonemes ? AsrModelManager.instance.modelFile : 'whisper-base-ar-quran',
           'speed': _speedName,
           'micSource': micSource,
+          'verifyMethod': _posteriorVerify ? 'posterior' : 'redecode',
           'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
           'stubReason': stubReason.value.name,
         };
@@ -1122,6 +1132,7 @@ class MemorizationTestService {
             'model': engine.emitsPhonemes ? AsrModelManager.instance.modelFile : 'whisper-base-ar-quran',
             'speed': _speedName,
             'micSource': micSource,
+          'verifyMethod': _posteriorVerify ? 'posterior' : 'redecode',
             'engine': engine.emitsPhonemes ? 'zipformer' : 'sherpa',
             'stubReason': stubReason.value.name,
             'alertMode': (await TasmeeAlert.mode()).name,
@@ -1306,6 +1317,7 @@ class MemorizationTestService {
           model: await manager.pathFor(manager.modelFile),
           tokens: await manager.pathFor('zipformer-tokens.txt'),
         ),
+        posterior: _posteriorVerify,
       );
     }
     return SherpaRecitationEngine(
@@ -2371,10 +2383,21 @@ class MemorizationTestService {
     final token = _startToken;
     final started = DateTime.now();
     _verifyingWord = word;
-    engine.verify(fromMs: fromMs, toMs: toMs).then((tokens) {
+    // Lab builds may ask for the posterior judgement too; when the engine
+    // cannot give one the plain re-decode answers as before.
+    final Future<ScoredVerify?> scored = _posteriorVerify
+        ? engine.verifyScored(
+            fromMs: fromMs,
+            toMs: toMs,
+            query: posteriorQueryFor(reference.words, word, (startMs - fromMs) ~/ 40),
+          )
+        : Future.value(null);
+    scored.then((s) => s != null ? Future.value((s.tokens, s)) : engine.verify(fromMs: fromMs, toMs: toMs).then((t) => (t, null))).then((r) {
+      final (tokens, s) = r;
       if (token != _startToken || !identical(_tracker, tracker)) return;
       _verifyingWord = -1;
-      final cleared = tokens != null && verifyHears(tokens.join(), reference.words, word);
+      final exact = tokens != null && verifyHears(tokens.join(), reference.words, word);
+      final cleared = exact || (s?.cleared ?? false);
       _verified[word] = cleared;
       _recorder?.log('verify', {
         'word': word,
@@ -2384,6 +2407,17 @@ class MemorizationTestService {
         'cleared': cleared,
         'app': v.heard,
         'fresh': tokens?.join() ?? '',
+        if (_posteriorVerify) ...{
+          'method': s == null ? 'redecode' : 'posterior',
+          'exact': exact,
+          if (s != null) ...{
+            'score': s.score == null ? null : double.parse(s.score!.toStringAsFixed(2)),
+            'weakest': s.weakest == null ? null : double.parse(s.weakest!.toStringAsFixed(2)),
+            'pCleared': s.cleared,
+            'cand': s.candidate,
+            if (s.loadMs > 0) 'loadMs': s.loadMs,
+          },
+        },
       });
       if (status.value != MemorizationTestStatus.listening) return;
       final settled = DateTime.now().difference(_lastPhonemeAt).inMilliseconds >=
@@ -2442,6 +2476,26 @@ class MemorizationTestService {
   }
 
   static const Set<String> _verifyParticles = {'وَ', 'فَ', 'لَ', 'لِ', 'بِ', 'كَ'};
+
+  /// What the posterior check is asked about word [w]: the same forms
+  /// [verifyHears] accepts, its neighbours, and the window-relative frame
+  /// (40 ms) the match must reach so an earlier occurrence does not count.
+  @visibleForTesting
+  static PosteriorQuery posteriorQueryFor(List<PhonemeWord> words, int w, int minEndFrame) {
+    final wd = words[w];
+    final phon = collapseMadd(wd.phon);
+    final forms = <String>{phon, for (final a in wd.accept) collapseMadd(a)};
+    if (wd.wasl && phon.startsWith('ء') && phon.runes.length > 2) {
+      forms.add(String.fromCharCodes(phon.runes.skip(2)));
+    }
+    forms.remove('');
+    return PosteriorQuery(
+      forms: forms.toList(),
+      prevPhon: w > 0 ? collapseMadd(words[w - 1].phon) : '',
+      nextPhon: w + 1 < words.length ? collapseMadd(words[w + 1].phon) : '',
+      minEndFrame: math.max(0, minEndFrame),
+    );
+  }
 
   /// Whether [v] is the word being said right now, heard exactly right as far
   /// as it goes, with the voice still sounding. A long madd holds one sound

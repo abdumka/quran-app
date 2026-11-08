@@ -228,6 +228,14 @@ void main() {
       expect(r.missingAyat, isEmpty);
       expect(r.continuationsAsset, isNull);
     });
+
+    test('corrected timings live in their own cache folder', () {
+      // The 2026-11-07 joins only reach phones that cached revision 1 because
+      // revision 2 reads from a new folder.
+      expect(Reciter.trabulsiQaloun.timingsRevision, 2);
+      expect(SurahTimingsService.timingsFolderName(Reciter.trabulsiQaloun),
+          'timings_r2');
+    });
   });
 
   group('نورالدين المسلاتي (timed surah scheme)', () {

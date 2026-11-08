@@ -1,5 +1,5 @@
 {
-  "ver": 2,
+  "ver": 3,
   "reciters": [],
   "overrides": {
     "zarrouq_qaloun": {
@@ -7,6 +7,9 @@
     },
     "almislati_qaloun": {
       "timingsRevision": 3
+    },
+    "trabulsi_qaloun": {
+      "timingsRevision": 2
     }
   }
 }

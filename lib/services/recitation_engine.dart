@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'zipformer_posterior.dart' show PosteriorQuery;
+export 'zipformer_posterior.dart' show PosteriorQuery;
+
 /// One piece of recognized speech. [isFinal] is false for interim decodes
 /// of an utterance still in progress (cut mid-air, last word dropped, may
 /// be garbled) and true for the authoritative decode of a whole utterance.
@@ -104,6 +107,46 @@ abstract class RecitationEngine {
   /// the engine keeps no audio, the window is gone, or it has stopped.
   Future<List<String>?> verify({required int fromMs, required int toMs}) async =>
       null;
+
+  /// [verify] plus the model's own confidence in the disputed word: the
+  /// window is run through ONNX Runtime directly and the expected word is
+  /// force-aligned over the log posteriors (see `ZipformerPosterior`). Null
+  /// when the engine cannot do that (no posterior path, window gone); the
+  /// caller then falls back to [verify].
+  Future<ScoredVerify?> verifyScored({
+    required int fromMs,
+    required int toMs,
+    required PosteriorQuery query,
+  }) async =>
+      null;
+}
+
+/// Outcome of [RecitationEngine.verifyScored].
+class ScoredVerify {
+  const ScoredVerify({
+    required this.tokens,
+    required this.score,
+    required this.weakest,
+    required this.cleared,
+    this.candidate,
+    this.loadMs = 0,
+  });
+
+  /// Greedy tokens of the fresh decode (same as [RecitationEngine.verify]).
+  final List<String> tokens;
+
+  /// Alignment cost of the best candidate relative to the greedy path
+  /// (0 = the model's first choice), and its worst token's best frame.
+  final double? score;
+  final double? weakest;
+
+  /// Whether the posterior rule clears the stop.
+  final bool cleared;
+  final String? candidate;
+
+  /// Milliseconds the worker spent loading the posterior model, reported
+  /// with the first scored verify of a session (0 afterwards).
+  final int loadMs;
 }
 
 /// No microphone at all: the self-test (اختبار ذاتي) covers the page and

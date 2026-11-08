@@ -464,6 +464,9 @@ class Reciter {
     // web build could not fetch these from beside the MP3s.
     timingsBaseUrlOverride:
         'https://quran-content.mushaf-qaloon.com/timings/trabulsi/',
+    // 2026-11-07: owner's joins (1:6+7, 55:33+34, 56:8+9/10+11/28+29/43+44,
+    // 96:15+16, 106:4+5) and two moved boundaries (17:13, 18:91).
+    timingsRevision: 2,
   );
 
   /// Mohammed Khalil Al-Zarrouq (محمد خليل الزروق) — Qaloun.

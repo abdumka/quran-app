@@ -164,7 +164,7 @@ RECITERS = [
         # midad collection 461010, timed scheme (2026-10-15). Source is 16 kHz
         # mono VBR; the mirror is 48 kbps mono CBR. Not هبطي — every ayah has
         # its own span. Review page logs to the shared tracker under the slug
-        # "trabulsi".
+        # "trabulsi". Review finished 2026-11-07 (owner), after his fixes.
         "id": "trabulsi",
         "name": "أحمد خضر الطرابلسي",
         "shortName": "أحمد الطرابلسي",
@@ -172,8 +172,6 @@ RECITERS = [
         "folder": "trabulsi",
         "scheme": "timed",
         "timingsDir": "C:/Down/TrabulsiTimed/timings",
-        "underReview": True,
-        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_trabulsi.html",
     },
     {
         # midad collection 465737, timed scheme (2026-10-15). Source is 44.1 kHz

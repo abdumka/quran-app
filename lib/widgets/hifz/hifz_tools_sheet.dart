@@ -243,7 +243,23 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
               const _LocateAnywhereRow(),
               if (TasmeeMicSourceSetting.labBuild) ...[
                 const SizedBox(height: 10),
-                const _MicSourceRow(),
+                _LabChipsRow<TasmeeMicSource>(
+                  icon: Icons.mic_rounded,
+                  title: 'مصدر الميكروفون (نسخة تجريبية)',
+                  values: TasmeeMicSource.values,
+                  labelOf: TasmeeMicSourceSetting.label,
+                  read: TasmeeMicSourceSetting.mode,
+                  write: TasmeeMicSourceSetting.set,
+                ),
+                const SizedBox(height: 10),
+                _LabChipsRow<TasmeeVerifyMethod>(
+                  icon: Icons.fact_check_outlined,
+                  title: 'طريقة التحقق قبل التنبيه (نسخة تجريبية)',
+                  values: TasmeeVerifyMethod.values,
+                  labelOf: TasmeeVerifyMethodSetting.label,
+                  read: TasmeeVerifyMethodSetting.mode,
+                  write: TasmeeVerifyMethodSetting.set,
+                ),
               ],
               const SizedBox(height: 6),
             ],
@@ -254,22 +270,37 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
   );
 }
 
-/// Lab builds only: which Android microphone source Tasmee opens (see
-/// [TasmeeMicSourceSetting]). Never shown in the shipped app.
-class _MicSourceRow extends StatefulWidget {
-  const _MicSourceRow();
+/// Lab builds only (`--dart-define=TASMEE_LAB=true`): a titled row of
+/// choice chips over one of the experimental Tasmee settings. Never shown in
+/// the shipped app.
+class _LabChipsRow<T> extends StatefulWidget {
+  const _LabChipsRow({
+    required this.icon,
+    required this.title,
+    required this.values,
+    required this.labelOf,
+    required this.read,
+    required this.write,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<T> values;
+  final String Function(T) labelOf;
+  final Future<T> Function() read;
+  final Future<void> Function(T) write;
 
   @override
-  State<_MicSourceRow> createState() => _MicSourceRowState();
+  State<_LabChipsRow<T>> createState() => _LabChipsRowState<T>();
 }
 
-class _MicSourceRowState extends State<_MicSourceRow> {
-  TasmeeMicSource _mode = TasmeeMicSource.system;
+class _LabChipsRowState<T> extends State<_LabChipsRow<T>> {
+  T? _mode;
 
   @override
   void initState() {
     super.initState();
-    TasmeeMicSourceSetting.mode().then((m) {
+    widget.read().then((m) {
       if (mounted) setState(() => _mode = m);
     });
   }
@@ -279,14 +310,14 @@ class _MicSourceRowState extends State<_MicSourceRow> {
     final p = HifzPalette.of(context);
     return Row(
       children: [
-        Icon(Icons.mic_rounded, color: p.title, size: 24),
+        Icon(widget.icon, color: p.title, size: 24),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'مصدر الميكروفون (نسخة تجريبية)',
+                widget.title,
                 style: TextStyle(color: p.text, fontSize: 14.5, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
@@ -294,9 +325,9 @@ class _MicSourceRowState extends State<_MicSourceRow> {
                 spacing: 6,
                 runSpacing: 4,
                 children: [
-                  for (final m in TasmeeMicSource.values)
+                  for (final m in widget.values)
                     ChoiceChip(
-                      label: Text(TasmeeMicSourceSetting.label(m)),
+                      label: Text(widget.labelOf(m)),
                       selected: _mode == m,
                       showCheckmark: false,
                       selectedColor: p.title,
@@ -308,7 +339,7 @@ class _MicSourceRowState extends State<_MicSourceRow> {
                       ),
                       onSelected: (_) async {
                         setState(() => _mode = m);
-                        await TasmeeMicSourceSetting.set(m);
+                        await widget.write(m);
                       },
                     ),
                 ],

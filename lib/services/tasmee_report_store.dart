@@ -356,6 +356,54 @@ class TasmeeSpeedSetting {
   }
 }
 
+/// How «تحقّق قبل التنبيه» judges a stop. `redecode`: the window is decoded
+/// once more with a fresh recognizer and the stop is withdrawn when the
+/// expected word is read in place (shipped behaviour). `posterior`: the same
+/// window is also run through ONNX Runtime directly and the expected word is
+/// force-aligned over the model's log posteriors; a word the model nearly
+/// chose clears the stop too (`ZipformerPosterior`; replay 2026-11-06: 52
+/// more of 741 phone stops cleared, planted look-alikes pass 0.7 %).
+enum TasmeeVerifyMethod { redecode, posterior }
+
+/// Lab switch (test builds only, like [TasmeeMicSourceSetting]); the session
+/// log header carries it as `verifyMethod`.
+class TasmeeVerifyMethodSetting {
+  static const String _pref = 'tasmee_verify_method';
+  static TasmeeVerifyMethod? _value;
+
+  static String label(TasmeeVerifyMethod m) => switch (m) {
+        TasmeeVerifyMethod.redecode => 'إعادة التفريغ',
+        TasmeeVerifyMethod.posterior => 'ثقة النموذج',
+      };
+
+  static Future<TasmeeVerifyMethod> mode() async {
+    final v = _value;
+    if (v != null) return v;
+    if (!TasmeeMicSourceSetting.labBuild) return _value = TasmeeVerifyMethod.redecode;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final i = prefs.getInt(_pref);
+      return _value = i != null && i >= 0 && i < TasmeeVerifyMethod.values.length
+          ? TasmeeVerifyMethod.values[i]
+          : TasmeeVerifyMethod.redecode;
+    } catch (_) {
+      return _value = TasmeeVerifyMethod.redecode;
+    }
+  }
+
+  static Future<void> set(TasmeeVerifyMethod m) async {
+    _value = m;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_pref, m.index);
+    } catch (_) {}
+  }
+
+  /// Tests only: forget the cached value so [mode] reads afresh.
+  @visibleForTesting
+  static void reset() => _value = null;
+}
+
 /// Which Android audio source the Tasmee microphone opens. `system` is the
 /// recorder default (the phone may apply noise suppression and gain control
 /// tuned for calls, which can swallow the first sound of a word);

@@ -12,6 +12,7 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'recitation_engine.dart';
 import 'tasmee_report_store.dart'
     show TasmeeMicSource, TasmeeMicSourceSetting;
+import 'zipformer_posterior.dart';
 
 /// Model files of the streaming phoneme recognizer.
 class ZipformerModelPaths {
@@ -31,9 +32,13 @@ class ZipformerModelPaths {
 /// session service feeds them to a [PhonemeTracker]; the aligner and the
 /// overlay are untouched.
 class ZipformerRecitationEngine extends RecitationEngine {
-  ZipformerRecitationEngine(this._paths);
+  ZipformerRecitationEngine(this._paths, {this.posterior = false});
 
   final ZipformerModelPaths _paths;
+
+  /// Lab builds: also open the model through ONNX Runtime in the worker so
+  /// [verifyScored] can read posteriors (see `ZipformerPosterior`).
+  final bool posterior;
   final _controller = StreamController<RecognizedSegment>.broadcast();
   final _audioController = StreamController<Uint8List>.broadcast();
   final _recorder = AudioRecorder();
@@ -56,8 +61,8 @@ class ZipformerRecitationEngine extends RecitationEngine {
   /// when [stop] comes first, or with an error when the model fails to load.
   Completer<SendPort?>? _ready;
 
-  /// Fresh re-decodes in flight ([verify]), by request id.
-  final Map<int, Completer<List<String>?>> _verifies = {};
+  /// Fresh re-decodes in flight ([verify], [verifyScored]), by request id.
+  final Map<int, Completer<_VerifyResult?>> _verifies = {};
   int _verifySeq = 0;
 
   @override
@@ -68,13 +73,35 @@ class ZipformerRecitationEngine extends RecitationEngine {
   final ValueNotifier<int> lastVerifyMs = ValueNotifier(0);
 
   @override
-  Future<List<String>?> verify({required int fromMs, required int toMs}) {
+  Future<List<String>?> verify({required int fromMs, required int toMs}) async =>
+      (await _ask(fromMs, toMs, null))?.tokens;
+
+  @override
+  Future<ScoredVerify?> verifyScored({
+    required int fromMs,
+    required int toMs,
+    required PosteriorQuery query,
+  }) async {
+    if (!posterior) return null;
+    final r = await _ask(fromMs, toMs, query);
+    if (r == null || r.tokens == null || !r.scored) return null;
+    return ScoredVerify(
+      tokens: r.tokens!,
+      score: r.score,
+      weakest: r.weakest,
+      cleared: r.cleared,
+      candidate: r.candidate,
+      loadMs: r.loadMs,
+    );
+  }
+
+  Future<_VerifyResult?> _ask(int fromMs, int toMs, PosteriorQuery? query) {
     final port = _workerPort;
     if (port == null || _stopped) return Future.value(null);
     final id = ++_verifySeq;
-    final completer = Completer<List<String>?>();
+    final completer = Completer<_VerifyResult?>();
     _verifies[id] = completer;
-    port.send(_VerifyRequest(id, fromMs, toMs));
+    port.send(_VerifyRequest(id, fromMs, toMs, query));
     return completer.future;
   }
 
@@ -122,7 +149,9 @@ class ZipformerRecitationEngine extends RecitationEngine {
         lastDecodeMs.value = message.milliseconds;
       } else if (message is _VerifyResult) {
         lastVerifyMs.value = message.milliseconds;
-        _verifies.remove(message.id)?.complete(message.tokens);
+        _verifies.remove(message.id)?.complete(message);
+      } else if (message is _WorkerNote) {
+        debugPrint('ZipformerRecitationEngine: ${message.message}');
       } else if (message is _WorkerError) {
         debugPrint('ZipformerRecitationEngine worker error: ${message.message}');
         if (!readyCompleter.isCompleted) {
@@ -139,7 +168,7 @@ class ZipformerRecitationEngine extends RecitationEngine {
 
     _isolate = await Isolate.spawn(
       _workerMain,
-      _WorkerInit(receivePort.sendPort, _paths),
+      _WorkerInit(receivePort.sendPort, _paths, posterior),
       debugName: 'zipformer-asr-worker',
     );
     final workerPort = await readyCompleter.future;
@@ -242,25 +271,52 @@ class _DecodeStats {
 /// Main -> worker: decode this window of the recent audio with a fresh
 /// stream (see [RecitationEngine.verify]).
 class _VerifyRequest {
-  const _VerifyRequest(this.id, this.fromMs, this.toMs);
+  const _VerifyRequest(this.id, this.fromMs, this.toMs, this.query);
   final int id;
   final int fromMs;
   final int toMs;
+
+  /// Set when the caller wants the posterior judgement too.
+  final PosteriorQuery? query;
 }
 
 /// Worker -> main: the tokens the fresh decode heard (null when the window
-/// was no longer in the buffer), and how long it took.
+/// was no longer in the buffer), how long it took, and, when the posterior
+/// path answered ([scored]), the alignment result.
 class _VerifyResult {
-  const _VerifyResult(this.id, this.tokens, this.milliseconds);
+  const _VerifyResult(
+    this.id,
+    this.tokens,
+    this.milliseconds, {
+    this.scored = false,
+    this.score,
+    this.weakest,
+    this.cleared = false,
+    this.candidate,
+    this.loadMs = 0,
+  });
   final int id;
   final List<String>? tokens;
   final int milliseconds;
+  final bool scored;
+  final double? score;
+  final double? weakest;
+  final bool cleared;
+  final String? candidate;
+  final int loadMs;
+}
+
+/// Worker -> main: something worth a debug line, not an error.
+class _WorkerNote {
+  const _WorkerNote(this.message);
+  final String message;
 }
 
 class _WorkerInit {
-  const _WorkerInit(this.replyTo, this.paths);
+  const _WorkerInit(this.replyTo, this.paths, this.posterior);
   final SendPort replyTo;
   final ZipformerModelPaths paths;
+  final bool posterior;
 }
 
 class _WorkerShutdown {
@@ -321,6 +377,26 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   init.replyTo.send(commandPort.sendPort);
 
+  // Lab builds: the same model once more through ONNX Runtime, for the
+  // posteriors. Loaded after the ready signal so the session starts at
+  // once; the first seconds of audio queue up meanwhile and are decoded in a
+  // burst. Any failure leaves the plain re-decode in charge.
+  ZipformerPosterior? posterior;
+  var posteriorLoadMs = 0;
+  if (init.posterior) {
+    final t0 = DateTime.now();
+    try {
+      posterior = ZipformerPosterior.load(init.paths.model, init.paths.tokens, threads: 2);
+      posteriorLoadMs = DateTime.now().difference(t0).inMilliseconds;
+      init.replyTo.send(_WorkerNote(posterior == null
+          ? 'posterior path unavailable on this platform'
+          : 'posterior model loaded in $posteriorLoadMs ms (ORT ${posterior.runtimeVersion})'));
+    } catch (e) {
+      posterior = null;
+      init.replyTo.send(_WorkerNote('posterior model failed to load: $e'));
+    }
+  }
+
   var carry = Uint8List(0);
   var audioSamples = 0;
   var sentTokens = 0;
@@ -336,13 +412,29 @@ Future<void> _workerMain(_WorkerInit init) async {
     if (message is _WorkerShutdown) break;
     if (message is _VerifyRequest) {
       final started = DateTime.now();
-      final tokens = _verifyWindow(
-        recognizer,
-        ring,
-        audioSamples,
-        message.fromMs,
-        message.toMs,
-      );
+      final clip = _clipWindow(ring, audioSamples, message.fromMs, message.toMs);
+      final query = message.query;
+      if (clip != null && query != null && posterior != null) {
+        try {
+          final v = posterior.verify(clip, query);
+          init.replyTo.send(_VerifyResult(
+            message.id,
+            v.tokens,
+            DateTime.now().difference(started).inMilliseconds,
+            scored: true,
+            score: v.score,
+            weakest: v.weakest,
+            cleared: v.cleared,
+            candidate: v.candidate,
+            loadMs: posteriorLoadMs,
+          ));
+          posteriorLoadMs = 0;
+          continue;
+        } catch (e) {
+          init.replyTo.send(_WorkerNote('posterior verify failed, re-decoding instead: $e'));
+        }
+      }
+      final tokens = clip == null ? null : _decodeFresh(recognizer, clip);
       init.replyTo.send(_VerifyResult(
         message.id,
         tokens,
@@ -420,20 +512,15 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   stream.free();
   recognizer.free();
+  posterior?.dispose();
   commandPort.close();
   Isolate.exit();
 }
 
-/// Decodes [fromMs, toMs] of the audio in [ring] (whose last sample is
-/// sample number [audioSamples] of the stream) with a fresh stream of
-/// [recognizer]; null when the window is not in the buffer any more.
-List<String>? _verifyWindow(
-  sherpa.OnlineRecognizer recognizer,
-  Float32List ring,
-  int audioSamples,
-  int fromMs,
-  int toMs,
-) {
+/// [fromMs, toMs] of the audio in [ring] (whose last sample is sample
+/// number [audioSamples] of the stream), padded with [_verifyPadSamples] of
+/// silence; null when the window is not in the buffer any more.
+Float32List? _clipWindow(Float32List ring, int audioSamples, int fromMs, int toMs) {
   final oldest = math.max(0, audioSamples - ring.length);
   final from = math.max(oldest, fromMs * _sampleRate ~/ 1000);
   final to = math.min(audioSamples, toMs * _sampleRate ~/ 1000);
@@ -442,6 +529,11 @@ List<String>? _verifyWindow(
   for (var s = from; s < to; s++) {
     clip[s - from] = ring[s % ring.length];
   }
+  return clip;
+}
+
+/// Decodes [clip] with a fresh stream of [recognizer].
+List<String> _decodeFresh(sherpa.OnlineRecognizer recognizer, Float32List clip) {
   final stream = recognizer.createStream();
   try {
     stream.acceptWaveform(samples: clip, sampleRate: _sampleRate);

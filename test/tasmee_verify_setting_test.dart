@@ -29,6 +29,32 @@ void main() {
     expect((await SharedPreferences.getInstance()).getInt('tasmee_speed'), isNull);
   });
 
+  test('the lab verify method is «إعادة التفريغ» outside lab builds and is not stored', () async {
+    SharedPreferences.setMockInitialValues({'tasmee_verify_method': 1});
+    TasmeeVerifyMethodSetting.reset();
+    // Not a lab build under test: the stored posterior choice is ignored.
+    expect(TasmeeMicSourceSetting.labBuild, isFalse);
+    expect(await TasmeeVerifyMethodSetting.mode(), TasmeeVerifyMethod.redecode);
+    expect(TasmeeVerifyMethodSetting.label(TasmeeVerifyMethod.posterior), 'ثقة النموذج');
+  });
+
+  test('posteriorQueryFor asks about the same forms verifyHears accepts', () {
+    final words = [
+      _w('كُم'),
+      _w('ءَلقَااهِرُ', accept: ['ءَلقَاهِرُ'], wasl: true),
+      _w('فَۥۥۥقَ'),
+    ];
+    final q = MemorizationTestService.posteriorQueryFor(words, 1, 75);
+    // The word, its accepted form and its connected (wasl) form; a two-letter
+    // madd is already the collapsed spelling, so nothing folds here.
+    expect(q.forms, unorderedEquals(['ءَلقَااهِرُ', 'ءَلقَاهِرُ', 'لقَااهِرُ']));
+    expect(q.prevPhon, 'كُم');
+    expect(q.nextPhon, 'فَۥۥقَ'); // madd run collapsed to two
+    expect(q.minEndFrame, 75);
+    expect(MemorizationTestService.posteriorQueryFor(words, 0, -3).minEndFrame, 0);
+    expect(MemorizationTestService.posteriorQueryFor(words, 2, 0).nextPhon, '');
+  });
+
   group('verifyHears', () {
     // 36:6-7 on p440: the live decode dropped the ل of «لقد»; the fresh
     // decode of the clip heard it (research_2026-10-05/clips/p440_laqad).
