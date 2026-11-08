@@ -47,6 +47,12 @@ class ZipformerRecitationEngine extends RecitationEngine {
   Stream<Uint8List> get audioChunks => _audioController.stream;
 
   Isolate? _isolate;
+
+  /// Lab builds: the posterior model lives in its own isolate so neither its
+  /// load (3-5 s on a phone) nor a check blocks the audio loop.
+  Isolate? _posteriorIsolate;
+  SendPort? _posteriorPort;
+  bool _posteriorLoading = false;
   SendPort? _workerPort;
   DateTime? _micStartedAt;
   StreamSubscription<Uint8List>? _micSub;
@@ -82,7 +88,7 @@ class ZipformerRecitationEngine extends RecitationEngine {
     required int toMs,
     required PosteriorQuery query,
   }) async {
-    if (!posterior) return null;
+    if (!posterior || _posteriorPort == null) return null;
     final r = await _ask(fromMs, toMs, query);
     if (r == null || r.tokens == null || !r.scored) return null;
     return ScoredVerify(
@@ -152,6 +158,16 @@ class ZipformerRecitationEngine extends RecitationEngine {
         _verifies.remove(message.id)?.complete(message);
       } else if (message is _WorkerNote) {
         debugPrint('ZipformerRecitationEngine: ${message.message}');
+      } else if (message is _PosteriorReady) {
+        _posteriorLoading = false;
+        final port = message.port;
+        if (_stopped) {
+          port?.send(const _WorkerShutdown());
+          if (_workerPort == null) receivePort.close();
+        } else if (port != null) {
+          _posteriorPort = port;
+          _workerPort?.send(_PosteriorPort(port));
+        }
       } else if (message is _WorkerError) {
         debugPrint('ZipformerRecitationEngine worker error: ${message.message}');
         if (!readyCompleter.isCompleted) {
@@ -174,6 +190,14 @@ class ZipformerRecitationEngine extends RecitationEngine {
     final workerPort = await readyCompleter.future;
     if (workerPort == null) return;
     _workerPort = workerPort;
+    if (posterior) {
+      _posteriorLoading = true;
+      _posteriorIsolate = await Isolate.spawn(
+        _posteriorMain,
+        _PosteriorInit(receivePort.sendPort, _paths),
+        debugName: 'zipformer-posterior-worker',
+      );
+    }
 
     final micStream = await _recorder.startStream(
       RecordConfig(
@@ -241,13 +265,21 @@ class ZipformerRecitationEngine extends RecitationEngine {
     } catch (_) {}
     _recorder.dispose();
     _workerPort?.send(const _WorkerShutdown());
+    _posteriorPort?.send(const _WorkerShutdown());
     await Future<void>.delayed(const Duration(milliseconds: 200));
     if (!loading) {
       _isolate?.kill(priority: Isolate.beforeNextEvent);
-      _receivePort?.close();
+      // A posterior model still loading cannot be told to stop yet: its
+      // ready message does that (see the listener), so its port stays open.
+      if (!_posteriorLoading) {
+        _posteriorIsolate?.kill(priority: Isolate.beforeNextEvent);
+        _receivePort?.close();
+      }
     }
     _isolate = null;
+    _posteriorIsolate = null;
     _workerPort = null;
+    _posteriorPort = null;
     _receivePort = null;
     audioLevel.value = 0;
     busy.value = false;
@@ -319,6 +351,36 @@ class _WorkerInit {
   final bool posterior;
 }
 
+/// Main -> posterior isolate: load the model, answer to [replyTo].
+class _PosteriorInit {
+  const _PosteriorInit(this.replyTo, this.paths);
+  final SendPort replyTo;
+  final ZipformerModelPaths paths;
+}
+
+/// Posterior isolate -> main: loaded ([port] null when the runtime is not
+/// reachable on this platform or the model failed to load).
+class _PosteriorReady {
+  const _PosteriorReady(this.port, this.loadMs);
+  final SendPort? port;
+  final int loadMs;
+}
+
+/// Main -> audio worker: where to send verify clips for the posterior check.
+class _PosteriorPort {
+  const _PosteriorPort(this.port);
+  final SendPort port;
+}
+
+/// Audio worker -> posterior isolate: judge this clip; the answer goes to
+/// the main isolate as a [_VerifyResult].
+class _PosteriorRequest {
+  const _PosteriorRequest(this.id, this.clip, this.query);
+  final int id;
+  final Float32List clip;
+  final PosteriorQuery query;
+}
+
 class _WorkerShutdown {
   const _WorkerShutdown();
 }
@@ -377,25 +439,10 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   init.replyTo.send(commandPort.sendPort);
 
-  // Lab builds: the same model once more through ONNX Runtime, for the
-  // posteriors. Loaded after the ready signal so the session starts at
-  // once; the first seconds of audio queue up meanwhile and are decoded in a
-  // burst. Any failure leaves the plain re-decode in charge.
-  ZipformerPosterior? posterior;
-  var posteriorLoadMs = 0;
-  if (init.posterior) {
-    final t0 = DateTime.now();
-    try {
-      posterior = ZipformerPosterior.load(init.paths.model, init.paths.tokens, threads: 2);
-      posteriorLoadMs = DateTime.now().difference(t0).inMilliseconds;
-      init.replyTo.send(_WorkerNote(posterior == null
-          ? 'posterior path unavailable on this platform'
-          : 'posterior model loaded in $posteriorLoadMs ms (ORT ${posterior.runtimeVersion})'));
-    } catch (e) {
-      posterior = null;
-      init.replyTo.send(_WorkerNote('posterior model failed to load: $e'));
-    }
-  }
+  // Lab builds: the posterior isolate announces itself through the main
+  // isolate once its model is loaded; until then verify runs the plain
+  // re-decode here.
+  SendPort? posteriorPort;
 
   var carry = Uint8List(0);
   var audioSamples = 0;
@@ -410,29 +457,20 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   await for (final message in commandPort) {
     if (message is _WorkerShutdown) break;
+    if (message is _PosteriorPort) {
+      posteriorPort = message.port;
+      continue;
+    }
     if (message is _VerifyRequest) {
       final started = DateTime.now();
       final clip = _clipWindow(ring, audioSamples, message.fromMs, message.toMs);
       final query = message.query;
-      if (clip != null && query != null && posterior != null) {
-        try {
-          final v = posterior.verify(clip, query);
-          init.replyTo.send(_VerifyResult(
-            message.id,
-            v.tokens,
-            DateTime.now().difference(started).inMilliseconds,
-            scored: true,
-            score: v.score,
-            weakest: v.weakest,
-            cleared: v.cleared,
-            candidate: v.candidate,
-            loadMs: posteriorLoadMs,
-          ));
-          posteriorLoadMs = 0;
-          continue;
-        } catch (e) {
-          init.replyTo.send(_WorkerNote('posterior verify failed, re-decoding instead: $e'));
-        }
+      final pPort = posteriorPort;
+      if (clip != null && query != null && pPort != null) {
+        // The posterior isolate decodes and judges, and answers the main
+        // isolate itself; this loop goes straight back to the microphone.
+        pPort.send(_PosteriorRequest(message.id, clip, query));
+        continue;
       }
       final tokens = clip == null ? null : _decodeFresh(recognizer, clip);
       init.replyTo.send(_VerifyResult(
@@ -512,7 +550,61 @@ Future<void> _workerMain(_WorkerInit init) async {
 
   stream.free();
   recognizer.free();
-  posterior?.dispose();
+  commandPort.close();
+  Isolate.exit();
+}
+
+/// Posterior isolate: loads the model through ONNX Runtime once, then turns
+/// verify clips into scored verdicts for the main isolate.
+Future<void> _posteriorMain(_PosteriorInit init) async {
+  final commandPort = ReceivePort();
+  ZipformerPosterior? model;
+  final t0 = DateTime.now();
+  try {
+    model = ZipformerPosterior.load(init.paths.model, init.paths.tokens, threads: 2);
+  } catch (e) {
+    init.replyTo.send(_WorkerNote('posterior model failed to load: $e'));
+    model = null;
+  }
+  var loadMs = DateTime.now().difference(t0).inMilliseconds;
+  if (model == null) {
+    init.replyTo.send(_WorkerNote('posterior path unavailable; plain re-decode stays in charge'));
+    init.replyTo.send(_PosteriorReady(null, loadMs));
+    commandPort.close();
+    Isolate.exit();
+  }
+  init.replyTo.send(_WorkerNote('posterior model loaded in $loadMs ms (ORT ${model.runtimeVersion})'));
+  init.replyTo.send(_PosteriorReady(commandPort.sendPort, loadMs));
+
+  await for (final message in commandPort) {
+    if (message is _WorkerShutdown) break;
+    if (message is! _PosteriorRequest) continue;
+    final started = DateTime.now();
+    try {
+      final v = model.verify(message.clip, message.query);
+      init.replyTo.send(_VerifyResult(
+        message.id,
+        v.tokens,
+        DateTime.now().difference(started).inMilliseconds,
+        scored: true,
+        score: v.score,
+        weakest: v.weakest,
+        cleared: v.cleared,
+        candidate: v.candidate,
+        loadMs: loadMs,
+      ));
+      loadMs = 0;
+    } catch (e) {
+      // The main isolate falls back to the plain re-decode for this stop.
+      init.replyTo.send(_WorkerNote('posterior verify failed: $e'));
+      init.replyTo.send(_VerifyResult(
+        message.id,
+        null,
+        DateTime.now().difference(started).inMilliseconds,
+      ));
+    }
+  }
+  model.dispose();
   commandPort.close();
   Isolate.exit();
 }
