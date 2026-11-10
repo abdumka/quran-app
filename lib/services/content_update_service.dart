@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_update_service.dart';
+import 'quran_text_patch.dart';
 
 /// Data the app can refresh from our server without a store release:
 ///
@@ -21,7 +22,11 @@ import 'app_update_service.dart';
 ///                    picture per page (see `TanzilatPaintService`);
 ///   * `reciters`   — reciters added after this build shipped (timed-surah
 ///                    scheme only, with their page-turn cues) and small
-///                    overrides for the bundled ones (a timings revision).
+///                    overrides for the bundled ones (a timings revision);
+///   * `quran_text`: spelling corrections to the Qur'an text of
+///                    `output.json`, a cumulative list of whole ayat (see
+///                    `QuranTextPatch` for the rules); applied at the next
+///                    launch only.
 ///
 /// Layout on `quran-content.mushaf-qaloon.com` (the R2 bucket the tafsir
 /// pages and timings already come from), published by
@@ -32,6 +37,7 @@ import 'app_update_service.dart';
 ///     data/word_masks/patch_v<N>.json
 ///     data/tanzilat_paint/paint_v<N>.bin
 ///     data/reciters/reciters_v<N>.json
+///     data/quran_text/patch_v<N>.json
 ///
 /// The manifest names each item's version, file, size and SHA-256. A file is
 /// downloaded only when its version is newer than both the version bundled in
@@ -55,6 +61,7 @@ class ContentUpdateService {
     'word_masks',
     'reciters',
     'tanzilat_paint',
+    'quran_text',
   ];
 
   /// What the assets of THIS build carry. A download older than or equal to
@@ -63,12 +70,15 @@ class ContentUpdateService {
   /// `assets/data/tanzilat.json` (a test keeps them in step);
   /// `word_masks` is the patch level folded into the bundled boxes; `reciters`
   /// is the list in `Reciter.all`; `tanzilat_paint` matches the `ver` in the
-  /// header of `assets/data/tanzilat_paint.bin`.
+  /// header of `assets/data/tanzilat_paint.bin`; `quran_text` is the patch
+  /// level folded into the bundled `output.json` (raise it to the patch
+  /// file's `ver` when a release bundles the corrected text).
   static const Map<String, int> bundledVersions = {
     'tanzilat': 4,
     'word_masks': 3,
     'reciters': 0,
     'tanzilat_paint': 1,
+    'quran_text': 0,
   };
 
   static const Duration _checkInterval = Duration(hours: 24);
@@ -95,8 +105,9 @@ class ContentUpdateService {
   /// ([apply]), or whether the data is already in memory ([isLoaded]) and so
   /// the new file shows only at the next launch. An item nobody registered is
   /// not loaded yet, and its next load simply reads the new file.
-  /// `word_masks` registers no [apply] on purpose: the boxes are swapped only
-  /// at launch, so a Tasmee session never changes under the reciter.
+  /// `word_masks` and `quran_text` register no [apply] on purpose: the boxes
+  /// and the text are swapped only at launch, so a Tasmee session, a
+  /// recitation or a search never changes under the reader.
   final Map<String, Future<void> Function()> _appliers = {};
   final Map<String, bool Function()> _loadedChecks = {};
 
@@ -133,6 +144,7 @@ class ContentUpdateService {
   File _fileOf(String item, int ver) {
     final name = switch (item) {
       'word_masks' => 'word_masks_patch_v$ver.json',
+      'quran_text' => 'quran_text_patch_v$ver.json',
       'tanzilat_paint' => 'tanzilat_paint_v$ver.bin',
       _ => '${item}_v$ver.json',
     };
@@ -378,6 +390,10 @@ class ContentUpdateService {
         if (decoded['reciters'] is! List) {
           throw const FormatException('reciters: no list');
         }
+      case 'quran_text':
+        // Every rule the loader applies, so a file it would refuse is never
+        // installed over a good one.
+        QuranTextPatch.parse(text);
     }
   }
 
@@ -484,6 +500,7 @@ class ContentCheckResult {
     'word_masks': 'تلوين الكلمات',
     'tanzilat_paint': 'تلوين الكلمات',
     'reciters': 'القرّاء',
+    'quran_text': 'نص المصحف',
   };
 
   /// One line for the settings notice, or null when nothing changed.

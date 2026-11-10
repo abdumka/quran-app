@@ -7,6 +7,7 @@
     data/word_masks/patch_v<N>.json          tools/content_updates/word_masks_patch.json
     data/tanzilat_paint/paint_v<N>.bin       assets/data/tanzilat_paint.bin, N = its header's "ver"
     data/reciters/reciters_v<N>.json         tools/content_updates/reciters.json
+    data/quran_text/patch_v<N>.json          tools/content_updates/quran_text_patch.json
 
 Each payload is uploaded under its version (immutable, cached for a year) and
 the manifest is rewritten last, so a phone never sees a manifest pointing at a
@@ -15,15 +16,18 @@ overwritten: bump "ver" in the source file instead.
 
 Bumping: a tanzilat change -> VER in build_tanzilat_data.py; a word-box fix ->
 "ver" in word_masks_patch.json (the list is cumulative); a new reciter -> "ver"
-in reciters.json; repainted colours or ANY tanzilat bump -> rebuild the pictures
+in reciters.json; a Qur'an text fix -> fix output.json, then
+tools/build_quran_text_patch.py --write (it bumps "ver"); repainted colours or ANY tanzilat bump -> rebuild the pictures
 (build_tanzilat_paint.py, bump its VER): a pack is shown only with the tanzilat
 version it names. A build's ContentUpdateService.bundledVersions must equal the
 versions its assets carry; "minBuild" below is the first build that reads this
 data at all.
 
 Usage:
-    python tools/publish_content_updates.py            # upload + manifest
     python tools/publish_content_updates.py --dry-run  # show the manifest only
+    python tools/publish_content_updates.py --publish  # upload + manifest
+    python tools/publish_content_updates.py            # same as --publish
+Any other argument (--help included) prints this text and publishes nothing.
 Credentials: tools/.r2_secret (the quran-content block). Same handling as the
 tafsir mirror; never print the secret.
 """
@@ -48,6 +52,7 @@ ITEMS = {
     "word_masks": (SRC / "word_masks_patch.json", "data/word_masks/patch_v{ver}.json"),
     "reciters": (SRC / "reciters.json", "data/reciters/reciters_v{ver}.json"),
     "tanzilat_paint": (ROOT / "assets" / "data" / "tanzilat_paint.bin", "data/tanzilat_paint/paint_v{ver}.bin"),
+    "quran_text": (SRC / "quran_text_patch.json", "data/quran_text/patch_v{ver}.json"),
 }
 EASTERN = set("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹")
 
@@ -77,8 +82,24 @@ def paint_header(body):
     return json.loads(body[8:8 + n])
 
 
+def check_quran_text(data):
+    """The app's rules, and the file must match output.json and the bases."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import build_quran_text_patch as qt
+    problems = qt.check_patch(data)
+    if problems:
+        sys.exit("ABORT: quran_text_patch.json breaks the app's rules: " + "; ".join(problems))
+    if data["patches"] != qt.expected_entries():
+        sys.exit("ABORT: quran_text_patch.json is not up to date with output.json: "
+                 "run tools/build_quran_text_patch.py --write")
+
+
 def main():
-    dry = "--dry-run" in sys.argv
+    args = sys.argv[1:]
+    if any(a not in ("--dry-run", "--publish") for a in args) or len(args) > 1:
+        print(__doc__)
+        return
+    dry = "--dry-run" in args
     tanzilat_ver = json.loads((ROOT / "assets" / "data" / "tanzilat.json").read_bytes()).get("ver")
     manifest = {"v": 1, "items": {}}
     uploads = []
@@ -98,6 +119,8 @@ def main():
             sys.exit(f"ABORT: {src} has no patches list")
         if name == "reciters" and not isinstance(data.get("reciters"), list):
             sys.exit(f"ABORT: {src} has no reciters list")
+        if name == "quran_text":
+            check_quran_text(data)
         if name == "tanzilat_paint" and data.get("tz") != tanzilat_ver:
             sys.exit(f"ABORT: the pictures are for tanzilat v{data.get('tz')}, the data is v{tanzilat_ver}: rebuild them")
         if name not in ("tanzilat", "tanzilat_paint") and any(c in EASTERN for c in body.decode("utf-8")):

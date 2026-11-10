@@ -221,6 +221,7 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                           line('tanzilat', 'التنزيلات'),
                           line('word_masks', 'تصحيحات تلوين الكلمات'),
                           line('reciters', 'القرّاء'),
+                          line('quran_text', 'تصحيحات نص المصحف'),
                           if (s.pendingRestart.isNotEmpty)
                             'نُزِّل تحديث يظهر عند فتح التطبيق من جديد.',
                         ].join('\n'),
