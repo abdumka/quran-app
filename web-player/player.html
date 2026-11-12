@@ -3,31 +3,59 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>مشغّل — مصحف قالون</title>
+<title>المشغّل | المصحف الجامع</title>
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192.png">
 <link rel="apple-touch-icon" href="assets/favicon-192.png">
-<link rel="stylesheet" href="assets/style.css?v=2">
+<link rel="stylesheet" href="assets/style.css?v=3">
 </head>
 <body>
 <div id="jserr"></div>
 
-<header class="top">
-  <h1 id="reciterName">…</h1>
-  <div class="sub" id="reciterNote"></div>
-  <nav>
-    <a href="index.html">المشايخ</a>
-    <span class="sep">›</span>
-    <a id="surahsLink" href="surahs.html">السور</a>
+<header class="site">
+  <div class="site-in">
+    <button class="menu-btn" id="menuBtn" type="button" aria-label="القائمة" aria-expanded="false" aria-controls="siteMenu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#D2B97E" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="7" x2="21" y2="7"/><line x1="7" y1="12" x2="21" y2="12"/><line x1="11" y1="17" x2="21" y2="17"/></svg>
+    </button>
+    <a class="brand" href="index.html">المصحف الجامع</a>
+    <span class="grow"></span>
+    <a class="hdr-app" href="app/">افتح التطبيق</a>
+  </div>
+  <nav class="site-menu" id="siteMenu" aria-label="القائمة" hidden>
+    <a href="index.html" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="#A1A1A6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15h3v5H4zM17 15h3v5h-3z"/></svg><span class="lbl">المشايخ</span></a>
+    <a href="app/"><svg viewBox="0 0 24 24" fill="none" stroke="#A1A1A6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1v13c-3-1-6-1-9 1-3-2-6-2-9-1zM12 6.5v13"/></svg><span class="lbl">افتح التطبيق في المتصفح</span></a>
+    <hr>
+    <a href="https://play.google.com/store/apps/details?id=com.mahfodqr.qalon_mushaf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="#A1A1A6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg><span class="lbl" dir="ltr" style="text-align: right">Google Play</span></a>
+    <a href="https://apps.apple.com/us/app/id6783147903" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="#A1A1A6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg><span class="lbl" dir="ltr" style="text-align: right">App Store</span></a>
+    <hr>
+    <a href="privacy.html"><svg viewBox="0 0 24 24" fill="none" stroke="#A1A1A6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6z"/></svg><span class="lbl">سياسة الخصوصية</span></a>
   </nav>
 </header>
 
-<main>
+<main class="narrow">
+  <nav class="crumbs" aria-label="المسار">
+    <a href="index.html">المشايخ</a>
+    <span class="sep" aria-hidden="true">‹</span>
+    <a id="surahsLink" href="surahs.html">السور</a>
+  </nav>
+
+  <div class="title-row">
+    <div>
+      <h1 class="stitle" id="stitle"></h1>
+      <p class="meta"><span id="reciterName">…</span><span class="note" id="reciterNote"></span></p>
+    </div>
+    <div class="surah-nav">
+      <a id="prevSurah" class="btn secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>السورة السابقة</a>
+      <a id="nextSurah" class="btn secondary">السورة التالية<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    </div>
+  </div>
+
   <div id="bar">
-    <button id="playAll" class="btn secondary">▶ تشغيل من البداية</button>
-    <button id="stop" class="btn stop">■ إيقاف</button>
-    <label>سرعة:
-      <select id="speed">
+    <button id="playAll" class="btn primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 5.5v13L17.5 12z"/></svg>تشغيل من البداية</button>
+    <button id="stop" class="btn stop" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>إيقاف</button>
+    <span class="vsep" aria-hidden="true"></span>
+    <label>السرعة
+      <select id="speed" dir="ltr">
         <option value="1" selected>1x</option>
         <option value="1.25">1.25x</option>
         <option value="1.5">1.5x</option>
@@ -43,47 +71,49 @@
   </div>
 
   <div class="repeat-row">
+    <span class="rr-title">التكرار</span>
     <div class="group">
-      <span class="group-label">تكرار الآية</span>
-      <button id="ayahCycle" class="btn secondary">إيقاف</button>
+      <span class="group-label">الآية</span>
+      <button id="ayahCycle" class="btn chip" type="button" title="اضغط للتبديل: بلا، 2×، 3×، ∞">بلا</button>
     </div>
     <div class="group">
-      <span class="group-label">تكرار السورة</span>
-      <button id="surahCycle" class="btn secondary">إيقاف</button>
+      <span class="group-label">السورة</span>
+      <button id="surahCycle" class="btn chip" type="button" title="اضغط للتبديل: بلا، 2×، 3×، ∞">بلا</button>
     </div>
     <div class="group">
-      <span class="group-label">تكرار الثمن</span>
-      <button id="thumnCycle" class="btn secondary">إيقاف</button>
+      <span class="group-label">الثمن</span>
+      <button id="thumnCycle" class="btn chip" type="button" title="اضغط للتبديل: بلا، 2×، 3×، ∞">بلا</button>
     </div>
     <div class="group">
-      <span class="group-label">تكرار مقطع</span>
-      من <select id="fromAyah"></select>
-      إلى <select id="toAyah"></select>
-      <button id="rangeCycle" class="btn secondary">إيقاف</button>
+      <span class="group-label">مقطع من</span>
+      <select id="fromAyah" aria-label="من الآية"></select>
+      <span class="group-label">إلى</span>
+      <select id="toAyah" aria-label="إلى الآية"></select>
+      <button id="rangeCycle" class="btn chip" type="button" title="اضغط للتبديل: بلا، 2×، 3×، ∞">بلا</button>
     </div>
-  </div>
-
-  <div class="surah-nav">
-    <a id="prevSurah">▸ السورة السابقة</a>
-    <h2 class="stitle" id="stitle" style="flex:1"></h2>
-    <a id="nextSurah">السورة التالية ◂</a>
   </div>
 
   <div id="list"></div>
 </main>
 
-<footer class="site">المصحف الجامع</footer>
+<footer class="site">
+  <span>المصحف الجامع</span>
+  <a href="privacy.html">سياسة الخصوصية</a>
+</footer>
 
 <script>
 window.onerror = function (msg, src, line, col, err) {
   var b = document.getElementById('jserr');
   if (b) {
     b.style.display = 'block';
-    b.textContent = 'JS ERROR: ' + msg + '\nline ' + line + ':' + col + (err && err.stack ? '\n' + err.stack : '');
+    b.textContent = 'JS ERROR: ' + msg + '
+line ' + line + ':' + col + (err && err.stack ? '
+' + err.stack : '');
   }
   return false;
 };
 </script>
+<script src="js/menu.js" defer></script>
 <script type="module" src="js/ui-player.js"></script>
 </body>
 </html>

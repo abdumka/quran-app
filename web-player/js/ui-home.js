@@ -10,7 +10,9 @@ getReciters().then((reciters) => {
     a.href = `surahs.html?r=${encodeURIComponent(r.id)}`;
     a.innerHTML =
       `<div class="name">${r.shortName || r.name}</div>` +
-      `<div class="riwaya">${r.riwaya}</div>` +
+      // The page title already says برواية قالون; repeat it on a card only if
+      // a reciter ever carries a different riwaya.
+      (r.riwaya && r.riwaya !== 'رواية قالون' ? `<div class="riwaya">${r.riwaya}</div>` : '') +
       (r.reviewNote ? `<div class="review-badge">${r.reviewNote}</div>` : '');
     grid.appendChild(a);
   }

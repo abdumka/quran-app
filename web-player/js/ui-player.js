@@ -30,9 +30,9 @@ const el = {
 // off -> 2x -> 3x -> infinite -> off. Mirrors the mobile app's own repeat-cycle
 // convention (1x is skipped — indistinguishable from off).
 const REPEAT_STEPS = [
-  { mode: 'off', label: 'إيقاف' },
-  { mode: 'count', count: 2, label: '٢×' },
-  { mode: 'count', count: 3, label: '٣×' },
+  { mode: 'off', label: 'بلا' },
+  { mode: 'count', count: 2, label: '2×' },
+  { mode: 'count', count: 3, label: '3×' },
   { mode: 'infinite', label: '∞' },
 ];
 
@@ -42,7 +42,7 @@ const structuralButtons = {};
 
 function resetStructuralButton(kind) {
   structuralStepIdx[kind] = 0;
-  structuralButtons[kind].textContent = 'إيقاف';
+  structuralButtons[kind].textContent = REPEAT_STEPS[0].label;
   structuralButtons[kind].classList.remove('active-mode');
 }
 
@@ -78,8 +78,8 @@ async function main() {
   el.reciterName.textContent = reciter.name;
   if (reciter.reviewNote) el.reciterNote.textContent = reciter.reviewNote;
   el.surahsLink.href = `surahs.html?r=${encodeURIComponent(reciter.id)}`;
-  el.stitle.textContent = `سورة ${surah.number} — ${surah.name}`;
-  document.title = `${surah.name} — ${reciter.shortName || reciter.name}`;
+  el.stitle.textContent = `سورة ${surah.name}`;
+  document.title = `${surah.name} | ${reciter.shortName || reciter.name}`;
 
   if (surah.number > 1) {
     el.prevSurah.href = `player.html?r=${encodeURIComponent(reciter.id)}&s=${surah.number - 1}`;
