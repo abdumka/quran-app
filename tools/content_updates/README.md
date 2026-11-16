@@ -35,11 +35,23 @@ launch over the bundled boxes. When a release bundles the corrected
 `word_masks.json`, raise `ContentUpdateService.bundledVersions['word_masks']`
 to this file's `ver` and the phones stop using the patch.
 
+Since ver 6 (2026-11-10, Tasmee leak fix: every piece of ink is in some word's
+boxes, coloured words included) the publish tool gives `word_masks` to builds
+133+ only (`MIN_BUILD_OF`): those colour from the paint pictures, while 126-132
+colour from the boxes and keep the v5 they have. Build the file with
+`app_data/make_mask_patch.py <ver> --write` (tanzil review folder), after
+`app_data/tasmee_fixes.sh` in a repaint round.
+
 ## reciters.json
 Adds a new reciter without a store release (shows in the picker live, within
 a day or on «التحقق من وجود تحديث»). The full new-reciter workflow, and when to
 choose this over bundling, is in `C:\Down\new recitor time\NEW_RECITER_INSTRUCTIONS.md`
-("Update 2026-10-28"). Reciters on the timed-surah scheme only (whole-surah
+("Update 2026-10-28"). **Owner's rule since 2026-11-08: every new reciter comes
+this way, and is published only when the owner says "push"** (until then the
+entry waits in the reciter's run folder as `reciters_entry_pending.json`; never
+leave an unapproved entry in this file, the next publish would ship it). Page-turn
+cues for such an entry: `tools/measure_remote_page_turn_cues.py`. Reciters on the
+timed-surah scheme only (whole-surah
 MP3s + `timings/SSS.json`); per-ayah reciters cannot be added this way:
 
 ```json

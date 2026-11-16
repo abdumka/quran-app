@@ -42,7 +42,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "tools" / "content_updates"
 MIN_BUILD = 126  # the first build with ContentUpdateService
-MIN_BUILD_OF = {"tanzilat_paint": 133}  # the first build that shows the pictures
+# tanzilat_paint: the first build that shows the pictures. word_masks: from patch v6 (2026-11-10,
+# Tasmee leak fix) coloured words may gain boxes; builds 126-132 colour from the boxes, so they
+# keep the v5 they have and only builds that colour from the pictures take newer boxes.
+MIN_BUILD_OF = {"tanzilat_paint": 133, "word_masks": 133}
 PUBLIC = "https://quran-content.mushaf-qaloon.com/"
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
