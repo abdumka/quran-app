@@ -461,6 +461,27 @@ footer.site {
   #bar .vsep { display: none; }
 }
 
+/* Store buttons (homepage): drawn like the stores' badges. */
+.sbadge { display: inline-flex; align-items: center; gap: 8px; min-height: 46px; padding: 6px 14px 6px 12px; background: #000; color: #fff; border: 1px solid #5A5A5E; border-radius: 10px; text-decoration: none; direction: rtl; }
+.sbadge:hover { background: #111; color: #fff; }
+.sbadge svg { width: 24px; height: 24px; flex: none; }
+.sbadge span { display: flex; flex-direction: column; line-height: 1.1; text-align: right; }
+.sbadge small { font-size: 11px; color: #D8D8D8; }
+.sbadge b { font-size: 17px; font-weight: 600; }
+.sbadge.sm { min-height: 40px; padding: 4px 10px 4px 9px; border-radius: 9px; }
+.sbadge.sm svg { width: 20px; height: 20px; }
+.sbadge.sm small { font-size: 10px; }
+.sbadge.sm b { font-size: 14px; }
+.app-banner .stores { flex-wrap: wrap; gap: 8px; }
+
+/* Phones only: the band under the header with both stores. Wider screens
+   keep the app card, which has the same buttons. */
+.store-band { display: none; background: #26231F; border-bottom: 1px solid rgba(210, 185, 126, 0.18); }
+.store-band .in { padding: 10px 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.store-band p { margin: 0; color: #EFE9DE; font-size: 15px; }
+.store-band .b { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+@media (max-width: 760px) { .store-band { display: block; } }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
