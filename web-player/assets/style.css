@@ -482,6 +482,15 @@ footer.site {
 .store-band .b { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 @media (max-width: 760px) { .store-band { display: block; } }
 
+/* Direct APK for Android phones without Google Play: second to the store
+   buttons, a quiet text link (owner, 2026-11-17). */
+.apk-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #AAA398; text-decoration: none; }
+.apk-link:hover { color: var(--gold); }
+.apk-link svg { width: 16px; height: 16px; flex: none; }
+.apk-link span { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(170, 163, 152, 0.4); }
+.apk-link small { font-size: 11.5px; color: #85858B; }
+.app-banner .ab-actions .apk-link { margin-top: -2px; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
