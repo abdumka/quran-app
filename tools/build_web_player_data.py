@@ -168,7 +168,7 @@ RECITERS = [
         "id": "trabulsi",
         "name": "أحمد خضر الطرابلسي",
         "shortName": "أحمد الطرابلسي",
-        "riwaya": "رواية قالون",
+        "riwaya": "رواية قالون بتقليل التوراة",
         "folder": "trabulsi",
         "scheme": "timed",
         "timingsDir": "C:/Down/TrabulsiTimed/timings",
@@ -180,10 +180,24 @@ RECITERS = [
         # Review page logs to the shared tracker under the slug "zarrouq".
         "id": "zarrouq",
         "name": "محمد خليل الزروق",
-        "riwaya": "رواية قالون",
+        "riwaya": "رواية قالون بتقليل التوراة",
         "folder": "zarrouq",
         "scheme": "timed",
         "timingsDir": "C:/Down/ZarrouqTimed/timings",
+    },
+    {
+        # midad collection 465641, timed scheme (2026-11-08). Source is fake
+        # stereo VBR (L-R silent), 44.1/48 kHz mixed; the mirror is 128 kbps
+        # mono CBR at 44.1 kHz. Ayat he reads in one breath are merged
+        # (--covered). Review page logs to the shared tracker under "younsi".
+        "id": "younsi",
+        "name": "علي اليونسي",
+        "riwaya": "رواية قالون",
+        "folder": "younsi",
+        "scheme": "timed",
+        "timingsDir": "C:/Down/YounsiTimed/timings",
+        "underReview": True,
+        "reviewUrl": "https://audio.mushaf-qaloon.com/mushaf_younsi.html",
     },
 ]
 
