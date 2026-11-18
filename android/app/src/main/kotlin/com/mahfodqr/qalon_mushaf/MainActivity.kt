@@ -4,7 +4,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import androidx.annotation.OptIn
 import androidx.core.view.WindowCompat
+import androidx.media3.common.util.UnstableApi
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -52,6 +54,7 @@ class MainActivity : AudioServiceActivity() {
     // MediaQuery heuristics (shortestSide >= 600) classify it as a phone and the
     // reader then picks its phone-landscape layout. PackageManager is the only
     // reliable signal.
+    @OptIn(UnstableApi::class)
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PLATFORM_CHANNEL)
@@ -61,6 +64,14 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // «فيديو الآية»: the MP4 is built here, on the phone.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, AyahVideoRenderer.CHANNEL)
+            .setMethodCallHandler(AyahVideoRenderer(applicationContext))
+        // ...and played back in the share sheet once it is made.
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            AyahVideoPlayerFactory.VIEW_TYPE,
+            AyahVideoPlayerFactory(flutterEngine.dartExecutor.binaryMessenger),
+        )
     }
 
     private fun isAndroidTv(): Boolean {

@@ -34,7 +34,10 @@ tafsir mirror; never print the secret.
 import hashlib
 import io
 import json
+import os
+import re
 import struct
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -45,8 +48,11 @@ MIN_BUILD = 126  # the first build with ContentUpdateService
 # tanzilat_paint: the first build that shows the pictures. word_masks: from patch v6 (2026-11-10,
 # Tasmee leak fix) coloured words may gain boxes; builds 126-132 colour from the boxes, so they
 # keep the v5 they have and only builds that colour from the pictures take newer boxes.
-MIN_BUILD_OF = {"tanzilat_paint": 133, "word_masks": 133}
+MIN_BUILD_OF = {"tanzilat_paint": 133, "word_masks": 133,
+                # «مشاركة الآية» / «فيديو الآية»: first in test build 151 (2026-11-17).
+                "share_video": 151}
 PUBLIC = "https://quran-content.mushaf-qaloon.com/"
+NUL = os.devnull
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 ITEMS = {
@@ -56,6 +62,11 @@ ITEMS = {
     "reciters": (SRC / "reciters.json", "data/reciters/reciters_v{ver}.json"),
     "tanzilat_paint": (ROOT / "assets" / "data" / "tanzilat_paint.bin", "data/tanzilat_paint/paint_v{ver}.bin"),
     "quran_text": (SRC / "quran_text_patch.json", "data/quran_text/patch_v{ver}.json"),
+    # «مشاركة الآية»: share text, link, video backgrounds, effects, watermark, closing
+    # card. Edit assets/data/share_video.json, bump "ver", publish. Background clips
+    # live under video_bg/<id>/ on the same bucket (upload them first; a changed clip
+    # needs a NEW path, phones cache by path).
+    "share_video": (ROOT / "assets" / "data" / "share_video.json", "data/share_video/share_video_v{ver}.json"),
 }
 EASTERN = set("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹")
 
@@ -97,6 +108,60 @@ def check_quran_text(data):
                  "run tools/build_quran_text_patch.py --write")
 
 
+def check_share_video(data):
+    """The rules ShareVideoConfig.parse applies, plus a HEAD of every clip and picture."""
+    for key in ("baseUrl", "link"):
+        u = data.get(key, "")
+        if not (isinstance(u, str) and u.startswith("https://") and
+                re.match(r"https://([a-z0-9-]+\.)*mushaf-qaloon\.com/", u + "/")):
+            sys.exit(f"ABORT: share_video {key} {u!r} is not one of our hosts")
+    if not data["baseUrl"].endswith("/"):
+        sys.exit("ABORT: share_video baseUrl must end with /")
+    if "{text}" not in (data.get("text") or {}).get("template", ""):
+        sys.exit("ABORT: share_video text.template has no {text}")
+    shapes = [s["id"] for s in data.get("shapes", [])]
+    for s in data.get("shapes", []):
+        w, h = s.get("width"), s.get("height")
+        if not (isinstance(w, int) and isinstance(h, int) and 240 <= w <= 2160 and 240 <= h <= 2160 and w % 2 == 0 and h % 2 == 0):
+            sys.exit(f"ABORT: share_video shape {s}")
+    for e in data.get("effects", []):
+        if e.get("type") not in ("none", "echo", "reverb"):
+            sys.exit(f"ABORT: share_video effect {e}")
+    cats = {c["id"] for c in data.get("categories", [])}
+    ids = set()
+    paths = []
+    for b in data.get("backgrounds", []):
+        if b["id"] in ids:
+            sys.exit(f"ABORT: share_video duplicate background {b['id']}")
+        ids.add(b["id"])
+        if b.get("category") not in cats:
+            sys.exit(f"ABORT: share_video {b['id']} has no category")
+        paths.append(b["thumb"])
+        for s in shapes:
+            if s not in b.get("files", {}):
+                sys.exit(f"ABORT: share_video {b['id']} has no {s} file")
+            paths.append(b["files"][s]["path"])
+    if not ids:
+        sys.exit("ABORT: share_video has no backgrounds")
+    # The surah names cut from the mushaf (title.images), all 114 of them.
+    title_images = (data.get("video", {}).get("title", {}) or {}).get("images")
+    if title_images is not None:
+        if "{surah}" not in str(title_images):
+            sys.exit("ABORT: share_video title.images has no {surah}")
+        paths += [title_images.replace("{surah}", f"{n:03d}") for n in range(1, 115)]
+    missing = []
+    for path in paths:
+        if not re.fullmatch(r"[A-Za-z0-9_\-/.]+", path) or ".." in path or path.startswith("/"):
+            sys.exit(f"ABORT: share_video bad path {path}")
+        # curl, not urllib: Cloudflare answers Python's urllib with 403 on this host.
+        code = subprocess.run(["curl", "-sI", "-o", NUL, "-w", "%{http_code}", "--max-time", "20",
+                               data["baseUrl"] + path], capture_output=True, text=True).stdout.strip()
+        if code != "200":
+            missing.append(f"{path} (HTTP {code})")
+    if missing:
+        sys.exit("ABORT: share_video files not on the server: " + ", ".join(missing[:20]))
+
+
 def main():
     args = sys.argv[1:]
     if any(a not in ("--dry-run", "--publish") for a in args) or len(args) > 1:
@@ -124,6 +189,8 @@ def main():
             sys.exit(f"ABORT: {src} has no reciters list")
         if name == "quran_text":
             check_quran_text(data)
+        if name == "share_video":
+            check_share_video(data)
         if name == "tanzilat_paint" and data.get("tz") != tanzilat_ver:
             sys.exit(f"ABORT: the pictures are for tanzilat v{data.get('tz')}, the data is v{tanzilat_ver}: rebuild them")
         if name not in ("tanzilat", "tanzilat_paint") and any(c in EASTERN for c in body.decode("utf-8")):

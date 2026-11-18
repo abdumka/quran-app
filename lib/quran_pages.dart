@@ -25,6 +25,8 @@ import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
 import 'widgets/quran/tanzilat_overlay.dart';
 import 'widgets/quran/tanzilat_sheet.dart';
+import 'widgets/share/ayah_share_sheet.dart';
+import 'services/share/share_video_config.dart';
 import 'widgets/quran/ayah_recite_row.dart';
 import 'services/tanzilat_service.dart';
 import 'services/ayah_play_setting.dart';
@@ -2011,6 +2013,8 @@ class _QuranPagesState extends State<QuranPages>
         await _showTanzilatSheet(page + 1, hit.$1, hit.$2);
       case _AyahAction.recite:
         _reciteFromAyah(page, hit.$1, hit.$2);
+      case _AyahAction.share:
+        await showAyahShareSheet(context, surah: hit.$1, ayah: hit.$2);
       case null:
         break;
     }
@@ -2184,18 +2188,45 @@ class _QuranPagesState extends State<QuranPages>
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  surahName == null
-                      ? 'الآية $ayah'
-                      : 'سورة $surahName - الآية $ayah',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: titleColor,
-                  ),
+                const SizedBox(height: 4),
+                // «مشاركة الآية»: the share icon sits at the title's left end;
+                // an empty box of the same width on the right keeps the title
+                // centred.
+                Row(
+                  children: [
+                    const SizedBox(width: 56),
+                    Expanded(
+                      child: Text(
+                        surahName == null
+                            ? 'الآية $ayah'
+                            : 'سورة $surahName - الآية $ayah',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: titleColor,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 56,
+                      child: ShareVideoConfig.shareEnabled
+                          ? IconButton(
+                              tooltip: 'مشاركة الآية',
+                              onPressed: () => Navigator.of(
+                                sheetContext,
+                              ).pop(_AyahAction.share),
+                              icon: Icon(
+                                Icons.adaptive.share,
+                                color: accentColor,
+                                size: 24,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 2),
                 option(
                   icon: const Icon(Icons.bookmark_add_rounded),
                   label: 'إضافة علامة هنا',
@@ -9808,7 +9839,7 @@ class _MeasureSizeRenderObject extends RenderProxyBox {
 enum _TafsirCopyMode { ayah, tafsir, both }
 
 /// What the reader picked from the long-pressed ayah's menu.
-enum _AyahAction { bookmark, tafsir, tanzilat, recite }
+enum _AyahAction { bookmark, tafsir, tanzilat, recite, share }
 
 /// Stateful Tafsir sheet with page navigation.
 class _TafsirSheetContent extends StatefulWidget {

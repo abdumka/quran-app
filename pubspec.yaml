@@ -56,6 +56,7 @@ dependencies:
   audioplayers: ^6.8.1
   image_picker: ^1.2.4
   flutter_image_compress: ^2.5.1
+  gal: ^3.0.1
 
 dev_dependencies:
   flutter_test:
@@ -90,5 +91,6 @@ flutter:
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
     - assets/data/tanzilat.json
+    - assets/data/share_video.json
     - assets/data/tanzilat_paint.bin
   

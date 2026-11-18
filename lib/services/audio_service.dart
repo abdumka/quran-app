@@ -542,12 +542,16 @@ class AudioService {
   //  AUDIO FILE MAPPING (Qalon → Hafs filenames)
   // ─────────────────────────────────────────────
 
-  List<String> _getAudioFilesForAyah(QuranAyahData ayah, {int? pageNumber}) {
+  List<String> _getAudioFilesForAyah(
+    QuranAyahData ayah, {
+    int? pageNumber,
+    Reciter? reciterOverride,
+  }) {
     final s = ayah.surah;
     final a = ayah.ayah;
     final surahStr = s.toString().padLeft(3, '0');
 
-    final reciter = ReciterService.instance.selected.value;
+    final reciter = reciterOverride ?? ReciterService.instance.selected.value;
 
     // ── Upstream gaps ──
     // A few ayat were never published for some mirrors (see Reciter.missingAyat).
@@ -665,6 +669,21 @@ class AudioService {
     return _getAudioFilesForAyah(
       ayah,
       pageNumber: pageNumber,
+    ).map(AudioClip.whole).toList();
+  }
+
+  /// The clips of displayed ayah [surah]:[ayah] for any [reciter], not only
+  /// the selected one (an ayah video may use another reciter). A
+  /// [AudioScheme.timedSurah] reciter needs the surah's timings loaded first
+  /// ([SurahTimingsService.load]); a per-ayah one needs
+  /// [AudioAyahMapService.load].
+  List<AudioClip> clipsForAyahOf(Reciter reciter, int surah, int ayah) {
+    if (reciter.scheme == AudioScheme.timedSurah) {
+      return SurahTimingsService.instance.clipsFor(reciter, surah, ayah);
+    }
+    return _getAudioFilesForAyah(
+      QuranAyahData(surah: surah, surahName: '', ayah: ayah, text: ''),
+      reciterOverride: reciter,
     ).map(AudioClip.whole).toList();
   }
 

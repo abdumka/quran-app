@@ -17,5 +17,10 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // «فيديو الآية»: made on the phone (AyahVideoRenderer) and played back in
+    // the share sheet (AyahVideoPlayerView).
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AyahVideo") {
+      AyahVideoRenderer.register(with: registrar)
+    }
   }
 }

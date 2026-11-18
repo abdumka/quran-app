@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_update_service.dart';
 import 'quran_text_patch.dart';
+import 'share/share_video_config.dart';
 
 /// Data the app can refresh from our server without a store release:
 ///
@@ -27,6 +28,9 @@ import 'quran_text_patch.dart';
 ///                    `output.json`, a cumulative list of whole ayat (see
 ///                    `QuranTextPatch` for the rules); applied at the next
 ///                    launch only.
+///   * `share_video`: «مشاركة الآية»: share text and link, the video
+///                    backgrounds, sound effects, watermark and closing card
+///                    (`ShareVideoConfig`); used from the next share sheet.
 ///
 /// Layout on `quran-content.mushaf-qaloon.com` (the R2 bucket the tafsir
 /// pages and timings already come from), published by
@@ -38,6 +42,7 @@ import 'quran_text_patch.dart';
 ///     data/tanzilat_paint/paint_v<N>.bin
 ///     data/reciters/reciters_v<N>.json
 ///     data/quran_text/patch_v<N>.json
+///     data/share_video/share_video_v<N>.json
 ///
 /// The manifest names each item's version, file, size and SHA-256. A file is
 /// downloaded only when its version is newer than both the version bundled in
@@ -62,6 +67,7 @@ class ContentUpdateService {
     'reciters',
     'tanzilat_paint',
     'quran_text',
+    'share_video',
   ];
 
   /// What the assets of THIS build carry. A download older than or equal to
@@ -79,6 +85,8 @@ class ContentUpdateService {
     'reciters': 0,
     'tanzilat_paint': 1,
     'quran_text': 0,
+    // matches the `ver` of `assets/data/share_video.json`
+    'share_video': 1,
   };
 
   static const Duration _checkInterval = Duration(hours: 24);
@@ -394,6 +402,8 @@ class ContentUpdateService {
         // Every rule the loader applies, so a file it would refuse is never
         // installed over a good one.
         QuranTextPatch.parse(text);
+      case 'share_video':
+        ShareVideoConfig.parse(text);
     }
   }
 
@@ -501,6 +511,7 @@ class ContentCheckResult {
     'tanzilat_paint': 'تلوين الكلمات',
     'reciters': 'القرّاء',
     'quran_text': 'نص المصحف',
+    'share_video': 'مشاركة الآية',
   };
 
   /// One line for the settings notice, or null when nothing changed.

@@ -31,7 +31,14 @@
          otherwise, which would hide the app from Android TV boxes (no mic) on
          Play. Tasmee is simply not offered there. -->
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+    <!-- «فيديو الآية» is saved to the gallery (gal plugin). Android 11+ needs
+         no permission for that; Android 10 and older ask for this one, and the
+         legacy-storage flag lets Android 10 write the app's album folder.
+         (file_saver declares it up to 28 only; 29 wins here.) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" tools:replace="android:maxSdkVersion"/>
     <application
+        android:requestLegacyExternalStorage="true"
         android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"

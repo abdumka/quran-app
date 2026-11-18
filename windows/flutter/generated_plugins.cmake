@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   firebase_core
   flutter_timezone
+  gal
   permission_handler_windows
   record_windows
   screen_brightness_windows

@@ -72,6 +72,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>لا يستخدم التطبيق الكاميرا إلا إذا اخترت التقاط صورة لإرفاقها برسالتك.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>يحفظ التطبيق فيديوهات الآيات التي تنشئها في معرض الصور، ولا يطّلع على غيرها.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>تختار صورة لإرفاقها برسالتك إلى الفريق، ولا يرى التطبيق غيرها.</string>
 	<key>NSMicrophoneUsageDescription</key>

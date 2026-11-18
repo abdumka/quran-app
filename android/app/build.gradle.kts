@@ -88,4 +88,12 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // «فيديو الآية» (AyahVideoRenderer.kt): encodes the video on the phone.
+    // Same Media3 version as just_audio's ExoPlayer, so nothing is duplicated.
+    implementation("androidx.media3:media3-transformer:1.4.1")
+    implementation("androidx.media3:media3-effect:1.4.1")
+    implementation("androidx.media3:media3-common:1.4.1")
+    // Plays the finished video in the share sheet (AyahVideoPlayerView.kt).
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
 }

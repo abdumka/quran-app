@@ -105,3 +105,36 @@ and any change to pages, ayah numbering or word counts (release + the full
 derived-artifact rebuild). When a release bundles the corrected
 `output.json`, raise `ContentUpdateService.bundledVersions['quran_text']` to
 the patch file's `ver` and add that release as a base.
+
+## share_video.json (build 151+)
+«مشاركة الآية» and «فيديو الآية». The source is the bundled
+`assets/data/share_video.json` itself (like athkar): edit it, raise `ver`,
+publish. Phones read it the next time a share sheet opens.
+- `enabled` hides the share icon; `videoEnabled` hides only the video choice.
+- `link` and `text.template` (`{text}`, `{surah}`, `{ayah}`, `{link}`): the
+  shared text. Only https links on mushaf-qaloon.com are accepted.
+- `video`: `maxAyat`, `maxSeconds`, `fps`, `bitrate`, `dim` (darkening of the
+  background, 0 to 0.9), `textWidth` / `textHeight` (share of the frame per
+  shape), `textMaxScale`, `title`, `watermark`, `closing` (all their wording,
+  `show`, `seconds`).
+- `video.textHalo` (0 to 1, darkness of the halo around the white letters; 0
+  = the old light drop shadow) and `video.textBackdrop` (0 to 0.8, a soft
+  dark veil behind the text block): how well the ayat read on bright or busy
+  backgrounds such as the gold kiswa.
+- `video.title.images` (e.g. `surah_titles/v1/{surah}.png`, `{surah}` = 001
+  to 114): the surah name cut from the mushaf pages, white ink on
+  transparent, tinted cream in the video; `imageHeight` (share of the short
+  side) and `imageMaxWidth` (share of the width) size it. Each phone fetches
+  only the surah it needs and keeps it. Missing key or a failed download =
+  the `template` text. Recut names need a new folder (`v2/`): phones keep the
+  old picture under the old path. Source and cutter:
+  `C:\Down\AyahVideoBackgrounds\surah_titles`.
+- `effects`: `type` none / echo (`taps` [[ms, gain]], `dry`) / reverb (`room`,
+  `damping`, `wet`, `dry`, `width`, 0 to 1). New strengths need no release;
+  a new effect TYPE does.
+- `backgrounds` / `categories` / `defaultBackground`: the picker. Clips live
+  under `video_bg/<id>/{9x16,1x1,16x9}.mp4` + `thumb.jpg` on the quran-content
+  bucket (source and cutter: `C:\Down\AyahVideoBackgrounds`, `tools\cut2.py`).
+  Upload clips BEFORE publishing (the publisher HEAD-checks every path). A
+  changed clip needs a new path: phones cache by path and never re-download.
+  `bytes` is checked after download.
