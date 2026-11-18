@@ -263,7 +263,51 @@ void main() {
       // AudioService treats any notification as a change of reciter, and stops.
       expect(notified, 0);
     },
-    skip:
-        'Known issue (2026-11-07): applyRemote reassigns selected to a new object',
+  );
+
+  test(
+    'overrides in a file that lands mid-run wait for the next launch',
+    () async {
+      // This run started with no reciters file.
+      reciters.debugForgetLaunch();
+      await reciters.applyRemote();
+      reciters.selected.value = Reciter.byId('trabulsi_qaloun');
+      var notified = 0;
+      void listener() => notified++;
+      reciters.selected.addListener(listener);
+      addTearDown(() => reciters.selected.removeListener(listener));
+      final body = json.encode({
+        'ver': 1,
+        'reciters': [entry],
+        'overrides': {
+          'trabulsi_qaloun': {'riwaya': 'تسمية جديدة', 'timingsRevision': 9},
+          'rajab_qaloun': {'hidden': true},
+        },
+        'order': ['newcomer_qaloun'],
+      });
+      await check(serving(body));
+      // The new reciter arrives at once ...
+      expect(reciters.reciters.map((r) => r.id), contains('newcomer_qaloun'));
+      // ... but nothing about the bundled ones changes under the reader.
+      final t = reciters.reciters.singleWhere((r) => r.id == 'trabulsi_qaloun');
+      expect(t.riwaya, Reciter.trabulsiQaloun.riwaya);
+      expect(t.timingsRevision, Reciter.trabulsiQaloun.timingsRevision);
+      expect(reciters.reciters.map((r) => r.id), contains('rajab_qaloun'));
+      expect(reciters.reciters.first.id, Reciter.all.first.id);
+      expect(notified, 0);
+
+      // Next launch: the same file on disk, read first thing.
+      reciters.debugForgetLaunch();
+      await reciters.applyRemote();
+      final t2 = reciters.reciters.singleWhere((r) => r.id == 'trabulsi_qaloun');
+      expect(t2.riwaya, 'تسمية جديدة');
+      expect(t2.timingsRevision, 9);
+      expect(reciters.reciters.map((r) => r.id), isNot(contains('rajab_qaloun')));
+      expect(reciters.reciters.first.id, 'newcomer_qaloun');
+      // The selected reciter's timings changed: re-pointed, once.
+      expect(reciters.selected.value.timingsRevision, 9);
+      expect(notified, 1);
+      reciters.debugForgetLaunch();
+    },
   );
 }
