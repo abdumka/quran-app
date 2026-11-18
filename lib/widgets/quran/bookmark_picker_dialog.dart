@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/reader_bookmark.dart';
+import '../../theme/app_surfaces.dart';
 
 enum _ExportChoice { share, saveLocally }
 
@@ -177,6 +178,7 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
   }
 
   Widget _buildBackupActions() {
+    final s = AppSurfaces.maybeOf(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -185,18 +187,19 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
             tooltip: 'استيراد من ملف',
             visualDensity: VisualDensity.compact,
             onPressed: _handleImport,
-            icon: const Icon(
+            icon: Icon(
               Icons.folder_open_outlined,
-              color: Color(0xFF8B7355),
+              color: s?.icon ?? const Color(0xFF8B7355),
               size: 20,
             ),
           ),
         if (widget.onExport != null || widget.onSaveLocally != null)
           PopupMenuButton<_ExportChoice>(
             tooltip: 'مشاركة نسخة احتياطية',
-            icon: const Icon(
+            color: s?.card,
+            icon: Icon(
               Icons.ios_share,
-              color: Color(0xFF8B7355),
+              color: s?.icon ?? const Color(0xFF8B7355),
               size: 20,
             ),
             onSelected: (choice) {
@@ -235,8 +238,26 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
         .where((slot) => !widget.onlySaved || _bookmarks.containsKey(slot))
         .toList(growable: false);
 
+    // null in the previous look and in night mode: the theme's dialog and the
+    // old card colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final dialogShape = s == null
+        ? null
+        : RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppSurfaces.radius),
+          );
+    final titleStyle = s == null
+        ? null
+        : Theme.of(context).textTheme.headlineSmall?.copyWith(color: s.text);
+    final textButtonStyle = s == null
+        ? null
+        : TextButton.styleFrom(foregroundColor: s.accent);
+
     if (slots.isEmpty) {
       return AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: dialogShape,
+        titleTextStyle: titleStyle,
         title: _showBackupActions
             ? Row(
                 textDirection: TextDirection.rtl,
@@ -248,12 +269,14 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
                 ],
               )
             : Text(widget.title, textDirection: TextDirection.rtl),
-        content: const Text(
+        content: Text(
           'لا توجد علامات محفوظة حاليًا.',
           textDirection: TextDirection.rtl,
+          style: s == null ? null : TextStyle(color: s.muted),
         ),
         actions: [
           TextButton(
+            style: textButtonStyle,
             onPressed: () => Navigator.pop(context),
             child: const Text('إغلاق'),
           ),
@@ -264,6 +287,9 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
     final editingSlot = _editingSlot;
     if (editingSlot != null) {
       return AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: dialogShape,
+        titleTextStyle: titleStyle,
         title: Text(
           'إعادة تسمية ${widget.displayNameBuilder(editingSlot, _bookmarks[editingSlot])}',
           textDirection: TextDirection.rtl,
@@ -277,10 +303,12 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
         ),
         actions: [
           TextButton(
+            style: textButtonStyle,
             onPressed: _isSavingRename ? null : _cancelRename,
             child: const Text('إلغاء'),
           ),
           TextButton(
+            style: textButtonStyle,
             onPressed: _isSavingRename ? null : _saveRename,
             child: Text(_isSavingRename ? 'جارٍ الحفظ...' : 'حفظ'),
           ),
@@ -288,7 +316,11 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
       );
     }
 
+    final cardRadius = s == null ? 14.0 : AppSurfaces.cardRadius;
     return AlertDialog(
+      backgroundColor: s?.sheet,
+      shape: dialogShape,
+      titleTextStyle: titleStyle,
       title: _showBackupActions
           ? Row(
               textDirection: TextDirection.rtl,
@@ -321,22 +353,25 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
               return Container(
                 margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
                 decoration: BoxDecoration(
-                  color: !isSaved
-                      ? Colors
-                            .white // فارغة = أبيض
-                      : const Color(0xFFFFF8EC), // محفوظة = كريمي دافئ
-                  borderRadius: BorderRadius.circular(14),
+                  // the new look: every slot is a card with a hairline
+                  color: s?.card ??
+                      (!isSaved
+                          ? Colors
+                                .white // فارغة = أبيض
+                          : const Color(0xFFFFF8EC)), // محفوظة = كريمي دافئ
+                  borderRadius: BorderRadius.circular(cardRadius),
                   border: Border.all(
-                    color: !isSaved
-                        ? const Color(0xFFEEEEEE)
-                        : const Color(0xFF8B7355), // محفوظة = حد ذهبي
-                    width: !isSaved ? 0.5 : 1.0,
+                    color: s?.border ??
+                        (!isSaved
+                            ? const Color(0xFFEEEEEE)
+                            : const Color(0xFF8B7355)), // محفوظة = حد ذهبي
+                    width: s != null ? 1.0 : (!isSaved ? 0.5 : 1.0),
                   ),
                 ),
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(cardRadius),
                     onTap: () => Navigator.pop(
                       context,
                       BookmarkPickerResult.select(slot),
@@ -352,15 +387,17 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
                             height: 40,
                             decoration: BoxDecoration(
                               color: !isSaved
-                                  ? const Color(0xFFF0F0F0)
-                                  : const Color(0xFF8B7355),
+                                  ? s?.buttonQuiet ?? const Color(0xFFF0F0F0)
+                                  : s?.tile ?? const Color(0xFF8B7355),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(
                               !isSaved
                                   ? Icons.bookmark_outline
                                   : Icons.bookmark,
-                              color: !isSaved ? Colors.grey : Colors.white,
+                              color: !isSaved
+                                  ? s?.muted ?? Colors.grey
+                                  : s?.accent ?? Colors.white,
                               size: 20,
                             ),
                           ),
@@ -383,10 +420,12 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
                                       : 'العلامة $slot',
                                   style: TextStyle(
                                     fontSize: 15,
-                                    fontWeight: FontWeight.bold,
+                                    fontWeight: s == null
+                                        ? FontWeight.bold
+                                        : FontWeight.w600,
                                     color: !isSaved
-                                        ? const Color(0xFF999999)
-                                        : const Color(0xFF2C2C2C),
+                                        ? s?.muted ?? const Color(0xFF999999)
+                                        : s?.text ?? const Color(0xFF2C2C2C),
                                   ),
                                 ),
                                 const SizedBox(height: 3),
@@ -397,8 +436,8 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: !isSaved
-                                        ? const Color(0xFFBBBBBB)
-                                        : const Color(0xFF8B7355),
+                                        ? s?.muted ?? const Color(0xFFBBBBBB)
+                                        : s?.muted ?? const Color(0xFF8B7355),
                                   ),
                                 ),
                               ],
@@ -409,9 +448,9 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
                           if (isSaved) ...[
                             IconButton(
                               onPressed: () => _startRename(slot),
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.edit_outlined,
-                                color: Color(0xFF8B7355),
+                                color: s?.muted ?? const Color(0xFF8B7355),
                                 size: 24,
                               ),
                             ), // Increased size
@@ -427,9 +466,9 @@ class BookmarkPickerDialogState extends State<BookmarkPickerDialog> {
                                         strokeWidth: 2,
                                       ),
                                     )
-                                  : const Icon(
+                                  : Icon(
                                       Icons.delete_outline,
-                                      color: Color(0xFFCC4444),
+                                      color: s?.muted ?? const Color(0xFFCC4444),
                                       size: 24,
                                     ),
                             ), // Increased size

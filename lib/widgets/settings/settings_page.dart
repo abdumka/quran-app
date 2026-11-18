@@ -1,17 +1,15 @@
 import 'dart:async';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'settings_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 
 import '../../services/recitation_bar_auto_hide_service.dart';
 import '../../services/tv_service.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/reciter.dart';
 import '../../models/tafsir_edition.dart';
@@ -47,10 +45,20 @@ import 'developer_tools_page.dart';
 import 'kahf_reminder_tile.dart';
 import '../hifz_lens_icon.dart';
 import 'downloads_management_page.dart';
+import 'app_look_tile.dart';
+import 'absence_reminder_tile.dart';
+import '../../services/app_look_service.dart';
+import '../../theme/app_surfaces.dart';
+import '../../services/chat_service.dart';
+import '../../utils/share_app.dart';
+import '../../utils/after_opening.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
-import '../../services/chat_service.dart';
 import '../menu/fullscreen_menu_page.dart';
+
+/// A section the side drawer can open Settings on (the drawer's «القارئ»
+/// and «صفحة اليوم وسورة الكهف» rows).
+enum SettingsSection { recitation, reminders }
 
 class SettingsPage extends StatefulWidget {
   final bool isDarkMode;
@@ -91,7 +99,11 @@ class SettingsPage extends StatefulWidget {
     required this.onToggleFullScreenMode,
     required this.onResetAllSettings,
     this.startTour = false,
+    this.initialSection,
   });
+
+  /// Opens this section and scrolls to it once the page has settled.
+  final SettingsSection? initialSection;
 
   /// Runs the «أرني أين» tour as soon as the page is open (from «ما الجديد»).
   /// The reader has already shown its two stops (tap the page, tap ⚙), so the
@@ -216,11 +228,16 @@ class _SettingsPageState extends State<SettingsPage> {
     _localPortraitScrollMode = widget.isPortraitScrollMode;
     _localTabletLayoutMode = widget.isTabletLayoutMode;
     _localFullScreenMode = widget.isFullScreenMode;
-    _audioDownloadService.initialize();
+    // Counting the downloaded recitation and tafsir files walks thousands of
+    // files; it starts once the page has finished sliding in, so opening
+    // Settings stays smooth (owner, 2026-11-13).
+    afterOpening(() {
+      _audioDownloadService.initialize();
+      _tafsirCacheService.initialize();
+    });
     _keepScreenAwakeService.load();
     _marginImagesService.initialize();
     _tafsirEditionService.load();
-    _tafsirCacheService.initialize();
     _pageQualityService.load();
     _pageColorService.load();
     _recitationBarOpacityService.load();
@@ -240,7 +257,32 @@ class _SettingsPageState extends State<SettingsPage> {
       Future.delayed(const Duration(milliseconds: 700), () {
         if (mounted) _runTour();
       });
+    } else if (widget.initialSection != null) {
+      Future.delayed(const Duration(milliseconds: 450), () {
+        if (mounted) _openInitialSection(widget.initialSection!);
+      });
     }
+  }
+
+  Future<void> _openInitialSection(SettingsSection section) async {
+    final (ExpansibleController controller, GlobalKey key) = switch (section) {
+      SettingsSection.recitation => (
+        _recitationTafsirController,
+        _recitationGroupKey,
+      ),
+      SettingsSection.reminders => (_remindersController, _remindersGroupKey),
+    };
+    controller.expand();
+    // let the group lay out before scrolling to it
+    await Future<void>.delayed(const Duration(milliseconds: 320));
+    final target = key.currentContext;
+    if (!mounted || target == null || !target.mounted) return;
+    await Scrollable.ensureVisible(
+      target,
+      alignment: 0.05,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
   }
 
   /// «أرني أين»: lights up each settings group with one line about what is
@@ -819,40 +861,55 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  /// Both store links go out regardless of the sender's platform: the
-  /// recipients (often a whole group chat) may be on either, plus the web
-  /// version for anyone reading on a computer.
-  static const String _shareAppMessage =
-      'المصحف الجامع\n'
-      'تطبيق لقراءة القرآن الكريم، مع التلاوة والتفسير.\n\n'
-      '📱 لأجهزة أندرويد:\n'
-      '${AppUpdateService.playStoreUrl}\n\n'
-      '🍏 لأجهزة آيفون:\n'
-      '${AppUpdateService.appStoreUrl}\n\n'
-      '🌐 من المتصفح:\n'
-      'https://www.mushaf-qaloon.com/app/';
-
-  Future<void> _shareApp(BuildContext tileContext) async {
-    final box = tileContext.findRenderObject() as RenderBox?;
-    final origin = box == null
-        ? null
-        : box.localToGlobal(Offset.zero) & box.size;
-    try {
-      final result = await SharePlus.instance.share(
-        ShareParams(
-          text: _shareAppMessage,
-          subject: 'المصحف الجامع',
-          sharePositionOrigin: origin,
-        ),
-      );
-      if (result.status != ShareResultStatus.unavailable) return;
-    } catch (_) {
-      // Fall through to the clipboard (e.g. a browser without Web Share).
-    }
-    await Clipboard.setData(const ClipboardData(text: _shareAppMessage));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم نسخ روابط التطبيق، الصقها لمشاركتها')),
+  /// «شكل التطبيق: السابق»: the three cards that closed Settings before the
+  /// side drawer took them over, three to a row as they were.
+  Widget _buildPreviousLookCards() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: CompactActionTile(
+              title: 'حول التطبيق',
+              icon: Icons.info_outline_rounded,
+              stacked: true,
+              onTap: () => _openFullscreenMenuPage(
+                title: 'حول التطبيق',
+                child: const AboutContent(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ValueListenableBuilder<int>(
+              valueListenable: ChatService.instance.unread,
+              builder: (context, unread, _) => CompactActionTile(
+                title: 'تواصل معنا',
+                icon: Icons.alternate_email_rounded,
+                stacked: true,
+                showDot: unread > 0,
+                onTap: () => _openFullscreenMenuPage(
+                  title: 'تواصل معنا',
+                  child: ContactContent(onOpenLink: _openUsefulLink),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            // Builder so the share sheet can anchor to this tile (iPad
+            // presents it as a popover).
+            child: Builder(
+              builder: (tileContext) => CompactActionTile(
+                title: 'شارك التطبيق',
+                icon: Icons.share_rounded,
+                stacked: true,
+                onTap: () => shareApp(tileContext),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -914,6 +971,9 @@ class _SettingsPageState extends State<SettingsPage> {
       icon: Icons.chrome_reader_mode_rounded,
       title: 'إعدادات العرض',
       children: [
+        // «شكل التطبيق»: first, in both looks, so the way back is always here.
+        if (!TvService.instance.isTv) const AppLookTile(),
+        if (!TvService.instance.isTv) const AppLookChoicesTile(),
         // A TV has no app-level brightness -- the platform call is a no-op
         // there -- and on a D-pad the Slider swallows Up/Down, trapping focus
         // on the first row so the rest of Settings (including the offline
@@ -1189,7 +1249,21 @@ class _SettingsPageState extends State<SettingsPage> {
       controller: _remindersController,
       icon: Icons.notifications_active_rounded,
       title: 'التذكير والورد اليومي',
-      children: [_buildDailyPageSection(), _buildKahfReminderSection()],
+      children: [
+        _buildDailyPageSection(),
+        _buildKahfReminderSection(),
+        if (!kIsWeb && !TvService.instance.isTv)
+          AbsenceReminderTile(
+            onResult: (result) => _showSettingsNotice(
+              result == DailyPageEnableResult.permissionDenied
+                  ? 'لم يتم منح إذن الإشعارات. فعّل الإشعارات لهذا التطبيق من إعدادات النظام ثم أعد المحاولة.'
+                  : 'هذا التذكير متاح على الجوال فقط.',
+            ),
+            onInfo: () => _showInfoNotice(
+              'إذا لم تفتح التطبيق عدة أيام متتالية يصلك تنبيه واحد فيه آية أو حديث عن القرآن، ثم مرة بعد ضعف المدة، ثم بعد أربعة أضعافها، ثم يتوقف. فتح التطبيق يلغيه ويبدأ العدّ من جديد. يعمل بدون إنترنت، والضغط عليه يفتح الصفحة التي توقفت عندها.',
+            ),
+          ),
+      ],
     );
   }
 
@@ -1347,7 +1421,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final showMe = await WhatsNewDialog.show(
       context,
       WhatsNewService.currentReleaseChanges,
-      tour: !TvService.instance.isTv,
+      tour: WhatsNewService.offerSettingsTour && !TvService.instance.isTv,
     );
     if (showMe && mounted) _runTour();
   }
@@ -1841,16 +1915,39 @@ class _SettingsPageState extends State<SettingsPage> {
     // scroll mode is not forced there.
     final landscapeForcesScroll = isLandscape && !kIsWeb;
 
+    // the page behind the cards follows «لون التطبيق» in the new look
+    final pageColor =
+        AppSurfaces.maybeOf(context)?.page ?? const Color(0xFFF6F1E5);
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F1E5),
+      backgroundColor: pageColor,
       appBar: AppBar(
         centerTitle: true,
         elevation: 0,
-        backgroundColor: const Color(0xFFF6F1E5),
+        backgroundColor: pageColor,
         foregroundColor: const Color(0xFF2C2C2C),
-        title: const Text(
+        // The app runs left-to-right, so the automatic back arrow sat on the
+        // left pointing left. On an Arabic page "back" is on the right,
+        // pointing right.
+        // The previous look keeps Flutter's own arrow.
+        automaticallyImplyLeading: AppLookScope.isPrevious(context),
+        actions: AppLookScope.isPrevious(context)
+            ? null
+            : [
+                IconButton(
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  tooltip: 'رجوع',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+                const SizedBox(width: 4),
+              ],
+        title: Text(
           _settingsTitle,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: AppLookScope.isPrevious(context)
+                ? FontWeight.w700
+                : FontWeight.w600,
+          ),
         ),
       ),
       body: SafeArea(
@@ -1860,7 +1957,7 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Stack(
             key: _settingsOverlayKey,
             children: [
-              AnimationLimiter(
+              _SettingsEntrance(
                 child: ListView(
                   physics: _activeCoachStep != null || _touring
                       ? const NeverScrollableScrollPhysics()
@@ -1872,80 +1969,27 @@ class _SettingsPageState extends State<SettingsPage> {
                     isTablet ? 20 : 14,
                     16,
                   ),
-                  children: AnimationConfiguration.toStaggeredList(
-                    duration: const Duration(milliseconds: 400),
-                    childAnimationBuilder: (widget) => SlideAnimation(
-                      verticalOffset: 50.0,
-                      child: FadeInAnimation(child: widget),
-                    ),
-                    children: [
-                      const SizedBox(height: 4),
-                      _buildDisplaySection(landscapeForcesScroll),
+                  children: [
+                    const SizedBox(height: 4),
+                    _buildDisplaySection(landscapeForcesScroll),
+                    const SizedBox(height: 6),
+                    _buildHifzToolsSection(),
+                    if (!kIsWeb) ...[
                       const SizedBox(height: 6),
-                      _buildHifzToolsSection(),
-                      if (!kIsWeb) ...[
-                        const SizedBox(height: 6),
-                        _buildRemindersSection(),
-                      ],
-                      const SizedBox(height: 6),
-                      _buildRecitationTafsirSection(),
-                      const SizedBox(height: 6),
-                      _buildAdvancedSettingsSection(),
-                      const SizedBox(height: 6),
-                      // Navigation entries, three to a row to keep the
-                      // section compact.
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: CompactActionTile(
-                                title: 'حول التطبيق',
-                                icon: Icons.info_outline_rounded,
-                                stacked: true,
-                                onTap: () => _openFullscreenMenuPage(
-                                  title: 'حول التطبيق',
-                                  child: const AboutContent(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ValueListenableBuilder<int>(
-                                valueListenable: ChatService.instance.unread,
-                                builder: (context, unread, _) =>
-                                    CompactActionTile(
-                                      title: 'تواصل معنا',
-                                      icon: Icons.alternate_email_rounded,
-                                      stacked: true,
-                                      showDot: unread > 0,
-                                      onTap: () => _openFullscreenMenuPage(
-                                        title: 'تواصل معنا',
-                                        child: ContactContent(
-                                          onOpenLink: _openUsefulLink,
-                                        ),
-                                      ),
-                                    ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              // Builder so the share sheet can anchor to this
-                              // tile (iPad presents it as a popover).
-                              child: Builder(
-                                builder: (tileContext) => CompactActionTile(
-                                  title: 'شارك التطبيق',
-                                  icon: Icons.share_rounded,
-                                  stacked: true,
-                                  onTap: () => _shareApp(tileContext),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _buildRemindersSection(),
                     ],
-                  ),
+                    const SizedBox(height: 6),
+                    _buildRecitationTafsirSection(),
+                    const SizedBox(height: 6),
+                    _buildAdvancedSettingsSection(),
+                    // حول التطبيق, تواصل معنا and شارك التطبيق live in the
+                    // reader's side drawer; the previous look has no
+                    // drawer, so they stay here as they were.
+                    if (AppLookScope.isPrevious(context)) ...[
+                      const SizedBox(height: 6),
+                      _buildPreviousLookCards(),
+                    ],
+                  ],
                 ),
               ),
               if (_settingsNoticeText != null && _noticePosition != null)
@@ -2015,6 +2059,41 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The faint entrance that replaced the one-by-one cascade (owner,
+/// 2026-11-13: "remove it, but keep a faint animation, as smooth as
+/// possible"). The whole list rises a few pixels and fades in once, in step
+/// with the page's own slide. It runs on the route's animation, so it needs
+/// no controller and draws one layer for the whole list (the cascade drew one
+/// per group); once the page is in, it costs nothing. The tree stays the same
+/// before and after, so the list is never rebuilt from the top.
+class _SettingsEntrance extends StatelessWidget {
+  const _SettingsEntrance({required this.child});
+
+  final Widget child;
+
+  static const double _rise = 16;
+
+  @override
+  Widget build(BuildContext context) {
+    final route = ModalRoute.of(context)?.animation ?? kAlwaysCompleteAnimation;
+    final curved = CurvedAnimation(
+      parent: route,
+      curve: const Interval(0.2, 1, curve: Curves.easeOutCubic),
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: AnimatedBuilder(
+        animation: curved,
+        child: child,
+        builder: (context, child) => Transform.translate(
+          offset: Offset(0, _rise * (1 - curved.value)),
+          child: child,
         ),
       ),
     );

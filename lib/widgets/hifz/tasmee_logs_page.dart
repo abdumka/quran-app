@@ -150,10 +150,10 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: p.bg,
+        backgroundColor: p.page,
         appBar: AppBar(
-          backgroundColor: p.bg,
-          foregroundColor: p.title,
+          backgroundColor: p.page,
+          foregroundColor: p.heading,
           title: const Text('سجلات التسميع', style: TextStyle(fontFamily: 'Tajawal')),
           actions: [
             _uploadButton(_sessions),
@@ -174,7 +174,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
             : ListView(
                 children: [
                   ListTile(
-                    leading: Icon(Icons.history_rounded, color: p.title),
+                    leading: Icon(Icons.history_rounded, color: p.icon),
                     title: Text('عدد الجلسات المحفوظة',
                         style: TextStyle(color: p.text)),
                     subtitle: Text(
@@ -225,7 +225,7 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                         s.files.any((f) => f.path.endsWith('.wav'))
                             ? Icons.graphic_eq_rounded
                             : Icons.description_outlined,
-                        color: p.title,
+                        color: p.icon,
                       ),
                       title: Text(
                         s.page == null ? s.stem : 'صفحة ${s.page}',
@@ -239,10 +239,10 @@ class _TasmeeLogsPageState extends State<TasmeeLogsPage> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _uploadButton([s], color: p.title),
+                          _uploadButton([s], color: p.icon),
                           IconButton(
                             tooltip: 'مشاركة',
-                            icon: Icon(Icons.ios_share_rounded, color: p.title),
+                            icon: Icon(Icons.ios_share_rounded, color: p.icon),
                             onPressed: () => _share([s]),
                           ),
                           IconButton(

@@ -143,10 +143,10 @@ class _HifzClearSheetState extends State<HifzClearSheet> {
         selected: on,
         showCheckmark: false,
         visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-        selectedColor: p.title,
+        selectedColor: p.selected,
         backgroundColor: p.bg,
         side: BorderSide(color: p.border),
-        labelStyle: TextStyle(color: on ? p.onTitle : p.text, fontSize: 13),
+        labelStyle: TextStyle(color: on ? p.onSelected : p.text, fontSize: 13),
         onSelected: (_) => tap(),
       );
 
@@ -199,9 +199,9 @@ class _HifzClearSheetState extends State<HifzClearSheet> {
               Text(
                 widget.forMistakes ? 'حذف الأخطاء' : 'مسح الإحصاءات',
                 style: TextStyle(
-                  color: p.title,
+                  color: p.heading,
                   fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: p.head(FontWeight.bold),
                   fontFamily: 'Tajawal',
                 ),
               ),
@@ -242,7 +242,7 @@ class _HifzClearSheetState extends State<HifzClearSheet> {
                     tooltip: 'يوم أقل',
                     icon: Icon(
                       Icons.remove_circle_outline_rounded,
-                      color: p.title,
+                      color: p.icon,
                     ),
                     onPressed: () => _step(-1),
                   ),
@@ -258,7 +258,7 @@ class _HifzClearSheetState extends State<HifzClearSheet> {
                     tooltip: 'يوم أكثر',
                     icon: Icon(
                       Icons.add_circle_outline_rounded,
-                      color: p.title,
+                      color: p.icon,
                     ),
                     onPressed: () => _step(1),
                   ),

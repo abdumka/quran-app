@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_surfaces.dart';
 import '../utils/responsive_helper.dart';
 
 class SurahIndexPanel extends StatefulWidget {
@@ -113,6 +114,10 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
 
   Widget _buildHeader() {
     final bool compactLandscape = _isLandscape && !ResponsiveHelper.isTablet(context);
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final ornament =
+        (s?.accent ?? const Color(0xFF8D6E3F)).withValues(alpha: 0.75);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -132,27 +137,35 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                   : 14,
         ),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.90),
-          borderRadius: BorderRadius.circular(18),
+          color: s?.band ?? Colors.white.withValues(alpha: 0.90),
+          borderRadius: BorderRadius.circular(
+            s == null ? 18 : AppSurfaces.radius,
+          ),
           border: Border.all(
-            color: const Color(0xFF8D6E3F).withValues(alpha: 0.45),
-            width: 1.4,
+            color: s?.border ??
+                const Color(0xFF8D6E3F).withValues(alpha: 0.45),
+            width: s == null ? 1.4 : 1,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          gradient: const LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              Color(0xFFF6F1E5),
-              Color(0xFFEADFC7),
-            ],
-          ),
+          // the new look: a flat band with a hairline
+          boxShadow: s != null
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+          gradient: s != null
+              ? null
+              : const LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [
+                    Color(0xFFF6F1E5),
+                    Color(0xFFEADFC7),
+                  ],
+                ),
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -166,7 +179,7 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                     : compactLandscape
                         ? 16
                         : 18,
-                color: const Color(0xFF8D6E3F).withValues(alpha: 0.75),
+                color: ornament,
               ),
             ),
             Positioned(
@@ -178,7 +191,7 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                     : compactLandscape
                         ? 16
                         : 18,
-                color: const Color(0xFF8D6E3F).withValues(alpha: 0.75),
+                color: ornament,
               ),
             ),
             Text(
@@ -190,8 +203,8 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                     : compactLandscape
                         ? 20
                         : 24,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF3D3122),
+                fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                color: s?.text ?? const Color(0xFF3D3122),
                 height: 1.2,
               ),
             ),
@@ -203,6 +216,8 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
 
   Widget _buildSearchField() {
     final bool compactLandscape = _isLandscape && !ResponsiveHelper.isTablet(context);
+    final s = AppSurfaces.maybeOf(context);
+    final radius = s == null ? 16.0 : AppSurfaces.cardRadius;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -248,8 +263,11 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                   },
                   icon: const Icon(Icons.arrow_back),
                 ),
+          hintStyle: s == null ? null : TextStyle(color: s.muted),
+          prefixIconColor: s?.icon,
+          suffixIconColor: s?.muted,
           filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.94),
+          fillColor: s?.field ?? Colors.white.withValues(alpha: 0.94),
           contentPadding: EdgeInsets.symmetric(
             horizontal: 14,
             vertical: ResponsiveHelper.isTablet(context)
@@ -259,21 +277,21 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                     : 12,
           ),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(radius),
             borderSide: BorderSide(
-              color: Colors.black.withValues(alpha: 0.08),
+              color: s?.border ?? Colors.black.withValues(alpha: 0.08),
             ),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(radius),
             borderSide: BorderSide(
-              color: Colors.black.withValues(alpha: 0.08),
+              color: s?.border ?? Colors.black.withValues(alpha: 0.08),
             ),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0xFF8D6E3F),
+            borderRadius: BorderRadius.circular(radius),
+            borderSide: BorderSide(
+              color: s?.accent ?? const Color(0xFF8D6E3F),
               width: 1.2,
             ),
           ),
@@ -298,13 +316,16 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
 
   Widget _buildSurahGridTile(Map<String, dynamic> surah, bool isCurrent) {
     final accentColor = const Color(0xFF8D6E3F);
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final radius = s == null ? 18.0 : AppSurfaces.cardRadius;
 
     return KeyedSubtree(
       key: isCurrent ? _currentSurahKey : null,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(radius),
           onTap: () {
             widget.onSearchChanged?.call(false);
             widget.onSelectSurah(surah['number'] as int);
@@ -313,22 +334,24 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
           child: Container(
             decoration: BoxDecoration(
               color: isCurrent
-                  ? const Color(0xFFE7D7AF)
-                  : Colors.white.withValues(alpha: 0.96),
-              borderRadius: BorderRadius.circular(18),
+                  ? s?.selected ?? const Color(0xFFE7D7AF)
+                  : s?.card ?? Colors.white.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(radius),
               border: Border.all(
                 color: isCurrent
-                    ? accentColor
-                    : accentColor.withValues(alpha: 0.22),
+                    ? s?.selected ?? accentColor
+                    : s?.border ?? accentColor.withValues(alpha: 0.22),
                 width: isCurrent ? 1.6 : 1.1,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
+              boxShadow: s != null
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
             ),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Center(
@@ -340,8 +363,8 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: ResponsiveHelper.isTablet(context) ? 18 : 15,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF2F2418),
+                  fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                  color: s?.text ?? const Color(0xFF2F2418),
                   height: 1.18,
                 ),
               ),
@@ -368,13 +391,14 @@ class _SurahIndexPanelState extends State<SurahIndexPanel> {
               child: FractionallySizedBox(
                 heightFactor: compactLandscape ? 1.0 : (_isSearching ? 0.72 : 1.0),
                 child: filteredSurahs.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           'لا توجد نتيجة',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
-                            color: Colors.black54,
+                            color: AppSurfaces.maybeOf(context)?.muted ??
+                                Colors.black54,
                           ),
                         ),
                       )

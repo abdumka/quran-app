@@ -7,10 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/ayah_region_data.dart';
 import '../../models/word_region_data.dart';
+import '../../services/app_look_service.dart';
 import '../../services/ayah_region_service.dart';
 import '../../services/memorization_test_service.dart';
 import '../../services/tasmee_weak_point_store.dart';
 import '../../services/word_region_service.dart';
+import '../../theme/app_surfaces.dart';
 import '../../utils/quran_word_aligner.dart';
 import '../../utils/quran_display_text.dart';
 
@@ -891,10 +893,23 @@ class _SessionBarState extends State<_SessionBar> {
   static const Color _wrong = Color(0xFFB3261E);
   static const Color _unclear = Color(0xFFB26A00);
 
+  /// The new look's colours and the reader's style for the bar (Settings),
+  /// read in [build]. Null in the previous look and in night mode: today's
+  /// bar, as it was.
+  AppSurfaces? _look;
+  TasmeeBarStyle _style = TasmeeBarStyle.recoloured;
+
+  /// The buttons' icons and labels; the status (dot, eye, plain message)
+  /// keeps the gold.
+  Color get _iconColor => _look?.icon ?? _gold;
+
   MemorizationTestService get service => widget.service;
 
   @override
   Widget build(BuildContext context) {
+    // Rebuilds when the look or the bar's style changes.
+    _look = AppSurfaces.maybeOf(context);
+    _style = AppLookService.instance.tasmeeBar.value;
     return ListenableBuilder(
       listenable: Listenable.merge([
         service.status,
@@ -950,9 +965,9 @@ class _SessionBarState extends State<_SessionBar> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _statusDot(status, fb?.kind == FeedbackKind.wrong),
-                    const Icon(
+                    Icon(
                       Icons.keyboard_arrow_up_rounded,
-                      color: _gold,
+                      color: _iconColor,
                       size: 20,
                     ),
                   ],
@@ -1080,6 +1095,13 @@ class _SessionBarState extends State<_SessionBar> {
                       'السجل',
                       () => _shareSession(context),
                     ),
+                  if (_look != null && _style == TasmeeBarStyle.hairline)
+                    Container(
+                      width: 1,
+                      height: 30,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      color: _look!.border,
+                    ),
                   _action(Icons.close_rounded, 'إنهاء', () => service.stop()),
                   _action(
                     Icons.keyboard_arrow_down_rounded,
@@ -1095,16 +1117,41 @@ class _SessionBarState extends State<_SessionBar> {
     );
   }
 
-  BoxDecoration _decoration(bool alarm) => BoxDecoration(
-    color: alarm ? const Color(0xF2FFE3DE) : const Color(0xE6FFFDF3),
-    borderRadius: BorderRadius.circular(12),
-    border: Border.all(color: (alarm ? _wrong : _gold).withValues(alpha: 0.4)),
-    boxShadow: const [
-      BoxShadow(color: Color(0x22000000), blurRadius: 5, offset: Offset(0, 2)),
-    ],
-  );
+  BoxDecoration _decoration(bool alarm) {
+    final s = _look;
+    if (s == null) {
+      return BoxDecoration(
+        color: alarm ? const Color(0xF2FFE3DE) : const Color(0xE6FFFDF3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: (alarm ? _wrong : _gold).withValues(alpha: 0.4)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x22000000), blurRadius: 5, offset: Offset(0, 2)),
+        ],
+      );
+    }
+    // The new look: the card colour at 90%, its border; the hairline style
+    // drops the shadow. The alarm keeps its red.
+    return BoxDecoration(
+      color: alarm ? const Color(0xF2FFE3DE) : s.card.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: alarm ? _wrong.withValues(alpha: 0.4) : s.border,
+      ),
+      boxShadow: _style == TasmeeBarStyle.hairline
+          ? null
+          : const [
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 5,
+                offset: Offset(0, 2),
+              ),
+            ],
+    );
+  }
 
   Widget _action(IconData icon, String label, VoidCallback onTap) {
+    // The slim style: smaller icons and a little less height, labels kept.
+    final slim = _look != null && _style == TasmeeBarStyle.slim;
     return InkWell(
       onTap: () {
         service.logUi('bar', {'action': label});
@@ -1112,15 +1159,15 @@ class _SessionBarState extends State<_SessionBar> {
       },
       borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: 9, vertical: slim ? 4 : 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 23, color: _gold),
+            Icon(icon, size: slim ? 20 : 23, color: _iconColor),
             Text(
               label,
-              style: const TextStyle(
-                color: _gold,
+              style: TextStyle(
+                color: _iconColor,
                 fontSize: 9.5,
                 fontWeight: FontWeight.w600,
                 height: 1.1,

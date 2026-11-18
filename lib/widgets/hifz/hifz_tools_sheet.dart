@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../services/remote_config.dart';
 import '../../services/tasmee_report_store.dart';
 import 'hifz_palette.dart';
 import 'tasmee_guide_sheet.dart';
@@ -59,13 +60,13 @@ Future<void> showHifzToolsSheet(
           dense: true,
           visualDensity: const VisualDensity(vertical: -1),
           contentPadding: const EdgeInsets.symmetric(horizontal: 18),
-          leading: Icon(icon, color: p.title, size: 25),
+          leading: Icon(icon, color: p.icon, size: 25),
           title: Text(
             title,
             style: TextStyle(
-              color: p.title,
+              color: p.heading,
               fontSize: 16,
-              fontWeight: FontWeight.bold,
+              fontWeight: p.head(FontWeight.bold),
               fontFamily: 'Tajawal',
             ),
           ),
@@ -115,16 +116,16 @@ Future<void> showHifzToolsSheet(
                           child: Text(
                             'أدوات الحفظ',
                             style: TextStyle(
-                              color: p.title,
+                              color: p.heading,
                               fontSize: 19,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: p.head(FontWeight.bold),
                               fontFamily: 'Tajawal',
                             ),
                           ),
                         ),
                         IconButton(
                           tooltip: 'إعدادات التسميع',
-                          icon: Icon(Icons.settings_outlined, color: p.title),
+                          icon: Icon(Icons.settings_outlined, color: p.icon),
                           onPressed: () => showTasmeeSettingsSheet(sheetContext),
                         ),
                       ],
@@ -160,7 +161,8 @@ Future<void> showHifzToolsSheet(
                     active: hifzModeActive,
                     onTap: onHifzMode,
                   ),
-                  if (kTasmeeDrillsEnabled)
+                  if (kTasmeeDrillsEnabled ||
+                      RemoteConfig.instance.flag('tasmee.drillsEnabled'))
                     tile(
                       icon: Icons.fitness_center_rounded,
                       title: 'تقوية الحفظ',
@@ -226,9 +228,9 @@ Future<void> showTasmeeSettingsSheet(BuildContext context) {
               Text(
                 'إعدادات التسميع',
                 style: TextStyle(
-                  color: p.title,
+                  color: p.heading,
                   fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: p.head(FontWeight.bold),
                   fontFamily: 'Tajawal',
                 ),
               ),
@@ -310,7 +312,7 @@ class _LabChipsRowState<T> extends State<_LabChipsRow<T>> {
     final p = HifzPalette.of(context);
     return Row(
       children: [
-        Icon(widget.icon, color: p.title, size: 24),
+        Icon(widget.icon, color: p.icon, size: 24),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -330,11 +332,11 @@ class _LabChipsRowState<T> extends State<_LabChipsRow<T>> {
                       label: Text(widget.labelOf(m)),
                       selected: _mode == m,
                       showCheckmark: false,
-                      selectedColor: p.title,
+                      selectedColor: p.selected,
                       backgroundColor: p.bg,
                       side: BorderSide(color: p.border),
                       labelStyle: TextStyle(
-                        color: _mode == m ? p.onTitle : p.text,
+                        color: _mode == m ? p.onSelected : p.text,
                         fontSize: 13,
                       ),
                       onSelected: (_) async {
@@ -376,7 +378,7 @@ class _LocateAnywhereRowState extends State<_LocateAnywhereRow> {
     final p = HifzPalette.of(context);
     return Row(
       children: [
-        Icon(Icons.travel_explore_rounded, color: p.title, size: 24),
+        Icon(Icons.travel_explore_rounded, color: p.icon, size: 24),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -439,7 +441,7 @@ class _AlertModeRowState extends State<_AlertModeRow> {
             isExpanded: true,
             dropdownColor: p.raised,
             underline: const SizedBox.shrink(),
-            iconEnabledColor: p.title,
+            iconEnabledColor: p.icon,
             items: [
               for (final m in TasmeeAlertMode.values)
                 DropdownMenuItem(
@@ -467,7 +469,7 @@ class _AlertModeRowState extends State<_AlertModeRow> {
     final p = HifzPalette.of(context);
     return Row(
       children: [
-        Icon(Icons.vibration_rounded, color: p.title, size: 24),
+        Icon(Icons.vibration_rounded, color: p.icon, size: 24),
         const SizedBox(width: 12),
         _choice(p, TasmeeAlertKind.mistake, 'عند الخطأ'),
         const SizedBox(width: 12),

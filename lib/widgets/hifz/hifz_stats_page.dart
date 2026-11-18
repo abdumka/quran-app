@@ -91,9 +91,9 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
         child: Text(
           text,
           style: TextStyle(
-            color: p.title,
+            color: p.heading,
             fontSize: 17,
-            fontWeight: FontWeight.bold,
+            fontWeight: p.head(FontWeight.bold),
             fontFamily: 'Tajawal',
           ),
         ),
@@ -210,7 +210,7 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
           contentPadding: EdgeInsets.zero,
           leading: Icon(
             t.silent ? Icons.visibility_off_rounded : Icons.mic_rounded,
-            color: p.title,
+            color: p.icon,
             size: 20,
           ),
           title: Text(
@@ -236,10 +236,10 @@ class _HifzStatsPageState extends State<HifzStatsPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: p.bg,
+        backgroundColor: p.page,
         appBar: AppBar(
-          backgroundColor: p.bg,
-          foregroundColor: p.title,
+          backgroundColor: p.page,
+          foregroundColor: p.heading,
           title: const Text('إحصاءات الحفظ'),
           actions: [
             IconButton(

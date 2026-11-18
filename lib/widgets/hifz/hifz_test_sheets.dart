@@ -29,14 +29,14 @@ Widget hifzErrorLine(HifzPalette p, TasmeeError e) => Padding(
     );
 
 ButtonStyle _filled(HifzPalette p, [Color? color]) => FilledButton.styleFrom(
-      backgroundColor: color ?? p.title,
-      foregroundColor: p.onTitle,
+      backgroundColor: color ?? p.button,
+      foregroundColor: p.onButton,
       padding: const EdgeInsets.symmetric(vertical: 12),
     );
 
 ButtonStyle _outlined(HifzPalette p, [Color? color]) => OutlinedButton.styleFrom(
-      foregroundColor: color ?? p.title,
-      side: BorderSide(color: color ?? p.title),
+      foregroundColor: color ?? p.button,
+      side: BorderSide(color: color ?? p.button),
       padding: const EdgeInsets.symmetric(vertical: 12),
     );
 
@@ -92,9 +92,9 @@ Future<bool> showHifzTestQuestionResult(
                         child: Text(
                           clean ? 'أحسنت — بلا أخطاء' : 'فيها ملاحظات',
                           style: TextStyle(
-                            color: p.title,
+                            color: p.heading,
                             fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: p.head(FontWeight.bold),
                             fontFamily: 'Tajawal',
                           ),
                         ),
@@ -339,9 +339,9 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
                       child: Text(
                         'كيف قرأتها؟',
                         style: TextStyle(
-                          color: p.title,
+                          color: p.heading,
                           fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: p.head(FontWeight.bold),
                           fontFamily: 'Tajawal',
                         ),
                       ),
@@ -370,9 +370,9 @@ class _SelfJudgeSheetState extends State<_SelfJudgeSheet> {
                           child: Text(
                             'كل الآيات',
                             style: TextStyle(
-                              color: p.title,
+                              color: p.heading,
                               fontSize: 14,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: p.head(FontWeight.w700),
                             ),
                           ),
                         ),
@@ -476,9 +476,9 @@ Future<void> showHifzTestSummary(BuildContext context, HifzTestRun run) {
                       ? 'اختبار ذاتي مفتوح: ${pagesCount(run.pagesRead)}'
                       : 'نتيجة الاختبار: ${run.correct} من ${run.answered}',
                   style: TextStyle(
-                    color: p.title,
+                    color: p.heading,
                     fontSize: 19,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: p.head(FontWeight.bold),
                     fontFamily: 'Tajawal',
                   ),
                 ),

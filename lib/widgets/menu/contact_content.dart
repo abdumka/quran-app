@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/chat_service.dart';
+import '../../theme/app_surfaces.dart';
 import '../chat/chat_screen.dart';
 
 class ContactContent extends StatelessWidget {
@@ -11,9 +12,12 @@ class ContactContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFF8F1DE);
-    final borderColor = isDarkMode ? const Color(0xFF53401F) : const Color(0xFFE2D2A5);
-    final titleColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final cardColor = isDarkMode ? const Color(0xFF1A1A1A) : s?.card ?? const Color(0xFFF8F1DE);
+    final borderColor = isDarkMode ? const Color(0xFF53401F) : s?.border ?? const Color(0xFFE2D2A5);
+    final titleColor = isDarkMode ? Colors.white : s?.text ?? const Color(0xFF35250E);
+    final radius = s == null ? 18.0 : AppSurfaces.cardRadius;
 
     Widget buildContactButton({
       required String title,
@@ -26,28 +30,32 @@ class ContactContent extends StatelessWidget {
       int badge = 0,
     }) {
       return InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(radius),
         onTap: onTap,
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
-            color: highlighted
+            // the new look: one icon colour for every row, the chosen gold
+            // outline on «راسلنا مباشرة», no shadow
+            color: highlighted && s == null
                 ? Color.alphaBlend(
                     accentColor.withValues(alpha: 0.10),
                     cardColor,
                   )
                 : cardColor,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(radius),
             border: highlighted
-                ? Border.all(color: accentColor, width: 1.5)
+                ? Border.all(color: s?.selected ?? accentColor, width: 1.5)
                 : Border.all(color: borderColor),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            boxShadow: s != null
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
           ),
           child: Row(
             textDirection: TextDirection.rtl,
@@ -56,10 +64,10 @@ class ContactContent extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.14),
+                  color: s?.tile ?? accentColor.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(icon, color: accentColor),
+                child: Icon(icon, color: s?.icon ?? accentColor),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -71,7 +79,7 @@ class ContactContent extends StatelessWidget {
                       textDirection: TextDirection.rtl,
                       style: TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
                         color: titleColor,
                       ),
                     ),
@@ -81,8 +89,8 @@ class ContactContent extends StatelessWidget {
                       textDirection: subtitleDirection,
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: titleColor.withValues(alpha: 0.75),
+                        fontWeight: s == null ? FontWeight.w600 : FontWeight.w500,
+                        color: s?.muted ?? titleColor.withValues(alpha: 0.75),
                       ),
                     ),
                   ],

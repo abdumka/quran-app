@@ -63,6 +63,8 @@ const List<_Item> _items = [
 Future<void> showTasmeeGuide(BuildContext context) {
   final p = HifzPalette.of(context);
   const barGold = Color(0xFF8A6D2F);
+  // The new look draws the bar in its colours, as the page shows it.
+  final barIcon = p.surfaces?.icon ?? barGold;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -83,11 +85,11 @@ Future<void> showTasmeeGuide(BuildContext context) {
         width: 20,
         height: 20,
         alignment: Alignment.center,
-        decoration: BoxDecoration(color: p.title, shape: BoxShape.circle),
+        decoration: BoxDecoration(color: p.selected, shape: BoxShape.circle),
         child: Text(
           '$n',
           style: TextStyle(
-            color: p.onTitle,
+            color: p.onSelected,
             fontSize: 12,
             fontWeight: FontWeight.bold,
           ),
@@ -97,9 +99,13 @@ Future<void> showTasmeeGuide(BuildContext context) {
       Widget barPicture() => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         decoration: BoxDecoration(
-          color: const Color(0xE6FFFDF3),
+          color:
+              p.surfaces?.card.withValues(alpha: 0.9) ??
+              const Color(0xE6FFFDF3),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: barGold.withValues(alpha: 0.4)),
+          border: Border.all(
+            color: p.surfaces?.border ?? barGold.withValues(alpha: 0.4),
+          ),
         ),
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -114,7 +120,7 @@ Future<void> showTasmeeGuide(BuildContext context) {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       badge(i + 1),
-                      Container(width: 1.5, height: 8, color: p.title),
+                      Container(width: 1.5, height: 8, color: p.selected),
                       if (_items[i].icon == null)
                         Container(
                           width: 22,
@@ -130,11 +136,11 @@ Future<void> showTasmeeGuide(BuildContext context) {
                           ),
                         )
                       else
-                        Icon(_items[i].icon, size: 22, color: barGold),
+                        Icon(_items[i].icon, size: 22, color: barIcon),
                       Text(
                         _items[i].label,
-                        style: const TextStyle(
-                          color: barGold,
+                        style: TextStyle(
+                          color: barIcon,
                           fontSize: 9,
                           fontWeight: FontWeight.w600,
                         ),
@@ -182,9 +188,9 @@ Future<void> showTasmeeGuide(BuildContext context) {
                       Text(
                         'كيف يعمل التسميع',
                         style: TextStyle(
-                          color: p.title,
+                          color: p.heading,
                           fontSize: 20,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: p.head(FontWeight.bold),
                           fontFamily: 'Tajawal',
                         ),
                       ),
@@ -202,9 +208,9 @@ Future<void> showTasmeeGuide(BuildContext context) {
                       Text(
                         'شريط التسميع',
                         style: TextStyle(
-                          color: p.title,
+                          color: p.heading,
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: p.head(FontWeight.bold),
                           fontFamily: 'Tajawal',
                         ),
                       ),
@@ -231,8 +237,8 @@ Future<void> showTasmeeGuide(BuildContext context) {
                                       TextSpan(
                                         text: '${_items[i].label}: ',
                                         style: TextStyle(
-                                          color: p.title,
-                                          fontWeight: FontWeight.bold,
+                                          color: p.heading,
+                                          fontWeight: p.head(FontWeight.bold),
                                         ),
                                       ),
                                       TextSpan(text: _items[i].what),
@@ -253,8 +259,8 @@ Future<void> showTasmeeGuide(BuildContext context) {
                         width: double.infinity,
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: p.title,
-                            foregroundColor: p.onTitle,
+                            backgroundColor: p.button,
+                            foregroundColor: p.onButton,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(sheetContext).pop(),

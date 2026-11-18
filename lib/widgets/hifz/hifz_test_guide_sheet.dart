@@ -57,10 +57,10 @@ class _Guide extends StatelessWidget {
                   width: 24,
                   height: 24,
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(color: p.title, shape: BoxShape.circle),
+                  decoration: BoxDecoration(color: p.selected, shape: BoxShape.circle),
                   child: Text(
                     '$n',
-                    style: TextStyle(color: p.onTitle, fontSize: 13, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: p.onSelected, fontSize: 13, fontWeight: FontWeight.bold),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -68,9 +68,9 @@ class _Guide extends StatelessWidget {
                   child: Text(
                     title,
                     style: TextStyle(
-                      color: p.title,
+                      color: p.heading,
                       fontSize: 15.5,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: p.head(FontWeight.bold),
                       fontFamily: 'Tajawal',
                     ),
                   ),
@@ -99,35 +99,48 @@ class _Guide extends StatelessWidget {
 
   // ---- pictures -------------------------------------------------------
 
-  Widget _chip(String label, {bool on = false}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          color: on ? _gold : const Color(0xFFF8F1DE),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE2D2A5)),
+  // The pictures keep today's colours, or take the new look's
+  // (p.surfaces) so that they match the screens they show.
+
+  Widget _chip(HifzPalette p, String label, {bool on = false}) {
+    final s = p.surfaces;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: on
+            ? (s?.selected ?? _gold)
+            : (s?.sheet ?? const Color(0xFFF8F1DE)),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: s?.border ?? const Color(0xFFE2D2A5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: on ? (s?.onSelected ?? Colors.white) : _ink,
+          fontSize: 11,
         ),
-        child: Text(
-          label,
-          style: TextStyle(color: on ? Colors.white : _ink, fontSize: 11),
-        ),
-      );
+      ),
+    );
+  }
 
   /// The setup page in miniature: the range chips and a stepper.
-  Widget _setupPicture() => Column(
+  Widget _setupPicture(HifzPalette p) {
+    final s = p.surfaces;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('النطاق', style: TextStyle(color: _gold, fontSize: 11, fontWeight: FontWeight.bold)),
+          Text('النطاق', style: TextStyle(color: s?.text ?? _gold, fontSize: 11, fontWeight: p.head(FontWeight.bold))),
           const SizedBox(height: 4),
           Wrap(
             spacing: 4,
             runSpacing: 4,
             children: [
-              _chip('المصحف كله'),
-              _chip('الصفحة الحالية', on: true),
-              _chip('سور'),
-              _chip('أحزاب'),
-              _chip('أثمان'),
-              _chip('صفحات'),
+              _chip(p, 'المصحف كله'),
+              _chip(p, 'الصفحة الحالية', on: true),
+              _chip(p, 'سور'),
+              _chip(p, 'أحزاب'),
+              _chip(p, 'أثمان'),
+              _chip(p, 'صفحات'),
             ],
           ),
           const SizedBox(height: 8),
@@ -139,19 +152,19 @@ class _Guide extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8F1DE),
+                  color: s?.sheet ?? const Color(0xFFF8F1DE),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE2D2A5)),
+                  border: Border.all(color: s?.border ?? const Color(0xFFE2D2A5)),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.add_rounded, size: 16, color: _gold),
-                    Padding(
+                    Icon(Icons.add_rounded, size: 16, color: s?.icon ?? _gold),
+                    const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 10),
                       child: Text('5 أسئلة', style: TextStyle(color: _ink, fontSize: 11, fontWeight: FontWeight.bold)),
                     ),
-                    Icon(Icons.remove_rounded, size: 16, color: _gold),
+                    Icon(Icons.remove_rounded, size: 16, color: s?.icon ?? _gold),
                   ],
                 ),
               ),
@@ -161,15 +174,16 @@ class _Guide extends StatelessWidget {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 6),
-            decoration: BoxDecoration(color: _gold, borderRadius: BorderRadius.circular(20)),
-            child: const Text(
+            decoration: BoxDecoration(color: s?.button ?? _gold, borderRadius: BorderRadius.circular(20)),
+            child: Text(
               'ابدأ الاختبار',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+              style: TextStyle(color: s?.onButton ?? Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
             ),
           ),
         ],
       );
+  }
 
   /// A covered page: two visible lines, then paper-coloured blocks with
   /// the ayah markers between them, and the cue card.
@@ -253,12 +267,14 @@ class _Guide extends StatelessWidget {
             (Icons.restart_alt_rounded, 'الصفحة'),
             (Icons.close_rounded, 'إنهاء'),
           ];
+    final s = p.surfaces;
+    final barIcon = s?.icon ?? _gold;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xE6FFFDF3),
+        color: s?.card.withValues(alpha: 0.9) ?? const Color(0xE6FFFDF3),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _gold.withValues(alpha: 0.4)),
+        border: Border.all(color: s?.border ?? _gold.withValues(alpha: 0.4)),
       ),
       child: FittedBox(
         fit: BoxFit.scaleDown,
@@ -286,11 +302,11 @@ class _Guide extends StatelessWidget {
                       width: 16,
                       height: 16,
                       alignment: Alignment.center,
-                      decoration: BoxDecoration(color: p.title, shape: BoxShape.circle),
-                      child: Text('${i + 1}', style: TextStyle(color: p.onTitle, fontSize: 10, fontWeight: FontWeight.bold)),
+                      decoration: BoxDecoration(color: p.selected, shape: BoxShape.circle),
+                      child: Text('${i + 1}', style: TextStyle(color: p.onSelected, fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
-                    Icon(items[i].$1, size: 20, color: _gold),
-                    Text(items[i].$2, style: const TextStyle(color: _gold, fontSize: 8, fontWeight: FontWeight.w600)),
+                    Icon(items[i].$1, size: 20, color: barIcon),
+                    Text(items[i].$2, style: TextStyle(color: barIcon, fontSize: 8, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -301,7 +317,11 @@ class _Guide extends StatelessWidget {
   }
 
   /// What comes after a question: the self-verdict rows, or the result.
-  Widget _afterPicture() {
+  Widget _afterPicture(HifzPalette p) {
+    final s = p.surfaces;
+    final label = s?.text ?? _gold;
+    final button = s?.button ?? _gold;
+    final onButton = s?.onButton ?? Colors.white;
     if (silent) {
       Widget mark(String t, Color c, bool on) => Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -309,7 +329,9 @@ class _Guide extends StatelessWidget {
             decoration: BoxDecoration(
               color: on ? c : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: on ? c : const Color(0xFFE2D2A5)),
+              border: Border.all(
+                color: on ? c : (s?.border ?? const Color(0xFFE2D2A5)),
+              ),
             ),
             child: Text(t, style: TextStyle(color: on ? Colors.white : _ink, fontSize: 10)),
           );
@@ -326,7 +348,7 @@ class _Guide extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('كيف قرأتها؟', style: TextStyle(color: _gold, fontSize: 12, fontWeight: FontWeight.bold)),
+          Text('كيف قرأتها؟', style: TextStyle(color: label, fontSize: 12, fontWeight: p.head(FontWeight.bold))),
           row('الآية 5', false),
           row('الآية 6', true),
           row('الآية 7', false),
@@ -334,8 +356,8 @@ class _Guide extends StatelessWidget {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 5),
-            decoration: BoxDecoration(color: _gold, borderRadius: BorderRadius.circular(8)),
-            child: const Text('السؤال التالي', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+            decoration: BoxDecoration(color: button, borderRadius: BorderRadius.circular(8)),
+            child: Text('السؤال التالي', textAlign: TextAlign.center, style: TextStyle(color: onButton, fontSize: 11, fontWeight: FontWeight.bold)),
           ),
         ],
       );
@@ -343,11 +365,11 @@ class _Guide extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           children: [
-            Icon(Icons.error_outline_rounded, color: _bad, size: 16),
-            SizedBox(width: 4),
-            Text('فيها ملاحظات', style: TextStyle(color: _gold, fontSize: 12, fontWeight: FontWeight.bold)),
+            const Icon(Icons.error_outline_rounded, color: _bad, size: 16),
+            const SizedBox(width: 4),
+            Text('فيها ملاحظات', style: TextStyle(color: label, fontSize: 12, fontWeight: p.head(FontWeight.bold))),
           ],
         ),
         const SizedBox(height: 4),
@@ -359,16 +381,16 @@ class _Guide extends StatelessWidget {
             Expanded(
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 5),
-                decoration: BoxDecoration(color: _gold, borderRadius: BorderRadius.circular(8)),
-                child: const Text('السؤال التالي', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                decoration: BoxDecoration(color: button, borderRadius: BorderRadius.circular(8)),
+                child: Text('السؤال التالي', textAlign: TextAlign.center, style: TextStyle(color: onButton, fontSize: 11, fontWeight: FontWeight.bold)),
               ),
             ),
             const SizedBox(width: 6),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 5),
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: _gold)),
-                child: const Text('إنهاء الاختبار', textAlign: TextAlign.center, style: TextStyle(color: _gold, fontSize: 11, fontWeight: FontWeight.bold)),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: button)),
+                child: Text('إنهاء الاختبار', textAlign: TextAlign.center, style: TextStyle(color: button, fontSize: 11, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -396,7 +418,7 @@ class _Guide extends StatelessWidget {
                     children: [
                       Text(
                         silent ? 'كيف يعمل الاختبار الذاتي' : 'كيف يعمل اختبار الحفظ',
-                        style: TextStyle(color: p.title, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Tajawal'),
+                        style: TextStyle(color: p.heading, fontSize: 20, fontWeight: p.head(FontWeight.bold), fontFamily: 'Tajawal'),
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -413,7 +435,7 @@ class _Guide extends StatelessWidget {
                         'النطاق: الصفحة التي أنت فيها، أو سور أو أحزاب أو أثمان أو صفحات. '
                             'ومع الأثمان كل ثمن سؤال كامل. فعّل «اختبار مفتوح» ليستمر صفحة بعد صفحة حتى تُنهيه. '
                             'ثم اضغط «ابدأ الاختبار».',
-                        _setupPicture(),
+                        _setupPicture(p),
                       ),
                       _step(
                         p,
@@ -449,7 +471,7 @@ class _Guide extends StatelessWidget {
                                 'ما علّمته خطأً يُحفظ لتُختبر فيه لاحقًا.'
                             : 'بعد آخر آية في السؤال تظهر ملاحظاته: الكلمة، ونوع الخطأ، وما قرأته. ثم «السؤال التالي». '
                                 'الأخطاء تُحفظ في «تقارير التسميع والأخطاء» وتُستعمل في «من أخطائي».',
-                        _afterPicture(),
+                        _afterPicture(p),
                       ),
                       Text(
                         'في النهاية تظهر النتيجة وتُحفظ في «الإحصاءات». يمكنك فتح هذا الشرح من زر «؟» في صفحة الإعداد.',
@@ -465,8 +487,8 @@ class _Guide extends StatelessWidget {
                   width: double.infinity,
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: p.title,
-                      foregroundColor: p.onTitle,
+                      backgroundColor: p.button,
+                      foregroundColor: p.onButton,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     onPressed: () => Navigator.of(context).pop(),

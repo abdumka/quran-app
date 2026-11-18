@@ -3,9 +3,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../services/app_look_service.dart';
 import '../../services/chat_attachment_picker.dart';
 import '../../services/chat_service.dart';
 import '../../services/notification_center.dart';
+import '../../theme/app_surfaces.dart';
 
 /// «راسلنا مباشرة»: the user's private conversation with the team.
 class ChatScreen extends StatefulWidget {
@@ -237,9 +239,15 @@ class _ChatScreenState extends State<ChatScreen> {
           foregroundColor: colors.ink,
           elevation: 0,
           centerTitle: true,
-          title: const Text(
+          // The page is right to left, so Flutter's own back arrow already
+          // sits on the right, pointing right, in both looks.
+          title: Text(
             'راسلنا مباشرة',
-            style: TextStyle(fontWeight: FontWeight.w900),
+            style: TextStyle(
+              fontWeight: AppLookScope.isPrevious(context)
+                  ? FontWeight.w900
+                  : FontWeight.w600,
+            ),
           ),
           actions: [
             if (hasThread)
@@ -751,6 +759,23 @@ class _ChatColors {
         mine: Color(0xFF4D3C22),
         myInk: Color(0xFFF7F0E2),
         error: Color(0xFFE2614B),
+      );
+    }
+    // The new look (null in the previous look): the reader's own messages
+    // sit on the soft tile with dark text, the team's on a card.
+    final s = AppSurfaces.maybeOf(context);
+    if (s != null) {
+      return _ChatColors(
+        background: s.page,
+        bar: s.sheet,
+        card: s.card,
+        border: s.border,
+        ink: s.text,
+        muted: s.muted,
+        accent: s.accent,
+        mine: s.tile,
+        myInk: s.text,
+        error: const Color(0xFFC2412D),
       );
     }
     return const _ChatColors(

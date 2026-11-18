@@ -58,9 +58,9 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                   Text(
                     'تقوية الحفظ',
                     style: TextStyle(
-                      color: c.title,
+                      color: c.heading,
                       fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: c.head(FontWeight.bold),
                       fontFamily: 'Tajawal',
                     ),
                   ),
@@ -86,7 +86,7 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: c.sub,
+                      color: c.surfaces?.tile ?? c.sub,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -137,10 +137,10 @@ Future<bool> showTasmeeWeakPointsIntro(BuildContext context) async {
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: c.title,
-                            foregroundColor: c.onTitle,
+                            backgroundColor: c.button,
+                            foregroundColor: c.onButton,
                             disabledBackgroundColor:
-                                c.sub,
+                                c.surfaces?.buttonQuiet ?? c.sub,
                             disabledForegroundColor:
                                 c.sub,
                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -214,7 +214,7 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                       allPassed
                           ? Icons.check_circle_rounded
                           : Icons.replay_circle_filled_rounded,
-                      color: allPassed ? c.good : c.title,
+                      color: allPassed ? c.good : c.icon,
                       size: 26,
                     ),
                     const SizedBox(width: 8),
@@ -224,9 +224,9 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                             ? 'أحسنت — قرأتها صحيحة'
                             : 'ما زال هذا الموضع يحتاج مراجعة',
                         style: TextStyle(
-                          color: c.title,
+                          color: c.heading,
                           fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: c.head(FontWeight.bold),
                           fontFamily: 'Tajawal',
                         ),
                       ),
@@ -266,8 +266,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: c.title,
-                            foregroundColor: c.onTitle,
+                            backgroundColor: c.button,
+                            foregroundColor: c.onButton,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(sheetContext)
@@ -286,8 +286,8 @@ Future<TasmeeDrillNext> showTasmeeDrillResult(
                     Expanded(
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: c.title,
-                          side: BorderSide(color: c.title),
+                          foregroundColor: c.button,
+                          side: BorderSide(color: c.button),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: () => Navigator.of(sheetContext)

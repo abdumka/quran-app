@@ -47,10 +47,10 @@ class _TasmeeReportsPageState extends State<TasmeeReportsPage> {
       child: DefaultTabController(
         length: 2,
         child: Scaffold(
-          backgroundColor: p.bg,
+          backgroundColor: p.page,
           appBar: AppBar(
-            backgroundColor: p.bg,
-            foregroundColor: p.title,
+            backgroundColor: p.page,
+            foregroundColor: p.heading,
             title: const Text('تقارير التسميع والأخطاء'),
             actions: [
               IconButton(
@@ -137,15 +137,15 @@ class TasmeeReportTile extends StatelessWidget {
     final clean = mistakes == 0;
     final alerts = r.alerts;
     return ExpansionTile(
-      iconColor: p.title,
-      collapsedIconColor: p.title,
+      iconColor: p.icon,
+      collapsedIconColor: p.icon,
       leading: Icon(
         clean ? Icons.check_circle_rounded : Icons.error_outline_rounded,
         color: clean ? p.good : Color(0xFFE08A00),
       ),
       title: Text(
         'الصفحة ${r.page}${r.finished ? '' : ' (غير مكتملة)'}',
-        style: TextStyle(color: p.title, fontWeight: FontWeight.bold),
+        style: TextStyle(color: p.heading, fontWeight: p.head(FontWeight.bold)),
       ),
       subtitle: Text(
         '$when · ${r.correct} من ${r.words} كلمة · '
@@ -299,11 +299,11 @@ class _MistakesLogState extends State<_MistakesLog> {
       selected: _category == value,
       showCheckmark: false,
       visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-      selectedColor: p.title,
+      selectedColor: p.selected,
       backgroundColor: p.raised,
       side: BorderSide(color: p.border),
       labelStyle: TextStyle(
-        color: _category == value ? p.onTitle : p.text,
+        color: _category == value ? p.onSelected : p.text,
         fontSize: 12.5,
       ),
       onSelected: (_) => setState(() => _category = value),
@@ -379,7 +379,7 @@ class _MistakesLogState extends State<_MistakesLog> {
                   ),
                   trailing: widget.onGoToPage == null
                       ? null
-                      : Icon(Icons.menu_book_rounded, color: p.title, size: 20),
+                      : Icon(Icons.menu_book_rounded, color: p.icon, size: 20),
                   onTap: widget.onGoToPage == null
                       ? null
                       : () {
@@ -427,9 +427,9 @@ Future<void> showTasmeeRunSummary(
                       ? 'تقرير الجلسة: أحسنت، بلا أخطاء'
                       : 'تقرير الجلسة: ${notesCount(errors)} في ${pagesCount(reports.length)}',
                   style: TextStyle(
-                    color: p.title,
+                    color: p.heading,
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: p.head(FontWeight.bold),
                   ),
                 ),
               ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_surfaces.dart';
+
 /// One stop of the «أرني أين» settings tour: the widget to light up and the
 /// line that explains it.
 class SettingsTourStop {
@@ -44,6 +46,8 @@ class SettingsTourOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     return LayoutBuilder(
       builder: (context, box) {
         final hole = targetRect?.inflate(4);
@@ -53,9 +57,13 @@ class SettingsTourOverlay extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 16),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFFAF0),
+            color: s?.sheet ?? const Color(0xFFFFFAF0),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _gold, width: 2),
+            // the new look: a hairline instead of the gold frame (the lit
+            // spot keeps its gold ring)
+            border: s == null
+                ? Border.all(color: _gold, width: 2)
+                : Border.all(color: s.border),
             boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 12)],
           ),
           child: Column(
@@ -65,18 +73,19 @@ class SettingsTourOverlay extends StatelessWidget {
                 text,
                 textAlign: TextAlign.center,
                 textDirection: TextDirection.rtl,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   height: 1.6,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF35250E),
+                  fontWeight: s == null ? FontWeight.w700 : FontWeight.w500,
+                  color: s?.text ?? const Color(0xFF35250E),
                 ),
               ),
               if (onDone != null) ...[
                 const SizedBox(height: 10),
                 FilledButton(
                   style: FilledButton.styleFrom(
-                    backgroundColor: _brown,
+                    backgroundColor: s?.button ?? _brown,
+                    foregroundColor: s?.onButton,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -97,7 +106,9 @@ class SettingsTourOverlay extends StatelessWidget {
                       width: i == index ? 16 : 6,
                       height: 6,
                       decoration: BoxDecoration(
-                        color: i == index ? _brown : const Color(0xFFD9C99D),
+                        color: i == index
+                            ? s?.accent ?? _brown
+                            : s?.tile ?? const Color(0xFFD9C99D),
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),

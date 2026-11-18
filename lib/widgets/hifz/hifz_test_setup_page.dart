@@ -146,9 +146,9 @@ class _SetupPageState extends State<_SetupPage> {
               child: Text(
                 title,
                 style: TextStyle(
-                  color: p.title,
+                  color: p.heading,
                   fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: p.head(FontWeight.w700),
                   fontFamily: 'Tajawal',
                 ),
               ),
@@ -212,7 +212,7 @@ class _SetupPageState extends State<_SetupPage> {
               showCheckmark: false,
               visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              selectedColor: p.title,
+              selectedColor: p.selected,
               backgroundColor: p.bg,
               disabledColor: p.bg.withValues(alpha: 0.5),
               side: BorderSide(color: p.border),
@@ -220,7 +220,7 @@ class _SetupPageState extends State<_SetupPage> {
                 color: !(enabled?.call(v) ?? true)
                     ? p.sub.withValues(alpha: 0.5)
                     : v == selected
-                        ? p.onTitle
+                        ? p.onSelected
                         : p.text,
                 fontSize: 13,
               ),
@@ -236,10 +236,10 @@ class _SetupPageState extends State<_SetupPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: p.bg,
+        backgroundColor: p.page,
         appBar: AppBar(
-          backgroundColor: p.bg,
-          foregroundColor: p.title,
+          backgroundColor: p.page,
+          foregroundColor: p.heading,
           title: Text(widget.silentMode ? 'اختبار ذاتي' : 'اختبار الحفظ'),
           actions: [
             IconButton(
@@ -377,8 +377,8 @@ class _SetupPageState extends State<_SetupPage> {
               width: double.infinity,
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: p.title,
-                  foregroundColor: p.onTitle,
+                  backgroundColor: p.button,
+                  foregroundColor: p.onButton,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 onPressed: () => Navigator.of(context).pop(
@@ -475,7 +475,7 @@ class _RangePickerState extends State<_RangeEditor> {
           isDense: true,
           dropdownColor: p.raised,
           underline: const SizedBox.shrink(),
-          iconEnabledColor: p.title,
+          iconEnabledColor: p.icon,
           style: TextStyle(color: p.text, fontSize: 13),
           items: items,
           onChanged: onChanged,
@@ -556,7 +556,7 @@ class _RangePickerState extends State<_RangeEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: TextStyle(color: p.title, fontSize: 12.5, fontWeight: FontWeight.w700)),
+        Text(title, style: TextStyle(color: p.heading, fontSize: 12.5, fontWeight: p.head(FontWeight.w700))),
         const SizedBox(height: 4),
         _named(
           p,
@@ -717,11 +717,11 @@ class _RangePickerState extends State<_RangeEditor> {
                 showCheckmark: false,
                 visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                selectedColor: p.title,
+                selectedColor: p.selected,
                 backgroundColor: p.bg,
                 side: BorderSide(color: p.border),
                 labelStyle: TextStyle(
-                  color: _range.kind == k ? p.onTitle : p.text,
+                  color: _range.kind == k ? p.onSelected : p.text,
                   fontSize: 13,
                 ),
                 onSelected: (_) => _setRange(k),
@@ -788,7 +788,7 @@ class _StepperState extends State<_Stepper> {
         child: IconButton(
           onPressed: enabled ? () => _step(by) : null,
           icon: Icon(icon),
-          color: p.title,
+          color: p.icon,
           iconSize: 22,
           constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           padding: EdgeInsets.zero,

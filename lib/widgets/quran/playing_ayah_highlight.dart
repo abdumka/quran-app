@@ -61,6 +61,7 @@ class PlayingAyahHighlight extends StatelessWidget {
         audio.currentAyah,
         audio.currentAyahGroup,
         audio.isRecitationBarVisible,
+        audio.isTalqeenTurn,
         PlayingAyahHighlightSetting.enabled,
       ]),
       builder: (context, _) {
@@ -94,7 +95,13 @@ class PlayingAyahHighlight extends StatelessWidget {
             return IgnorePointer(
               child: CustomPaint(
                 size: Size.infinite,
-                painter: PlayingAyahHighlightPainter(rects, margin, dark),
+                painter: PlayingAyahHighlightPainter(
+                  rects,
+                  margin,
+                  dark,
+                  // تلقين: green while it is the listener's turn.
+                  turn: audio.isTalqeenTurn.value,
+                ),
               ),
             );
           },
@@ -122,17 +129,30 @@ List<Rect> highlightRects(AyahRegionPageData regions, Set<(int, int)> keys) => [
 ];
 
 class PlayingAyahHighlightPainter extends CustomPainter {
-  const PlayingAyahHighlightPainter(this.rects, this.margin, this.dark);
+  const PlayingAyahHighlightPainter(
+    this.rects,
+    this.margin,
+    this.dark, {
+    this.turn = false,
+  });
 
   /// Line rects of the ayah, as ratios of the page image.
   final List<Rect> rects;
   final Rect? margin;
   final bool dark;
 
+  /// تلقين: the listener's turn, tinted green instead of gold.
+  final bool turn;
+
   // Light: paper x this = a soft gold. Dark: the page is inverted after this
   // layer, so paper comes out as roughly (255 - this): a dim warm band.
   static const Color lightTint = Color(0xFFFFE9A8);
   static const Color darkTint = Color(0xFFBEC8E6);
+
+  // The turn's green, worked out the same way: light paper x this = a soft
+  // green; dark, after the inversion, a dim green band.
+  static const Color lightTurnTint = Color(0xFFCFEBC4);
+  static const Color darkTurnTint = Color(0xFFD7B4D7);
 
   /// The painted boxes in pixels for a page box of [size].
   List<Rect> boxes(Size size) {
@@ -167,7 +187,9 @@ class PlayingAyahHighlightPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = dark ? darkTint : lightTint
+      ..color = turn
+          ? (dark ? darkTurnTint : lightTurnTint)
+          : (dark ? darkTint : lightTint)
       ..blendMode = BlendMode.multiply;
     for (final box in boxes(size)) {
       canvas.drawRRect(
@@ -179,5 +201,8 @@ class PlayingAyahHighlightPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(PlayingAyahHighlightPainter old) =>
-      old.rects != rects || old.margin != margin || old.dark != dark;
+      old.rects != rects ||
+      old.margin != margin ||
+      old.dark != dark ||
+      old.turn != turn;
 }

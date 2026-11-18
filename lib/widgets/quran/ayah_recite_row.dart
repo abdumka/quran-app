@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/reciter.dart';
 import '../../services/ayah_play_setting.dart';
 import '../../services/reciter_service.dart';
+import '../../theme/app_surfaces.dart';
 
 /// The «تلاوة» line at the foot of an ayah's options: play from this ayah,
 /// the reciter it will use, and whether to go on past it («متابعة») or stop
@@ -44,7 +45,11 @@ class AyahReciteRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = _colors;
+    // null in the previous look and in night mode: the old colours stay
+    final surfaces = AppSurfaces.maybeOf(context);
+    final c = surfaces == null || isDarkMode
+        ? _colors
+        : _ReciteRowColors.fromSurfaces(surfaces);
     // One line is the point of this row: large system text would push the
     // toggle onto a second one.
     final textScaler = MediaQuery.textScalerOf(
@@ -244,7 +249,7 @@ class AyahReciteRow extends StatelessWidget {
           return Semantics(
             selected: selected,
             child: Material(
-              color: selected ? c.accent : Colors.transparent,
+              color: selected ? c.selected : Colors.transparent,
               shape: const StadiumBorder(),
               child: InkWell(
                 customBorder: const StadiumBorder(),
@@ -257,7 +262,7 @@ class AyahReciteRow extends StatelessWidget {
                     label,
                     maxLines: 1,
                     style: _segmentStyle.copyWith(
-                      color: selected ? c.onAccent : c.toggleText,
+                      color: selected ? c.onSelected : c.toggleText,
                     ),
                   ),
                 ),
@@ -298,7 +303,26 @@ class _ReciteRowColors {
     required this.menu,
     required this.toggleTrack,
     required this.toggleText,
-  });
+    Color? selected,
+    Color? onSelected,
+  }) : selected = selected ?? accent,
+       onSelected = onSelected ?? onAccent;
+
+  /// The new look (demo phone 29): the chosen segment like every chosen
+  /// chip, the rest from the sheet's colours.
+  factory _ReciteRowColors.fromSurfaces(AppSurfaces s) => _ReciteRowColors(
+    accent: s.accent,
+    onAccent: s.onButton,
+    text: s.text,
+    muted: s.muted,
+    border: s.border,
+    chip: s.card,
+    menu: s.sheet,
+    toggleTrack: s.tile,
+    toggleText: s.muted,
+    selected: s.selected,
+    onSelected: s.onSelected,
+  );
 
   final Color accent;
   final Color onAccent;
@@ -309,6 +333,11 @@ class _ReciteRowColors {
   final Color menu;
   final Color toggleTrack;
   final Color toggleText;
+
+  /// The chosen «متابعة / آية فقط» segment and its label ([accent] and
+  /// [onAccent] unless given).
+  final Color selected;
+  final Color onSelected;
 
   static const light = _ReciteRowColors(
     accent: Color(0xFF8D6E3F),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/app_surfaces.dart';
 import 'settings_constants.dart';
 import '../hifz_lens_icon.dart';
 import 'dart:math' as math;
@@ -27,6 +28,8 @@ class SettingsCoachOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
@@ -57,10 +60,13 @@ class SettingsCoachOverlay extends StatelessWidget {
             vertical: 14,
           ),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
+            color: s?.sheet ?? Colors.white,
+            borderRadius: BorderRadius.circular(
+              s == null ? 18 : AppSurfaces.radius,
+            ),
             border: Border.all(
-              color: const Color(0xFF8D6E3F).withValues(alpha: 0.22),
+              color: s?.border ??
+                  const Color(0xFF8D6E3F).withValues(alpha: 0.22),
             ),
             boxShadow: [
               BoxShadow(
@@ -77,19 +83,20 @@ class SettingsCoachOverlay extends StatelessWidget {
                 Row(
                   textDirection: TextDirection.rtl,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.auto_awesome_rounded,
-                      color: Color(0xFF8D6E3F),
+                      color: s?.icon ?? const Color(0xFF8D6E3F),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         title,
                         textDirection: TextDirection.rtl,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                          color: settingsPrimaryTextColor,
+                          fontWeight:
+                              s == null ? FontWeight.w900 : FontWeight.w600,
+                          color: s?.text ?? settingsPrimaryTextColor,
                         ),
                       ),
                     ),
@@ -99,11 +106,11 @@ class SettingsCoachOverlay extends StatelessWidget {
                 Text(
                   message,
                   textDirection: TextDirection.rtl,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.0,
                     height: 1.4,
-                    color: settingsSecondaryTextColor,
-                    fontWeight: FontWeight.w600,
+                    color: s?.muted ?? settingsSecondaryTextColor,
+                    fontWeight: s == null ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -120,11 +127,13 @@ class SettingsCoachOverlay extends StatelessWidget {
                         OutlinedButton(
                           onPressed: onDontShowAgain,
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF6F5731),
+                            foregroundColor: s?.text ?? const Color(0xFF6F5731),
+                            backgroundColor: s?.buttonQuiet,
                             side: BorderSide(
-                              color: const Color(
-                                0xFF8D6E3F,
-                              ).withValues(alpha: 0.38),
+                              color: s?.border ??
+                                  const Color(
+                                    0xFF8D6E3F,
+                                  ).withValues(alpha: 0.38),
                             ),
                           ),
                           child: const Text('لا تظهر مرة أخرى'),
@@ -132,7 +141,8 @@ class SettingsCoachOverlay extends StatelessWidget {
                       FilledButton(
                         onPressed: onAction,
                         style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF8D6E3F),
+                          backgroundColor: s?.button ?? const Color(0xFF8D6E3F),
+                          foregroundColor: s?.onButton,
                         ),
                         child: Text(actionLabel),
                       ),
@@ -298,6 +308,8 @@ class _CoachVisualState extends State<CoachVisual>
 
   @override
   Widget build(BuildContext context) {
+    // the frame follows the new look; the drawings inside keep their colours
+    final s = AppSurfaces.maybeOf(context);
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
@@ -305,10 +317,13 @@ class _CoachVisualState extends State<CoachVisual>
         return Container(
           height: 80,
           decoration: BoxDecoration(
-            color: const Color(0xFFF8F3E8),
-            borderRadius: BorderRadius.circular(16),
+            color: s?.card ?? const Color(0xFFF8F3E8),
+            borderRadius: BorderRadius.circular(
+              s == null ? 16 : AppSurfaces.cardRadius,
+            ),
             border: Border.all(
-              color: const Color(0xFF8D6E3F).withValues(alpha: 0.18),
+              color: s?.border ??
+                  const Color(0xFF8D6E3F).withValues(alpha: 0.18),
             ),
           ),
           child: Center(

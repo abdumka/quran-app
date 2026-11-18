@@ -8,6 +8,7 @@ import '../../services/quran_json_service.dart';
 import '../../services/tanzilat_notes_store.dart';
 import '../../services/tanzilat_service.dart';
 import '../../surah_data.dart';
+import '../../theme/app_surfaces.dart';
 import '../../utils/quran_display_text.dart';
 import 'tanzilat_overlay.dart';
 
@@ -21,9 +22,13 @@ class _AyahInfo {
 
 Future<Map<(int, int), _AyahInfo>>? _ayahIndex;
 
+/// The index once built, so a later sheet opens filled on its first frame
+/// instead of a frame of nothing first (owner, 2026-11-13: smoother windows).
+Map<(int, int), _AyahInfo>? _ayahIndexReady;
+
 Future<Map<(int, int), _AyahInfo>> _loadAyahIndex() =>
     _ayahIndex ??= QuranJsonService.loadQuranPages().then((pages) {
-      return {
+      return _ayahIndexReady = {
         for (final QuranPageData p in pages)
           for (final a in p.ayahs)
             (a.surah, a.ayah): _AyahInfo(a.text.split(' '), p.page),
@@ -181,19 +186,24 @@ Future<void> showTanzilatSheet(
   await TanzilatNotesStore.instance.load();
   if (!context.mounted) return;
   final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+  // The sheet's frame follows the new look (null in the previous look and in
+  // night mode); the coloured words and badges keep their own colours.
+  final s = AppSurfaces.maybeOf(context);
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: isDarkMode
         ? const Color(0xFF19130A)
-        : const Color(0xFFF8F1DE),
+        : s?.sheet ?? const Color(0xFFF8F1DE),
     shape: RoundedRectangleBorder(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(s == null ? 22 : AppSurfaces.radius),
+      ),
       side: BorderSide(
         color: isDarkMode
             ? const Color(0xFFD6B35D).withValues(alpha: 0.55)
-            : const Color(0xFFE2D2A5),
-        width: 2,
+            : s?.border ?? const Color(0xFFE2D2A5),
+        width: s == null ? 2 : 1,
       ),
     ),
     builder: (sheetContext) => DraggableScrollableSheet(
@@ -243,10 +253,15 @@ class TanzilatSheetContent extends StatelessWidget {
     // Rarest first: a غريبة is the one most worth knowing.
     final hits = [...TanzilatService.instance.forAyah(surah, ayah)]
       ..sort((a, b) => a.count.compareTo(b.count));
+    // The frame only: the new look's hairlines and handle (null in the
+    // previous look and in night mode). The text keeps its colours.
+    final s = dark ? null : AppSurfaces.maybeOf(context);
+    final border = s?.border ?? _border;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: FutureBuilder<Map<(int, int), _AyahInfo>>(
         future: _loadAyahIndex(),
+        initialData: _ayahIndexReady,
         builder: (context, snap) {
           final index = snap.data;
           // Every text in the sheet can be marked and copied (long press);
@@ -266,7 +281,7 @@ class TanzilatSheetContent extends StatelessWidget {
                     width: 40,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: _border,
+                      color: s?.handle ?? _border,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
@@ -276,11 +291,13 @@ class TanzilatSheetContent extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        'تنزيلات ومتشابهات — سورة ${_surahName(surah)} $ayah',
+                        'تنزيلات ومتشابهات: سورة ${_surahName(surah)} $ayah',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 17,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: s == null
+                              ? FontWeight.bold
+                              : FontWeight.w600,
                           color: _title,
                         ),
                       ),
@@ -318,7 +335,7 @@ class TanzilatSheetContent extends StatelessWidget {
                   dark: dark,
                   title: _title,
                   accent: _accent,
-                  border: _border,
+                  border: border,
                   card: _card,
                 ),
                 const SizedBox(height: 10),
@@ -346,7 +363,7 @@ class TanzilatSheetContent extends StatelessWidget {
                       dark: dark,
                       title: _title,
                       accent: _accent,
-                      border: _border,
+                      border: border,
                       card: _card,
                       onOpenPlace: onOpenPlace,
                     ),

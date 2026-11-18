@@ -11,6 +11,8 @@ import '../../services/margin_images_service.dart';
 import '../../services/page_color_service.dart';
 import '../quran/page_image_crop.dart';
 import '../../surah_data.dart';
+import '../../services/app_look_service.dart';
+import '../../theme/app_surfaces.dart';
 
 class PremiumIconWrapper extends StatelessWidget {
   final IconData icon;
@@ -109,23 +111,37 @@ class SettingsGroupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // «شكل التطبيق: السابق» keeps the gold frame, the count badge and the
+    // accent rail this card had before the 2026-11-12 polish.
+    final previous = AppLookScope.isPrevious(context);
+    // Settings stays light in night mode, as before: the paper colours stand
+    // in when the theme gives none.
+    final t = AppSurfaces.maybeOf(context) ?? AppSurfaces.paper;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        // Tinted, not white: the header bar reads as the group's "lid" while
-        // the nested tiles below stay on white like every other setting.
-        color: const Color(0xFFFBF6EC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFDECAA8)),
-        boxShadow: [
-          BoxShadow(
-            color: _accent.withValues(alpha: 0.07),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: previous
+          ? BoxDecoration(
+              // Tinted, not white: the header bar reads as the group's "lid"
+              // while the nested tiles below stay on white like every other
+              // setting.
+              color: const Color(0xFFFBF6EC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFDECAA8)),
+              boxShadow: [
+                BoxShadow(
+                  color: _accent.withValues(alpha: 0.07),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            )
+          : BoxDecoration(
+              color: t.sheet,
+              borderRadius: BorderRadius.circular(16),
+              // a hairline instead of the gold frame and its shadow
+              border: Border.all(color: t.border),
+            ),
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: Theme(
@@ -141,26 +157,38 @@ class SettingsGroupCard extends StatelessWidget {
             title: Row(
               children: [
                 Container(
-                  width: 28,
-                  height: 28,
+                  width: previous ? 28 : 32,
+                  height: previous ? 28 : 32,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: _accent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(9),
+                    color: previous
+                        ? _accent.withValues(alpha: 0.12)
+                        : t.tile,
+                    borderRadius: BorderRadius.circular(previous ? 9 : 8),
                   ),
-                  child: Icon(icon, color: _accent, size: 17),
+                  child: Icon(
+                    icon,
+                    color: previous ? _accent : t.icon,
+                    size: previous ? 17 : 18,
+                  ),
                 ),
-                const SizedBox(width: 9),
+                SizedBox(width: previous ? 9 : 12),
                 Expanded(
                   child: Text(
                     title,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF6F5A3C),
-                      letterSpacing: 0.2,
-                    ),
+                    style: previous
+                        ? const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF6F5A3C),
+                            letterSpacing: 0.2,
+                          )
+                        : TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w600,
+                            color: t.text,
+                          ),
                   ),
                 ),
                 if (onInfoTap != null) ...[
@@ -173,44 +201,57 @@ class SettingsGroupCard extends StatelessWidget {
                     hitPadding: 10,
                   ),
                 ],
-                const SizedBox(width: 6),
-                // How many settings are inside: the cheapest possible hint that
-                // this row opens onto more rows instead of doing something.
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _accent.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${children.length}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: _accent,
-                      height: 1.3,
+                // No count badge in the new look: the chevron already says the
+                // row opens onto more rows, and the number told readers
+                // nothing.
+                if (previous) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _accent.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${children.length}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _accent,
+                        height: 1.3,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
             children: [
               Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: BorderDirectional(
-                    top: const BorderSide(color: Color(0xFFE8DCC8), width: 0.5),
-                    // The rail sits on the RTL start edge and runs the full
-                    // height of the nested tiles.
-                    start: BorderSide(
-                      color: _accent.withValues(alpha: 0.32),
-                      width: 3,
-                    ),
-                  ),
-                ),
+                decoration: previous
+                    ? BoxDecoration(
+                        color: Colors.white,
+                        border: BorderDirectional(
+                          top: const BorderSide(
+                            color: Color(0xFFE8DCC8),
+                            width: 0.5,
+                          ),
+                          // The rail sits on the RTL start edge and runs the
+                          // full height of the nested tiles.
+                          start: BorderSide(
+                            color: _accent.withValues(alpha: 0.32),
+                            width: 3,
+                          ),
+                        ),
+                      )
+                    : BoxDecoration(
+                        color: t.card,
+                        border: Border(
+                          top: BorderSide(color: t.hair, width: 1),
+                        ),
+                      ),
                 child: Column(
                   children: [
                     for (var i = 0; i < children.length; i++) ...[
@@ -371,10 +412,15 @@ class _InfoHintButtonState extends State<InfoHintButton> {
       radius: 18,
       child: Padding(
         padding: EdgeInsets.all(widget.hitPadding),
-        child: const Icon(
+        // lighter than the row's own icon, so a column of them reads as a
+        // quiet aside instead of a second set of icons (full strength in the
+        // previous look)
+        child: Icon(
           Icons.info_outline_rounded,
           size: 16,
-          color: Color(0xFF8B7355),
+          color: const Color(
+            0xFF8B7355,
+          ).withValues(alpha: AppLookScope.isPrevious(context) ? 1 : 0.55),
         ),
       ),
     );
@@ -2039,7 +2085,16 @@ class MarginImagesTile extends StatelessWidget {
       child: Padding(
         padding: SettingsSwitchRow.padding,
         child: SettingsSwitchRow(
-          title: 'عرض الهوامش (يمين ويسار الصفحة)',
+          title: AppLookScope.isPrevious(context)
+              ? 'عرض الهوامش (يمين ويسار الصفحة)'
+              : 'عرض الهوامش',
+          subtitle: AppLookScope.isPrevious(context)
+              ? null
+              : const Text(
+                  'يمين ويسار الصفحة',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(fontSize: 12, color: Color(0xFF7B7266)),
+                ),
           icon: Icons.border_outer_rounded,
           value: state.isEnabled,
           onChanged: onToggleEnabled,

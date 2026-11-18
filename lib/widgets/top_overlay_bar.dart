@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../services/chat_service.dart';
+import '../theme/app_surfaces.dart';
+
 class TopOverlayBar extends StatelessWidget {
   final bool show;
   final bool isSearching;
@@ -24,8 +27,15 @@ class TopOverlayBar extends StatelessWidget {
   /// couch distance.
   final int? tvFocusedIndex;
 
-  /// On the ⚙ button, so the «أرني أين» tour can light it up.
+  /// On the ⚙ button (on phones: the menu button), so the «أرني أين» tour
+  /// can light it up.
   final GlobalKey? settingsKey;
+
+  /// Phones and tablets: the gear and the hide-bar eye give way to the menu
+  /// button (three gold lines), which opens the side drawer with الإعدادات
+  /// first. The hide bar is switched from Settings. Null keeps the old bar,
+  /// which Android TV uses: its remote walks the three icons by index.
+  final VoidCallback? onMenuPressed;
 
   const TopOverlayBar({
     super.key,
@@ -44,6 +54,7 @@ class TopOverlayBar extends StatelessWidget {
     this.onSurahAreaPressed,
     this.tvFocusedIndex,
     this.settingsKey,
+    this.onMenuPressed,
   });
 
   Widget _tvRing(int index, Widget child) {
@@ -101,10 +112,25 @@ class TopOverlayBar extends StatelessWidget {
     final double hizbFontSize = isLandscape ? 10 : 12;
     final double surahFontSize = isLandscape ? 15 : 18;
 
+    // The new bar follows the reader's choices (Settings › إعدادات العرض:
+    // dark or light, how see-through). The old bar (TV, and «شكل التطبيق:
+    // السابق») keeps its charcoal at 65%.
+    final AppChrome? chrome = onMenuPressed != null
+        ? AppChrome.of(context)
+        : null;
+    const gold = Color(0xFFD2B97E);
+    final Color textColor = chrome?.barText ?? gold;
+    final Color subtextColor = chrome?.barSubtext ?? gold.withValues(alpha: 0.8);
+
     return Material(
       color: Colors.transparent,
       child: Container(
-        color: const Color(0xFF1C1C1E).withValues(alpha: 0.65),
+        decoration: BoxDecoration(
+          color: chrome?.barFill ?? const Color(0xFF1C1C1E).withValues(alpha: 0.65),
+          border: chrome == null || chrome.dark
+              ? null
+              : Border(bottom: BorderSide(color: chrome.barHair)),
+        ),
         child: SafeArea(
           bottom: false,
           // IntrinsicHeight + stretch: every slot is as tall as the bar, so the
@@ -132,7 +158,7 @@ class TopOverlayBar extends StatelessWidget {
                       Text(
                         'صفحة $pageNumber',
                         style: TextStyle(
-                          color: const Color(0xFFD2B97E),
+                          color: textColor,
                           fontSize: pageFontSize,
                           fontWeight: FontWeight.bold,
                         ),
@@ -140,7 +166,7 @@ class TopOverlayBar extends StatelessWidget {
                       Text(
                         'الحزب $hizbNumber',
                         style: TextStyle(
-                          color: const Color(0xFFD2B97E).withValues(alpha: 0.8),
+                          color: subtextColor,
                           fontSize: hizbFontSize,
                           fontWeight: FontWeight.w600,
                         ),
@@ -161,7 +187,7 @@ class TopOverlayBar extends StatelessWidget {
                         textAlign: TextAlign.center,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: const Color(0xFFD2B97E),
+                          color: textColor,
                           fontSize: surahFontSize,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Tajawal',
@@ -170,82 +196,182 @@ class TopOverlayBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Full Screen + Hide Bar Toggles + Settings Icon on Right
-                Padding(
-                  padding: EdgeInsetsDirectional.only(end: 16),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _tvRing(
-                        0,
+                if (onMenuPressed != null)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         IconButton(
                           icon: Icon(
                             isFullScreenMode
                                 ? Icons.fullscreen_exit_rounded
                                 : Icons.fullscreen_rounded,
-                            color: isFullScreenMode
-                                ? const Color(0xFFD2B97E)
-                                : const Color(
-                                    0xFFD2B97E,
-                                  ).withValues(alpha: 0.5),
+                            // always at full strength: the icon's shape
+                            // says whether it enters or leaves full screen
+                            color: chrome!.barIcon,
                             size: isLandscape ? 20 : 24,
                           ),
                           onPressed: () =>
                               onToggleFullScreenMode(!isFullScreenMode),
                           padding: EdgeInsets.all(isLandscape ? 2 : 6),
                           constraints: BoxConstraints(
-                            minWidth: isLandscape ? 32 : 40,
-                            minHeight: isLandscape ? 32 : 40,
+                            minWidth: isLandscape ? 36 : 44,
+                            minHeight: isLandscape ? 36 : 44,
                           ),
                           tooltip: isFullScreenMode
                               ? 'إيقاف وضع ملء الشاشة'
                               : 'تفعيل وضع ملء الشاشة',
                         ),
-                      ),
-                      _tvRing(
-                        1,
-                        IconButton(
-                          icon: Icon(
-                            isHideBarEnabled
-                                ? Icons.visibility_off_rounded
-                                : Icons.visibility_rounded,
-                            color: isHideBarEnabled
-                                ? const Color(0xFFD2B97E)
-                                : const Color(
-                                    0xFFD2B97E,
-                                  ).withValues(alpha: 0.5),
-                            size: isLandscape ? 20 : 24,
-                          ),
-                          onPressed: () => onToggleHideBar(!isHideBarEnabled),
-                          padding: EdgeInsets.all(isLandscape ? 2 : 6),
-                          constraints: BoxConstraints(
-                            minWidth: isLandscape ? 32 : 40,
-                            minHeight: isLandscape ? 32 : 40,
-                          ),
-                          tooltip: isHideBarEnabled
-                              ? 'إخفاء شريط الإخفاء'
-                              : 'إظهار شريط الإخفاء',
-                        ),
-                      ),
-                      _tvRing(
-                        2,
-                        IconButton(
+                        _MenuButton(
                           key: settingsKey,
-                          icon: Icon(
-                            Icons.settings_outlined,
-                            color: const Color(0xFFD2B97E),
-                            size: isLandscape ? 22 : 26,
-                          ),
-                          onPressed: onSettingsPressed,
-                          padding: EdgeInsets.all(isLandscape ? 4 : 8),
-                          constraints: BoxConstraints(
-                            minWidth: isLandscape ? 36 : 44,
-                            minHeight: isLandscape ? 36 : 44,
+                          size: isLandscape ? 36 : 44,
+                          color: chrome.barIcon,
+                          onPressed: onMenuPressed!,
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  // Full Screen + Hide Bar Toggles + Settings Icon on Right
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(end: 16),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _tvRing(
+                          0,
+                          IconButton(
+                            icon: Icon(
+                              isFullScreenMode
+                                  ? Icons.fullscreen_exit_rounded
+                                  : Icons.fullscreen_rounded,
+                              color: isFullScreenMode
+                                  ? const Color(0xFFD2B97E)
+                                  : const Color(
+                                      0xFFD2B97E,
+                                    ).withValues(alpha: 0.5),
+                              size: isLandscape ? 20 : 24,
+                            ),
+                            onPressed: () =>
+                                onToggleFullScreenMode(!isFullScreenMode),
+                            padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                            constraints: BoxConstraints(
+                              minWidth: isLandscape ? 32 : 40,
+                              minHeight: isLandscape ? 32 : 40,
+                            ),
+                            tooltip: isFullScreenMode
+                                ? 'إيقاف وضع ملء الشاشة'
+                                : 'تفعيل وضع ملء الشاشة',
                           ),
                         ),
-                      ),
-                    ],
+                        _tvRing(
+                          1,
+                          IconButton(
+                            icon: Icon(
+                              isHideBarEnabled
+                                  ? Icons.visibility_off_rounded
+                                  : Icons.visibility_rounded,
+                              color: isHideBarEnabled
+                                  ? const Color(0xFFD2B97E)
+                                  : const Color(
+                                      0xFFD2B97E,
+                                    ).withValues(alpha: 0.5),
+                              size: isLandscape ? 20 : 24,
+                            ),
+                            onPressed: () => onToggleHideBar(!isHideBarEnabled),
+                            padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                            constraints: BoxConstraints(
+                              minWidth: isLandscape ? 32 : 40,
+                              minHeight: isLandscape ? 32 : 40,
+                            ),
+                            tooltip: isHideBarEnabled
+                                ? 'إخفاء شريط الإخفاء'
+                                : 'إظهار شريط الإخفاء',
+                          ),
+                        ),
+                        _tvRing(
+                          2,
+                          IconButton(
+                            key: settingsKey,
+                            icon: Icon(
+                              Icons.settings_outlined,
+                              color: const Color(0xFFD2B97E),
+                              size: isLandscape ? 22 : 26,
+                            ),
+                            onPressed: onSettingsPressed,
+                            padding: EdgeInsets.all(isLandscape ? 4 : 8),
+                            constraints: BoxConstraints(
+                              minWidth: isLandscape ? 36 : 44,
+                              minHeight: isLandscape ? 36 : 44,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The menu button: three gold lines that shorten toward the page, with the
+/// gold dot of an unread reply from «تواصل معنا» (it used to sit on that card
+/// in Settings, which now lives in the drawer).
+class _MenuButton extends StatelessWidget {
+  const _MenuButton({
+    super.key,
+    required this.size,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final double size;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'القائمة',
+      child: Tooltip(
+        message: 'القائمة',
+        child: InkResponse(
+          onTap: onPressed,
+          radius: size / 2,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size(24, 24),
+                  painter: MenuLinesPainter(color: color),
+                ),
+                ValueListenableBuilder<int>(
+                  valueListenable: ChatService.instance.unread,
+                  builder: (_, unread, _) => unread > 0
+                      ? Positioned(
+                          top: 9,
+                          left: 9,
+                          child: SizedBox(
+                            width: 7,
+                            height: 7,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ],
             ),
@@ -254,4 +380,28 @@ class TopOverlayBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Option A of the menu icon: three lines, 18, 14 and 10 long on a 24 grid,
+/// aligned to the right where Arabic starts, 1.75 stroke with round caps.
+class MenuLinesPainter extends CustomPainter {
+  const MenuLinesPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double k = size.width / 24;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.75 * k
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(3 * k, 7 * k), Offset(21 * k, 7 * k), paint);
+    canvas.drawLine(Offset(7 * k, 12 * k), Offset(21 * k, 12 * k), paint);
+    canvas.drawLine(Offset(11 * k, 17 * k), Offset(21 * k, 17 * k), paint);
+  }
+
+  @override
+  bool shouldRepaint(MenuLinesPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

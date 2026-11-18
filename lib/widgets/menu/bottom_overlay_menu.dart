@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../services/app_look_service.dart';
+import '../../theme/app_surfaces.dart';
+
 class BottomOverlayMenu extends StatefulWidget {
   final VoidCallback onGoToBookmark;
   final bool showIndex;
@@ -172,6 +175,10 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
   Widget _wrapForBar(Widget item) =>
       widget.showSettingsItem ? item : Expanded(child: item);
 
+  static const BorderRadius _newRadius = BorderRadius.vertical(
+    top: Radius.circular(20),
+  );
+
   @override
   Widget build(BuildContext context) {
     final double safeBottom = MediaQuery.of(context).padding.bottom;
@@ -180,6 +187,19 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
     final bool isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     final double barHeight = isLandscape ? 52 : 75;
+    // The new bar follows the reader's choices (dark or light, how
+    // see-through), like the top bar. Android TV and «شكل التطبيق: السابق»
+    // keep the solid charcoal bar.
+    final AppChrome? chrome =
+        widget.showSettingsItem || AppLookScope.isPrevious(context)
+        ? null
+        : AppChrome.of(context);
+    // The tapped item's flash: gold on dark bars, the accent on light ones.
+    final Color? activeColor = chrome == null
+        ? null
+        : chrome.dark
+        ? chrome.barIcon
+        : AppSurfaces.maybeOf(context)?.accent ?? chrome.barIcon;
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
@@ -196,10 +216,19 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
           color: Colors.transparent,
         child: Container(
           height: barHeight + (widget.bottomOffset > 0 ? 0 : safeBottom), // Don't add safeBottom if pushed above recitation bar
-        decoration: const BoxDecoration(
-          color: Color(0xFF1C1C1E),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
+        decoration: chrome == null
+            ? const BoxDecoration(
+                color: Color(0xFF1C1C1E),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              )
+            : BoxDecoration(
+                color: chrome.barFill,
+                borderRadius: _newRadius,
+                // light bars: a hairline over the bar, as under the top bar
+                border: chrome.dark
+                    ? null
+                    : Border(top: BorderSide(color: chrome.barHair)),
+              ),
         child: Column(
           children: [
             Expanded(
@@ -223,6 +252,9 @@ class BottomOverlayMenuState extends State<BottomOverlayMenu> {
                           isTvFocused: widget.tvFocusedIndex == i,
                           compact: isLandscape,
                           spacious: !widget.showSettingsItem,
+                          iconColor: chrome?.bottomIcon,
+                          labelColor: chrome?.bottomText,
+                          activeColor: activeColor,
                           onTap: () => _handleTap(_itemLabels[i]),
                         ),
                       ),
@@ -253,6 +285,11 @@ class _NavItem extends StatelessWidget {
   final bool spacious;
   final VoidCallback onTap;
 
+  /// The new bar's colours (null keeps the old grey and gold).
+  final Color? iconColor;
+  final Color? labelColor;
+  final Color? activeColor;
+
   const _NavItem({
     this.icon,
     this.imagePath,
@@ -262,6 +299,9 @@ class _NavItem extends StatelessWidget {
     this.isTvFocused = false,
     this.compact = false,
     this.spacious = false,
+    this.iconColor,
+    this.labelColor,
+    this.activeColor,
   }) : assert(icon != null || imagePath != null);
 
   @override
@@ -269,9 +309,13 @@ class _NavItem extends StatelessWidget {
     // The TV ring has to read from across a room, so a focused item is drawn
     // in full gold on a filled, outlined plate rather than the faint overlay
     // InkWell uses for keyboard focus.
-    final color = (isSelected || isTvFocused)
-        ? const Color(0xFFD2B97E)
-        : const Color(0xFF888888);
+    final bool active = isSelected || isTvFocused;
+    final color = active
+        ? activeColor ?? const Color(0xFFD2B97E)
+        : iconColor ?? const Color(0xFF888888);
+    final Color textColor = active
+        ? color
+        : labelColor ?? iconColor ?? const Color(0xFF888888);
     // Sized so 32 + 4 + the 14pt label + 16 of padding stay inside the
     // 75 dp portrait bar.
     final double iconSize = compact ? (spacious ? 24 : 22) : (spacious ? 32 : 30);
@@ -323,7 +367,7 @@ class _NavItem extends StatelessWidget {
                 maxLines: 1,
                 softWrap: false,
                 style: TextStyle(
-                  color: color,
+                  color: textColor,
                   fontSize: fontSize,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.3,

@@ -9,6 +9,7 @@ import '../../services/reciter_service.dart';
 import '../../services/share/ayah_share_text.dart';
 import '../../services/share/ayah_video_service.dart';
 import '../../services/share/share_video_config.dart';
+import '../../theme/app_surfaces.dart';
 import 'ayah_video_player.dart';
 
 /// The share icon of the ayah menu: «فيديو الآية» or «نص الآية». Where the
@@ -176,35 +177,52 @@ class _SheetColors {
 
   static _SheetColors of(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return dark
-        ? const _SheetColors(
-            sheet: Color(0xFF19130A),
-            card: Color(0xFF241B0D),
-            text: Color(0xFFFFF4D6),
-            muted: Color(0xFF9C8A62),
-            accent: Color(0xFFD6B35D),
-            onAccent: Color(0xFF19130A),
-            hair: Color(0xFF6B5527),
-            handle: Color(0xFF6B5527),
-            chip: Color(0xFF2E2414),
-            chipOn: Color(0xFFD6B35D),
-            onChipOn: Color(0xFF19130A),
-            iconBack: Color(0xFF2E2414),
-          )
-        : const _SheetColors(
-            sheet: Color(0xFFF8F1DE),
-            card: Color(0xFFFFFBF1),
-            text: Color(0xFF35250E),
-            muted: Color(0xFFA8977A),
-            accent: Color(0xFF8D6E3F),
-            onAccent: Colors.white,
-            hair: Color(0xFFE2D2A5),
-            handle: Color(0xFFD9C79A),
-            chip: Color(0xFFEADDBB),
-            chipOn: Color(0xFF8D6E3F),
-            onChipOn: Colors.white,
-            iconBack: Color(0xFFF1E7CF),
-          );
+    final s = AppSurfaces.maybeOf(context);
+    if (dark || s == null) {
+      return dark
+          ? const _SheetColors(
+              sheet: Color(0xFF19130A),
+              card: Color(0xFF241B0D),
+              text: Color(0xFFFFF4D6),
+              muted: Color(0xFF9C8A62),
+              accent: Color(0xFFD6B35D),
+              onAccent: Color(0xFF19130A),
+              hair: Color(0xFF6B5527),
+              handle: Color(0xFF6B5527),
+              chip: Color(0xFF2E2414),
+              chipOn: Color(0xFFD6B35D),
+              onChipOn: Color(0xFF19130A),
+              iconBack: Color(0xFF2E2414),
+            )
+          : const _SheetColors(
+              sheet: Color(0xFFF8F1DE),
+              card: Color(0xFFFFFBF1),
+              text: Color(0xFF35250E),
+              muted: Color(0xFFA8977A),
+              accent: Color(0xFF8D6E3F),
+              onAccent: Colors.white,
+              hair: Color(0xFFE2D2A5),
+              handle: Color(0xFFD9C79A),
+              chip: Color(0xFFEADDBB),
+              chipOn: Color(0xFF8D6E3F),
+              onChipOn: Colors.white,
+              iconBack: Color(0xFFF1E7CF),
+            );
+    }
+    return _SheetColors(
+      sheet: s.sheet,
+      card: s.card,
+      text: s.text,
+      muted: s.muted,
+      accent: s.accent,
+      onAccent: s.onButton,
+      hair: s.hair,
+      handle: s.handle,
+      chip: s.tile,
+      chipOn: s.selected,
+      onChipOn: s.onSelected,
+      iconBack: s.tile,
+    );
   }
 }
 

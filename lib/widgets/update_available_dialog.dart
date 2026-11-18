@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_update_service.dart';
+import '../theme/app_surfaces.dart';
 
 /// The in-app "there is an update" message: a short intro, a bulleted list of
 /// what's new, and an "Update" button that opens the store page.
@@ -44,15 +45,21 @@ class UpdateAvailableDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor = isDark ? Colors.white : const Color(0xFF35250E);
-    final bodyColor = isDark ? Colors.white70 : const Color(0xFF6E5837);
-    const accent = Color(0xFF8D6E3F);
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final titleColor = isDark ? Colors.white : s?.text ?? const Color(0xFF35250E);
+    final bodyColor = isDark ? Colors.white70 : s?.muted ?? const Color(0xFF6E5837);
+    final accent = s?.accent ?? const Color(0xFF8D6E3F);
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFFBF6E8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : s?.sheet ?? const Color(0xFFFBF6E8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+            s == null ? 22 : AppSurfaces.radius,
+          ),
+        ),
         titlePadding: const EdgeInsets.fromLTRB(20, 22, 20, 8),
         title: Column(
           children: [
@@ -61,11 +68,11 @@ class UpdateAvailableDialog extends StatelessWidget {
               height: 54,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: accent.withValues(alpha: isDark ? 0.26 : 0.15),
+                color: s?.tile ?? accent.withValues(alpha: isDark ? 0.26 : 0.15),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.system_update_rounded,
-                color: accent,
+                color: s?.icon ?? accent,
                 size: 28,
               ),
             ),
@@ -75,7 +82,7 @@ class UpdateAvailableDialog extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.w900,
+                fontWeight: s == null ? FontWeight.w900 : FontWeight.w600,
                 color: titleColor,
               ),
             ),
@@ -85,7 +92,7 @@ class UpdateAvailableDialog extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w700,
+                fontWeight: s == null ? FontWeight.w700 : FontWeight.w500,
                 color: bodyColor,
               ),
             ),
@@ -104,7 +111,7 @@ class UpdateAvailableDialog extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     height: 1.7,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: s == null ? FontWeight.w600 : FontWeight.w500,
                     color: bodyColor,
                   ),
                 ),
@@ -126,8 +133,8 @@ class UpdateAvailableDialog extends StatelessWidget {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.only(top: 6),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
                             child: Icon(
                               Icons.circle,
                               size: 7,
@@ -142,7 +149,9 @@ class UpdateAvailableDialog extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 14,
                                 height: 1.6,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: s == null
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
                                 color: titleColor,
                               ),
                             ),
@@ -159,15 +168,29 @@ class UpdateAvailableDialog extends StatelessWidget {
         actions: [
           if (!info.mandatory)
             TextButton(
+              // the new look gives «لاحقًا» the quiet button's fill
+              style: s == null
+                  ? null
+                  : TextButton.styleFrom(
+                      backgroundColor: s.buttonQuiet,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: s.border),
+                      ),
+                    ),
               onPressed: () => Navigator.of(context).pop(),
               child: Text(
                 'لاحقًا',
-                style: TextStyle(color: bodyColor, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: s?.text ?? bodyColor,
+                  fontWeight: s == null ? FontWeight.w700 : FontWeight.w600,
+                ),
               ),
             ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: accent,
+              backgroundColor: s?.button ?? accent,
+              foregroundColor: s?.onButton,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
