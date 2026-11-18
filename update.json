@@ -1,15 +1,16 @@
 {
   "_comment": "Publish this file to https://raw.githubusercontent.com/abdumka/quran-app/main/update.json (the repo must be public). The app reads it on startup and from Settings > التحقق من وجود تحديث, and compares 'version'/'build' against the installed app. Set them to the LATEST released version: users on an older build get the update prompt; users already on it do not. Edit 'changes' for the changelog. Set 'mandatory': true to force the update (hides the 'Later' button and shows it every launch until updated). Per-platform keys (android/ios) override the shared top-level values; omit them to use the shared ones.",
-  "version": "1.5.0",
-  "build": 103,
+  "version": "1.5.6",
+  "build": 139,
   "mandatory": false,
   "changes": [
-    "جديد: «التسميع» في «أدوات الحفظ». تُغطّى كلمات الصفحة وتقرأ من حفظك، مع تنبيه عند الخطأ وتقرير لكل صفحة. يعمل على جهازك دون إنترنت بعد تنزيل النموذج مرة واحدة.",
-    "يعمل التطبيق الآن على شاشات أندرويد تي في: المصحف والفهرس والتلاوة والتفسير، كلها بجهاز التحكم عن بُعد.",
-    "التفسير: اضغط مطوّلًا على أي آية ثم اختر «تفسير الآية»، أو «إضافة علامة هنا».",
-    "تظليل الآية التي تُتلى أثناء التلاوة، وخيارات جديدة في تكرار المقطع.",
-    "تذكير «سورة الكهف» كل جمعة، وإشعارات بالإضافات الجديدة، ويمكن إيقافهما.",
-    "إصلاح انقطاع الصوت بين الآيات عند الشيخ القريو والشيخ أبوسنينة."
+    "بشرى لأهل القرآن: ولأول مرة في تطبيق للمصحف «التنزيلات والمتشابهات»، تُلوَّن الكلمة بحسب عدد مواضعها والتنزيلة، فيتميّز المتشابه ويثبت الحفظ بإذن الله. اضغط مرتين على الآية لترى مواضعها وبيت الدنفاسي فيها.",
+    "التسميع أدقّ وأعدل: تم تحسين ميزة التسميع بنسبة 15%.",
+    "تلاوة أكثر سلاسة: تمضي التلاوة من الآية إلى التي بعدها دون توقّف ولا صمت بينهما.",
+    "ما تسمعه يُحفظ على هاتفك، فلا يُحمَّل مرة أخرى ويُتلى بلا إنترنت، والسورة المكتملة تظهر في «تحميل الصوتيات».",
+    "جديد: «راسلنا مباشرة» في «تواصل معنا» بالإعدادات. أرسل لنا رسالتك أو صورة، ونردّ عليك هنا في التطبيق مع إشعار عند وصول الرد.",
+    "إصلاحات وإضافات: مسح الإحصاءات، في «الإحصاءات» اضغط زر الحذف ثم «مسح» لتمسح آخر 7 أيام أو 30 يومًا أو أي عدد من الأيام أو الكل.",
+    "شريط التسميع لا يغطي سطرك: إذا وصلت قراءتك إليه ارتفع مرة واحدة فوق السطر الذي تقرؤه، وبقي هناك حتى آخر الصفحة، ثم يعود إلى مكانه."
   ],
   "android": {
     "storeUrl": "https://play.google.com/store/apps/details?id=com.mahfodqr.qalon_mushaf"
