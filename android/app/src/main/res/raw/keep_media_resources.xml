@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The media-session icons are looked up by name at run time
+     (MediaControl.androidIcon in QuranMediaHandler), which the release
+     resource shrinker cannot see: keep them. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_media_*,@xml/automotive_app_desc" />

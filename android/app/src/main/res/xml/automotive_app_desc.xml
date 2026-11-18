@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares the app to Android Auto as a media app: the car then lists it
+     and browses it through the media session (QuranMediaHandler). -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>
