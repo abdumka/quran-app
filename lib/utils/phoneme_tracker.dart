@@ -128,6 +128,7 @@ class TrackerConfig {
     this.settleFrames = 25,
     this.earlyCommit = true,
     this.orphanVowel = true,
+    this.finalMadd = true,
   });
   /// Cost of starting at any word (the session's first phonemes) and, once
   /// under way, of the DP jumping to an arbitrary word.
@@ -184,6 +185,32 @@ class TrackerConfig {
   /// audit: 3 more stops in 76,565 words; gain: «من» said for «لمن» is
   /// caught instead of passing as `unsure`.
   final bool orphanVowel;
+
+  /// A word heard exactly but for its final long vowel (ا، و، ي) is not
+  /// looked up as another Quran word: the model often ends a word on its
+  /// short vowel («يَتَخَلَّفُ» for «يَتَخَلَّفُوا», «اليتامَ» for «اليتامى»)
+  /// and the nearest dictionary word was then named («يتكلم»). When the
+  /// short form is itself a dictionary entry the check was already skipped
+  /// (a truncation of the expected word); this makes the two cases agree.
+  /// Owner report 2026-11-10 (p78, p206).
+  final bool finalMadd;
+}
+
+const List<String> _maddPairs = ['اا', 'ۥۥ', 'ۦۦ'];
+
+/// [core] is [exp] without its final long vowel (see
+/// [TrackerConfig.finalMadd]); for a hamzat-al-wasl word also without its
+/// leading hamza and vowel.
+bool droppedFinalMadd(String core, String exp, bool wasl) {
+  for (final pair in _maddPairs) {
+    if (!exp.endsWith(pair)) continue;
+    final short = exp.substring(0, exp.length - 2);
+    if (short.length >= 2 && core == short) return true;
+    if (wasl && short.startsWith('ء') && short.length > 3 && core == short.substring(2)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 final RegExp _maddRun = RegExp('(ا{3,}|ۥ{3,}|ۦ{3,})');
@@ -1201,7 +1228,12 @@ class VerdictTracer {
       final core = cfg.orphanVowel && _droppedParticle(heardSlice, exp, wd)
           ? heardSlice.substring(1)
           : heardSlice;
-      if (!pending && !accepted && reason.isEmpty && distance > cfg.okDistance && lexicon != null) {
+      if (!pending &&
+          !accepted &&
+          reason.isEmpty &&
+          distance > cfg.okDistance &&
+          lexicon != null &&
+          !(cfg.finalMadd && droppedFinalMadd(core, exp, wd.wasl))) {
         final hit = lexicon!.nearest(core, cfg.lexiconDistance, table);
         // A truncated or pausal form of the expected word itself (قَبلِ of
         // قَبلِكُم, مَكَانَ of مَكَانًا) is not another word.
