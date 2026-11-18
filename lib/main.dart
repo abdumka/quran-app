@@ -2,7 +2,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_service/audio_service.dart' as media;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/app_update_service.dart';
@@ -11,6 +11,7 @@ import 'services/daily_page_service.dart';
 import 'services/kahf_reminder_service.dart';
 import 'services/page_color_service.dart';
 import 'services/page_zoom_service.dart';
+import 'services/quran_media_handler.dart';
 import 'services/spine_shadow_service.dart';
 import 'services/surah_index_view_service.dart';
 import 'services/debug_log_service.dart';
@@ -20,8 +21,11 @@ import 'services/recitation_bar_auto_hide_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
 import 'services/tv_popup_observer.dart';
+import 'services/absence_reminder_service.dart';
+import 'services/app_look_service.dart';
 import 'services/tv_service.dart';
 import 'services/update_notification_service.dart';
+import 'services/remote_config.dart';
 import 'splash_screen.dart';
 import 'widgets/app_switch_theme.dart';
 import 'widgets/tv/tv_focus_scope.dart';
@@ -45,24 +49,33 @@ Future<void> main() async {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
     try {
-      await JustAudioBackground.init(
-        androidNotificationChannelId: 'com.quran.app.audio',
-        androidNotificationChannelName: 'تلاوة القرآن',
-        androidNotificationOngoing: true,
-        // Phones drop the service out of the foreground while paused, which
-        // is the tidy thing to do there.
-        //
-        // NOT on TV. Every pause demotes the service to an ordinary
-        // background one, and ActivityManager then reaps it: caught in the
-        // act on a TV emulator, "Stopping service due to app idle:
-        // com.ryanheise.audioservice.AudioService", followed a few seconds
-        // later by the system destroying the app's TCP sockets and the
-        // recitation dying mid-surah. Keeping the service foreground for the
-        // whole session is what stops the idle sweep touching it.
-        androidStopForegroundOnPause: !TvService.instance.isTv,
+      // Our own handler rather than just_audio_background: it mirrors the
+      // same player, and also serves Android Auto its browse tree, voice
+      // search and the car's extra buttons (see QuranMediaHandler).
+      await media.AudioService.init(
+        builder: QuranMediaHandler.new,
+        config: media.AudioServiceConfig(
+          androidNotificationChannelId: 'com.quran.app.audio',
+          androidNotificationChannelName: 'تلاوة القرآن',
+          androidNotificationOngoing: true,
+          // Phones drop the service out of the foreground while paused, which
+          // is the tidy thing to do there.
+          //
+          // NOT on TV. Every pause demotes the service to an ordinary
+          // background one, and ActivityManager then reaps it: caught in the
+          // act on a TV emulator, "Stopping service due to app idle:
+          // com.ryanheise.audioservice.AudioService", followed a few seconds
+          // later by the system destroying the app's TCP sockets and the
+          // recitation dying mid-surah. Keeping the service foreground for the
+          // whole session is what stops the idle sweep touching it.
+          androidStopForegroundOnPause: !TvService.instance.isTv,
+          fastForwardInterval: const Duration(seconds: 10),
+          rewindInterval: const Duration(seconds: 10),
+          androidBrowsableRootExtras: QuranMediaHandler.rootExtras,
+        ),
       ).timeout(const Duration(seconds: 5));
     } catch (error, stack) {
-      debugPrint('JustAudioBackground.init failed: $error\n$stack');
+      debugPrint('AudioService.init failed: $error\n$stack');
     }
   }
 
@@ -111,6 +124,9 @@ Future<void> main() async {
   await Future.wait([
     ThemeService.loadTheme(),
     ReciterService.instance.load(),
+    // Switches from our server: one small local file, read once, so they
+    // hold for the whole run (see RemoteConfig).
+    RemoteConfig.instance.load(),
     TafsirEditionService.instance.load(),
     AppUpdateService.instance.load(),
     // Prefs-only, like the rest of this batch: the notification plugin and the
@@ -126,6 +142,9 @@ Future<void> main() async {
     SurahIndexViewService.instance.load(),
     RecitationBarAutoHideService.instance.load(),
     RecitationBarOpacityService.instance.load(),
+    AppLookService.instance.load(),
+    // prefs only, and it claims its tap prefix for a cold-start tap
+    AbsenceReminderService.instance.load(),
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -175,83 +194,93 @@ class QuranApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeService.themeMode,
-      builder: (context, themeMode, _) {
-        final bool isTv = TvService.instance.isTv;
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          scrollBehavior: _AppScrollBehavior(),
-          // Android TV only. The observer says when a dialog or a modal sheet
-          // is on top, and the driver above the navigator operates it -- see
-          // TvPopupObserver. The key is how the driver reaches the overlay to
-          // paint its ring, since it sits above the Navigator that owns it.
-          navigatorKey: isTv ? kAppNavigatorKey : null,
-          navigatorObservers: isTv ? [TvPopupObserver.instance] : const [],
-          builder: isTv
-              ? (context, child) => TvFocusScope.popupDriver(
-                  child: child ?? const SizedBox.shrink(),
-                )
-              : null,
-          // Android TV: stop Select/Enter from ALSO being delivered to whatever
-          // widget holds Flutter focus. Every TV screen drives the D-pad
-          // explicitly through a HardwareKeyboard handler, and returning true
-          // from one of those stops the raw-key path but NOT the
-          // Shortcuts/Actions path -- so a single DPAD_CENTER fired our handler
-          // AND "clicked" the focused widget. That double-activation pushed two
-          // routes at once in the reader, and double-popped out of the index
-          // into a black screen. Declared app-wide because it bit on two
-          // separate routes; empty on every other platform.
-          shortcuts: TvService.instance.isTv
-              ? <ShortcutActivator, Intent>{
-                  ...WidgetsApp.defaultShortcuts,
-                  const SingleActivator(LogicalKeyboardKey.select):
-                      const DoNothingAndStopPropagationIntent(),
-                  const SingleActivator(LogicalKeyboardKey.enter):
-                      const DoNothingAndStopPropagationIntent(),
-                  const SingleActivator(LogicalKeyboardKey.gameButtonA):
-                      const DoNothingAndStopPropagationIntent(),
-                  // NOTE: the arrows are deliberately NOT blocked here.
-                  // Blocking them app-wide stopped Switch/Slider from mutating
-                  // during traversal, but it also left every screen without an
-                  // explicit handler (البحث, the tafsir sheet, bookmark
-                  // dialogs) with a completely dead D-pad. TvFocusScope instead
-                  // excludes focus in its own subtree, which achieves the same
-                  // protection locally because it drives by semantics rather
-                  // than focus.
-                }
-              : null,
-          themeMode: themeMode,
-          theme: ThemeData(
-            brightness: Brightness.light,
-            scaffoldBackgroundColor: const Color(0xFFF6F1D7),
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFFB08010),
+    final look = AppLookService.instance.look;
+    // «شكل التطبيق»: the scope rebuilds the screens that ask for the look,
+    // and the app itself is rebuilt for the switch theme (✓ / ✕ thumbs).
+    return AppLookScope(
+      notifier: AppLookService.instance.changes,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([ThemeService.themeMode, look]),
+        builder: (context, _) {
+          final themeMode = ThemeService.themeMode.value;
+          final bool isTv = TvService.instance.isTv;
+          final switchTheme = appSwitchThemeFor(
+            previousLook: look.value == AppLook.previous,
+          );
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            scrollBehavior: _AppScrollBehavior(),
+            // Android TV only. The observer says when a dialog or a modal sheet
+            // is on top, and the driver above the navigator operates it -- see
+            // TvPopupObserver. The key is how the driver reaches the overlay to
+            // paint its ring, since it sits above the Navigator that owns it.
+            navigatorKey: isTv ? kAppNavigatorKey : null,
+            navigatorObservers: isTv ? [TvPopupObserver.instance] : const [],
+            builder: isTv
+                ? (context, child) => TvFocusScope.popupDriver(
+                    child: child ?? const SizedBox.shrink(),
+                  )
+                : null,
+            // Android TV: stop Select/Enter from ALSO being delivered to whatever
+            // widget holds Flutter focus. Every TV screen drives the D-pad
+            // explicitly through a HardwareKeyboard handler, and returning true
+            // from one of those stops the raw-key path but NOT the
+            // Shortcuts/Actions path -- so a single DPAD_CENTER fired our handler
+            // AND "clicked" the focused widget. That double-activation pushed two
+            // routes at once in the reader, and double-popped out of the index
+            // into a black screen. Declared app-wide because it bit on two
+            // separate routes; empty on every other platform.
+            shortcuts: TvService.instance.isTv
+                ? <ShortcutActivator, Intent>{
+                    ...WidgetsApp.defaultShortcuts,
+                    const SingleActivator(LogicalKeyboardKey.select):
+                        const DoNothingAndStopPropagationIntent(),
+                    const SingleActivator(LogicalKeyboardKey.enter):
+                        const DoNothingAndStopPropagationIntent(),
+                    const SingleActivator(LogicalKeyboardKey.gameButtonA):
+                        const DoNothingAndStopPropagationIntent(),
+                    // NOTE: the arrows are deliberately NOT blocked here.
+                    // Blocking them app-wide stopped Switch/Slider from mutating
+                    // during traversal, but it also left every screen without an
+                    // explicit handler (البحث, the tafsir sheet, bookmark
+                    // dialogs) with a completely dead D-pad. TvFocusScope instead
+                    // excludes focus in its own subtree, which achieves the same
+                    // protection locally because it drives by semantics rather
+                    // than focus.
+                  }
+                : null,
+            themeMode: themeMode,
+            theme: ThemeData(
               brightness: Brightness.light,
+              scaffoldBackgroundColor: const Color(0xFFF6F1D7),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFFB08010),
+                brightness: Brightness.light,
+              ),
+              switchTheme: switchTheme,
+              // Android TV: the gold ring is the only cursor. Flutter's own
+              // focus still moves behind it (the arrows reach the Shortcuts
+              // path whatever the key handlers return), and Material paints
+              // that focus as a grey tint -- seen as a second highlight on a
+              // تكرار مقطع dropdown four rows away from the ring.
+              focusColor: isTv ? Colors.transparent : null,
+              hoverColor: isTv ? Colors.transparent : null,
             ),
-            switchTheme: appSwitchTheme,
-            // Android TV: the gold ring is the only cursor. Flutter's own
-            // focus still moves behind it (the arrows reach the Shortcuts
-            // path whatever the key handlers return), and Material paints
-            // that focus as a grey tint -- seen as a second highlight on a
-            // تكرار مقطع dropdown four rows away from the ring.
-            focusColor: isTv ? Colors.transparent : null,
-            hoverColor: isTv ? Colors.transparent : null,
-          ),
-          darkTheme: ThemeData(
-            brightness: Brightness.dark,
-            scaffoldBackgroundColor: const Color(0xFF15120B),
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFFD6B45A),
+            darkTheme: ThemeData(
               brightness: Brightness.dark,
+              scaffoldBackgroundColor: const Color(0xFF15120B),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFFD6B45A),
+                brightness: Brightness.dark,
+              ),
+              switchTheme: switchTheme,
+              focusColor: isTv ? Colors.transparent : null,
+              hoverColor: isTv ? Colors.transparent : null,
             ),
-            switchTheme: appSwitchTheme,
-            focusColor: isTv ? Colors.transparent : null,
-            hoverColor: isTv ? Colors.transparent : null,
-          ),
-          home: const SplashScreen(),
-        );
-      },
+            home: const SplashScreen(),
+          );
+        },
+      ),
     );
   }
 }

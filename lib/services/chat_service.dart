@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'debug_log_service.dart';
 import 'tv_service.dart';
+import 'remote_config.dart';
 
 /// A file ready to send, already shrunk and with its metadata removed.
 class ChatDraftFile {
@@ -169,7 +170,9 @@ class ChatService {
   final Map<String, Uint8List> _files = {};
 
   /// The feature is for phones only: no push on the web app, no keyboard on TV.
+  /// Our server can also switch it off (`chat.enabled`, [RemoteConfig]).
   static bool get isAvailable =>
+      RemoteConfig.instance.flag('chat.enabled') &&
       !kIsWeb &&
       !TvService.instance.isTv &&
       (defaultTargetPlatform == TargetPlatform.android ||

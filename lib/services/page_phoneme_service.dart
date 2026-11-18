@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart' show compute, debugPrint, visibleForTes
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../utils/phoneme_tracker.dart';
+import 'content_update_service.dart';
+import 'tasmee_data_patch.dart';
 
 /// Expected phonemes of one mushaf page: per ayah (in page order), per word
 /// (in reading order, parallel to the page text split on whitespace).
@@ -55,7 +57,15 @@ class PagePhonemeService {
   static Future<Map<int, PagePhonemes>> _load() async {
     try {
       final jsonString = await rootBundle.loadString(_assetPath);
-      _cache = await compute(parse, jsonString);
+      // Pronunciation fixes from our server (TasmeeDataPatch), laid over
+      // the bundle when the data is first loaded.
+      final patch = await ContentUpdateService.instance.readFor('tasmee_data');
+      // A newer file downloaded later in this run waits for the next one.
+      ContentUpdateService.instance.registerItem(
+        'tasmee_data',
+        isLoaded: () => _cache != null,
+      );
+      _cache = await compute(parseWithPatch, (jsonString, patch));
     } catch (error) {
       debugPrint('PagePhonemeService: failed to load $_assetPath: $error');
       _cache = const {};
@@ -63,9 +73,29 @@ class PagePhonemeService {
     return _cache!;
   }
 
+  /// [parse] with a `tasmee_data` patch file laid over it first. A patch
+  /// that breaks a rule is ignored as a whole and the bundle is used.
   @visibleForTesting
-  static Map<int, PagePhonemes> parse(String jsonString) {
+  static Map<int, PagePhonemes> parseWithPatch((String, String?) input) {
+    final (jsonString, patchSource) = input;
     final decoded = json.decode(jsonString) as List<dynamic>;
+    if (patchSource != null) {
+      try {
+        final patch = TasmeeDataPatch.parse(patchSource);
+        final n = patch.applyToPages(decoded);
+        debugPrint('PagePhonemeService: tasmee_data v${patch.ver}, $n ayat');
+      } on FormatException catch (e) {
+        debugPrint('PagePhonemeService: tasmee_data ignored: $e');
+      }
+    }
+    return _parseDecoded(decoded);
+  }
+
+  @visibleForTesting
+  static Map<int, PagePhonemes> parse(String jsonString) =>
+      _parseDecoded(json.decode(jsonString) as List<dynamic>);
+
+  static Map<int, PagePhonemes> _parseDecoded(List<dynamic> decoded) {
     final out = <int, PagePhonemes>{};
     for (final item in decoded) {
       final m = item as Map<String, dynamic>;

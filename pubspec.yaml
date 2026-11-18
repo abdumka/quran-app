@@ -15,7 +15,7 @@ publish_to: 'none'
 # (arm64-v8a) and 4102 (x86_64). Play refuses any versionCode it has seen before
 # on any track, so a LOWER build number here silently becomes an unuploadable
 # APK — e.g. +30 would produce 1030/2030/4030, beneath the 4102 already built.
-version: 1.5.6+139
+version: 1.5.7+140
 
 environment:
   sdk: ^3.11.1
@@ -37,7 +37,7 @@ dependencies:
   in_app_review: ^2.0.11
   flutter_staggered_animations: ^1.1.1
   just_audio: ^0.10.5
-  just_audio_background: ^0.0.1-beta.17
+  audio_service: ^0.18.19
   audio_session: ^0.2.3
   flutter_local_notifications: ^18.0.1
   package_info_plus: ^10.1.0
@@ -77,6 +77,7 @@ flutter:
   assets:
     - assets/images/
     - assets/data/output.json
+    - assets/data/khilaf.json
     - assets/data/ar.saddi.json
     - assets/data/ar.muyassar.json
     - assets/data/ar.jalalayn.json
@@ -91,6 +92,7 @@ flutter:
     - assets/data/audio_ayah_map.json
     - assets/data/qaniwah_continuations.json
     - assets/data/tanzilat.json
+    - assets/data/athkar.json
     - assets/data/share_video.json
     - assets/data/tanzilat_paint.bin
   

@@ -88,6 +88,9 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Already in the APK through audio_service; declared so QueueTitle.kt can
+    // name the media session class (adds nothing to the size).
+    implementation("androidx.media:media:1.7.0")
     // «فيديو الآية» (AyahVideoRenderer.kt): encodes the video on the phone.
     // Same Media3 version as just_audio's ExoPlayer, so nothing is duplicated.
     implementation("androidx.media3:media3-transformer:1.4.1")

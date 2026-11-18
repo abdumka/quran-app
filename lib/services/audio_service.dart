@@ -7,7 +7,7 @@ import 'tv_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_service/audio_service.dart' show MediaItem;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -24,6 +24,7 @@ import 'audio_download_service.dart';
 import 'reciter_service.dart';
 import 'segment_cached_audio_source.dart';
 import 'surah_timings_service.dart';
+import 'talqeen_setting.dart';
 
 /// Repeat mode for ayah playback.
 enum AyahRepeatMode {
@@ -72,6 +73,10 @@ class AudioService {
 
   final AudioPlayer _player = AudioPlayer();
 
+  /// The recitation player, for the media session (see QuranMediaHandler),
+  /// which mirrors its state to the notification, lock screen and car.
+  AudioPlayer get player => _player;
+
   // Base URL for individual MP3 files, taken from the selected reciter's mirror.
   String get _baseUrl => ReciterService.instance.selected.value.audioBaseUrl;
 
@@ -112,6 +117,54 @@ class AudioService {
   /// instead of going on, and play recites it again. Dropped as soon as any
   /// other ayah is played, so ⏭ / ⏮ / another page carry on as usual.
   (int, int)? _stopAfterAyah;
+
+  // ── تلقين (see [TalqeenSetting]) ──
+
+  /// The listener's turn now running, null otherwise. The bar shows its
+  /// countdown and the page tints the ayah in the turn colour.
+  final ValueNotifier<TalqeenTurn?> talqeenTurn = ValueNotifier(null);
+
+  /// Just whether a turn is running, for listeners that do not need its
+  /// countdown (the page tint), so they are not rebuilt with every tick.
+  final ValueNotifier<bool> isTalqeenTurn = ValueNotifier(false);
+
+  /// How much of the listen now playing has been heard, in the file's own
+  /// time (the player's speed then applies to the turn as it did to the ayah).
+  /// Spent when the turn starts, so the joined ayat after a group's clip,
+  /// which have no audio of their own, take no turn of their own.
+  Duration _heard = Duration.zero;
+
+  /// The turn's length in the silence file's own time.
+  Duration _turnLength = Duration.zero;
+
+  /// The player holds the turn's silence, not a recitation. Its completion
+  /// ends the turn; after a turn was cancelled it is ignored.
+  bool _silenceLoaded = false;
+
+  /// Bumped whenever a turn starts or is cancelled: an await of the old turn
+  /// gives up when it returns.
+  int _turnToken = 0;
+
+  /// The page turn the listener saw while the ayah now heard was recited
+  /// (an ayah printed across a page break): the page it began on, the page
+  /// turned to, and where in the listen it turned. Null when the page did not
+  /// turn during this listen.
+  _ListenTurn? _listenTurn;
+
+  /// تلقين: the turn replays [_listenTurn] (back to where the ayah begins,
+  /// forward at the same share of the turn). Null once it has turned.
+  _ListenTurn? _turnFlip;
+  double _turnFlipAt = 0;
+
+  /// Set just before an ayah is played again (its repeat, ⏮ during the
+  /// turn, a repeat switched on mid-ayah): an ayah printed across the break
+  /// whose last pass turned the page then goes back to where it begins.
+  bool _replayingAyah = false;
+
+  /// Web only: no media service to keep alive there, so the turn is a timer.
+  Timer? _webTurnTimer;
+  Duration _webTurnLeft = Duration.zero;
+  bool _webTurnPaused = false;
 
   static const String _offlineNotice =
       'لا يمكن تشغيل التلاوة بدون اتصال بالإنترنت. يمكنك تحميل التلاوة كاملة '
@@ -351,12 +404,14 @@ class AudioService {
   /// Watches the clip now playing for its page-turn moment.
   StreamSubscription<Duration>? _pageTurnSubscription;
 
-  bool _isInitialized = false;
+  Future<void>? _initFuture;
 
-  Future<void> init() async {
-    if (_isInitialized) return;
-    _isInitialized = true;
+  /// Safe to call from several places at once (the reader and the car's
+  /// media browser can both get here first): every caller waits for the one
+  /// real run, so none of them goes on with the pages still unloaded.
+  Future<void> init() => _initFuture ??= _init();
 
+  Future<void> _init() async {
     await ReciterService.instance.load();
     await AudioAyahMapService.instance.load();
     _quranPages ??= await QuranJsonService.loadQuranPages();
@@ -376,6 +431,9 @@ class AudioService {
 
     _player.playerStateStream.listen((state) {
       isPlaying.value = state.playing;
+      if (talqeenTurn.value != null && !kIsWeb && _silenceLoaded) {
+        _publishTurn(_turnLength - _player.position); // paused / resumed
+      }
       if (state.processingState == ProcessingState.completed) {
         // One finished file arrives here more than once: playerStateStream
         // emits on any field change, so a completion shows up as
@@ -387,6 +445,12 @@ class AudioService {
         // *into* completed; any other state re-arms it for the next file.
         if (_didHandleCompletion) return;
         _didHandleCompletion = true;
+        if (_silenceLoaded) {
+          // The turn's silence ran out. One left over from a turn that was
+          // cancelled (an ayah was picked) is not an ayah finishing.
+          if (talqeenTurn.value != null) _endTalqeenTurn();
+          return;
+        }
         _handleAyahCompleted();
       } else {
         _didHandleCompletion = false;
@@ -673,9 +737,9 @@ class AudioService {
   }
 
   /// The clips of displayed ayah [surah]:[ayah] for any [reciter], not only
-  /// the selected one (an ayah video may use another reciter). A
-  /// [AudioScheme.timedSurah] reciter needs the surah's timings loaded first
-  /// ([SurahTimingsService.load]); a per-ayah one needs
+  /// the selected one (the athkar play their verses in a voice of their
+  /// own). A [AudioScheme.timedSurah] reciter needs the surah's timings
+  /// loaded first ([SurahTimingsService.load]); a per-ayah one needs
   /// [AudioAyahMapService.load].
   List<AudioClip> clipsForAyahOf(Reciter reciter, int surah, int ayah) {
     if (reciter.scheme == AudioScheme.timedSurah) {
@@ -787,6 +851,9 @@ class AudioService {
     if (_isChangingPage) return;
     _isChangingPage = true;
     final session = _session;
+    // A turn still running belongs to the recitation this replaces; left
+    // alone, its silence ending would move that one on.
+    _cancelTalqeenTurn();
     // Whatever page turn was owed, it is about to be overtaken by this one.
     _cancelPageTurn();
     if (holdTurn) _heldTurnPageIndex = pageIndex;
@@ -1061,6 +1128,10 @@ class AudioService {
     bool autoPlay = true,
   }) async {
     _halted = false;
+    final replay = _replayingAyah;
+    _replayingAyah = false;
+    // Playing an ayah, whatever asked for it, ends a turn still running.
+    _cancelTalqeenTurn();
     if (_currentGlobalAyahIndex >= _playlistAyahs.length) {
       _goToNextPage();
       return;
@@ -1120,7 +1191,9 @@ class AudioService {
         _haltPlayback(_offlineNotice);
         return;
       }
-      if (isManualSelection) {
+      if (isManualSelection &&
+          ReciterService.instance.selected.value.scheme ==
+              AudioScheme.mergedTail) {
         if (ayah.surah == 23 && ayah.ayah == 46) {
           // Manual selection of 46: Play file 45 and seek to the split point.
           _currentAyahClips = [const AudioClip.whole('023045.mp3')];
@@ -1142,10 +1215,14 @@ class AudioService {
       return;
     }
 
+    _ListenTurn? lastPass;
     if (_currentFileIndexWithinAyah == 0) {
       currentAyahGroup.value = _joinedGroupOf(ayah);
+      _heard = Duration.zero; // a new listen (a repeat included)
+      lastPass = _listenTurn;
+      _listenTurn = null;
     }
-    _syncPageTurn(ayah);
+    _syncPageTurn(ayah, replayOf: replay ? lastPass : null);
     final clip = _currentAyahClips[_currentFileIndexWithinAyah];
     final didStart = await _playClip(clip, autoPlay: autoPlay);
     if (!didStart) return;
@@ -1238,7 +1315,8 @@ class AudioService {
         final drift = clip.start == null ? position : position - clip.start!;
         const slack = Duration(milliseconds: 120);
         // An external seek that landed inside this clip stays where it is.
-        final inside = keepPosition &&
+        final inside =
+            keepPosition &&
             clip.start != null &&
             position >= clip.start! &&
             position < clip.end!;
@@ -1300,7 +1378,7 @@ class AudioService {
         if (session != _session) return false;
       }
       // The MediaItem tag drives the OS media notification via
-      // just_audio_background, which is only initialised on Android/iOS (see
+      // audio_service, which is only initialised on Android/iOS (see
       // main.dart). There is no media session on the web, so skip the tag
       // there.
       final tag = kIsWeb ? null : _mediaItemFor(uri, clip);
@@ -1347,6 +1425,7 @@ class AudioService {
               )
             : AudioSource.uri(uri, tag: tag);
       }
+
       try {
         await _player.setAudioSource(buildSource());
       } on PlayerException catch (_) {
@@ -1365,6 +1444,9 @@ class AudioService {
         if (session != _session) return false;
         await _player.setAudioSource(buildSource());
       }
+      // Only now: until the new source replaced it, a turn's silence that
+      // ran out must still be told apart from an ayah finishing.
+      _silenceLoaded = false;
       if (session != _session) return false;
       _loadedSurahKey = timedSurah ? surahKey : null;
       if (!useSegmentCache) {
@@ -1456,6 +1538,12 @@ class AudioService {
   }
 
   Future<void> _onClipPosition(Duration position) async {
+    if (_silenceLoaded) {
+      if (talqeenTurn.value != null && !kIsWeb) {
+        _publishTurn(_turnLength - position);
+      }
+      return; // the silence is not a clip: nothing below applies to it
+    }
     final target = _clipEndTarget;
     if (target == null) return;
     if (_loadedSurahKey != null) {
@@ -1593,6 +1681,8 @@ class AudioService {
   void _haltPlayback(String message) {
     _emptyAdvances = 0;
     _halted = true;
+    _cancelTalqeenTurn();
+    _silenceLoaded = false;
     _cancelPageTurn();
     _clipEndTarget = null;
     _dropLoadedSurah();
@@ -1611,7 +1701,15 @@ class AudioService {
   void _setupSplitMonitoring(QuranAyahData ayah) {
     _splitMonitorSubscription?.cancel();
 
-    // Surah Al-Mu'minun: Split between Ayah 45 and 46
+    // Surah Al-Mu'minun: Split between Ayah 45 and 46. Only al-Husary's
+    // mirror reads both in one file (023045.mp3, 46 from 8 s on). Every
+    // other reciter has 46 of its own, and under the timed scheme the
+    // position is inside the whole surah file, so 8 s is always passed:
+    // the check would mark 46 at once and the recitation would skip it.
+    if (ReciterService.instance.selected.value.scheme !=
+        AudioScheme.mergedTail) {
+      return;
+    }
     if (ayah.surah == 23 && ayah.ayah == 45) {
       const splitTime = Duration(milliseconds: 8000);
 
@@ -1651,6 +1749,8 @@ class AudioService {
   /// a few tens of ms of the next ayah would be heard before it acts.
   bool _continuesWithoutPause() {
     if (_loadedSurahKey == null) return false; // not a whole-surah source
+    // تلقين: a turn follows every listen, so the player must stop here.
+    if (TalqeenSetting.enabled.value) return false;
     if (_currentAyahClips.isEmpty ||
         _currentFileIndexWithinAyah >= _currentAyahClips.length) {
       return false;
@@ -1699,6 +1799,9 @@ class AudioService {
 
   /// Called when a single audio file finishes.
   void _handleAyahCompleted() {
+    if (_currentFileIndexWithinAyah < _currentAyahClips.length) {
+      _heard += _heardIn(_currentAyahClips[_currentFileIndexWithinAyah]);
+    }
     _currentFileIndexWithinAyah++;
     if (_currentAyahClips.isNotEmpty &&
         _currentFileIndexWithinAyah < _currentAyahClips.length) {
@@ -1707,12 +1810,26 @@ class AudioService {
       return;
     }
 
+    // تلقين: the listener's turn comes after every listen, a repeat of the
+    // ayah included, and before anything moves on.
+    if (TalqeenSetting.enabled.value &&
+        _heard >= const Duration(milliseconds: 300)) {
+      _startTalqeenTurn();
+      return;
+    }
+    _afterAyahListened();
+  }
+
+  /// The rest of [_handleAyahCompleted], once the ayah (and its turn, under
+  /// تلقين) is over: repeats, «آية فقط», the section boundaries, the next ayah.
+  void _afterAyahListened() {
     // Finished all files for this ayah, apply repeat logic
     final mode = repeatMode.value;
 
     if (mode == AyahRepeatMode.infinite) {
       // Repeat the same ayah forever
       _currentFileIndexWithinAyah = 0;
+      _replayingAyah = true;
       _playCurrentAyah();
       return;
     }
@@ -1721,6 +1838,7 @@ class AudioService {
       _currentRepeatIteration++;
       if (_currentRepeatIteration < repeatCount.value) {
         _currentFileIndexWithinAyah = 0;
+        _replayingAyah = true;
         _playCurrentAyah();
         return;
       }
@@ -1805,6 +1923,13 @@ class AudioService {
     if (now.difference(_lastAyahChangeTime).inMilliseconds < 300) return;
     _lastAyahChangeTime = now;
 
+    if (talqeenTurn.value != null) {
+      // ⏭ during the turn ends the turn: what comes next is what would have
+      // come when it ran out (a repeat of the ayah, or the next one).
+      _endTalqeenTurn();
+      return;
+    }
+
     _currentRepeatIteration = 0;
     _currentFileIndexWithinAyah = 0;
     if (_currentGlobalAyahIndex < _playlistAyahs.length - 1) {
@@ -1815,12 +1940,37 @@ class AudioService {
     }
   }
 
+  /// Moves [delta] through the recitation (the ±10 s buttons in the car and
+  /// on the notification). Under the timed scheme the move is an ordinary
+  /// seek, which [_onExternalSeek] turns into the right ayah; a per-ayah
+  /// file is seeked inside, and running off its end moves to the next ayah.
+  Future<void> seekBy(Duration delta) async {
+    if (currentAyah.value == null || talqeenTurn.value != null) return;
+    final duration = _player.duration;
+    var target = _player.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration != null && target >= duration) {
+      nextAyah();
+      return;
+    }
+    await _player.seek(target);
+  }
+
   /// Go to the previous ayah manually.
   void previousAyah() {
     // Debounce: ignore if less than 300ms since last change
     final now = DateTime.now();
     if (now.difference(_lastAyahChangeTime).inMilliseconds < 300) return;
     _lastAyahChangeTime = now;
+
+    if (talqeenTurn.value != null) {
+      // ⏮ during the turn: hear the same ayah again, then the turn again.
+      // The repeat count is left as it was.
+      _currentFileIndexWithinAyah = 0;
+      _replayingAyah = true;
+      _playCurrentAyah();
+      return;
+    }
 
     _currentRepeatIteration = 0;
     _currentFileIndexWithinAyah = 0;
@@ -1904,6 +2054,7 @@ class AudioService {
     // naturally (by which point they'd have forgotten they tapped it).
     if (currentAyah.value != null) {
       _currentFileIndexWithinAyah = 0;
+      _replayingAyah = true;
       _playCurrentAyah();
     }
   }
@@ -2227,6 +2378,47 @@ class AudioService {
   /// keeps reading forward from wherever it is.
   void cancelRangeRepeat() => _clearRangeRepeat();
 
+  /// «تكرار السورة» from the car: the whole of [surah] as an endless
+  /// section, armed WITHOUT jumping (the recitation carries on from where it
+  /// is and loops back to ayah 1 at the surah's end). Clears ayah repeat.
+  Future<void> armSurahRepeat(int surah) async {
+    if (_quranPages == null) await init();
+    final last = ayahCountForSurah(surah);
+    if (last <= 0) return;
+    pageRepeatMode.value = AyahRepeatMode.off;
+    _pageRepeatIteration = 0;
+    _clearThumnRepeat();
+    _rangeArmedAyahRepeat = false;
+    _currentRepeatIteration = 0;
+    repeatMode.value = AyahRepeatMode.off;
+    repeatRange.value = AyahRange(
+      startSurah: surah,
+      startAyah: 1,
+      endSurah: surah,
+      endAyah: last,
+    );
+    rangeRepeatCount.value = 3;
+    rangeRepeatDone.value = 0;
+    rangeContinueAfter.value = true;
+    rangeRepeatMode.value = AyahRepeatMode.infinite;
+  }
+
+  /// Whether the section being repeated is exactly one whole surah.
+  bool get isSurahRepeat {
+    final r = repeatRange.value;
+    return rangeRepeatMode.value != AyahRepeatMode.off &&
+        r != null &&
+        r.startSurah == r.endSurah &&
+        r.startAyah == 1 &&
+        r.endAyah == ayahCountForSurah(r.startSurah);
+  }
+
+  /// The car's «إيقاف بعد السورة»: once ([surah], [ayah]) has been recited
+  /// the recitation parks on it, as «آية فقط» does. Only holds while that
+  /// ayah is the one playing (the engine drops it on any other ayah), so the
+  /// caller arms it when the surah's last ayah begins.
+  void stopAfterAyah(int surah, int ayah) => _stopAfterAyah = (surah, ayah);
+
   void _clearRangeRepeat() {
     rangeRepeatMode.value = AyahRepeatMode.off;
     rangeRepeatCount.value = 3;
@@ -2323,6 +2515,8 @@ class AudioService {
     // And when the display has gone on ahead, the clip is still listed on the
     // page before, but the words it has reached are printed on this one.
     if (_leadPageIndex == pageIndex) return true;
+    // تلقين's turn showing the page the ayah begins on.
+    if (_turnFlip?.from == pageIndex) return true;
     final pageNumber = pageIndex + 1;
     final pageData = _quranPages!.firstWhere(
       (p) => p.page == pageNumber,
@@ -2482,11 +2676,25 @@ class AudioService {
 
   /// Lines the display up with the clip about to play, and arms the page turn
   /// inside it when it carries one. Called as each clip starts.
-  void _syncPageTurn(QuranAyahData ayah) {
+  void _syncPageTurn(QuranAyahData ayah, {_ListenTurn? replayOf}) {
     _pageTurnSubscription?.cancel();
     _pageTurnSubscription = null;
     final turn = _pageTurnFor(ayah, _currentAyahClips);
     final index = _currentFileIndexWithinAyah;
+
+    // The ayah is played again ([replayOf]: its last pass turned the page)
+    // and it is listed on the later page: back to the page it begins on, the
+    // turn held until the same word, as on its first pass (owner,
+    // 2026-11-11). An ayah listed on the earlier page goes back through the
+    // lead check below.
+    if (replayOf != null &&
+        turn != null &&
+        index == 0 &&
+        turn.pageIndex == _currentPageIndex &&
+        _heldTurnPageIndex == null) {
+      _heldTurnPageIndex = turn.pageIndex;
+      onPageChangeRequired?.call(turn.pageIndex - 1);
+    }
 
     // A held-back turn lasts only while the moment it waits for is still
     // ahead in this ayah: once the recitation has moved past it — it
@@ -2518,9 +2726,12 @@ class AudioService {
       }
     } else if (turn.pageIndex == _currentPageIndex + 1) {
       // A clip listed on this page that reads on across the break. Turn
-      // early only on the pass that moves on to the next page: a repeat of
-      // the ayah or of the page starts it again here, so the reader stays.
-      if (_recitationMovesOnAfter()) _armPageTurn(turn, lead: true);
+      // early on the pass that moves on to the next page, and on every pass
+      // of an ayah repeat, whose next pass turns back here (the lead check
+      // above). A page repeat starts it again here, so the reader stays.
+      if (_recitationMovesOnAfter() || _ayahPlaysAgain()) {
+        _armPageTurn(turn, lead: true);
+      }
     }
   }
 
@@ -2573,6 +2784,14 @@ class AudioService {
   /// Whether, once the ayah now playing finishes, the recitation goes on to
   /// the next page — rather than repeat the ayah or the page, play more of
   /// this page, or loop a ثمن or مقطع that ends here (see [_goToNextPage]).
+  /// Whether the ayah now playing will be played again by the ayah repeat.
+  bool _ayahPlaysAgain() {
+    final mode = repeatMode.value;
+    return mode == AyahRepeatMode.infinite ||
+        (mode == AyahRepeatMode.count &&
+            _currentRepeatIteration + 1 < repeatCount.value);
+  }
+
   bool _recitationMovesOnAfter() {
     final mode = repeatMode.value;
     if (mode == AyahRepeatMode.infinite) return false;
@@ -2625,6 +2844,12 @@ class AudioService {
       if (!sawBefore) return;
       _pageTurnSubscription?.cancel();
       _pageTurnSubscription = null;
+      // For تلقين's turn, which replays it (see [_startTalqeenTurn]).
+      _listenTurn = _ListenTurn(
+        lead ? _currentPageIndex : turn.pageIndex - 1,
+        turn.pageIndex,
+        _heard + (at - (clip.start ?? Duration.zero)),
+      );
       if (lead) {
         _leadPageIndex = turn.pageIndex;
         onPageChangeRequired?.call(turn.pageIndex);
@@ -2657,13 +2882,208 @@ class AudioService {
     _pageTurnSubscription = null;
     _heldTurnPageIndex = null;
     _leadPageIndex = null;
+    _listenTurn = null;
+  }
+
+  // ─────────────────────────────────────
+  //  تلقين
+  // ─────────────────────────────────────
+
+  /// How long [clip], which just finished, played, in the file's own time.
+  Duration _heardIn(AudioClip clip) {
+    final known = clip.duration;
+    if (known != null) return known;
+    final total = _player.duration;
+    if (total == null) return Duration.zero;
+    if (_loadedSurahKey != null) {
+      // The whole surah is loaded: the clip is a part of the file.
+      final start = clip.start ?? Duration.zero;
+      final end = clip.end ?? total;
+      return end > start ? end - start : Duration.zero;
+    }
+    // A whole file, or a ClippingAudioSource, which reports its own length.
+    return total;
+  }
+
+  /// Starts the listener's turn: as long as what was just heard (times the
+  /// chosen factor), played as silence (see [TalqeenSilence] for why).
+  Future<void> _startTalqeenTurn() async {
+    final heard = _heard;
+    final length = heard * TalqeenSetting.factor.value;
+    _heard = Duration.zero;
+    // An ayah printed across a page break: the turn shows it as it was
+    // recited, from the page it begins on, turning at the same share of the
+    // turn as the sheikh reached the break (owner, 2026-11-11). Only when the
+    // page turned during the listen: a page repeat that stayed, stays.
+    final seen = _listenTurn;
+    _turnFlip = null;
+    if (seen != null && heard > Duration.zero && seen.from != seen.to) {
+      _turnFlip = seen;
+      _turnFlipAt = (seen.at.inMilliseconds / heard.inMilliseconds).clamp(
+        0.0,
+        1.0,
+      );
+      onPageChangeRequired?.call(seen.from);
+    }
+    final token = ++_turnToken;
+    final session = _session;
+    _turnLength = length;
+    // Nothing armed for the ayah just heard may act on the silence.
+    _clipEndTarget = null;
+    _splitMonitorSubscription?.cancel();
+    _splitMonitorSubscription = null;
+    _pageTurnSubscription?.cancel();
+    _pageTurnSubscription = null;
+    talqeenTurn.value = TalqeenTurn(
+      left: 1,
+      secondsLeft: _secondsOf(length),
+      paused: false,
+    );
+    isTalqeenTurn.value = true;
+    if (kIsWeb) {
+      _startWebTurn(length);
+      return;
+    }
+    try {
+      final file = await TalqeenSilence.atLeast(length);
+      if (token != _turnToken || session != _session) return;
+      _dropLoadedSurah();
+      _silenceLoaded = true;
+      await _player.setAudioSource(
+        ClippingAudioSource(
+          child: AudioSource.file(file.path),
+          end: length,
+          tag: _turnMediaItem(token, length),
+        ),
+      );
+      if (token != _turnToken || session != _session) return;
+      _player.play();
+    } catch (e) {
+      debugPrint('AudioService: talqeen silence failed: $e');
+      if (token != _turnToken || session != _session) return;
+      // No silence to play: carry on rather than stop the recitation.
+      _endTalqeenTurn();
+    }
+  }
+
+  void _startWebTurn(Duration length) {
+    final token = _turnToken;
+    _webTurnLeft = length;
+    _webTurnPaused = false;
+    _player.pause();
+    const tick = Duration(milliseconds: 100);
+    _webTurnTimer?.cancel();
+    _webTurnTimer = Timer.periodic(tick, (timer) {
+      if (token != _turnToken) {
+        timer.cancel();
+        return;
+      }
+      if (_webTurnPaused) return;
+      _webTurnLeft -= tick * playbackSpeed.value;
+      if (_webTurnLeft <= Duration.zero) {
+        timer.cancel();
+        _endTalqeenTurn();
+        return;
+      }
+      _publishTurn(_webTurnLeft);
+    });
+  }
+
+  MediaItem _turnMediaItem(int token, Duration length) {
+    final ayah = currentAyah.value;
+    final reciter = ReciterService.instance.selected.value;
+    return MediaItem(
+      id: 'talqeen#$token',
+      title: ayah == null
+          ? '${TalqeenSetting.shortName} - دورك'
+          : '${TalqeenSetting.shortName} - دورك: سورة ${ayah.surahName} - الآية ${ayah.ayah}',
+      album: reciter.shortName,
+      artist: reciter.riwaya,
+      duration: length,
+    );
+  }
+
+  /// Whole seconds of [media] (the silence file's time) in real time.
+  int _secondsOf(Duration media) {
+    final speed = playbackSpeed.value <= 0 ? 1.0 : playbackSpeed.value;
+    return (media.inMilliseconds / speed / 1000).ceil();
+  }
+
+  void _publishTurn(Duration left) {
+    if (talqeenTurn.value == null) return;
+    final total = _turnLength.inMilliseconds;
+    final ms = left.inMilliseconds.clamp(0, total < 0 ? 0 : total);
+    final flip = _turnFlip;
+    if (flip != null && total > 0 && (total - ms) / total >= _turnFlipAt) {
+      _turnFlip = null;
+      onPageChangeRequired?.call(flip.to);
+    }
+    talqeenTurn.value = TalqeenTurn(
+      // In steps of 2 %: smooth enough for the ring, and no rebuild of the
+      // bar for every position tick.
+      left: total <= 0 ? 0 : (ms * 50 / total).round() / 50,
+      secondsLeft: _secondsOf(Duration(milliseconds: ms)),
+      paused: kIsWeb ? _webTurnPaused : !_player.playing,
+    );
+  }
+
+  /// The turn is over (it ran out, or ⏭): on with the recitation.
+  void _endTalqeenTurn() {
+    // Ended before the page turn was due (⏭): the reader goes where the
+    // recitation left it.
+    final owed = _turnFlip;
+    _cancelTalqeenTurn();
+    if (owed != null) onPageChangeRequired?.call(owed.to);
+    _afterAyahListened();
+  }
+
+  /// Forgets the turn, if one is running, without moving on.
+  void _cancelTalqeenTurn() {
+    _turnFlip = null;
+    if (talqeenTurn.value == null) return;
+    _turnToken++;
+    _webTurnTimer?.cancel();
+    _webTurnTimer = null;
+    talqeenTurn.value = null;
+    isTalqeenTurn.value = false;
+  }
+
+  /// The ring on the play button during the turn: pauses or resumes the
+  /// countdown.
+  void toggleTalqeenPause() {
+    if (talqeenTurn.value == null) return;
+    if (kIsWeb) {
+      _webTurnPaused = !_webTurnPaused;
+      _publishTurn(_webTurnLeft);
+      return;
+    }
+    if (_player.playing) {
+      _player.pause();
+    } else {
+      _player.play();
+    }
   }
 
   void pause() {
+    if (kIsWeb && talqeenTurn.value != null) {
+      _webTurnPaused = true;
+      _publishTurn(_webTurnLeft);
+      return;
+    }
     _player.pause();
   }
 
   void resume() {
+    if (talqeenTurn.value != null) {
+      // Paused during the turn: the countdown goes on from where it was.
+      if (kIsWeb) {
+        _webTurnPaused = false;
+        _publishTurn(_webTurnLeft);
+      } else {
+        _player.play();
+      }
+      return;
+    }
     if (_halted) {
       // Nothing is loaded: try the ayah playback stopped on again (the
       // phone may be online now, or the surah downloaded since).
@@ -2683,6 +3103,9 @@ class AudioService {
     _splitMonitorSubscription?.cancel();
     _cancelPageTurn();
     _clipEndTarget = null;
+    _cancelTalqeenTurn();
+    _silenceLoaded = false;
+    _heard = Duration.zero;
     // stop() drops the loaded source, so the next ayah must load it again
     // rather than seek into a player that is no longer holding the surah.
     _dropLoadedSurah();
@@ -2714,6 +3137,16 @@ class AudioService {
     _pageTurnSubscription?.cancel();
     _player.dispose();
   }
+}
+
+/// A page turn the listener saw during one listen: from [from] to [to], at
+/// [at] into it (the file's own time) — see [AudioService._startTalqeenTurn].
+class _ListenTurn {
+  const _ListenTurn(this.from, this.to, this.at);
+
+  final int from;
+  final int to;
+  final Duration at;
 }
 
 /// Where inside one ayah's clips the page turns — see

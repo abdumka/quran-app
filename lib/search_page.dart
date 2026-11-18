@@ -1,11 +1,17 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 
+import 'models/quran_page_data.dart';
+
+import 'services/app_look_service.dart';
 import 'services/quran_json_service.dart';
 import 'services/tv_service.dart';
 import 'services/ayah_position_service.dart';
+import 'theme/app_surfaces.dart';
 import 'utils/copy_helper.dart';
+import 'utils/after_opening.dart';
 import 'utils/quran_display_text.dart';
 import 'utils/quran_search_spelling.dart';
 import 'widgets/tv/tv_focus_scope.dart';
@@ -92,6 +98,64 @@ class _NormalizedTextMapping {
   });
 }
 
+/// The search index and the surah filter. Built once per app session on a
+/// background isolate (owner, 2026-11-13: search felt heavy to open; it used
+/// to rebuild all of this on every opening, on the UI thread). The Qur'an
+/// text never changes while the app runs, so neither does this.
+class _SearchData {
+  const _SearchData(this.index, this.surahOptions);
+  final List<_IndexedAyah> index;
+  final List<_SurahOption> surahOptions;
+}
+
+/// One ayah as the index needs it: (page, surah, surah name, ayah, text).
+typedef _RawAyah = (int, int, String, int, String);
+
+/// Top level, so [compute] can run it on another isolate.
+_SearchData _buildSearchData(List<_RawAyah> ayahs) {
+  final index = <_IndexedAyah>[];
+  for (final (page, surah, surahName, ayah, text) in ayahs) {
+    final normalizedText = _SearchPageState._normalizeText(text);
+    final exactText = _SearchPageState._normalizeText(text, exact: true);
+    final spellingExactText = splitText(
+      text,
+      (word) => _SearchPageState._normalizeText(word, exact: true),
+    );
+    index.add(
+      _IndexedAyah(
+        page: page,
+        surah: surah,
+        surahName: surahName,
+        ayah: ayah,
+        // Display form (standard tanween); normalization strips both
+        // forms, so matching and highlight offsets are unaffected.
+        text: quranDisplayText(text),
+        normalizedText: normalizedText,
+        exactText: exactText,
+        normalizedWords: normalizedText
+            .split(' ')
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false),
+        spellingExactText: spellingExactText == exactText
+            ? null
+            : spellingExactText,
+      ),
+    );
+  }
+
+  // The surah filter: one entry per surah, in order.
+  final Map<int, String> surahNames = {};
+  for (final ayah in index) {
+    surahNames.putIfAbsent(ayah.surah, () => ayah.surahName);
+  }
+  final surahOptions =
+      surahNames.entries
+          .map((e) => _SurahOption(surah: e.key, surahName: e.value))
+          .toList()
+        ..sort((a, b) => a.surah.compareTo(b.surah));
+  return _SearchData(index, surahOptions);
+}
+
 class _SurahOption {
   final int surah;
   final String surahName;
@@ -127,7 +191,7 @@ class _SearchPageState extends State<SearchPage> {
   double _cursorDragRemainder = 0;
 
   bool get _isLandscape =>
-      MediaQuery.of(context).orientation == Orientation.landscape;
+      MediaQuery.orientationOf(context) == Orientation.landscape;
 
   void _closeSearchPage() {
     final navigator = Navigator.of(context);
@@ -142,6 +206,11 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
+  // The index of this app session, and the text it was built from.
+  static _SearchData? _data;
+  static List<QuranPageData>? _dataFor;
+  static Future<_SearchData>? _dataBuilding;
+
   @override
   void initState() {
     super.initState();
@@ -153,89 +222,86 @@ class _SearchPageState extends State<SearchPage> {
         offset: _lastQuery.length,
       );
     }
+    // Opened before in this session: the index is there from the first frame,
+    // with no spinner in between.
+    final cached = _data;
+    if (cached != null) {
+      _searchIndex = cached.index;
+      _surahOptions = cached.surahOptions;
+      _isLoading = false;
+      if (_query.trim().isNotEmpty) afterOpening(() => _runSearch(_query));
+    }
+    // The keyboard rises once the page is in, not while it slides in: both
+    // at once made the opening stutter. On a TV, focusing the field raises
+    // the leanback IME immediately and it re-opens as fast as Back dismisses
+    // it, trapping the user on this page, so there the user presses Select
+    // on the field when they actually want to type.
+    if (!TvService.instance.isTv) {
+      afterOpening(() {
+        if (!_focusNode.hasFocus) _focusNode.requestFocus();
+      });
+    }
     _loadData();
   }
 
   Future<void> _loadData() async {
     try {
-      final pages = await QuranJsonService.loadQuranPages();
-
-      // Load visual positions to act as the ultimate source of truth for page numbers
-      final positionsByPage = await AyahPositionService.loadAyahPositions();
-      final Map<String, int> visualPageMap = {};
-
-      positionsByPage.forEach((pageNum, ayahs) {
-        for (final pos in ayahs) {
-          visualPageMap['${pos.surah}_${pos.ayah}'] = pageNum;
-        }
-      });
-
-      if (!mounted) return;
-
-      final searchIndex = <_IndexedAyah>[];
-      for (final page in pages) {
-        for (final ayah in page.ayahs) {
-          final normalizedText = _normalizeText(ayah.text);
-          final exactText = _normalizeText(ayah.text, exact: true);
-          final spellingExactText = splitText(
-            ayah.text,
-            (word) => _normalizeText(word, exact: true),
-          );
-          final truePage =
-              visualPageMap['${ayah.surah}_${ayah.ayah}'] ?? page.page;
-
-          searchIndex.add(
-            _IndexedAyah(
-              page: truePage,
-              surah: ayah.surah,
-              surahName: ayah.surahName,
-              ayah: ayah.ayah,
-              // Display form (standard tanween); normalization strips both
-              // forms, so matching and highlight offsets are unaffected.
-              text: quranDisplayText(ayah.text),
-              normalizedText: normalizedText,
-              exactText: exactText,
-              normalizedWords: normalizedText
-                  .split(' ')
-                  .where((e) => e.isNotEmpty)
-                  .toList(growable: false),
-              spellingExactText: spellingExactText == exactText
-                  ? null
-                  : spellingExactText,
-            ),
-          );
-        }
-      }
-
-      // Build the surah filter list (one entry per surah, in order).
-      final Map<int, String> surahNames = {};
-      for (final ayah in searchIndex) {
-        surahNames.putIfAbsent(ayah.surah, () => ayah.surahName);
-      }
-      final surahOptions =
-          surahNames.entries
-              .map((e) => _SurahOption(surah: e.key, surahName: e.value))
-              .toList()
-            ..sort((a, b) => a.surah.compareTo(b.surah));
-
+      final data = await _searchData();
+      if (!mounted || identical(data.index, _searchIndex)) return;
       setState(() {
-        _searchIndex = searchIndex;
-        _surahOptions = surahOptions;
+        _searchIndex = data.index;
+        _surahOptions = data.surahOptions;
         _isLoading = false;
       });
 
-      // Re-run the restored query now that the index is available so the user
-      // sees the same results they left off on.
-      if (_query.trim().isNotEmpty) {
-        _runSearch(_query);
-      }
+      // Re-run the restored (or already typed) query now that the index is
+      // available so the user sees the same results they left off on. The
+      // first build takes long enough that the page is in by now.
+      if (_query.trim().isNotEmpty) _runSearch(_query);
     } catch (e) {
-      debugPrint('ط®ط·ط£ طھط­ظ…ظٹظ„ JSON: $e');
+      debugPrint('Search: index not built: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  /// The session's index, built on the first opening.
+  static Future<_SearchData> _searchData() async {
+    final pages = await QuranJsonService.loadQuranPages();
+    final cached = _data;
+    if (cached != null && identical(_dataFor, pages)) return cached;
+    final data = await (_dataBuilding ??= _build(pages).whenComplete(
+      () => _dataBuilding = null,
+    ));
+    _data = data;
+    _dataFor = pages;
+    return data;
+  }
+
+  static Future<_SearchData> _build(List<QuranPageData> pages) async {
+    // Load visual positions to act as the ultimate source of truth for page
+    // numbers.
+    final positionsByPage = await AyahPositionService.loadAyahPositions();
+    final Map<String, int> visualPageMap = {};
+    positionsByPage.forEach((pageNum, ayahs) {
+      for (final pos in ayahs) {
+        visualPageMap['${pos.surah}_${pos.ayah}'] = pageNum;
+      }
+    });
+    final raw = <_RawAyah>[
+      for (final page in pages)
+        for (final ayah in page.ayahs)
+          (
+            visualPageMap['${ayah.surah}_${ayah.ayah}'] ?? page.page,
+            ayah.surah,
+            ayah.surahName,
+            ayah.ayah,
+            ayah.text,
+          ),
+    ];
+    return compute(_buildSearchData, raw);
   }
 
   // `exact: true` keeps Ta Marbuta (ة) distinct from Ha (ه) so an exact
@@ -700,6 +766,29 @@ class _SearchPageState extends State<SearchPage> {
     fontWeight: FontWeight.w800,
   );
 
+  // The marked words: the new look's highlight colour, the old yellow in the
+  // previous look and in night mode.
+  TextStyle get _markStyle {
+    final s = AppSurfaces.maybeOf(context);
+    return s == null
+        ? _highlightStyle
+        : _highlightStyle.copyWith(backgroundColor: s.highlight, color: s.text);
+  }
+
+  // The search field and the surah filter: the old outline in the previous
+  // look and in night mode, the new look's hairline (gold when focused).
+  OutlineInputBorder _fieldBorder(AppSurfaces? s, {bool focused = false}) {
+    if (s == null) {
+      return OutlineInputBorder(borderRadius: BorderRadius.circular(14));
+    }
+    return OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppSurfaces.cardRadius),
+      borderSide: focused
+          ? BorderSide(color: s.accent, width: 1.5)
+          : BorderSide(color: s.border),
+    );
+  }
+
   List<InlineSpan> _buildHighlightedTextSpans(
     String text,
     String query, {
@@ -757,7 +846,7 @@ class _SearchPageState extends State<SearchPage> {
       spans.add(
         TextSpan(
           text: text.substring(originalStart, originalEnd),
-          style: _highlightStyle,
+          style: _markStyle,
         ),
       );
       start = originalEnd;
@@ -807,7 +896,7 @@ class _SearchPageState extends State<SearchPage> {
         spans.add(
           TextSpan(
             text: text.substring(originalStart, originalEnd),
-            style: _highlightStyle,
+            style: _markStyle,
           ),
         );
         start = originalEnd;
@@ -900,21 +989,25 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildSurahDropdown(String Function(int, String) label) {
+    final s = AppSurfaces.maybeOf(context);
     return DropdownButtonFormField<int>(
       initialValue: _selectedSurah,
       isExpanded: true,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(
+        s == null ? 14 : AppSurfaces.cardRadius,
+      ),
+      dropdownColor: s?.card,
       icon: const Icon(Icons.arrow_drop_down),
+      iconEnabledColor: s?.muted,
       decoration: InputDecoration(
         prefixIcon: const Icon(Icons.menu_book_outlined),
+        prefixIconColor: s?.icon,
+        filled: s == null ? null : true,
+        fillColor: s?.field,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        border: _fieldBorder(s),
+        enabledBorder: _fieldBorder(s),
+        focusedBorder: _fieldBorder(s, focused: true),
       ),
       items: [
         const DropdownMenuItem<int>(
@@ -950,8 +1043,10 @@ class _SearchPageState extends State<SearchPage> {
   // A compact outlined toggle sitting beside the surah dropdown. Off (default)
   // shows exact + smart matches; on restricts results to exact matches only.
   Widget _buildExactMatchToggle() {
+    final s = AppSurfaces.maybeOf(context);
+    final radius = s == null ? 14.0 : AppSurfaces.cardRadius;
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(radius),
       onTap: () {
         setState(() {
           _exactOnly = !_exactOnly;
@@ -964,11 +1059,12 @@ class _SearchPageState extends State<SearchPage> {
         height: 48,
         padding: const EdgeInsetsDirectional.only(start: 10, end: 4),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
+          color: s?.field,
+          borderRadius: BorderRadius.circular(radius),
           border: Border.all(
             color: _exactOnly
-                ? Theme.of(context).colorScheme.primary
-                : Colors.black38,
+                ? s?.accent ?? Theme.of(context).colorScheme.primary
+                : s?.border ?? Colors.black38,
           ),
         ),
         child: Row(
@@ -979,7 +1075,10 @@ class _SearchPageState extends State<SearchPage> {
               textDirection: TextDirection.rtl,
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: _exactOnly ? FontWeight.w700 : FontWeight.w500,
+                fontWeight: _exactOnly
+                    ? (s == null ? FontWeight.w700 : FontWeight.w600)
+                    : FontWeight.w500,
+                color: _exactOnly ? s?.text : s?.muted,
               ),
             ),
             Transform.scale(
@@ -1005,6 +1104,7 @@ class _SearchPageState extends State<SearchPage> {
   // A thin, right-aligned section label separating exact matches from smart
   // (fuzzy) matches. Kept minimal so it costs almost no vertical space.
   Widget _buildSectionHeader(String label, bool compactLandscape) {
+    final s = AppSurfaces.maybeOf(context);
     return Padding(
       padding: EdgeInsets.only(top: compactLandscape ? 6 : 8, bottom: 2),
       child: Row(
@@ -1015,28 +1115,33 @@ class _SearchPageState extends State<SearchPage> {
             textDirection: TextDirection.rtl,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey[600],
+              fontWeight: s == null ? FontWeight.w700 : FontWeight.w600,
+              color: s?.muted ?? Colors.grey[600],
               letterSpacing: 0.2,
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(child: Divider(height: 1, color: Colors.grey[400])),
+          Expanded(
+            child: Divider(height: 1, color: s?.hair ?? Colors.grey[400]),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildResultCard(SearchResult ayah) {
+    // null in the previous look and in night mode: the old card stays
+    final s = AppSurfaces.maybeOf(context);
+    final radius = s == null ? 14.0 : AppSurfaces.cardRadius;
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(radius),
       onTap: () => _openResult(ayah),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7F3EA),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.black12),
+          color: s?.card ?? const Color(0xFFF7F3EA),
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: s?.border ?? Colors.black12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -1045,11 +1150,11 @@ class _SearchPageState extends State<SearchPage> {
               textAlign: TextAlign.right,
               textDirection: TextDirection.rtl,
               text: TextSpan(
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   height: 1.8,
                   fontWeight: FontWeight.w500,
-                  color: Colors.black,
+                  color: s?.text ?? Colors.black,
                 ),
                 children: _buildHighlightedTextSpans(
                   ayah.text,
@@ -1070,7 +1175,7 @@ class _SearchPageState extends State<SearchPage> {
                     padding: EdgeInsets.zero,
                     iconSize: 17,
                     tooltip: 'نسخ الآية',
-                    color: Colors.grey[700],
+                    color: s?.muted ?? Colors.grey[700],
                     icon: const Icon(Icons.copy_rounded),
                     onPressed: () => CopyHelper.copy(
                       context,
@@ -1088,7 +1193,10 @@ class _SearchPageState extends State<SearchPage> {
                     'سورة ${ayah.surahName} • آية ${ayah.ayah} • صفحة ${ayah.page}',
                     textAlign: TextAlign.right,
                     textDirection: TextDirection.rtl,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: s?.muted ?? Colors.grey[700],
+                    ),
                   ),
                 ),
               ],
@@ -1110,19 +1218,20 @@ class _SearchPageState extends State<SearchPage> {
     final smart = _results.where((r) => !r.containsFullQuery).toList();
     final bool showHeaders = exact.isNotEmpty && smart.isNotEmpty;
 
-    // Build a flat row list: optional header + its cards, per section.
-    final rows = <Widget>[];
+    // A flat row list: optional header + its cards, per section. Rows stay
+    // data (a header's label or a result) and are built only as they scroll
+    // into view: a common word has hundreds of results.
+    final rows = <Object>[];
     void addSection(String header, List<SearchResult> items) {
       if (items.isEmpty) return;
-      if (showHeaders) rows.add(_buildSectionHeader(header, compactLandscape));
-      for (final ayah in items) {
-        rows.add(_buildResultCard(ayah));
-      }
+      if (showHeaders) rows.add(header);
+      rows.addAll(items);
     }
 
     addSection('مطابقة تامة', exact);
     addSection('مطابقة ذكية', smart);
 
+    final s = AppSurfaces.maybeOf(context);
     return Column(
       children: [
         Padding(
@@ -1134,8 +1243,8 @@ class _SearchPageState extends State<SearchPage> {
               textDirection: TextDirection.rtl,
               style: TextStyle(
                 fontSize: compactLandscape ? 13 : 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey[800],
+                fontWeight: s == null ? FontWeight.w700 : FontWeight.w500,
+                color: s?.muted ?? Colors.grey[800],
               ),
             ),
           ),
@@ -1155,10 +1264,15 @@ class _SearchPageState extends State<SearchPage> {
             separatorBuilder: (context, index) {
               // No gap directly above a section header (it carries its own top
               // padding); a normal card gap otherwise.
-              final bool nextIsHeader = rows[index + 1] is Padding;
+              final bool nextIsHeader = rows[index + 1] is String;
               return SizedBox(height: nextIsHeader ? 0 : 8);
             },
-            itemBuilder: (context, index) => rows[index],
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              return row is SearchResult
+                  ? _buildResultCard(row)
+                  : _buildSectionHeader(row as String, compactLandscape);
+            },
           ),
         ),
       ],
@@ -1168,35 +1282,65 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final bool compactLandscape = _isLandscape;
-    final mediaPadding = MediaQuery.of(context).padding;
+    final mediaPadding = MediaQuery.paddingOf(context);
     final horizontalSystemInset = compactLandscape
         ? (mediaPadding.left > mediaPadding.right
               ? mediaPadding.left
               : mediaPadding.right)
         : 0.0;
 
+    // null in the previous look and in night mode: the theme's colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final previous = AppLookScope.isPrevious(context);
     return Scaffold(
+      backgroundColor: s?.page,
       appBar: AppBar(
+        backgroundColor: s?.page,
+        foregroundColor: s?.text,
+        surfaceTintColor: s == null ? null : Colors.transparent,
         // Keep the header slim so the added surah filter doesn't push content
         // too far down and the whole page stays compact.
         toolbarHeight: 44,
-        leadingWidth: compactLandscape
+        // On an Arabic page "back" sits on the right, pointing right; the
+        // previous look keeps the arrow on the left.
+        automaticallyImplyLeading: previous,
+        leadingWidth: previous && compactLandscape
             ? kToolbarHeight + horizontalSystemInset
             : null,
-        leading: Padding(
-          padding: EdgeInsetsDirectional.only(
-            start: compactLandscape ? horizontalSystemInset : 0,
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _closeSearchPage,
-          ),
-        ),
+        leading: previous
+            ? Padding(
+                padding: EdgeInsetsDirectional.only(
+                  start: compactLandscape ? horizontalSystemInset : 0,
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _closeSearchPage,
+                ),
+              )
+            : null,
+        actions: previous
+            ? null
+            : [
+                Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    end: compactLandscape ? horizontalSystemInset : 0,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    tooltip: '\u0631\u062c\u0648\u0639',
+                    onPressed: _closeSearchPage,
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
         title: Padding(
           padding: EdgeInsetsDirectional.only(
             start: compactLandscape ? horizontalSystemInset : 0,
           ),
-          child: const Text('\u0627\u0644\u0628\u062d\u062b'),
+          child: Text(
+            '\u0627\u0644\u0628\u062d\u062b',
+            style: previous ? null : const TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
         centerTitle: true,
       ),
@@ -1222,15 +1366,16 @@ class _SearchPageState extends State<SearchPage> {
                   controller: _controller,
                   focusNode: _focusNode,
                   textDirection: TextDirection.rtl,
-                  // On a TV, focusing the field raises the leanback IME
-                  // immediately and it re-opens as fast as Back dismisses it,
-                  // trapping the user on this page. Let them press Select on
-                  // the field when they actually want to type.
-                  autofocus: !TvService.instance.isTv,
+                  // focused in initState once the page is in (never on TV)
                   decoration: InputDecoration(
                     hintText:
                         '\u0627\u0628\u062d\u062b \u0639\u0646 \u0622\u064a\u0629 \u0623\u0648 \u0643\u0644\u0645\u0629',
                     prefixIcon: const Icon(Icons.search),
+                    prefixIconColor: s?.icon,
+                    suffixIconColor: s?.muted,
+                    hintStyle: s == null ? null : TextStyle(color: s.muted),
+                    filled: s == null ? null : true,
+                    fillColor: s?.field,
                     suffixIcon: _query.isNotEmpty
                         ? IconButton(
                             onPressed: () {
@@ -1244,15 +1389,9 @@ class _SearchPageState extends State<SearchPage> {
                             icon: const Icon(Icons.close),
                           )
                         : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    border: _fieldBorder(s),
+                    enabledBorder: _fieldBorder(s),
+                    focusedBorder: _fieldBorder(s, focused: true),
                     contentPadding: EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: compactLandscape ? 10 : 14,

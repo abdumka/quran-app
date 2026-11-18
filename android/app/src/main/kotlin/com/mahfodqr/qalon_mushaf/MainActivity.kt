@@ -11,8 +11,9 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-// Extends AudioServiceActivity (a FlutterActivity subclass) so just_audio_background
-// / audio_service can attach its media session to this Activity's FlutterEngine.
+// Extends AudioServiceActivity (a FlutterActivity subclass) so audio_service can
+// attach its media session to this Activity's FlutterEngine (and share that
+// engine when Android Auto starts the service with the app closed).
 class MainActivity : AudioServiceActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

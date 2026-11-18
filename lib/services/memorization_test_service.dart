@@ -31,6 +31,9 @@ import 'tasmee_session_recorder.dart';
 import 'tasmee_report_store.dart';
 import 'tasmee_weak_point_store.dart';
 import 'word_region_service.dart';
+import 'remote_config.dart';
+import 'content_update_service.dart';
+import 'tasmee_data_patch.dart';
 
 /// Lifecycle of a memorization-test session.
 enum MemorizationTestStatus {
@@ -553,9 +556,13 @@ class MemorizationTestService {
   /// Audio before the held word a fresh decode gets as context, and after
   /// its last sound (the next word anchors the match); the worker keeps
   /// about 7 s, so the window is capped at 6 s.
-  static const int _verifyBeforeMs = 3000;
-  static const int _verifyAfterMs = 800;
-  static const int _verifyMaxMs = 6000;
+  /// (Server-tunable, see [RemoteConfig]: `tasmee.verify*Ms`.)
+  static int get _verifyBeforeMs =>
+      RemoteConfig.instance.integer('tasmee.verifyBeforeMs');
+  static int get _verifyAfterMs =>
+      RemoteConfig.instance.integer('tasmee.verifyAfterMs');
+  static int get _verifyMaxMs =>
+      RemoteConfig.instance.integer('tasmee.verifyMaxMs');
 
   String get _speedName =>
       _fastJudge ? 'fast' : (_verifyStops ? 'verified' : 'accurate');
@@ -564,13 +571,33 @@ class MemorizationTestService {
   /// commit dwell (a word is judged as soon as the cursor has moved on)
   /// and halves the settle wait; the recogniser export is chosen by
   /// `AsrModelManager.fast`.
+  ///
+  /// The thresholds can be tuned from our server ([RemoteConfig], keys
+  /// `tasmee.*`, each within a safe range); without a server file they are
+  /// exactly the [TrackerConfig] defaults.
   @visibleForTesting
-  static TrackerConfig trackerConfigFor({required bool fast}) =>
-      fast ? const TrackerConfig(commitDwell: 0, settleFrames: 12) : const TrackerConfig();
+  static TrackerConfig trackerConfigFor({required bool fast}) {
+    final rc = RemoteConfig.instance;
+    return TrackerConfig(
+      lexiconDistance: rc.number('tasmee.lexiconDistance'),
+      commitDwell: fast ? 0 : rc.integer('tasmee.commitDwell'),
+      okDistance: rc.number('tasmee.okDistance'),
+      unsureDistance: rc.number('tasmee.unsureDistance'),
+      minHeardFraction: rc.number('tasmee.minHeardFraction'),
+      minMargin: rc.number('tasmee.minMargin'),
+      settleFrames: fast
+          ? rc.integer('tasmee.fastSettleFrames')
+          : rc.integer('tasmee.settleFrames'),
+      earlyCommit: rc.flag('tasmee.earlyCommit'),
+      orphanVowel: rc.flag('tasmee.orphanVowel'),
+    );
+  }
 
   /// Wall-clock pause after the last sound before the judge settles.
   @visibleForTesting
-  static int settleMsFor({required bool fast}) => fast ? 500 : 1000;
+  static int settleMsFor({required bool fast}) => fast
+      ? RemoteConfig.instance.integer('tasmee.fastSettleMs')
+      : RemoteConfig.instance.integer('tasmee.settleMs');
 
   TrackerConfig get _trackerCfg => trackerConfigFor(fast: _fastJudge);
 
@@ -604,7 +631,18 @@ class MemorizationTestService {
     if (_lexicon != null) return _lexicon;
     try {
       final raw = await rootBundle.loadString('assets/data/phoneme_lexicon.json');
-      _lexicon = PhonemeLexicon((json.decode(raw) as List<dynamic>).cast<String>());
+      Iterable<String> entries = (json.decode(raw) as List<dynamic>).cast<String>();
+      // Lexicon fixes from our server (TasmeeDataPatch); a bad file is
+      // ignored and the bundle used.
+      final patch = await ContentUpdateService.instance.readFor('tasmee_data');
+      if (patch != null) {
+        try {
+          entries = TasmeeDataPatch.parse(patch).applyToLexicon(entries);
+        } on FormatException catch (e) {
+          debugPrint('MemorizationTestService: tasmee_data ignored: $e');
+        }
+      }
+      _lexicon = PhonemeLexicon(entries);
     } catch (e) {
       debugPrint('MemorizationTestService: no phoneme lexicon ($e)');
     }
@@ -1013,7 +1051,11 @@ class MemorizationTestService {
       _startResolved = startAyahIndex != null;
       // The whole-mushaf search only for a plain session with the phoneme
       // engine; a drill or a test fixes the place itself.
-      _locateArmed = locateAnywhere && tracker != null && drill == null && startAyahIndex == null;
+      _locateArmed = locateAnywhere &&
+          RemoteConfig.instance.flag('tasmee.locateEnabled') &&
+          tracker != null &&
+          drill == null &&
+          startAyahIndex == null;
       _locateBuffer.clear();
       _locating = false;
       _locateNextAt = _locateMinChars;

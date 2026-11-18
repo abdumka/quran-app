@@ -8,9 +8,14 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/athkar.dart';
 import 'app_update_service.dart';
+import 'quran_data_patch.dart';
 import 'quran_text_patch.dart';
+import 'remote_config.dart';
+import 'server_notice_service.dart';
 import 'share/share_video_config.dart';
+import 'tasmee_data_patch.dart';
 
 /// Data the app can refresh from our server without a store release:
 ///
@@ -28,6 +33,15 @@ import 'share/share_video_config.dart';
 ///                    `output.json`, a cumulative list of whole ayat (see
 ///                    `QuranTextPatch` for the rules); applied at the next
 ///                    launch only.
+///   * `tasmee_data`: Tasmee pronunciation fixes, whole ayat of
+///                    `page_phonemes.json` and lexicon entries
+///                    (`TasmeeDataPatch`); applied when Tasmee first loads.
+///   * `app_config`: switches and Tasmee thresholds (`RemoteConfig`), each
+///                    within a safe range; read at launch.
+///   * `quran_data`: highlight boxes per page, the audio and tafsir ayah
+///                    maps, breath groups, bundled-tafsir text fixes
+///                    (`QuranDataPatch`); read when each first loads.
+///   * `notices`:   messages shown once at launch (`ServerNoticeService`).
 ///   * `share_video`: «مشاركة الآية»: share text and link, the video
 ///                    backgrounds, sound effects, watermark and closing card
 ///                    (`ShareVideoConfig`); used from the next share sheet.
@@ -42,6 +56,10 @@ import 'share/share_video_config.dart';
 ///     data/tanzilat_paint/paint_v<N>.bin
 ///     data/reciters/reciters_v<N>.json
 ///     data/quran_text/patch_v<N>.json
+///     data/tasmee_data/patch_v<N>.json
+///     data/app_config/config_v<N>.json
+///     data/quran_data/patch_v<N>.json
+///     data/notices/notices_v<N>.json
 ///     data/share_video/share_video_v<N>.json
 ///
 /// The manifest names each item's version, file, size and SHA-256. A file is
@@ -67,6 +85,11 @@ class ContentUpdateService {
     'reciters',
     'tanzilat_paint',
     'quran_text',
+    'tasmee_data',
+    'app_config',
+    'quran_data',
+    'notices',
+    'athkar',
     'share_video',
   ];
 
@@ -80,16 +103,28 @@ class ContentUpdateService {
   /// level folded into the bundled `output.json` (raise it to the patch
   /// file's `ver` when a release bundles the corrected text).
   static const Map<String, int> bundledVersions = {
-    'tanzilat': 4,
-    'word_masks': 3,
+    'tanzilat': 7,
+    'word_masks': 7,
     'reciters': 0,
-    'tanzilat_paint': 1,
+    'tanzilat_paint': 4,
     'quran_text': 0,
+    // Nothing of these is folded into the bundle yet: a release that bundles
+    // a fix raises its number to the patch's `ver` (tasmee_data,
+    // quran_data). app_config and notices are never bundled.
+    'tasmee_data': 0,
+    'app_config': 0,
+    'quran_data': 0,
+    'notices': 0,
+    // matches the `ver` of `assets/data/athkar.json` (a test keeps them in
+    // step)
+    'athkar': 1,
     // matches the `ver` of `assets/data/share_video.json`
     'share_video': 1,
   };
 
-  static const Duration _checkInterval = Duration(hours: 24);
+  /// How often the silent check runs (`content.checkHours`, [RemoteConfig]).
+  static Duration get _checkInterval =>
+      Duration(hours: RemoteConfig.instance.integer('content.checkHours'));
   static const Duration _manifestTimeout = Duration(seconds: 15);
   static const Duration _fileTimeout = Duration(seconds: 60);
   static const int _maxFileBytes = 8 * 1024 * 1024;
@@ -153,6 +188,8 @@ class ContentUpdateService {
     final name = switch (item) {
       'word_masks' => 'word_masks_patch_v$ver.json',
       'quran_text' => 'quran_text_patch_v$ver.json',
+      'tasmee_data' => 'tasmee_data_patch_v$ver.json',
+      'quran_data' => 'quran_data_patch_v$ver.json',
       'tanzilat_paint' => 'tanzilat_paint_v$ver.bin',
       _ => '${item}_v$ver.json',
     };
@@ -402,6 +439,16 @@ class ContentUpdateService {
         // Every rule the loader applies, so a file it would refuse is never
         // installed over a good one.
         QuranTextPatch.parse(text);
+      case 'tasmee_data':
+        TasmeeDataPatch.parse(text);
+      case 'app_config':
+        RemoteConfig.parse(text);
+      case 'quran_data':
+        QuranDataPatch.parse(text);
+      case 'notices':
+        ServerNoticeService.parse(text);
+      case 'athkar':
+        AthkarData.parse(text);
       case 'share_video':
         ShareVideoConfig.parse(text);
     }
@@ -511,14 +558,20 @@ class ContentCheckResult {
     'tanzilat_paint': 'تلوين الكلمات',
     'reciters': 'القرّاء',
     'quran_text': 'نص المصحف',
-    'share_video': 'مشاركة الآية',
+    'tasmee_data': 'التسميع',
+    'quran_data': 'بيانات المصحف',
+    'athkar': 'الأذكار',
   };
+
+  /// Items the reader is not told about (settings and messages from us).
+  static const Set<String> _silent = {'app_config', 'notices', 'share_video'};
 
   /// One line for the settings notice, or null when nothing changed.
   String? get message {
-    if (updated.isEmpty) return null;
-    final live = updated.where((i) => !pendingRestart.contains(i)).toList();
-    final later = pendingRestart;
+    final shown = updated.where((i) => !_silent.contains(i)).toList();
+    if (shown.isEmpty) return null;
+    final live = shown.where((i) => !pendingRestart.contains(i)).toList();
+    final later = pendingRestart.where((i) => !_silent.contains(i)).toList();
     final parts = <String>[];
     if (live.isNotEmpty) {
       parts.add(

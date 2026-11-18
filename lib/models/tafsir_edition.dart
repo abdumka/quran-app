@@ -177,21 +177,59 @@ class TafsirEdition {
     zadAlmasir,
   ];
 
-  /// Editions fetched from the network (used to size / clear the tafsir cache).
-  static const List<TafsirEdition> onlineEditions = [
+  static const List<TafsirEdition> _bundledOnline = [
     ibnKathir,
     tabari,
     qurtubi,
     zadAlmasir,
   ];
 
+  /// Online editions our server added after this build shipped (the
+  /// `tafsirEditions` list of the `app_config` item, read at launch by
+  /// `RemoteConfig`). Their pages are on our tafsir host in the same
+  /// per-page format as the bundled online ones.
+  static List<TafsirEdition> remote = const [];
+
+  /// Every edition the user can pick from: [all], then the server-added.
+  static List<TafsirEdition> get offered => [...all, ...remote];
+
+  /// Editions fetched from the network (used to size / clear the tafsir cache).
+  static List<TafsirEdition> get onlineEditions => [..._bundledOnline, ...remote];
+
   /// The edition used before the user has chosen one.
   static const TafsirEdition fallback = saddi;
 
   static TafsirEdition byId(String? id) {
-    return all.firstWhere(
+    return offered.firstWhere(
       (e) => e.id == id,
       orElse: () => fallback,
+    );
+  }
+
+  static final RegExp _idRe = RegExp(r'^[a-z][a-z0-9_]{1,30}$');
+
+  /// A server-added online edition:
+  /// `{"id": "baghawi", "name": "تفسير البغوي", "subtitle": "…",
+  ///   "approxDownloadMb": 40}`. Its pages must be at
+  /// `https://quran-content.mushaf-qaloon.com/tafsir/<id>/page_NNN.json`
+  /// (nowhere else), its cache folder is `tafsir_cache_<id>`. Null for
+  /// anything else, or an id this build bundles.
+  static TafsirEdition? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final id = j['id'], name = j['name'], subtitle = j['subtitle'];
+    final mb = j['approxDownloadMb'];
+    if (id is! String || !_idRe.hasMatch(id)) return null;
+    if (all.any((e) => e.id == id)) return null;
+    if (name is! String || name.trim().isEmpty || name.length > 40) return null;
+    if (subtitle is! String || subtitle.length > 60) return null;
+    return TafsirEdition(
+      id: id,
+      name: name.trim(),
+      subtitle: subtitle.trim(),
+      isBundled: false,
+      cacheFolder: 'tafsir_cache_$id',
+      pageBaseUrl: '$_r2Root$id/',
+      approxDownloadMb: mb is int && mb >= 0 && mb < 1000 ? mb : 0,
     );
   }
 }

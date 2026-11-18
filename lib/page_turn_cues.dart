@@ -168,8 +168,22 @@ const Map<String, Map<int, PageTurnCue>> pageTurnCues = {
 /// reciter id -> page -> cue, read from `reciters_v<N>.json`.
 Map<String, Map<int, PageTurnCue>> remotePageTurnCues = {};
 
-/// The page-turn cues of [reciterId]: the measured ones compiled above, else
-/// the ones a server-added reciter came with, else null (the audio layer then
-/// estimates the turn).
-Map<int, PageTurnCue>? pageTurnCuesFor(String reciterId) =>
-    pageTurnCues[reciterId] ?? remotePageTurnCues[reciterId];
+/// Cues a server override sent for a bundled reciter (re-measured audio, or
+/// the cues of the recording an override swapped in): reciter id -> page ->
+/// cue. They win over the compiled ones.
+Map<String, Map<int, PageTurnCue>> overridePageTurnCues = {};
+
+/// Bundled reciters whose recording a server override replaced: the compiled
+/// cues above were measured on audio they no longer play.
+Set<String> compiledCuesRetired = {};
+
+/// The page-turn cues of [reciterId]: a server override's, else the measured
+/// ones compiled above (unless the recording they belong to was replaced),
+/// else the ones a server-added reciter came with, else null (the audio layer
+/// then estimates the turn).
+Map<int, PageTurnCue>? pageTurnCuesFor(String reciterId) {
+  final override = overridePageTurnCues[reciterId];
+  if (override != null) return override;
+  if (compiledCuesRetired.contains(reciterId)) return null;
+  return pageTurnCues[reciterId] ?? remotePageTurnCues[reciterId];
+}

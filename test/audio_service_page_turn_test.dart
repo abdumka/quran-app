@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/page_turn_cues.dart';
 import 'package:islamic_dawah_mushaf/services/audio_service.dart';
+import 'package:islamic_dawah_mushaf/services/talqeen_setting.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The page turns inside an ayah printed across a page break — when the
@@ -194,7 +195,9 @@ void main() {
     expect(turns, [34]);
   });
 
-  test('repeating 2:217 keeps the reader on p34 until the last pass', () async {
+  // Owner, 2026-11-11: an ayah repeat follows the sheikh across the break on
+  // every pass, and goes back to where the ayah begins for the next one.
+  test('repeating 2:217 turns to p35 on every pass, back to p34 between', () async {
     audio.repeatMode.value = AyahRepeatMode.count;
     audio.repeatCount.value = 2;
     addTearDown(() => audio.repeatMode.value = AyahRepeatMode.off);
@@ -202,13 +205,134 @@ void main() {
 
     await reach(Duration(milliseconds: p35.atMs) - early);
     await reach(Duration(milliseconds: p35.atMs) + late);
-    expect(turns, isEmpty, reason: 'first of two passes');
+    expect(turns, [34], reason: 'first of two passes reaches «والآخرة»');
 
     await finishFile(); // the second pass of 2:217
     expect(loaded.last, '002217.mp3');
+    expect(turns, [34, 33], reason: 'back to p34 for the second pass');
     await reach(Duration(milliseconds: p35.atMs) - early);
     await reach(Duration(milliseconds: p35.atMs) + late);
-    expect(turns, [34]);
+    expect(turns, [34, 33, 34]);
+
+    await finishFile(); // on to 2:219, already on p35
+    expect(loaded.last, '002219.mp3');
+    expect(turns, [34, 33, 34]);
+  });
+
+  test('repeating 4:44 goes back to p85 and turns again at «السبيل»', () async {
+    addTearDown(() => audio.repeatMode.value = AyahRepeatMode.off);
+    await startAt(85, 4, 43);
+    await finishFile(); // into 4:44, the turn held
+    // Repeat 4:44 only (switched on from the start it would repeat 4:43).
+    audio.repeatCount.value = 2;
+    audio.repeatMode.value = AyahRepeatMode.count;
+    await reach(Duration(milliseconds: p86.atMs) - early);
+    await reach(Duration(milliseconds: p86.atMs) + late);
+    expect(turns, [85]);
+
+    await finishFile(); // the second pass of 4:44
+    expect(loaded.last, '004044.mp3');
+    expect(turns, [85, 84]);
+    expect(audio.isAudioOnPage(84), isTrue, reason: 'play button on p85');
+    await reach(Duration(milliseconds: p86.atMs) - early);
+    expect(turns, [85, 84]);
+    await reach(Duration(milliseconds: p86.atMs) + late);
+    expect(turns, [85, 84, 85]);
+  });
+
+  test('repeating 4:44 started on p86 itself still never sends it back', () async {
+    audio.repeatMode.value = AyahRepeatMode.count;
+    audio.repeatCount.value = 2;
+    addTearDown(() => audio.repeatMode.value = AyahRepeatMode.off);
+    await startAt(86, 4, 44);
+    await reach(Duration(milliseconds: p86.atMs) + late);
+    await finishFile(); // the second pass
+    await reach(Duration(milliseconds: p86.atMs) - early);
+    await reach(Duration(milliseconds: p86.atMs) + late);
+    expect(turns, isEmpty);
+  });
+
+  group('تلقين', () {
+    setUp(() {
+      TalqeenSetting.enabled.value = true;
+      TalqeenSetting.factor.value = 1.0;
+    });
+    tearDown(() => TalqeenSetting.enabled.value = false);
+
+    // The turn is as long as the 70 s file; the page turns at the same share.
+    test('the turn after 4:44 starts on p85 and turns at the same moment', () async {
+      await startAt(85, 4, 43);
+      await finishFile(); // the turn after 4:43
+      expect(loaded.last, TalqeenSilence.fileName);
+      expect(turns, isEmpty, reason: '4:43 crosses no break');
+      await finishFile(); // into 4:44
+      await reach(Duration(milliseconds: p86.atMs) + late);
+      expect(turns, [85]);
+
+      await finishFile(); // 4:44 done: the turn
+      expect(loaded.last, TalqeenSilence.fileName);
+      expect(turns, [85, 84], reason: 'back to where 4:44 begins');
+      expect(audio.isAudioOnPage(84), isTrue);
+      await reach(Duration(milliseconds: p86.atMs) - early);
+      expect(turns, [85, 84]);
+      await reach(Duration(milliseconds: p86.atMs) + late);
+      expect(turns, [85, 84, 85], reason: 'turned at the same share');
+
+      await finishFile(); // the turn ends: 4:45, on p86
+      expect(loaded.last, '004045.mp3');
+      expect(turns, [85, 84, 85]);
+    });
+
+    test('⏭ before the turn reached the break: straight to p86', () async {
+      await startAt(86, 4, 44);
+      // Started on p86 itself: the reader never saw p85, nor does the turn.
+      await reach(Duration(milliseconds: p86.atMs) + late);
+      await finishFile();
+      expect(loaded.last, TalqeenSilence.fileName);
+      expect(turns, isEmpty);
+      audio.stop();
+
+      turns.clear();
+      await startAt(85, 4, 43);
+      await finishFile(); // the turn after 4:43
+      await finishFile(); // into 4:44
+      await reach(Duration(milliseconds: p86.atMs) + late);
+      await finishFile(); // the turn
+      expect(turns, [85, 84]);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      final before = loaded.length;
+      audio.nextAyah();
+      await until(() => loaded.length > before, '4:45');
+      expect(loaded.last, '004045.mp3');
+      expect(turns, [85, 84, 85]);
+    });
+
+    test('the turn after 2:217 (2:218 inside it) starts on p34', () async {
+      await startAt(34, 2, 217);
+      await reach(Duration(milliseconds: p35.atMs) + late);
+      expect(turns, [34]);
+      await finishFile(); // the turn
+      expect(loaded.last, TalqeenSilence.fileName);
+      expect(turns, [34, 33]);
+      expect(audio.isAudioOnPage(33), isTrue);
+      await reach(Duration(milliseconds: p35.atMs) + late);
+      expect(turns, [34, 33, 34]);
+      await finishFile(); // 2:219, on p35
+      expect(loaded.last, '002219.mp3');
+      expect(turns, [34, 33, 34]);
+    });
+
+    test('a page repeat that stays on p34 has a turn that stays too', () async {
+      audio.pageRepeatMode.value = AyahRepeatMode.infinite;
+      addTearDown(() => audio.pageRepeatMode.value = AyahRepeatMode.off);
+      await startAt(34, 2, 217);
+      await reach(Duration(milliseconds: p35.atMs) + late);
+      await finishFile(); // the turn
+      expect(loaded.last, TalqeenSilence.fileName);
+      await reach(Duration(milliseconds: p35.atMs) + late);
+      await finishFile(); // back to p34's first ayah
+      expect(turns, isEmpty);
+    });
   });
 
   test('repeating p34 never turns to p35', () async {

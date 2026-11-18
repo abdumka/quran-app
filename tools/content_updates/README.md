@@ -12,6 +12,22 @@ the app's bundle. Publish with `python tools/publish_content_updates.py`.
 | `reciters` | `tools/content_updates/reciters.json` | `"ver"` here |
 | `tanzilat_paint` | `assets/data/tanzilat_paint.bin` (built by `build_tanzilat_paint.py`) | `VER` in the builder |
 | `quran_text` | `tools/content_updates/quran_text_patch.json` (built by `tools/build_quran_text_patch.py`) | the builder bumps `"ver"` |
+| `tasmee_data` | `tools/content_updates/tasmee_data_patch.json` (built by `tools/build_tasmee_data_patch.py`) | the builder bumps `"ver"` |
+| `app_config` | `tools/content_updates/app_config.json` (by hand) | `"ver"` here |
+| `quran_data` | `tools/content_updates/quran_data.json` (by hand) | `"ver"` here |
+| `notices` | `tools/content_updates/notices.json` (by hand) | `"ver"` here |
+
+**Owner's rule (2026-11-17): a server update is the preferred way to ship any
+change; a store release is the last resort.** Before planning a release, check
+this file for a route. When a release is unavoidable, add to it whatever
+server hook is still missing, so the next change of that kind skips the store.
+
+The four items added 2026-11-17 (`tasmee_data`, `app_config`, `quran_data`,
+`notices`) and the new `reciters` override keys are read only by the release
+after 1.5.6+140 (build 148+, `NEW_ITEMS_MIN_BUILD` in the publisher); older
+builds ignore them. Each file is checked by the publisher with the app's own
+rules and refused before upload if the app would refuse it; the app checks it
+again at download and at load and keeps its bundle when anything is wrong.
 
 `tanzilat_paint` (build 133+): the colours as the reviewers' brush painted them,
 one picture per page. A pack names the `tanzilat` version it was painted for and
@@ -68,6 +84,34 @@ id a later build bundles in `Reciter.all` is skipped (the bundle wins).
 (`{"rajab_qaloun": {"timingsRevision": 2}}`) so phones re-fetch corrected
 timings. Western digits only.
 
+### Overrides for the bundled reciters (build 148+)
+Older builds read only `timingsRevision`; build 148+ also reads, per id:
+
+| key | effect |
+|---|---|
+| `name`, `shortName` (max 18), `riwaya` (max 40) | the labels in the pickers, the player and the notification |
+| `hidden: true` | out of every picker; a reader who had chosen him falls back to the default reciter (their choice comes back if he is shown again). Never all reciters at once. |
+| `timingsRevision` | as before (timed reciters) |
+| `pageTurnCues` | the page-turn moments, same shape as for an added reciter; win over the compiled ones. `SSS.mp3` files for a timed recording, `SSSAAA.mp3` otherwise |
+| `coveredAyat` (covered scheme: الحذيفي, الدوكالي) / `missingAyat` (any per-ayah scheme) | `{"5": [34]}`: the whole table, replaced |
+| `recording` | swaps the audio for a whole-surah timed recording under the same id (the reader's choice and settings stay): `{"audioBaseUrl", "timingsBaseUrl", "cacheFolder" (new, unique), "timingsRevision"}`. The compiled cues are dropped (send `pageTurnCues` measured on the new audio, or the turn is estimated). About 40 s after launch the old recording's downloads are deleted. |
+
+Top level `"order": ["zarrouq_qaloun", ...]`: these ids first, in this order,
+then everyone else in the usual order.
+
+**When they apply:** a reciters file read at launch applies in full. One that
+lands during a run adds its new reciters at once, but its overrides wait for
+the next launch, so nothing changes under a recitation or a download.
+
+Example, the two labels the owner changed on 2026-11-17 (bundled in the next
+release anyway; this is how it is done from now on):
+```json
+"overrides": {"trabulsi_qaloun": {"timingsRevision": 2, "riwaya": "رواية قالون بتقليل التوراة"},
+              "zarrouq_qaloun": {"timingsRevision": 2, "riwaya": "رواية قالون بتقليل التوراة"}}
+```
+Replacing a bundled recording (e.g. الحصري with `husary_timed`) is the same
+file; the publisher checks that `001.mp3` and `timings/001.json` are reachable.
+
 ## quran_text_patch.json
 Spelling fixes to the Qur'an text, read by builds that have the `quran_text`
 item (the first release after 2026-11-10; older builds ignore it). Applied at
@@ -106,6 +150,81 @@ derived-artifact rebuild). When a release bundles the corrected
 `output.json`, raise `ContentUpdateService.bundledVersions['quran_text']` to
 the patch file's `ver` and add that release as a base.
 
+## tasmee_data_patch.json (build 148+)
+Tasmee pronunciation fixes: whole ayat of `assets/data/page_phonemes.json`
+plus `lexiconAdd` / `lexiconRemove` for `phoneme_lexicon.json`. Applied when
+Tasmee first loads in a run (never during a session). Rules in
+`lib/services/tasmee_data_patch.dart`: an ayah stays on its page with the same
+number of words, each word in the file's 6-8 field shape. Joining or splitting
+words needs a release.
+
+Workflow: fix the two asset files as usual, then
+`python tools/build_tasmee_data_patch.py --base <commit of the store build> --write`
+once per release that reads the item (bases kept in `tasmee_data_bases.json`,
+not published); afterwards plain `--write`. It lists every ayah that differs
+from any base and the lexicon changes, and bumps `"ver"`. Publish
+(`--dry-run` first). A release that bundles the current files raises
+`ContentUpdateService.bundledVersions['tasmee_data']` to the patch's `ver`.
+Checked 2026-11-17: HEAD's bundle plus a patch built against it reproduces
+the working tree's page phonemes exactly.
+
+## app_config.json (build 148+)
+`{"ver": N, "values": {...}, "tafsirEditions": [...]}`. Read at launch; a
+newer file applies at the next launch. Only the keys in
+`lib/services/remote_config.dart` (`RemoteConfig.keys`) exist, each with its
+bundled default and range; the publisher refuses an unknown key, a wrong type
+or a value out of range (the app would ignore it). Current keys:
+
+| key | default | what |
+|---|---|---|
+| `chat.enabled` | true | «راسلنا مباشرة» (false hides it) |
+| `tasmee.drillsEnabled` | false | «تقوية الحفظ» tile |
+| `tasmee.locateEnabled` | true | «التسميع من أي موضع» search |
+| `tasmee.okDistance` / `unsureDistance` / `minMargin` / `minHeardFraction` / `lexiconDistance` | 0.15 / 0.4 / 0.35 / 0.34 / 0.12 | judge thresholds |
+| `tasmee.commitDwell` / `settleFrames` / `fastSettleFrames` | 6 / 25 / 12 | phonemes / frames |
+| `tasmee.settleMs` / `fastSettleMs` | 1000 / 500 | settle wait (ms) |
+| `tasmee.earlyCommit` / `orphanVowel` | true / true | judge rules |
+| `tasmee.verifyBeforeMs` / `verifyAfterMs` / `verifyMaxMs` | 3000 / 800 / 6000 | «تحقّق قبل التنبيه» window |
+| `content.checkHours` | 24 | silent check interval (6-168) |
+
+The ranges are in the Dart file. Tasmee numbers: change them only after a
+replay study shows the gain; every phone on 148+ takes them at its next
+launch. To undo, publish a new `ver` without the key.
+
+`tafsirEditions`: online tafsir editions added without a release,
+`{"id": "baghawi", "name": "تفسير البغوي", "subtitle": "...", "approxDownloadMb": 40}`.
+Upload the 602 pages to `quran-content.../tafsir/<id>/page_NNN.json` first
+(the same format as the four online editions); the publisher checks pages 1,
+300 and 602 are reachable.
+
+## quran_data.json (build 148+)
+Optional sections, each checked as a whole (`lib/services/quran_data_patch.dart`):
+- `ayahRegions`: `{"<page>": <the page's entry of ayah_regions.json>}`, the
+  ayah highlight and Tasmee masks. Same ayat in the same order as the bundle,
+  otherwise the page keeps its boxes.
+- `audioAyahMap`: the whole `map` of `audio_ayah_map.json`.
+- `breathData`: `{"assets/data/<x>_continuations.json": <that whole file>}`.
+- `narrationMap`: the whole `qalun_to_hafs` of `narration_map.json`.
+- `tafsirFixes`: `[{"edition": "saddi" | "muyassar" | "jalalayn", "surah",
+  "ayah" (Hafs numbering, as in that file), "text"}]`.
+
+Read once per run when each data set first loads.
+
+## notices.json (build 148+)
+Messages shown once per install at launch, in the «ما الجديد» card, only on a
+launch where neither «ما الجديد» nor the update dialog appeared:
+```json
+{"ver": 1, "notices": [{"id": "reciter-younsi", "title": "قارئ جديد",
+  "lines": ["أضفنا تلاوة الشيخ علي اليونسي برواية قالون."],
+  "from": "2026-11-20", "until": "2026-12-20", "minBuild": 148,
+  "platforms": ["android", "ios"],
+  "button": {"label": "افتح الصفحة", "action": "page:1"}}]}
+```
+`id` is lower-case latin (shown once per id; a new message needs a new id),
+`from` / `until` local dates (inclusive, optional), `button.action` one of
+`page:<1-604>`, `url:https://...`, `store:`, `chat:`. At most 20 notices and
+8 lines. Western digits only (the publisher refuses Eastern ones).
+
 ## share_video.json (build 151+)
 «مشاركة الآية» and «فيديو الآية». The source is the bundled
 `assets/data/share_video.json` itself (like athkar): edit it, raise `ver`,
@@ -138,3 +257,17 @@ publish. Phones read it the next time a share sheet opens.
   Upload clips BEFORE publishing (the publisher HEAD-checks every path). A
   changed clip needs a new path: phones cache by path and never re-download.
   `bytes` is checked after download.
+
+## Still needs a store release
+New screens or behaviour (code); joining or splitting words; moving an ayah
+to another page or renumbering; a new Tasmee model file; a new per-ayah
+(non-timed) reciter; the Android Auto tile picture of a renamed reciter (the
+tile has the name drawn in).
+
+## Before every store release
+1. Raise `ContentUpdateService.bundledVersions` to what the build bundles
+   (a test checks tanzilat).
+2. Record the release commit as a base: `build_quran_text_patch.py --base`
+   and `build_tasmee_data_patch.py --base`.
+3. Check `NEW_ITEMS_MIN_BUILD` in the publisher if the build number moved.
+4. Add any missing server hook the release could carry (see the rule above).

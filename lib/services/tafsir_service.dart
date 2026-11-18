@@ -10,6 +10,7 @@ import '../utils/quran_display_text.dart';
 import 'quran_json_service.dart';
 import 'tafsir_cache_service.dart';
 import 'tafsir_edition_service.dart';
+import 'quran_data_patch.dart';
 
 class TafsirService {
   /// Decoded data for each **bundled** edition, keyed by edition id. Shape:
@@ -30,6 +31,12 @@ class TafsirService {
   static Future<void> _loadNarrationMap() async {
     if (_narrationMap != null) return;
     try {
+      // A corrected table from our server (QuranDataPatch) wins.
+      final fromServer = (await QuranDataPatch.load())?.narrationMap;
+      if (fromServer != null) {
+        _narrationMap = fromServer;
+        return;
+      }
       final mapString =
           await rootBundle.loadString('assets/data/narration_map.json');
       final decoded = json.decode(mapString);
@@ -54,6 +61,18 @@ class TafsirService {
     final jsonString = await rootBundle.loadString(edition.assetPath!);
     final decoded = await compute(json.decode, jsonString);
     final data = (decoded['tafsir'] as List<dynamic>?) ?? const [];
+    // Text corrections from our server (QuranDataPatch), by Hafs number.
+    final fixes = (await QuranDataPatch.load())?.tafsirFixes[edition.id];
+    if (fixes != null) {
+      fixes.forEach((key, text) {
+        final parts = key.split(':');
+        final s = int.parse(parts[0]) - 1;
+        final a = int.parse(parts[1]) - 1;
+        if (s < data.length && data[s] is List && a < (data[s] as List).length) {
+          (data[s] as List)[a] = text;
+        }
+      });
+    }
     _bundledData[edition.id] = data;
     return data;
   }

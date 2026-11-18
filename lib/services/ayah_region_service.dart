@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show compute, debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../models/ayah_region_data.dart';
+import 'quran_data_patch.dart';
 
 /// Loads `assets/data/ayah_regions.json`: per-ayah line rects and marker
 /// boxes for all 602 pages, generated offline by
@@ -21,8 +22,10 @@ class AyahRegionService {
   static Future<Map<int, AyahRegionPageData>> _load() async {
     try {
       final jsonString = await rootBundle.loadString(_assetPath);
+      // Pages our server corrected (QuranDataPatch), laid over the bundle.
+      final patch = await QuranDataPatch.load();
       // ~1.4 MB of JSON; keep the decode off the UI thread.
-      _cache = await compute(_parse, jsonString);
+      _cache = await compute(_parse, (jsonString, patch?.ayahRegions));
     } catch (error) {
       debugPrint('AyahRegionService: failed to load $_assetPath: $error');
       _cache = const {};
@@ -30,8 +33,14 @@ class AyahRegionService {
     return _cache!;
   }
 
-  static Map<int, AyahRegionPageData> _parse(String jsonString) {
+  static Map<int, AyahRegionPageData> _parse(
+    (String, Map<int, Map<String, dynamic>>?) input,
+  ) {
+    final (jsonString, fixes) = input;
     final decoded = json.decode(jsonString) as List<dynamic>;
+    if (fixes != null && fixes.isNotEmpty) {
+      QuranDataPatch.applyRegionFixes(decoded, fixes);
+    }
     return {
       for (final item in decoded)
         (item as Map<String, dynamic>)['page'] as int:

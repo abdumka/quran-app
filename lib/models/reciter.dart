@@ -456,7 +456,7 @@ class Reciter {
     id: 'trabulsi_qaloun',
     name: 'أحمد خضر الطرابلسي',
     shortName: 'أحمد الطرابلسي',
-    riwaya: 'رواية قالون',
+    riwaya: 'رواية قالون بتقليل التوراة',
     audioBaseUrl: 'https://audio.mushaf-qaloon.com/trabulsi/',
     cacheFolder: 'audio_cache_trabulsi',
     scheme: AudioScheme.timedSurah,
@@ -485,7 +485,7 @@ class Reciter {
     id: 'zarrouq_qaloun',
     name: 'محمد خليل الزروق',
     shortName: 'محمد خليل الزروق',
-    riwaya: 'رواية قالون',
+    riwaya: 'رواية قالون بتقليل التوراة',
     audioBaseUrl: 'https://audio.mushaf-qaloon.com/zarrouq/',
     cacheFolder: 'audio_cache_zarrouq',
     scheme: AudioScheme.timedSurah,
@@ -531,22 +531,87 @@ class Reciter {
   /// edited in place.
   static List<Reciter> remote = const [];
   static Map<String, Reciter> _overridden = const {};
+  static Set<String> _hidden = const {};
+  static List<String> _order = const [];
+  static Set<String> _recordingReplaced = const {};
 
-  /// What the picker shows: [all] (with any server override, e.g. a newer
-  /// timings revision) followed by the server-added reciters.
-  static List<Reciter> get offered => [
-    for (final r in all) _overridden[r.id] ?? r,
-    ...remote,
-  ];
+  /// What the picker shows: [all] (with any server override: a newer timings
+  /// revision, a new label, a replaced recording) followed by the
+  /// server-added reciters, minus the ones the server hid, in the server's
+  /// `order` when it sent one (ids it does not name keep their place after
+  /// the named ones).
+  static List<Reciter> get offered {
+    final list = [
+      for (final r in all)
+        if (!_hidden.contains(r.id)) _overridden[r.id] ?? r,
+      ...remote,
+    ];
+    if (_order.isEmpty) return list;
+    final rank = {for (var i = 0; i < _order.length; i++) _order[i]: i};
+    final indexed = [for (var i = 0; i < list.length; i++) (i, list[i])];
+    indexed.sort((a, b) {
+      final ra = rank[a.$2.id] ?? _order.length + a.$1;
+      final rb = rank[b.$2.id] ?? _order.length + b.$1;
+      return ra.compareTo(rb);
+    });
+    return [for (final e in indexed) e.$2];
+  }
 
+  /// The offered reciter with [id]. Anything else (an unknown id, a reciter
+  /// the server hid) resolves to [fallback], or to the first offered reciter
+  /// when the fallback itself is hidden.
   static Reciter byId(String? id) {
-    return offered.firstWhere((r) => r.id == id, orElse: () => fallback);
+    final list = offered;
+    for (final r in list) {
+      if (r.id == id) return r;
+    }
+    for (final r in list) {
+      if (r.id == fallback.id) return r;
+    }
+    return list.isNotEmpty ? list.first : fallback;
+  }
+
+  /// The bundled reciter [id] as the server overrides left it, hidden or
+  /// not; [fallback] for an id that is not bundled.
+  static Reciter byIdIncludingHidden(String id) {
+    for (final r in all) {
+      if (r.id == id) return _overridden[id] ?? r;
+    }
+    return fallback;
+  }
+
+  /// Whether a server override gave the bundled reciter [id] a different
+  /// recording ([overrideFromJson]'s `recording`). Its compiled page-turn
+  /// cues then belong to audio it no longer plays.
+  static bool recordingReplaced(String id) => _recordingReplaced.contains(id);
+
+  /// The cache folders bundled reciters used before the server replaced their
+  /// recording, and that no offered reciter uses any more: their files are
+  /// audio the app will never play again.
+  static Set<String> get retiredCacheFolders {
+    final inUse = {
+      for (final r in offered) r.cacheFolder,
+      for (final r in all) _overridden[r.id]?.cacheFolder ?? r.cacheFolder,
+    };
+    return {
+      for (final r in all)
+        if (_recordingReplaced.contains(r.id) && !inUse.contains(r.cacheFolder))
+          r.cacheFolder,
+    };
   }
 
   /// Installs a parsed `reciters_v<N>.json` (see [fromJson]). Server-added
   /// reciters whose id a later build bundles are skipped: the bundled
   /// definition wins, so an app update never shows one twice.
-  static void installRemote(Map<String, dynamic> json) {
+  ///
+  /// [overrides] (default: the file's own `overrides`) and [order] (default:
+  /// its `order`) let the caller keep what it installed at launch while a
+  /// newer file adds reciters mid-run (see `ReciterService.applyRemote`).
+  static void installRemote(
+    Map<String, dynamic> json, {
+    Object? overrides = _fromFile,
+    Object? order = _fromFile,
+  }) {
     final bundledIds = {for (final r in all) r.id};
     final added = <Reciter>[];
     for (final item in (json['reciters'] as List<dynamic>? ?? const [])) {
@@ -556,34 +621,205 @@ class Reciter {
       if (added.any((x) => x.id == r.id)) continue;
       added.add(r);
     }
-    final overrides = <String, Reciter>{};
-    final raw = json['overrides'];
-    if (raw is Map<String, dynamic>) {
+    final rawOverrides = identical(overrides, _fromFile)
+        ? json['overrides']
+        : overrides;
+    final rawOrder = identical(order, _fromFile) ? json['order'] : order;
+    final overridden = <String, Reciter>{};
+    final hidden = <String>{};
+    final replaced = <String>{};
+    if (rawOverrides is Map<String, dynamic>) {
+      // Folders no replaced recording may reuse: every bundled and
+      // server-added reciter's own, and each other's.
+      final taken = {for (final r in all) r.cacheFolder};
+      for (final r in added) {
+        taken.add(r.cacheFolder);
+      }
       for (final r in all) {
-        final o = raw[r.id];
+        final o = rawOverrides[r.id];
         if (o is! Map<String, dynamic>) continue;
-        final rev = o['timingsRevision'];
-        if (rev is int && rev > r.timingsRevision) {
-          overrides[r.id] = r.copyWith(timingsRevision: rev);
+        final parsed = overrideFromJson(r, o, takenFolders: taken);
+        if (parsed.hidden) hidden.add(r.id);
+        if (parsed.reciter != null) {
+          overridden[r.id] = parsed.reciter!;
+          if (parsed.recordingReplaced) {
+            replaced.add(r.id);
+            taken.add(parsed.reciter!.cacheFolder);
+          }
         }
       }
     }
+    // Never hide every reciter: a picker with nothing in it would leave the
+    // reader with no recitation at all.
+    final shown = all.where((r) => !hidden.contains(r.id)).length + added.length;
+    if (shown == 0) hidden.clear();
+    final orderIds = <String>[];
+    if (rawOrder is List) {
+      for (final id in rawOrder) {
+        if (id is String && !orderIds.contains(id)) orderIds.add(id);
+      }
+    }
     remote = List.unmodifiable(added);
-    _overridden = Map.unmodifiable(overrides);
+    _overridden = Map.unmodifiable(overridden);
+    _hidden = Set.unmodifiable(hidden);
+    _order = List.unmodifiable(orderIds);
+    _recordingReplaced = Set.unmodifiable(replaced);
   }
 
-  Reciter copyWith({int? timingsRevision}) => Reciter(
+  static const Object _fromFile = Object();
+
+  /// Longest server-sent [name] / [shortName] / [riwaya] accepted. The short
+  /// name sits in the two dropdowns and the media notification (the bundled
+  /// ones are kept to 18 characters by a test).
+  static const int maxNameLength = 60;
+  static const int maxShortNameLength = 18;
+  static const int maxRiwayaLength = 40;
+
+  /// Reads one server override for the bundled reciter [base]. Each field is
+  /// checked on its own and a bad one is ignored, never the whole entry:
+  ///
+  ///     {"name": "…", "shortName": "…", "riwaya": "…", "hidden": true,
+  ///      "timingsRevision": 3,
+  ///      "recording": {"audioBaseUrl": "https://audio.mushaf-qaloon.com/x/",
+  ///                    "timingsBaseUrl": "https://quran-content.mushaf-qaloon.com/timings/x/",
+  ///                    "cacheFolder": "audio_cache_x", "timingsRevision": 1}}
+  ///
+  /// `recording` swaps the reciter's audio for a whole-surah timed recording
+  /// under the same id (so the reader's choice, bookmarks and settings stay).
+  /// It needs our own hosts and a [cacheFolder] no other reciter uses (the
+  /// old files are different audio under the same names); a recording that
+  /// fails any check is ignored as a whole and the bundled one stays.
+  /// A `timingsRevision` outside `recording` only raises the bundled
+  /// recording's revision; inside it, it belongs to the new recording.
+  static ReciterOverride overrideFromJson(
+    Reciter base,
+    Map<String, dynamic> o, {
+    Set<String> takenFolders = const {},
+  }) {
+    String? text(Object? v, int max) {
+      if (v is! String) return null;
+      final t = v.trim();
+      if (t.isEmpty || t.length > max) return null;
+      return t;
+    }
+
+    final name = text(o['name'], maxNameLength);
+    final shortName = text(o['shortName'], maxShortNameLength);
+    final riwaya = text(o['riwaya'], maxRiwayaLength);
+    final hidden = o['hidden'] == true;
+
+    Reciter? swapped;
+    final rec = o['recording'];
+    if (rec is Map<String, dynamic>) {
+      final audio = rec['audioBaseUrl'];
+      final timings = rec['timingsBaseUrl'];
+      final cache = rec['cacheFolder'];
+      final rev = rec['timingsRevision'];
+      if (_ourUrl(audio) &&
+          _ourUrl(timings) &&
+          audio != base.audioBaseUrl &&
+          cache is String &&
+          _idRe.hasMatch(cache) &&
+          cache != base.cacheFolder &&
+          !takenFolders.contains(cache)) {
+        swapped = Reciter(
+          id: base.id,
+          name: base.name,
+          shortName: base.shortName,
+          riwaya: base.riwaya,
+          audioBaseUrl: audio as String,
+          cacheFolder: cache,
+          scheme: AudioScheme.timedSurah,
+          timingsBaseUrlOverride: timings as String,
+          timingsRevision: rev is int && rev > 0 ? rev : 1,
+        );
+      }
+    }
+
+    var r = swapped ?? base;
+    if (swapped == null) {
+      final rev = o['timingsRevision'];
+      if (rev is int && rev > base.timingsRevision) {
+        r = r.copyWith(timingsRevision: rev);
+      }
+      // The per-ayah tables, each replaced whole: which ayat this sheikh
+      // reads inside a neighbour ([coveredAyat], covered scheme only) and
+      // which ones the mirror has no audio for ([missingAyat]; the timed
+      // scheme has its gaps in the timing files instead).
+      if (base.scheme == AudioScheme.covered) {
+        final covered = _ayahTable(o['coveredAyat']);
+        if (covered != null) r = r.copyWith(coveredAyat: covered);
+      }
+      if (base.scheme != AudioScheme.timedSurah) {
+        final missing = _ayahTable(o['missingAyat']);
+        if (missing != null) r = r.copyWith(missingAyat: missing);
+      }
+    }
+    if (name != null || shortName != null || riwaya != null) {
+      r = r.copyWith(
+        name: name,
+        // A new full name without a short one: the old short form may be a
+        // shortening of the old name, so show the new name in full.
+        shortName: shortName ?? name,
+        riwaya: riwaya,
+      );
+    }
+    return ReciterOverride(
+      reciter: identical(r, base) ? null : r,
+      hidden: hidden,
+      recordingReplaced: swapped != null,
+    );
+  }
+
+  /// Whether [other] plays exactly what this one plays (same files, same
+  /// timings): a label change alone must not restart a recitation or cancel
+  /// a download.
+  bool samePlaybackAs(Reciter other) =>
+      id == other.id &&
+      audioBaseUrl == other.audioBaseUrl &&
+      cacheFolder == other.cacheFolder &&
+      scheme == other.scheme &&
+      timingsBaseUrl == other.timingsBaseUrl &&
+      timingsRevision == other.timingsRevision;
+
+  /// `{"5": [34], "23": [46]}` -> surah -> ayat, or null when [v] is not
+  /// such a table (an empty object is a valid table: nothing listed).
+  static Map<int, Set<int>>? _ayahTable(Object? v) {
+    if (v is! Map<String, dynamic>) return null;
+    final out = <int, Set<int>>{};
+    for (final e in v.entries) {
+      final s = int.tryParse(e.key);
+      final ayat = e.value;
+      if (s == null || s < 1 || s > 114 || ayat is! List) return null;
+      final set = <int>{};
+      for (final a in ayat) {
+        if (a is! int || a < 1 || a > madaniAyahCounts[s - 1]) return null;
+        set.add(a);
+      }
+      if (set.isNotEmpty) out[s] = set;
+    }
+    return out;
+  }
+
+  Reciter copyWith({
+    int? timingsRevision,
+    String? name,
+    String? shortName,
+    String? riwaya,
+    Map<int, Set<int>>? coveredAyat,
+    Map<int, Set<int>>? missingAyat,
+  }) => Reciter(
     id: id,
-    name: name,
-    shortName: shortName,
-    riwaya: riwaya,
+    name: name ?? this.name,
+    shortName: shortName ?? this.shortName,
+    riwaya: riwaya ?? this.riwaya,
     audioBaseUrl: audioBaseUrl,
     cacheFolder: cacheFolder,
     scheme: scheme,
-    coveredAyat: coveredAyat,
+    coveredAyat: coveredAyat ?? this.coveredAyat,
     breathCombining: breathCombining,
     continuationsAsset: continuationsAsset,
-    missingAyat: missingAyat,
+    missingAyat: missingAyat ?? this.missingAyat,
     timingsBaseUrlOverride: timingsBaseUrlOverride,
     timingsRevision: timingsRevision ?? this.timingsRevision,
   );
@@ -641,4 +877,23 @@ class Reciter {
         u.scheme == 'https' &&
         (u.host == 'mushaf-qaloon.com' || u.host.endsWith('.mushaf-qaloon.com'));
   }
+}
+
+/// One parsed server override (see [Reciter.overrideFromJson]).
+class ReciterOverride {
+  const ReciterOverride({
+    required this.reciter,
+    required this.hidden,
+    required this.recordingReplaced,
+  });
+
+  /// The bundled reciter as the override changes it, or null when nothing
+  /// usable was sent.
+  final Reciter? reciter;
+
+  /// The server took this reciter out of the pickers.
+  final bool hidden;
+
+  /// [reciter] plays a different recording than the bundled one.
+  final bool recordingReplaced;
 }

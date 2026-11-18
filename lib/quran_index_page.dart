@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'quran_constants.dart';
+import 'services/app_look_service.dart';
 import 'services/surah_index_view_service.dart';
 import 'services/tv_service.dart';
+import 'theme/app_surfaces.dart';
 import 'thumn_data.dart';
 import 'utils/responsive_helper.dart';
 
@@ -774,15 +776,85 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
+  // The new look's colours, or null in the previous look and in night mode,
+  // where every tile keeps the colours it had. The TV ring (gold fill, dark
+  // outline) is the remote's cursor and looks the same in every look.
+  AppSurfaces? get _look => AppSurfaces.maybeOf(context);
+
+  /// A tile's fill: the TV ring, the current entry, or a plain card.
+  Color _tileFill({required bool tvFocused, required bool isCurrent}) {
+    final s = _look;
+    if (tvFocused) return const Color(0xFFD2B97E);
+    if (isCurrent) return s?.selected ?? const Color(0xFFE7D7AF);
+    return s?.card ?? Colors.white;
+  }
+
+  /// A tile's outline. [restAlpha] is the faint gold a plain tile had.
+  Color _tileBorder({
+    required bool tvFocused,
+    required bool isCurrent,
+    required double restAlpha,
+  }) {
+    final s = _look;
+    if (tvFocused) return const Color(0xFF5A4520);
+    if (isCurrent) return s?.selected ?? const Color(0xFF8D6E3F);
+    return s?.border ?? const Color(0xFF8D6E3F).withValues(alpha: restAlpha);
+  }
+
+  /// The soft shadow under the old tiles; the new look has the hairline only.
+  List<BoxShadow>? _tileShadow(double alpha, double blur, double dy) =>
+      _look != null
+      ? null
+      : [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: alpha),
+            blurRadius: blur,
+            offset: Offset(0, dy),
+          ),
+        ];
+
+  /// A tile's corners: [old] in the previous look, the card radius otherwise.
+  double _tileRadius(double old) =>
+      _look == null ? old : AppSurfaces.cardRadius;
+
+  /// Titles drop to 600 in the new look, details to 500.
+  FontWeight _titleWeight(FontWeight old) =>
+      _look == null ? old : FontWeight.w600;
+  FontWeight _detailWeight(FontWeight old) =>
+      _look == null ? old : FontWeight.w500;
+
+  Color get _titleColor => _look?.text ?? const Color(0xFF2F2418);
+
+  /// The small number in a circle: the old tinted disc, or the new look's
+  /// gold outline.
+  BoxDecoration _numberDisc() {
+    final s = _look;
+    return s == null
+        ? BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+          )
+        : BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: s.accent, width: 1.5),
+          );
+  }
+
   Widget _buildTopTabs() {
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
+    final s = _look;
 
     Widget chip(QuranIndexTab tab, String label) {
       final isSelected = _selectedTab == tab;
       final bool tvFocused = TvService.instance.isTv && _tvOnTabs && isSelected;
+      // the new look: tabs as segments, the chosen one in the gold fill
+      final Color fill = s == null
+          ? (isSelected ? const Color(0xFF8D6E3F) : Colors.white)
+          : (isSelected ? s.selected : s.tile);
+      final radius = s == null ? 999.0 : 8.0;
       return InkWell(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(radius),
         onTap: () {
           FocusScope.of(context).unfocus();
           setState(() {
@@ -796,23 +868,19 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             vertical: isLandscape ? 8 : 9,
           ),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF8D6E3F) : Colors.white,
-            borderRadius: BorderRadius.circular(999),
+            color: fill,
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
               color: tvFocused
                   ? const Color(0xFFD2B97E)
+                  : s != null
+                  ? fill
                   : (isSelected
                         ? const Color(0xFF8D6E3F)
                         : const Color(0xFF8D6E3F).withValues(alpha: 0.18)),
               width: tvFocused ? 3 : 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            boxShadow: _tileShadow(0.04, 8, 3),
           ),
           child: Text(
             label,
@@ -820,8 +888,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             maxLines: 1,
             style: TextStyle(
               fontSize: isLandscape ? 11.5 : 12,
-              fontWeight: FontWeight.w800,
-              color: isSelected ? Colors.white : const Color(0xFF4C3A22),
+              fontWeight: _titleWeight(FontWeight.w800),
+              color: s == null
+                  ? (isSelected ? Colors.white : const Color(0xFF4C3A22))
+                  : (isSelected ? s.onSelected : s.muted),
             ),
           ),
         ),
@@ -894,8 +964,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
             Icons.apps_rounded,
             size: 26,
             color: grid
-                ? const Color(0xFF8D6E3F)
-                : const Color(0xFF8D6E3F).withValues(alpha: 0.32),
+                ? _look?.accent ?? const Color(0xFF8D6E3F)
+                : (_look?.accent ?? const Color(0xFF8D6E3F)).withValues(
+                    alpha: 0.32,
+                  ),
           ),
         ),
       ),
@@ -922,12 +994,17 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   }
 
   Widget _buildSurahSearchTextField(bool isLandscape) {
+    final s = _look;
+    final radius = s == null ? 16.0 : AppSurfaces.cardRadius;
     return TextField(
       controller: _searchController,
       onChanged: (_) => setState(() {}),
       textAlign: TextAlign.right,
       decoration: InputDecoration(
         hintText: 'ابحث عن سورة',
+        hintStyle: s == null ? null : TextStyle(color: s.muted),
+        prefixIconColor: s?.icon,
+        suffixIconColor: s?.muted,
         prefixIcon: const Icon(Icons.search_rounded),
         suffixIcon: _searchController.text.isNotEmpty
             ? IconButton(
@@ -942,26 +1019,31 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                 icon: const Icon(Icons.arrow_back_rounded),
               ),
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.96),
+        fillColor: s?.field ?? Colors.white.withValues(alpha: 0.96),
         contentPadding: EdgeInsets.symmetric(
           horizontal: 14,
           vertical: isLandscape ? 10 : 12,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(radius),
           borderSide: BorderSide(
-            color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+            color: s?.border ??
+                const Color(0xFF8D6E3F).withValues(alpha: 0.12),
           ),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(radius),
           borderSide: BorderSide(
-            color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+            color: s?.border ??
+                const Color(0xFF8D6E3F).withValues(alpha: 0.12),
           ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF8D6E3F), width: 1.2),
+          borderRadius: BorderRadius.circular(radius),
+          borderSide: BorderSide(
+            color: s?.accent ?? const Color(0xFF8D6E3F),
+            width: 1.2,
+          ),
         ),
       ),
     );
@@ -975,10 +1057,11 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     final bool tvFocused =
         TvService.instance.isTv && !_tvOnTabs && index == _tvIndex;
 
+    final radius = _tileRadius(999);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(radius),
         onTap: () {
           widget.onSelectSurah(number);
           _goToPageAndClose(
@@ -988,27 +1071,19 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         },
         child: Container(
           decoration: BoxDecoration(
-            color: tvFocused
-                ? const Color(0xFFD2B97E)
-                : (isCurrent ? const Color(0xFFE7D7AF) : Colors.white),
-            borderRadius: BorderRadius.circular(999),
+            color: _tileFill(tvFocused: tvFocused, isCurrent: isCurrent),
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
               // A thick gold ring is the remote's cursor here; without it the
               // grid scrolls but nothing looks selected.
-              color: tvFocused
-                  ? const Color(0xFF5A4520)
-                  : (isCurrent
-                        ? const Color(0xFF8D6E3F)
-                        : const Color(0xFF8D6E3F).withValues(alpha: 0.10)),
+              color: _tileBorder(
+                tvFocused: tvFocused,
+                isCurrent: isCurrent,
+                restAlpha: 0.10,
+              ),
               width: tvFocused ? 3 : 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            boxShadow: _tileShadow(0.05, 8, 3),
           ),
           child: Center(
             child: FittedBox(
@@ -1018,10 +1093,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                 textAlign: TextAlign.center,
                 textDirection: TextDirection.rtl,
                 maxLines: 1,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2F2418),
+                  fontWeight: _titleWeight(FontWeight.w800),
+                  color: _titleColor,
                 ),
               ),
             ),
@@ -1084,6 +1159,15 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     return widths;
   }
 
+  /// [_surahDetailStyle] in the new look's muted colour (the widths are
+  /// measured with the old style, and only the colour differs).
+  TextStyle get _surahDetailShown {
+    final s = _look;
+    return s == null
+        ? _surahDetailStyle
+        : _surahDetailStyle.copyWith(color: s.muted);
+  }
+
   Widget _surahDetailCell(String text, double width) => SizedBox(
     width: width,
     child: Text(
@@ -1091,13 +1175,13 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       maxLines: 1,
       // Start-aligned: the labels (صفحة, آية) line up like a table column.
       textAlign: TextAlign.start,
-      style: _surahDetailStyle,
+      style: _surahDetailShown,
     ),
   );
 
-  Widget _surahDetailDot() => const Padding(
-    padding: EdgeInsets.symmetric(horizontal: 5),
-    child: Text('•', style: _surahDetailStyle),
+  Widget _surahDetailDot() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 5),
+    child: Text('•', style: _surahDetailShown),
   );
 
   /// One surah per line: number, name, then مكية/مدنية • ayah count • page.
@@ -1112,10 +1196,11 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         TvService.instance.isTv && !_tvOnTabs && index == _tvIndex;
     final widths = _surahDetailWidths(MediaQuery.textScalerOf(context));
 
+    final radius = _tileRadius(14);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(radius),
         onTap: () {
           widget.onSelectSurah(number);
           _goToPageAndClose(
@@ -1126,16 +1211,14 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: tvFocused
-                ? const Color(0xFFD2B97E)
-                : (isCurrent ? const Color(0xFFE7D7AF) : Colors.white),
-            borderRadius: BorderRadius.circular(14),
+            color: _tileFill(tvFocused: tvFocused, isCurrent: isCurrent),
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: tvFocused
-                  ? const Color(0xFF5A4520)
-                  : (isCurrent
-                        ? const Color(0xFF8D6E3F)
-                        : const Color(0xFF8D6E3F).withValues(alpha: 0.10)),
+              color: _tileBorder(
+                tvFocused: tvFocused,
+                isCurrent: isCurrent,
+                restAlpha: 0.10,
+              ),
               width: tvFocused ? 3 : 1,
             ),
           ),
@@ -1145,16 +1228,13 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                 width: 30,
                 height: 30,
                 alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
-                ),
+                decoration: _numberDisc(),
                 child: Text(
                   '$number',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF6A5330),
+                    fontWeight: _titleWeight(FontWeight.w900),
+                    color: _look?.accent ?? const Color(0xFF6A5330),
                     height: 1,
                   ),
                 ),
@@ -1168,10 +1248,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                   name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2F2418),
+                    fontWeight: _titleWeight(FontWeight.w800),
+                    color: _titleColor,
                   ),
                 ),
               ),
@@ -1212,33 +1292,26 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     bool compact = false,
     bool tvFocused = false,
   }) {
+    final radius = _tileRadius(18);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(radius),
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: tvFocused
-                ? const Color(0xFFD2B97E)
-                : (isCurrent ? const Color(0xFFE7D7AF) : Colors.white),
-            borderRadius: BorderRadius.circular(18),
+            color: _tileFill(tvFocused: tvFocused, isCurrent: isCurrent),
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
               // A thick gold ring is the remote's cursor.
-              color: tvFocused
-                  ? const Color(0xFF5A4520)
-                  : (isCurrent
-                        ? const Color(0xFF8D6E3F)
-                        : const Color(0xFF8D6E3F).withValues(alpha: 0.12)),
+              color: _tileBorder(
+                tvFocused: tvFocused,
+                isCurrent: isCurrent,
+                restAlpha: 0.12,
+              ),
               width: tvFocused ? 3 : 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            boxShadow: _tileShadow(0.05, 8, 3),
           ),
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 6 : 10,
@@ -1254,8 +1327,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                 maxLines: 1,
                 style: TextStyle(
                   fontSize: compact ? 14 : 17,
-                  fontWeight: FontWeight.w900,
-                  color: const Color(0xFF2F2418),
+                  fontWeight: _titleWeight(FontWeight.w900),
+                  color: _titleColor,
                   height: 1.2,
                 ),
               ),
@@ -1273,32 +1346,25 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     required VoidCallback onTap,
     bool tvFocused = false,
   }) {
+    final radius = _tileRadius(20);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(radius),
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: tvFocused
-                ? const Color(0xFFD2B97E)
-                : (isCurrent ? const Color(0xFFE7D7AF) : Colors.white),
-            borderRadius: BorderRadius.circular(20),
+            color: _tileFill(tvFocused: tvFocused, isCurrent: isCurrent),
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: tvFocused
-                  ? const Color(0xFF5A4520)
-                  : (isCurrent
-                        ? const Color(0xFF8D6E3F)
-                        : const Color(0xFF8D6E3F).withValues(alpha: 0.14)),
+              color: _tileBorder(
+                tvFocused: tvFocused,
+                isCurrent: isCurrent,
+                restAlpha: 0.14,
+              ),
               width: tvFocused ? 3 : 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            boxShadow: _tileShadow(0.05, 8, 3),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Column(
@@ -1310,8 +1376,8 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                   width: 66,
                   height: 66,
                   color: isCurrent
-                      ? const Color(0xFF8D6E3F)
-                      : const Color(0xFF9E824C),
+                      ? _look?.accent ?? const Color(0xFF8D6E3F)
+                      : _look?.icon ?? const Color(0xFF9E824C),
                 ),
               ),
               const SizedBox(height: 6),
@@ -1322,10 +1388,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                   textAlign: TextAlign.center,
                   textDirection: TextDirection.rtl,
                   maxLines: 1,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF2F2418),
+                    fontWeight: _titleWeight(FontWeight.w900),
+                    color: _titleColor,
                   ),
                 ),
               ),
@@ -1337,10 +1403,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                   textDirection: TextDirection.rtl,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF6A5A45),
+                    fontWeight: _detailWeight(FontWeight.w700),
+                    color: _look?.muted ?? const Color(0xFF6A5A45),
                     height: 1.25,
                   ),
                 ),
@@ -1352,20 +1418,23 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     );
   }
 
+  /// «لا توجد نتيجة» under an empty search.
+  Widget _noResult() => Center(
+    child: Text(
+      'لا توجد نتيجة',
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: _detailWeight(FontWeight.w700),
+        color: _look?.muted ?? const Color(0xFF6A5A45),
+      ),
+    ),
+  );
+
   Widget _buildSurahsGrid() {
     final surahs = _filteredSurahs();
 
     if (surahs.isEmpty) {
-      return const Center(
-        child: Text(
-          'لا توجد نتيجة',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF6A5A45),
-          ),
-        ),
-      );
+      return _noResult();
     }
 
     final grid = _surahGrid;
@@ -1548,46 +1617,38 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
               final isCurrent = page == currentRealPage;
               final tvFocused = _tvFocused(index);
 
+              final radius = _tileRadius(14);
               return Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(radius),
                   onTap: () => _goToPageAndClose(page),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: tvFocused
-                          ? const Color(0xFFD2B97E)
-                          : (isCurrent
-                                ? const Color(0xFFE7D7AF)
-                                : Colors.white),
-                      borderRadius: BorderRadius.circular(14),
+                      color: _tileFill(
+                        tvFocused: tvFocused,
+                        isCurrent: isCurrent,
+                      ),
+                      borderRadius: BorderRadius.circular(radius),
                       border: Border.all(
-                        color: tvFocused
-                            ? const Color(0xFF5A4520)
-                            : (isCurrent
-                                  ? const Color(0xFF8D6E3F)
-                                  : const Color(
-                                      0xFF8D6E3F,
-                                    ).withValues(alpha: 0.10)),
+                        color: _tileBorder(
+                          tvFocused: tvFocused,
+                          isCurrent: isCurrent,
+                          restAlpha: 0.10,
+                        ),
                         width: tvFocused ? 3 : 1,
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                      boxShadow: _tileShadow(0.04, 6, 2),
                     ),
                     child: Center(
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
                           '$page',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF2F2418),
+                            fontWeight: _titleWeight(FontWeight.w900),
+                            color: _titleColor,
                           ),
                         ),
                       ),
@@ -1734,16 +1795,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
           Expanded(
             child: _tvExcludeFocus(
               child: visibleHizbs.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'لا توجد نتيجة',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF6A5A45),
-                        ),
-                      ),
-                    )
+                  ? _noResult()
                   : ListView.builder(
                       controller: _hizbScrollController,
                       padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
@@ -1826,32 +1878,39 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                           icon: const Icon(Icons.close_rounded, size: 20),
                         )
                       : null,
+                  hintStyle: _look == null
+                      ? null
+                      : TextStyle(color: _look!.muted),
+                  prefixIconColor: _look?.icon,
+                  suffixIconColor: _look?.muted,
                   filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.96),
+                  fillColor: _look?.field ?? Colors.white.withValues(alpha: 0.96),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 10,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(_tileRadius(14)),
                     borderSide: BorderSide(
-                      color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
+                      color: _look?.border ??
+                          const Color(0xFF8D6E3F).withValues(alpha: 0.12),
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(_tileRadius(14)),
                     borderSide: _tvFocused(0)
                         ? const BorderSide(color: Color(0xFF5A4520), width: 3)
                         : BorderSide(
-                            color: const Color(
-                              0xFF8D6E3F,
-                            ).withValues(alpha: 0.12),
+                            color: _look?.border ??
+                                const Color(
+                                  0xFF8D6E3F,
+                                ).withValues(alpha: 0.12),
                           ),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF8D6E3F),
+                    borderRadius: BorderRadius.circular(_tileRadius(14)),
+                    borderSide: BorderSide(
+                      color: _look?.accent ?? const Color(0xFF8D6E3F),
                       width: 1.2,
                     ),
                   ),
@@ -1868,10 +1927,11 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     required bool allExpanded,
     bool tvFocused = false,
   }) {
+    final radius = _tileRadius(14);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(radius),
         onTap: () {
           setState(() {
             if (allExpanded) {
@@ -1886,12 +1946,14 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
           decoration: BoxDecoration(
-            color: tvFocused ? const Color(0xFFD2B97E) : Colors.white,
-            borderRadius: BorderRadius.circular(14),
+            color: _tileFill(tvFocused: tvFocused, isCurrent: false),
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: tvFocused
-                  ? const Color(0xFF5A4520)
-                  : const Color(0xFF8D6E3F).withValues(alpha: 0.25),
+              color: _tileBorder(
+                tvFocused: tvFocused,
+                isCurrent: false,
+                restAlpha: 0.25,
+              ),
               width: tvFocused ? 3 : 1,
             ),
           ),
@@ -1903,16 +1965,16 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                     ? Icons.unfold_less_rounded
                     : Icons.unfold_more_rounded,
                 size: 16,
-                color: const Color(0xFF6A5330),
+                color: _look?.icon ?? const Color(0xFF6A5330),
               ),
               const SizedBox(width: 4),
               Text(
                 allExpanded ? 'طي الكل' : 'توسيع الكل',
                 textDirection: TextDirection.rtl,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF4C3A22),
+                  fontWeight: _titleWeight(FontWeight.w800),
+                  color: _look?.text ?? const Color(0xFF4C3A22),
                 ),
               ),
             ],
@@ -1948,27 +2010,20 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Container(
         decoration: BoxDecoration(
-          color: headerFocused
-              ? const Color(0xFFD2B97E)
-              : (isCurrentHizb && !isExpanded
-                    ? const Color(0xFFE7D7AF)
-                    : Colors.white),
+          color: _tileFill(
+            tvFocused: headerFocused,
+            isCurrent: isCurrentHizb && !isExpanded,
+          ),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: headerFocused
-                ? const Color(0xFF5A4520)
-                : (isCurrentHizb
-                      ? const Color(0xFF8D6E3F)
-                      : const Color(0xFF8D6E3F).withValues(alpha: 0.12)),
+            color: _tileBorder(
+              tvFocused: headerFocused,
+              isCurrent: isCurrentHizb,
+              restAlpha: 0.12,
+            ),
             width: headerFocused ? 3 : 1,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          boxShadow: _tileShadow(0.04, 8, 3),
         ),
         child: Column(
           children: [
@@ -2000,23 +2055,36 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                           width: 40,
                           height: 40,
                           alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              begin: Alignment.topRight,
-                              end: Alignment.bottomLeft,
-                              colors: [Color(0xFFA8844A), Color(0xFF8D6E3F)],
-                            ),
-                            border: Border.all(
-                              color: const Color(0xFFE7D7B5),
-                              width: 1.6,
-                            ),
-                          ),
+                          // the new look: the gold outlined number, no
+                          // gradient disc
+                          decoration: _look == null
+                              ? BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topRight,
+                                    end: Alignment.bottomLeft,
+                                    colors: [
+                                      Color(0xFFA8844A),
+                                      Color(0xFF8D6E3F),
+                                    ],
+                                  ),
+                                  border: Border.all(
+                                    color: const Color(0xFFE7D7B5),
+                                    width: 1.6,
+                                  ),
+                                )
+                              : BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _look!.accent,
+                                    width: 1.6,
+                                  ),
+                                ),
                           child: Text(
                             '$hizbNumber',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
+                            style: TextStyle(
+                              color: _look?.accent ?? Colors.white,
+                              fontWeight: _titleWeight(FontWeight.w900),
                               fontSize: 15,
                               height: 1,
                             ),
@@ -2037,20 +2105,23 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                                   Text(
                                     'الحزب $hizbNumber',
                                     textDirection: TextDirection.rtl,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 15,
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xFF2F2418),
+                                      fontWeight: _titleWeight(FontWeight.w900),
+                                      color: _titleColor,
                                     ),
                                   ),
                                   if (start != null)
                                     Text(
                                       _hizbStartLabel(start),
                                       textDirection: TextDirection.rtl,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF8A7757),
+                                        fontWeight: _detailWeight(
+                                          FontWeight.w700,
+                                        ),
+                                        color: _look?.muted ??
+                                            const Color(0xFF8A7757),
                                       ),
                                     ),
                                 ],
@@ -2062,10 +2133,11 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                                   textDirection: TextDirection.rtl,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF8A7757),
+                                    fontWeight: _detailWeight(FontWeight.w700),
+                                    color: _look?.muted ??
+                                        const Color(0xFF8A7757),
                                   ),
                                 ),
                               ],
@@ -2075,9 +2147,9 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                         AnimatedRotation(
                           turns: isExpanded ? 0.5 : 0.0,
                           duration: const Duration(milliseconds: 180),
-                          child: const Icon(
+                          child: Icon(
                             Icons.keyboard_arrow_down_rounded,
-                            color: Color(0xFF8D6E3F),
+                            color: _look?.muted ?? const Color(0xFF8D6E3F),
                             size: 26,
                           ),
                         ),
@@ -2124,18 +2196,21 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     bool matched = false,
     bool tvFocused = false,
   }) {
+    final s = _look;
     final Color background = tvFocused
         ? const Color(0xFFD2B97E)
         : isCurrent
-        ? const Color(0xFFE7D7AF)
+        ? s?.selected ?? const Color(0xFFE7D7AF)
         : matched
-        ? const Color(0xFFFBF3DC)
-        : const Color(0xFFF6F1E5);
+        ? s?.highlight ?? const Color(0xFFFBF3DC)
+        : s?.page ?? const Color(0xFFF6F1E5);
     final Color borderColor = tvFocused
         ? const Color(0xFF5A4520)
-        : isCurrent || matched
-        ? const Color(0xFF8D6E3F)
-        : const Color(0xFF8D6E3F).withValues(alpha: 0.08);
+        : isCurrent
+        ? s?.selected ?? const Color(0xFF8D6E3F)
+        : matched
+        ? s?.accent ?? const Color(0xFF8D6E3F)
+        : s?.hair ?? const Color(0xFF8D6E3F).withValues(alpha: 0.08);
 
     return Padding(
       key: tvFocused ? _tvRowKey : null,
@@ -2158,16 +2233,13 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                   width: 26,
                   height: 26,
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF8D6E3F).withValues(alpha: 0.12),
-                  ),
+                  decoration: _numberDisc(),
                   child: Text(
                     '$ordinal',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF6A5330),
+                      fontWeight: _titleWeight(FontWeight.w900),
+                      color: s?.accent ?? const Color(0xFF6A5330),
                       height: 1,
                     ),
                   ),
@@ -2183,10 +2255,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                         textAlign: TextAlign.right,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF2F2418),
+                          fontWeight: _titleWeight(FontWeight.w700),
+                          color: _titleColor,
                           height: 1.3,
                         ),
                       ),
@@ -2196,10 +2268,10 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                         textDirection: TextDirection.rtl,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF8A7757),
+                          fontWeight: _detailWeight(FontWeight.w600),
+                          color: s?.muted ?? const Color(0xFF8A7757),
                           height: 1.1,
                         ),
                       ),
@@ -2261,16 +2333,23 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       _tvSeeded = true;
       _tvIndex = _tvInitialIndex();
     }
+    final s = _look;
+    final previous = AppLookScope.isPrevious(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F1E5),
+      backgroundColor: s?.page ?? const Color(0xFFF6F1E5),
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF6F1E5),
-        foregroundColor: const Color(0xFF3D3122),
+        backgroundColor: s?.page ?? const Color(0xFFF6F1E5),
+        foregroundColor: s?.text ?? const Color(0xFF3D3122),
         elevation: 0,
         centerTitle: true,
-        title: const Text(
+        // On an Arabic page "back" sits on the right, pointing right; the
+        // previous look keeps Flutter's own arrow.
+        automaticallyImplyLeading: previous,
+        title: Text(
           'الفهرس',
-          style: TextStyle(fontWeight: FontWeight.w900),
+          style: TextStyle(
+            fontWeight: previous ? FontWeight.w900 : FontWeight.w600,
+          ),
         ),
         actions: [
           if (_selectedTab == QuranIndexTab.surahs &&
@@ -2280,6 +2359,14 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
               padding: const EdgeInsetsDirectional.only(end: 8),
               child: _buildSurahLayoutToggle(),
             ),
+          if (!previous) ...[
+            IconButton(
+              icon: const Icon(Icons.arrow_forward_rounded),
+              tooltip: 'رجوع',
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+            const SizedBox(width: 4),
+          ],
         ],
       ),
       body: SafeArea(

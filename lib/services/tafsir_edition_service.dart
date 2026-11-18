@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/tafsir_edition.dart';
+import 'remote_config.dart';
 
 /// Holds the currently selected tafsir edition and persists the choice.
 ///
@@ -14,8 +15,8 @@ class TafsirEditionService {
 
   static const String _prefKey = 'selectedTafsirId';
 
-  /// Every edition the user can pick from.
-  final List<TafsirEdition> editions = TafsirEdition.all;
+  /// Every edition the user can pick from (bundled, then server-added).
+  List<TafsirEdition> get editions => TafsirEdition.offered;
 
   /// The active edition. Listen to rebuild the tafsir sheet.
   final ValueNotifier<TafsirEdition> selected =
@@ -28,6 +29,9 @@ class TafsirEditionService {
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
+    // The saved choice may be an edition our server added (RemoteConfig
+    // reads that list; one small local file).
+    await RemoteConfig.instance.load();
     final prefs = await SharedPreferences.getInstance();
     selected.value = TafsirEdition.byId(prefs.getString(_prefKey));
   }

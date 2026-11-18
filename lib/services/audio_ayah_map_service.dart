@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../models/reciter.dart';
+import 'quran_data_patch.dart';
 
 /// One reciter's الوقف الهبطي data: which ayat merely repeat the breath that
 /// already played, and which surahs recite the basmala inside the ayah-1 file.
@@ -43,11 +44,16 @@ class AudioAyahMapService {
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
-    _map = await _loadAyahMap();
+    // Tables our server corrected (QuranDataPatch) win over the bundle.
+    final patch = await QuranDataPatch.load();
+    _map = patch?.audioAyahMap ?? await _loadAyahMap();
     for (final reciter in Reciter.allDefined) {
       final asset = reciter.continuationsAsset;
       if (asset != null && !_breath.containsKey(asset)) {
-        _breath[asset] = await _loadBreathData(asset);
+        final fromServer = patch?.breathData[asset];
+        _breath[asset] = fromServer != null
+            ? parseBreathData(fromServer)
+            : await _loadBreathData(asset);
       }
     }
   }
@@ -74,6 +80,15 @@ class AudioAyahMapService {
     try {
       final decoded = json.decode(await rootBundle.loadString(asset))
           as Map<String, dynamic>;
+      return parseBreathData(decoded);
+    } catch (_) {
+      return BreathData.empty;
+    }
+  }
+
+  /// One reciter's الوقف الهبطي file, decoded.
+  static BreathData parseBreathData(Map<String, dynamic> decoded) {
+    try {
       final continuations = <int, Set<int>>{};
       (decoded['continuations'] as Map<String, dynamic>).forEach((surah, ayat) {
         continuations[int.parse(surah)] =

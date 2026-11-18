@@ -157,3 +157,6 @@ tools/capture_store_screenshots.py
 /crop_*.png
 /huawei-store-assets/
 /sites/
+
+# Local generated artifacts and marketing designs; never commit.
+/output/

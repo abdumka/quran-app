@@ -25,12 +25,16 @@ import 'widgets/quran/playing_ayah_highlight.dart';
 import 'widgets/quran/selected_ayah_highlight.dart';
 import 'widgets/quran/tanzilat_overlay.dart';
 import 'widgets/quran/tanzilat_sheet.dart';
+import 'widgets/quran/khilaf_sheet.dart';
 import 'widgets/share/ayah_share_sheet.dart';
 import 'services/share/share_video_config.dart';
 import 'widgets/quran/ayah_recite_row.dart';
+import 'widgets/repeat_count_wheel.dart';
 import 'services/tanzilat_service.dart';
 import 'services/ayah_play_setting.dart';
 import 'services/content_update_service.dart';
+import 'services/notification_center.dart';
+import 'services/server_notice_service.dart';
 import 'widgets/quran/spine_shadow.dart';
 import 'services/memorization_test_service.dart';
 import 'services/asr_model_manager.dart';
@@ -49,6 +53,8 @@ import 'widgets/chat/chat_screen.dart';
 import 'services/push_notification_service.dart';
 import 'services/keep_screen_awake_service.dart';
 import 'services/margin_images_service.dart';
+import 'services/audio_download_service.dart';
+import 'services/tafsir_cache_service.dart';
 import 'services/page_quality_service.dart';
 import 'services/recitation_bar_auto_hide_service.dart';
 import 'services/recitation_bar_opacity_service.dart';
@@ -61,6 +67,7 @@ import 'services/theme_service.dart';
 import 'services/tafsir_service.dart';
 import 'services/tafsir_edition_service.dart';
 import 'services/audio_service.dart';
+import 'services/talqeen_setting.dart';
 import 'services/reciter_service.dart';
 import 'services/quran_json_service.dart';
 import 'models/quran_page_data.dart';
@@ -71,6 +78,11 @@ import 'quran_index_page.dart';
 import 'utils/copy_helper.dart';
 import 'utils/responsive_helper.dart';
 import 'utils/tablet_layout_helper.dart';
+import 'widgets/menu/app_menu_drawer.dart';
+import 'services/app_look_service.dart';
+
+import 'services/absence_reminder_service.dart';
+import 'theme/app_surfaces.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_stats_page.dart';
 import 'widgets/hifz/hifz_test_setup_page.dart';
@@ -91,11 +103,13 @@ import 'services/tasmee_report_store.dart'
 import 'services/tasmee_weak_point_store.dart';
 import 'widgets/top_overlay_bar.dart';
 import 'widgets/hifz_lens_icon.dart';
+import 'widgets/settings/downloads_management_page.dart';
 import 'widgets/settings/settings_page.dart';
 import 'widgets/settings/settings_tour_overlay.dart';
 import 'widgets/update_available_dialog.dart';
 import 'widgets/whats_new_dialog.dart';
 import 'search_page.dart';
+import 'utils/after_opening.dart';
 
 /// Whether the tint on a search result still belongs on screen once the
 /// reader has landed on [landedPageIndex] (0-based), for a result tinted on
@@ -442,6 +456,11 @@ class _QuranPagesState extends State<QuranPages>
   int _rangeCountPref = 3;
   int _rangeAyahRepeatPref = 1;
   bool _rangeContinueAfterPref = true;
+  // The number each wheel last showed, kept even when a chip was chosen.
+  int _rangeCountWheelPref = 7;
+  int _rangeAyahWheelPref = 5;
+  static const String _rangeCountWheelPrefKey = 'range_repeat_count_wheel';
+  static const String _rangeAyahWheelPrefKey = 'range_repeat_each_ayah_wheel';
   static const String _rangeCountPrefKey = 'range_repeat_count';
   static const String _rangeAyahRepeatPrefKey = 'range_repeat_each_ayah';
   static const String _rangeContinueAfterPrefKey =
@@ -452,6 +471,8 @@ class _QuranPagesState extends State<QuranPages>
     _rangeCountPref = prefs.getInt(_rangeCountPrefKey) ?? 3;
     _rangeAyahRepeatPref = prefs.getInt(_rangeAyahRepeatPrefKey) ?? 1;
     _rangeContinueAfterPref = prefs.getBool(_rangeContinueAfterPrefKey) ?? true;
+    _rangeCountWheelPref = prefs.getInt(_rangeCountWheelPrefKey) ?? 7;
+    _rangeAyahWheelPref = prefs.getInt(_rangeAyahWheelPrefKey) ?? 5;
   }
 
   Future<void> _saveRangeRepeatPrefs() async {
@@ -459,6 +480,8 @@ class _QuranPagesState extends State<QuranPages>
     await prefs.setInt(_rangeCountPrefKey, _rangeCountPref);
     await prefs.setInt(_rangeAyahRepeatPrefKey, _rangeAyahRepeatPref);
     await prefs.setBool(_rangeContinueAfterPrefKey, _rangeContinueAfterPref);
+    await prefs.setInt(_rangeCountWheelPrefKey, _rangeCountWheelPref);
+    await prefs.setInt(_rangeAyahWheelPrefKey, _rangeAyahWheelPref);
   }
 
   /// Strengthening drills still to run in this round (تقوية الحفظ), or
@@ -799,6 +822,7 @@ class _QuranPagesState extends State<QuranPages>
     _loadLastPage();
     _loadRangeRepeatPrefs();
     PlayingAyahHighlightSetting.load();
+    TalqeenSetting.load();
     TanzilatSetting.load();
     _loadBookmark();
     _loadBookmarkGuidePreference();
@@ -826,6 +850,8 @@ class _QuranPagesState extends State<QuranPages>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DailyPageService.instance.refreshSchedule(verifyQueue: true);
       KahfReminderService.instance.refreshSchedule();
+      // «لا تهجر القرآن»: every open moves the absence reminders forward.
+      AbsenceReminderService.instance.rearm(force: true);
       // Firebase too stays off the launch path. A push tapped while the app was
       // closed is still delivered: FCM holds it until getInitialMessage asks.
       ChatService.instance.attachOpener(_openChatFromNotification);
@@ -1050,6 +1076,8 @@ class _QuranPagesState extends State<QuranPages>
       // Keeps the "صفحة اليوم" queue a full horizon deep. Returns immediately
       // once it has run for the day, so this is cheap on every other resume.
       DailyPageService.instance.refreshSchedule();
+      // Moves «لا تهجر القرآن» forward; at most every few hours.
+      AbsenceReminderService.instance.rearm();
       // Re-assert the keep-awake flag. It lives on the Activity's window, so
       // anything that recreates the window drops it, and on TV losing it means
       // the set goes to standby mid-recitation.
@@ -1394,6 +1422,8 @@ class _QuranPagesState extends State<QuranPages>
     if (!mounted) return;
 
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
 
     await showDialog<void>(
       context: context,
@@ -1401,13 +1431,15 @@ class _QuranPagesState extends State<QuranPages>
         return AlertDialog(
           backgroundColor: isDarkMode
               ? const Color(0xFF19130A)
-              : const Color(0xFFF8F1DE),
+              : s?.sheet ?? const Color(0xFFF8F1DE),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(
+              s == null ? 22 : AppSurfaces.radius,
+            ),
             side: BorderSide(
               color: isDarkMode
                   ? const Color(0xFFD6B35D).withValues(alpha: 0.55)
-                  : const Color(0xFFE2D2A5),
+                  : s?.border ?? const Color(0xFFE2D2A5),
             ),
           ),
           title: Text(
@@ -1417,8 +1449,8 @@ class _QuranPagesState extends State<QuranPages>
             style: TextStyle(
               color: isDarkMode
                   ? const Color(0xFFFFF4D6)
-                  : const Color(0xFF35250E),
-              fontWeight: FontWeight.w900,
+                  : s?.text ?? const Color(0xFF35250E),
+              fontWeight: s == null ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
           content: Text(
@@ -1429,12 +1461,17 @@ class _QuranPagesState extends State<QuranPages>
               height: 1.9,
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: isDarkMode ? Colors.white : const Color(0xFF35250E),
+              color: isDarkMode
+                  ? Colors.white
+                  : s?.text ?? const Color(0xFF35250E),
             ),
           ),
           actionsAlignment: MainAxisAlignment.center,
           actions: [
             TextButton(
+              style: s == null
+                  ? null
+                  : TextButton.styleFrom(foregroundColor: s.accent),
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('إغلاق', textDirection: TextDirection.rtl),
             ),
@@ -1467,13 +1504,16 @@ class _QuranPagesState extends State<QuranPages>
         ? const Color(0xFFD6B35D)
         : const Color(0xFF8D6E3F);
 
+    final spinnerColor = AppSurfaces.maybeOf(context)?.accent ?? borderColor;
     final waiting = _showWaitDialog(
-      (context) => Center(child: CircularProgressIndicator(color: borderColor)),
+      (context) => Center(child: CircularProgressIndicator(color: spinnerColor)),
     );
     bool cancelled;
+    List<Map<String, dynamic>>? data;
     try {
-      // Pre-warm the data cache
-      await TafsirService.getTafsirForPage(pageIndex);
+      // Loaded before the sheet opens and handed to it, so the sheet slides
+      // up already filled (it used to load again and show a spinner first).
+      data = await TafsirService.getTafsirForPage(pageIndex);
     } finally {
       // Back closed the spinner: the reader no longer wants the tafsir.
       cancelled = !waiting.isOpen();
@@ -1488,6 +1528,7 @@ class _QuranPagesState extends State<QuranPages>
       builder: (sheetContext) {
         return _TafsirSheetContent(
           initialPageIndex: pageIndex,
+          initialData: data,
           initialAyah: initialAyah,
           backgroundColor: backgroundColor,
           borderColor: borderColor,
@@ -2011,6 +2052,8 @@ class _QuranPagesState extends State<QuranPages>
         await _showTafsirDialog(page, initialAyah: hit);
       case _AyahAction.tanzilat:
         await _showTanzilatSheet(page + 1, hit.$1, hit.$2);
+      case _AyahAction.khilaf:
+        await showKhilafSheet(context, surah: hit.$1, ayah: hit.$2);
       case _AyahAction.recite:
         _reciteFromAyah(page, hit.$1, hit.$2);
       case _AyahAction.share:
@@ -2127,18 +2170,20 @@ class _QuranPagesState extends State<QuranPages>
 
   Future<_AyahAction?> _showAyahActionsSheet(int surah, int ayah) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final backgroundColor = isDarkMode
         ? const Color(0xFF19130A)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final borderColor = isDarkMode
         ? const Color(0xFFD6B35D).withValues(alpha: 0.55)
-        : const Color(0xFFE2D2A5);
+        : s?.hair ?? const Color(0xFFE2D2A5);
     final titleColor = isDarkMode
         ? const Color(0xFFFFF4D6)
-        : const Color(0xFF35250E);
+        : s?.text ?? const Color(0xFF35250E);
     final accentColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
+        : s?.icon ?? const Color(0xFF8D6E3F);
     final surahName = surahList
         .firstWhere((s) => s['number'] == surah, orElse: () => const {})['name']
         ?.toString();
@@ -2146,8 +2191,14 @@ class _QuranPagesState extends State<QuranPages>
       context: context,
       backgroundColor: backgroundColor,
       shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        side: BorderSide(color: borderColor, width: 2),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(s == null ? 22 : 20),
+        ),
+        // the new look's sheets have no outline (width kept, so nothing moves)
+        side: BorderSide(
+          color: s == null ? borderColor : Colors.transparent,
+          width: 2,
+        ),
       ),
       builder: (sheetContext) {
         Widget option({
@@ -2184,7 +2235,7 @@ class _QuranPagesState extends State<QuranPages>
                   width: 40,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: borderColor,
+                    color: s?.handle ?? borderColor,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -2203,7 +2254,9 @@ class _QuranPagesState extends State<QuranPages>
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: s == null
+                              ? FontWeight.bold
+                              : FontWeight.w600,
                           color: titleColor,
                         ),
                       ),
@@ -2250,6 +2303,11 @@ class _QuranPagesState extends State<QuranPages>
                   icon: const Icon(Icons.compare_arrows_rounded),
                   label: 'تنزيلات ومتشابهات',
                   action: _AyahAction.tanzilat,
+                ),
+                option(
+                  icon: const Icon(Icons.groups_rounded),
+                  label: 'خلافات القراء',
+                  action: _AyahAction.khilaf,
                 ),
                 // Not during التسميع: the microphone is listening.
                 if (!_isMemorizationTestEnabled) ...[
@@ -2306,27 +2364,64 @@ class _QuranPagesState extends State<QuranPages>
     final controller = TextEditingController(
       text: _bookmarks[slot]?.label ?? '',
     );
+    // null in the previous look and in night mode: the theme's dialog stays
+    final s = AppSurfaces.maybeOf(context);
     final result = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: s == null
+            ? null
+            : RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSurfaces.radius),
+              ),
         title: Text(
           'تسمية ${_bookmarkDisplayName(slot)}',
           textDirection: TextDirection.rtl,
+          style: s == null
+              ? null
+              : TextStyle(color: s.text, fontWeight: FontWeight.w600),
         ),
         content: TextField(
           controller: controller,
           textDirection: TextDirection.rtl,
           autofocus: true,
           maxLength: 24,
-          decoration: const InputDecoration(hintText: 'اسم مختصر (اختياري)'),
+          cursorColor: s?.accent,
+          style: s == null ? null : TextStyle(color: s.text),
+          decoration: s == null
+              ? const InputDecoration(hintText: 'اسم مختصر (اختياري)')
+              : InputDecoration(
+                  hintText: 'اسم مختصر (اختياري)',
+                  hintStyle: TextStyle(color: s.muted),
+                  counterStyle: TextStyle(color: s.muted),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: s.border),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: s.accent, width: 2),
+                  ),
+                ),
           onSubmitted: (value) => Navigator.pop(dialogContext, value),
         ),
         actions: [
           TextButton(
+            style: s == null
+                ? null
+                : TextButton.styleFrom(foregroundColor: s.muted),
             onPressed: () => Navigator.pop(dialogContext, null),
             child: const Text('تخطٍّ'),
           ),
           TextButton(
+            style: s == null
+                ? null
+                : TextButton.styleFrom(
+                    backgroundColor: s.button,
+                    foregroundColor: s.onButton,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
             onPressed: () => Navigator.pop(dialogContext, controller.text),
             child: const Text('حفظ'),
           ),
@@ -2897,7 +2992,9 @@ class _QuranPagesState extends State<QuranPages>
         if (ayah != null) _showAyahSelectionDialog(ayah);
         return;
       case _TvBarControl.playPause:
-        if (audio.isPlaying.value) {
+        if (audio.talqeenTurn.value != null) {
+          audio.toggleTalqeenPause();
+        } else if (audio.isPlaying.value) {
           audio.pause();
         } else if (!audio.isAudioOnPage(_recitationTargetPage)) {
           audio.playPage(_recitationTargetPage);
@@ -4432,6 +4529,8 @@ class _QuranPagesState extends State<QuranPages>
 
   ({VoidCallback close, bool Function() isOpen}) _openTasmeeLoadingDialog() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final navigator = Navigator.of(context, rootNavigator: true);
     Route<dynamic>? route;
     var open = true;
@@ -4446,7 +4545,9 @@ class _QuranPagesState extends State<QuranPages>
           canPop: false,
           child: Center(
             child: Material(
-              color: isDark ? const Color(0xFF1E1A12) : const Color(0xFFF8F1DE),
+              color: isDark
+                  ? const Color(0xFF1E1A12)
+                  : s?.sheet ?? const Color(0xFFF8F1DE),
               elevation: 6,
               borderRadius: BorderRadius.circular(16),
               child: Padding(
@@ -4458,12 +4559,12 @@ class _QuranPagesState extends State<QuranPages>
                   mainAxisSize: MainAxisSize.min,
                   textDirection: TextDirection.rtl,
                   children: [
-                    const SizedBox(
+                    SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.4,
-                        color: Color(0xFFB08A3C),
+                        color: s?.accent ?? const Color(0xFFB08A3C),
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -4473,7 +4574,9 @@ class _QuranPagesState extends State<QuranPages>
                         fontFamily: 'Tajawal',
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white : const Color(0xFF35250E),
+                        color: isDark
+                            ? Colors.white
+                            : s?.text ?? const Color(0xFF35250E),
                       ),
                     ),
                   ],
@@ -4504,9 +4607,31 @@ class _QuranPagesState extends State<QuranPages>
   /// showing a blocking progress dialog while it fetches. Returns quietly
   /// whether or not it succeeds — the caller checks for the model again.
   Future<void> _promptAndDownloadAsrModel() async {
+    // null in the previous look and in night mode: the theme's dialog stays
+    final s = AppSurfaces.maybeOf(context);
+    final ShapeBorder? dialogShape = s == null
+        ? null
+        : RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppSurfaces.radius),
+          );
+    final TextStyle? titleStyle = s == null
+        ? null
+        : TextStyle(color: s.text, fontWeight: FontWeight.w600);
     final wantsDownload = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: dialogShape,
+        titleTextStyle: titleStyle == null
+            ? null
+            : Theme.of(
+                dialogContext,
+              ).textTheme.headlineSmall?.merge(titleStyle),
+        contentTextStyle: s == null
+            ? null
+            : Theme.of(
+                dialogContext,
+              ).textTheme.bodyMedium?.copyWith(color: s.text),
         title: const Text('تنزيل نموذج التلاوة'),
         content: const Text(
           'لتفعيل التحقق الحقيقي من تلاوتك عبر الميكروفون، يلزم تنزيل نموذج '
@@ -4516,10 +4641,19 @@ class _QuranPagesState extends State<QuranPages>
         ),
         actions: [
           TextButton(
+            style: s == null
+                ? null
+                : TextButton.styleFrom(foregroundColor: s.accent),
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('لاحقًا'),
           ),
           FilledButton(
+            style: s == null
+                ? null
+                : FilledButton.styleFrom(
+                    backgroundColor: s.button,
+                    foregroundColor: s.onButton,
+                  ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('تنزيل'),
           ),
@@ -4533,13 +4667,29 @@ class _QuranPagesState extends State<QuranPages>
     final downloadFuture = manager.download();
     final progressDialog = _showWaitDialog(
       (dialogContext) => AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: dialogShape,
+        titleTextStyle: titleStyle == null
+            ? null
+            : Theme.of(
+                dialogContext,
+              ).textTheme.headlineSmall?.merge(titleStyle),
+        contentTextStyle: s == null
+            ? null
+            : Theme.of(
+                dialogContext,
+              ).textTheme.bodyMedium?.copyWith(color: s.text),
         title: const Text('جارٍ تنزيل النموذج…'),
         content: ValueListenableBuilder<double>(
           valueListenable: manager.progress,
           builder: (context, progress, _) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              LinearProgressIndicator(value: progress == 0 ? null : progress),
+              LinearProgressIndicator(
+                value: progress == 0 ? null : progress,
+                color: s?.accent,
+                backgroundColor: s?.tile,
+              ),
               const SizedBox(height: 12),
               Text('${(progress * 100).clamp(0, 100).toStringAsFixed(0)}٪'),
             ],
@@ -5143,7 +5293,11 @@ class _QuranPagesState extends State<QuranPages>
     try {
       final shownWhatsNew = await _maybeShowWhatsNew();
       if (!mounted) return;
-      if (!shownWhatsNew) await _maybeShowUpdateAvailable();
+      final shownUpdate =
+          !shownWhatsNew && await _maybeShowUpdateAvailable();
+      if (!mounted) return;
+      // A message from our server, only on a launch with no other popup.
+      if (!shownWhatsNew && !shownUpdate) await _maybeShowServerNotice();
       if (!mounted) return;
       await _maybeAskForUpdateNotifications();
     } catch (_) {
@@ -5168,9 +5322,12 @@ class _QuranPagesState extends State<QuranPages>
     final showMe = await WhatsNewDialog.show(
       context,
       WhatsNewService.currentReleaseChanges,
-      tour: true,
+      tour: WhatsNewService.offerSettingsTour,
     );
-    if (showMe && mounted) _showHowToOpenSettings();
+    // waits until the tour has opened Settings, so the notification prompt
+    // that follows does not land on top of it (it skips while Settings is
+    // open and asks on a later launch)
+    if (showMe && mounted) await _showHowToOpenSettings();
     return true;
   }
 
@@ -5181,9 +5338,18 @@ class _QuranPagesState extends State<QuranPages>
   /// learns the way in: «المس الصفحة» (their tap brings up the toolbar),
   /// then the ⚙ button lit until they tap it, which opens Settings and the
   /// rest of the tour. Nothing else can be tapped meanwhile.
-  void _showHowToOpenSettings() {
-    // start from a bare page, so their own tap is what brings the bar up
-    if (_showIndex) setState(() => _showIndex = false);
+  Future<void> _showHowToOpenSettings() {
+    final done = Completer<void>();
+    // start from a bare page, so their own tap is what brings the bar up;
+    // a fresh install's bookmark guide waits for the next launch (it is not
+    // marked as seen) instead of sitting under the tour
+    if (_showIndex || _showBookmarkGuide) {
+      setState(() {
+        _showIndex = false;
+        _showBookmarkGuide = false;
+      });
+      _bookmarkGuideAnimationController.stop();
+    }
     _settingsLessonActive = true;
     var step = 0;
     Rect? gear;
@@ -5193,6 +5359,7 @@ class _QuranPagesState extends State<QuranPages>
       _settingsLessonActive = false;
       entry.remove();
       _openSettings(startTour: true);
+      done.complete();
     }
 
     Future<void> pageTapped() async {
@@ -5201,7 +5368,11 @@ class _QuranPagesState extends State<QuranPages>
       if (!_showIndex) _handleReaderTap();
       _hideControlsTimer?.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      if (!mounted || !_settingsLessonActive) return;
+      if (!mounted) {
+        if (!done.isCompleted) done.complete();
+        return;
+      }
+      if (!_settingsLessonActive) return;
       final box =
           _settingsButtonKey.currentContext?.findRenderObject() as RenderBox?;
       if (box == null || !box.hasSize) {
@@ -5214,18 +5385,27 @@ class _QuranPagesState extends State<QuranPages>
     }
 
     entry = OverlayEntry(
-      builder: (_) => SettingsTourOverlay(
+      // Material: the overlay sits above every route, outside any Scaffold
+      builder: (_) => Material(
+        type: MaterialType.transparency,
+        child: SettingsTourOverlay(
         targetRect: step == 1 ? gear : null,
-        text: step == 1
-            ? 'هذا زر الإعدادات. اضغطه لتفتحها.'
-            : 'المس الصفحة في أي مكان لتظهر الأدوات وزر الإعدادات.',
+        text: AppLookService.instance.isPrevious
+            ? (step == 1
+                  ? 'هذا زر الإعدادات. اضغطه لتفتحها.'
+                  : 'المس الصفحة في أي مكان لتظهر الأدوات وزر الإعدادات.')
+            : (step == 1
+                  ? 'هذا زر القائمة، والإعدادات أول ما فيها. اضغطه لتفتح الإعدادات.'
+                  : 'المس الصفحة في أي مكان لتظهر الأدوات وزر القائمة.'),
         index: step == 1 ? 1 : 0,
         count: SettingsPage.tourStops + 2,
         onTapAnywhere: step == 0 ? pageTapped : null,
         onTargetTap: step == 1 ? openSettings : null,
+        ),
       ),
     );
     Overlay.of(context).insert(entry);
+    return done.future;
   }
 
   /// After the startup popups close, shows the OS notification permission
@@ -5245,16 +5425,17 @@ class _QuranPagesState extends State<QuranPages>
     await service.askForPermissionOnce();
   }
 
-  Future<void> _maybeShowUpdateAvailable() async {
+  /// Returns true when the update dialog was shown.
+  Future<bool> _maybeShowUpdateAvailable() async {
     final info = await AppUpdateService.instance.fetchIfUpdateAvailable();
-    if (info == null || !mounted) return;
-    if (!await AppUpdateService.instance.shouldSurface(info)) return;
-    if (!mounted) return;
+    if (info == null || !mounted) return false;
+    if (!await AppUpdateService.instance.shouldSurface(info)) return false;
+    if (!mounted) return false;
 
     // Let the splash→reader transition finish so the dialog lands on a
     // settled screen instead of fighting the animation.
     await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return false;
 
     await AppUpdateService.instance.markSurfaced(info);
 
@@ -5267,11 +5448,75 @@ class _QuranPagesState extends State<QuranPages>
       );
     }
 
-    if (!mounted) return;
+    if (!mounted) return false;
     await UpdateAvailableDialog.show(context, info);
+    return true;
   }
 
-  void _openSettings({bool startTour = false}) {
+  /// Shows the next message from our server ([ServerNoticeService]) that
+  /// this install has not seen, once.
+  Future<void> _maybeShowServerNotice() async {
+    final notice = await ServerNoticeService.instance.next();
+    if (notice == null || !mounted) return;
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    await ServerNoticeService.instance.markSeen(notice.id);
+    if (!mounted) return;
+    final pressed = await WhatsNewDialog.showNotice(
+      context,
+      title: notice.title,
+      lines: notice.lines,
+      actionLabel: notice.buttonLabel,
+    );
+    final action = notice.buttonAction;
+    if (pressed && action != null) {
+      NotificationCenter.instance.handlePayload(action);
+    }
+  }
+
+  /// The side drawer behind the menu button (phones and tablets). Its rows
+  /// open things the reader already has; see [AppMenuDrawer].
+  void _openAppMenu() {
+    _hideControlsTimer?.cancel();
+    AppMenuDrawer.show(
+      context,
+      actions: AppMenuActions(
+        openSettings: _openSettings,
+        openTafsir: () => _showTafsirDialog(_topBarCurrentPage),
+        openReciter: () => _openSettings(section: SettingsSection.recitation),
+        openReminders: () => _openSettings(section: SettingsSection.reminders),
+        openDownloads: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => DownloadsManagementPage(
+              audioDownloadService: AudioDownloadService.instance,
+              marginImagesService: MarginImagesService.instance,
+              tafsirCacheService: TafsirCacheService.instance,
+            ),
+          ),
+        ),
+        openReports: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                TasmeeReportsPage(onGoToPage: (page) => _goToPage(page)),
+          ),
+        ),
+        openWhatsNew: _openWhatsNewFromMenu,
+      ),
+    );
+  }
+
+  /// «ما الجديد» from the drawer: the same dialog as at startup, and its
+  /// «أرني أين» goes straight into the Settings tour.
+  Future<void> _openWhatsNewFromMenu() async {
+    final showMe = await WhatsNewDialog.show(
+      context,
+      WhatsNewService.currentReleaseChanges,
+      tour: WhatsNewService.offerSettingsTour,
+    );
+    if (showMe && mounted) _openSettings(startTour: true);
+  }
+
+  void _openSettings({bool startTour = false, SettingsSection? section}) {
     if (_isAutoScrollEnabled) {
       _setAutoScrollEnabled(false);
     }
@@ -5303,6 +5548,7 @@ class _QuranPagesState extends State<QuranPages>
             onToggleFullScreenMode: _toggleFullScreenMode,
             onResetAllSettings: _resetAllSettings,
             startTour: startTour,
+            initialSection: section,
           ),
         ),
       ),
@@ -7093,6 +7339,14 @@ class _QuranPagesState extends State<QuranPages>
                         getSurahName: _getSurahName,
                         onSettingsPressed: _openSettings,
                         settingsKey: _settingsButtonKey,
+                        // phones and tablets: the side drawer; Android TV
+                        // keeps its gear (its remote walks the icons by
+                        // index), and so does «شكل التطبيق: السابق»
+                        onMenuPressed:
+                            TvService.instance.isTv ||
+                                AppLookScope.isPrevious(context)
+                            ? null
+                            : _openAppMenu,
                         isHideBarEnabled: _isHideBarEnabled,
                         onToggleHideBar: _toggleHideBar,
                         isFullScreenMode: _isFullScreenMode,
@@ -7263,16 +7517,20 @@ class _QuranPagesState extends State<QuranPages>
 
   void _showRecitationBarGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
+        : s?.border ?? const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -7282,20 +7540,26 @@ class _QuranPagesState extends State<QuranPages>
           return AlertDialog(
             backgroundColor: bgColor,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(
+                s == null ? 20 : AppSurfaces.radius,
+              ),
             ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.help_outline_rounded, color: titleColor, size: 24),
+                Icon(
+                  Icons.help_outline_rounded,
+                  color: s?.icon ?? titleColor,
+                  size: 24,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'شرح أزرار شريط التلاوة',
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: titleColor,
+                    fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                    color: s?.text ?? titleColor,
                   ),
                 ),
               ],
@@ -7342,8 +7606,14 @@ class _QuranPagesState extends State<QuranPages>
                     borderColor,
                   ),
                   _guideRow(
+                    Icons.hearing_rounded,
+                    '${TalqeenSetting.fullName}: يتلو القارئ الآية ثم يترك لك وقتًا بقدرها لتردّدها. في دورك يعدّ زر التشغيل الثواني الباقية فاضغطه للإيقاف المؤقت، وزر الآية التالية ينهي دورك، وزر الآية السابقة يعيد الآية. فعّله من خيارات التلاوة.',
+                    textColor,
+                    borderColor,
+                  ),
+                  _guideRow(
                     Icons.tune_rounded,
-                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، تكرار مقطع تختاره، وسرعة التلاوة',
+                    'خيارات التلاوة: اختيار القارئ، تكرار الثمن كاملاً، تكرار مقطع تختاره، سرعة التلاوة، و«${TalqeenSetting.shortName}»',
                     textColor,
                     borderColor,
                     highlightColor: titleColor,
@@ -7424,16 +7694,20 @@ class _QuranPagesState extends State<QuranPages>
   /// one engages repeat for that exact thumn.
   void _showThumnChooser(List<ThumnEntry> options) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
+        : s?.border ?? const Color(0xFFE2D2A5);
     const accentColor = Color(0xFFD2B97E);
 
     showDialog(
@@ -7443,19 +7717,21 @@ class _QuranPagesState extends State<QuranPages>
         child: AlertDialog(
           backgroundColor: bgColor,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(
+              s == null ? 20 : AppSurfaces.radius,
+            ),
           ),
           title: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.repeat_rounded, color: titleColor, size: 22),
+              Icon(Icons.repeat_rounded, color: s?.icon ?? titleColor, size: 22),
               const SizedBox(width: 8),
               Text(
                 'اختر الثمن',
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: titleColor,
+                  fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                  color: s?.text ?? titleColor,
                 ),
               ),
             ],
@@ -7480,7 +7756,7 @@ class _QuranPagesState extends State<QuranPages>
                         vertical: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.10),
+                        color: s?.card ?? accentColor.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: borderColor),
                       ),
@@ -7572,18 +7848,23 @@ class _QuranPagesState extends State<QuranPages>
   void _showRangeRepeatPicker({VoidCallback? onStarted}) {
     final audio = AudioService.instance;
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
-    final subTextColor = textColor.withValues(alpha: 0.6);
-    const accentColor = Color(0xFFD2B97E);
+        : s?.border ?? const Color(0xFFE2D2A5);
+    final subTextColor = s?.muted ?? textColor.withValues(alpha: 0.6);
+    // the chosen chip and the wheel: the new look's accent (demo phone 8)
+    final accentColor = s?.accent ?? const Color(0xFFD2B97E);
 
     // ── Seed the picker ──
     // An armed section wins (so re-opening shows what's running); otherwise
@@ -7641,6 +7922,19 @@ class _QuranPagesState extends State<QuranPages>
     bool continueAfter = wasActive
         ? audio.rangeContinueAfter.value
         : _rangeContinueAfterPref;
+    // The wheels stand in for the old 7× and 5× chips (owner, 2026-11-11). A
+    // count no chip offers belongs to its wheel; otherwise the wheel shows
+    // the number it last had.
+    const countChips = [2, 3, 5];
+    const ayahChips = [2, 3];
+    bool countFromWheel = !countChips.contains(count);
+    int countWheel = countFromWheel
+        ? count.clamp(2, 99)
+        : _rangeCountWheelPref.clamp(2, 99);
+    bool ayahFromWheel = ayahRepeat > 1 && !ayahChips.contains(ayahRepeat);
+    int ayahWheel = ayahFromWheel
+        ? ayahRepeat.clamp(2, 99)
+        : _rangeAyahWheelPref.clamp(2, 99);
 
     showDialog(
       context: context,
@@ -7662,6 +7956,7 @@ class _QuranPagesState extends State<QuranPages>
             height: 46,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
+              color: s?.card,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: borderColor),
             ),
@@ -7890,21 +8185,27 @@ class _QuranPagesState extends State<QuranPages>
             child: AlertDialog(
               backgroundColor: bgColor,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(
+                  s == null ? 20 : AppSurfaces.radius,
+                ),
               ),
               titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
               contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
               title: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.segment_rounded, color: titleColor, size: 22),
+                  Icon(
+                    Icons.segment_rounded,
+                    color: s?.icon ?? titleColor,
+                    size: 22,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'تكرار مقطع',
                     style: TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: titleColor,
+                      fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                      color: s?.text ?? titleColor,
                     ),
                   ),
                 ],
@@ -7968,17 +8269,38 @@ class _QuranPagesState extends State<QuranPages>
                       label('عدد مرات التكرار'),
                       Row(
                         children: [
-                          for (final option in const [2, 3, 5, 7]) ...[
+                          for (final option in countChips) ...[
                             countChip(
                               '$option×',
-                              mode == AyahRepeatMode.count && count == option,
+                              mode == AyahRepeatMode.count &&
+                                  !countFromWheel &&
+                                  count == option,
                               () => setPickerState(() {
                                 mode = AyahRepeatMode.count;
+                                countFromWheel = false;
                                 count = option;
                               }),
                             ),
                             const SizedBox(width: 6),
                           ],
+                          Expanded(
+                            child: RepeatCountWheel(
+                              value: countWheel,
+                              selected:
+                                  mode == AyahRepeatMode.count &&
+                                  countFromWheel,
+                              accentColor: accentColor,
+                              borderColor: borderColor,
+                              textColor: subTextColor,
+                              onChanged: (v) => setPickerState(() {
+                                mode = AyahRepeatMode.count;
+                                countFromWheel = true;
+                                countWheel = v;
+                                count = v;
+                              }),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
                           countChip(
                             '∞',
                             mode == AyahRepeatMode.infinite,
@@ -7995,16 +8317,38 @@ class _QuranPagesState extends State<QuranPages>
                           countChip(
                             'بدون',
                             ayahRepeat <= 1,
-                            () => setPickerState(() => ayahRepeat = 1),
+                            () => setPickerState(() {
+                              ayahFromWheel = false;
+                              ayahRepeat = 1;
+                            }),
                           ),
-                          for (final option in const [2, 3, 5]) ...[
+                          for (final option in ayahChips) ...[
                             const SizedBox(width: 6),
                             countChip(
                               '$option×',
-                              ayahRepeat == option,
-                              () => setPickerState(() => ayahRepeat = option),
+                              !ayahFromWheel && ayahRepeat == option,
+                              () => setPickerState(() {
+                                ayahFromWheel = false;
+                                ayahRepeat = option;
+                              }),
                             ),
                           ],
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: RepeatCountWheel(
+                              value: ayahWheel,
+                              selected: ayahFromWheel,
+                              accentColor: accentColor,
+                              borderColor: borderColor,
+                              textColor: subTextColor,
+                              semanticsLabel: 'تكرار كل آية',
+                              onChanged: (v) => setPickerState(() {
+                                ayahFromWheel = true;
+                                ayahWheel = v;
+                                ayahRepeat = v;
+                              }),
+                            ),
+                          ),
                         ],
                       ),
                       if (mode != AyahRepeatMode.infinite) ...[
@@ -8080,10 +8424,15 @@ class _QuranPagesState extends State<QuranPages>
                 ),
                 TextButton(
                   style: TextButton.styleFrom(
-                    backgroundColor: accentColor.withValues(alpha: 0.18),
+                    // the new look's primary button (demo phone 8)
+                    backgroundColor:
+                        s?.button ?? accentColor.withValues(alpha: 0.18),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
-                      side: const BorderSide(color: accentColor, width: 1.4),
+                      side: BorderSide(
+                        color: s?.button ?? accentColor,
+                        width: 1.4,
+                      ),
                     ),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 18,
@@ -8109,13 +8458,15 @@ class _QuranPagesState extends State<QuranPages>
                         : count;
                     _rangeAyahRepeatPref = ayahRepeat;
                     _rangeContinueAfterPref = continueAfter;
+                    _rangeCountWheelPref = countWheel;
+                    _rangeAyahWheelPref = ayahWheel;
                     _saveRangeRepeatPrefs();
                   },
                   child: Text(
                     'تشغيل المقطع',
                     style: TextStyle(
-                      color: titleColor,
-                      fontWeight: FontWeight.w800,
+                      color: s?.onButton ?? titleColor,
+                      fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
                     ),
                   ),
                 ),
@@ -8134,18 +8485,22 @@ class _QuranPagesState extends State<QuranPages>
   /// frequently-tapped transport controls on the bar itself stay uncluttered.
   void _showTilawahOptionsSheet() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
-    final subTextColor = textColor.withValues(alpha: 0.6);
-    const accentColor = Color(0xFFD2B97E);
+        : s?.border ?? const Color(0xFFE2D2A5);
+    final subTextColor = s?.muted ?? textColor.withValues(alpha: 0.6);
+    final accentColor = s?.accent ?? const Color(0xFFD2B97E);
 
     final audio = AudioService.instance;
     final reciterService = ReciterService.instance;
@@ -8154,8 +8509,10 @@ class _QuranPagesState extends State<QuranPages>
       context: context,
       backgroundColor: bgColor,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(s == null ? 22 : 20),
+        ),
       ),
       builder: (ctx) {
         // Anchors the pop-up vertical speed picker to the speed tile.
@@ -8179,7 +8536,7 @@ class _QuranPagesState extends State<QuranPages>
                             height: 4,
                             margin: const EdgeInsets.only(bottom: 12),
                             decoration: BoxDecoration(
-                              color: borderColor,
+                              color: s?.handle ?? borderColor,
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
@@ -8210,9 +8567,11 @@ class _QuranPagesState extends State<QuranPages>
                                 child: Text(
                                   'خيارات التلاوة',
                                   style: TextStyle(
-                                    color: titleColor,
+                                    color: s?.text ?? titleColor,
                                     fontSize: 17,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: s == null
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
                                   ),
                                 ),
                               ),
@@ -8228,6 +8587,8 @@ class _QuranPagesState extends State<QuranPages>
                           Icons.record_voice_over_rounded,
                           'القارئ',
                           titleColor,
+                          labelColor: s?.text,
+                          weight: s == null ? null : FontWeight.w600,
                         ),
                         const SizedBox(height: 8),
                         ValueListenableBuilder<Reciter>(
@@ -8238,6 +8599,7 @@ class _QuranPagesState extends State<QuranPages>
                                 horizontal: 14,
                               ),
                               decoration: BoxDecoration(
+                                color: s?.card,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: borderColor),
                               ),
@@ -8330,6 +8692,7 @@ class _QuranPagesState extends State<QuranPages>
                                       borderColor: borderColor,
                                       textColor: textColor,
                                       subTextColor: subTextColor,
+                                      idleFill: s?.card,
                                       onTap: () {
                                         _resetHideTimer();
                                         _handleThumnRepeatTap();
@@ -8360,6 +8723,7 @@ class _QuranPagesState extends State<QuranPages>
                                       borderColor: borderColor,
                                       textColor: textColor,
                                       subTextColor: subTextColor,
+                                      idleFill: s?.card,
                                       onTap: () {
                                         _resetHideTimer();
                                         _showRangeRepeatPicker(
@@ -8392,6 +8756,7 @@ class _QuranPagesState extends State<QuranPages>
                                       borderColor: borderColor,
                                       textColor: textColor,
                                       subTextColor: subTextColor,
+                                      idleFill: s?.card,
                                       onTap: () {
                                         _resetHideTimer();
                                         _showSpeedPopup(speedTileKey);
@@ -8419,7 +8784,7 @@ class _QuranPagesState extends State<QuranPages>
                               padding: const EdgeInsets.only(top: 8),
                               child: Text(
                                 'المقطع: ${_rangeStatusLabel(range)}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: accentColor,
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w700,
@@ -8470,6 +8835,116 @@ class _QuranPagesState extends State<QuranPages>
                                 ],
                               ),
                             ),
+                          ),
+                        ),
+
+                        // ── تلقين - استمع ثم ردّد ──
+                        // A tappable row like the highlight above (a Switch
+                        // swallows the TV remote's arrow keys). The turn
+                        // length chips show only while it is ticked.
+                        ValueListenableBuilder<bool>(
+                          valueListenable: TalqeenSetting.enabled,
+                          builder: (context, on, _) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  _resetHideTimer();
+                                  TalqeenSetting.setEnabled(!on);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.hearing_rounded,
+                                        color: titleColor,
+                                        size: 22,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              TalqeenSetting.fullName,
+                                              style: TextStyle(
+                                                color: textColor,
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'بعد كل آية وقتٌ بقدرها لتردّدها',
+                                              style: TextStyle(
+                                                color: subTextColor,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        on
+                                            ? Icons.check_circle_rounded
+                                            : Icons
+                                                  .radio_button_unchecked_rounded,
+                                        color: on ? titleColor : subTextColor,
+                                        size: 22,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (on)
+                                Padding(
+                                  padding: const EdgeInsetsDirectional.only(
+                                    start: 32,
+                                    bottom: 8,
+                                  ),
+                                  // Always one line (owner): on a narrow
+                                  // phone the row shrinks a little rather
+                                  // than wrap.
+                                  child: ValueListenableBuilder<double>(
+                                    valueListenable: TalqeenSetting.factor,
+                                    builder: (context, factor, _) => FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment:
+                                          AlignmentDirectional.centerStart,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            'مدة دورك:',
+                                            style: TextStyle(
+                                              color: subTextColor,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          for (final f
+                                              in TalqeenSetting.factors) ...[
+                                            const SizedBox(width: 6),
+                                            _talqeenFactorChip(
+                                              f,
+                                              f == factor,
+                                              titleColor,
+                                              textColor,
+                                              borderColor,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
 
@@ -8531,14 +9006,18 @@ class _QuranPagesState extends State<QuranPages>
     if (render == null || overlay == null) return;
 
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF262016)
-        : const Color(0xFFFBF6E8);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.sheet ?? const Color(0xFFFBF6E8);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
-    final subTextColor = textColor.withValues(alpha: 0.6);
+        : s?.border ?? const Color(0xFFE2D2A5);
+    final subTextColor = s?.muted ?? textColor.withValues(alpha: 0.6);
     const accentColor = Color(0xFFD2B97E);
 
     // Tile position/size in overlay coordinates.
@@ -8614,8 +9093,10 @@ class _QuranPagesState extends State<QuranPages>
                                 ),
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
+                                  // the new look: the chosen chip (demo phone 6)
                                   color: speed == currentSpeed
-                                      ? accentColor.withValues(alpha: 0.22)
+                                      ? s?.selected ??
+                                            accentColor.withValues(alpha: 0.22)
                                       : Colors.transparent,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
@@ -8623,7 +9104,7 @@ class _QuranPagesState extends State<QuranPages>
                                   AudioService.speedLabel(speed),
                                   style: TextStyle(
                                     color: speed == currentSpeed
-                                        ? accentColor
+                                        ? s?.onSelected ?? accentColor
                                         : (speed == 1.0
                                               ? textColor
                                               : subTextColor),
@@ -8649,7 +9130,14 @@ class _QuranPagesState extends State<QuranPages>
     Overlay.of(context).insert(entry);
   }
 
-  Widget _sheetSectionLabel(IconData icon, String label, Color color) {
+  /// [labelColor] and [weight] are the new look's (null keeps the old ones).
+  Widget _sheetSectionLabel(
+    IconData icon,
+    String label,
+    Color color, {
+    Color? labelColor,
+    FontWeight? weight,
+  }) {
     return Row(
       children: [
         Icon(icon, color: color, size: 20),
@@ -8657,9 +9145,9 @@ class _QuranPagesState extends State<QuranPages>
         Text(
           label,
           style: TextStyle(
-            color: color,
+            color: labelColor ?? color,
             fontSize: 16,
-            fontWeight: FontWeight.w800,
+            fontWeight: weight ?? FontWeight.w800,
           ),
         ),
       ],
@@ -8669,6 +9157,39 @@ class _QuranPagesState extends State<QuranPages>
   /// A compact square-ish tile used for the thumn-repeat, section-repeat and
   /// playback-speed controls in the Tilawah options sheet — three to a row, so
   /// the title scales down rather than ellipsising on narrow phones.
+  /// One «مدة دورك» choice under the تلقين row.
+  Widget _talqeenFactorChip(
+    double factor,
+    bool selected,
+    Color accent,
+    Color textColor,
+    Color borderColor,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        _resetHideTimer();
+        TalqeenSetting.setFactor(factor);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? accent : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? accent : borderColor),
+        ),
+        child: Text(
+          TalqeenSetting.factorLabel(factor),
+          style: TextStyle(
+            color: selected ? Colors.white : textColor,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _optionTile({
     Key? key,
     required IconData icon,
@@ -8680,6 +9201,8 @@ class _QuranPagesState extends State<QuranPages>
     required Color textColor,
     required Color subTextColor,
     required VoidCallback onTap,
+    // the new look's card colour behind an unchosen tile (null: none)
+    Color? idleFill,
   }) {
     return InkWell(
       key: key,
@@ -8691,7 +9214,7 @@ class _QuranPagesState extends State<QuranPages>
         decoration: BoxDecoration(
           color: isActive
               ? accentColor.withValues(alpha: 0.18)
-              : Colors.transparent,
+              : idleFill ?? Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isActive ? accentColor : borderColor,
@@ -8739,16 +9262,20 @@ class _QuranPagesState extends State<QuranPages>
 
   void _showHifzLensGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
+        : s?.border ?? const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -8758,20 +9285,22 @@ class _QuranPagesState extends State<QuranPages>
           return AlertDialog(
             backgroundColor: bgColor,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(
+                s == null ? 20 : AppSurfaces.radius,
+              ),
             ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                HifzLensIcon(color: titleColor, size: 24),
+                HifzLensIcon(color: s?.icon ?? titleColor, size: 24),
                 const SizedBox(width: 8),
                 Text(
                   'شرح عدسة الإخفاء',
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: titleColor,
+                    fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                    color: s?.text ?? titleColor,
                   ),
                 ),
               ],
@@ -8852,16 +9381,20 @@ class _QuranPagesState extends State<QuranPages>
 
   void _showHideBarReaderGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
+        : s?.border ?? const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -8871,20 +9404,26 @@ class _QuranPagesState extends State<QuranPages>
           return AlertDialog(
             backgroundColor: bgColor,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(
+                s == null ? 20 : AppSurfaces.radius,
+              ),
             ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.visibility_off_rounded, color: titleColor, size: 24),
+                Icon(
+                  Icons.visibility_off_rounded,
+                  color: s?.icon ?? titleColor,
+                  size: 24,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'شرح شريط الإخفاء',
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: titleColor,
+                    fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                    color: s?.text ?? titleColor,
                   ),
                 ),
               ],
@@ -8967,16 +9506,20 @@ class _QuranPagesState extends State<QuranPages>
 
   void _showFullScreenGuide() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
     final bgColor = isDarkMode
         ? const Color(0xFF1E1A12)
-        : const Color(0xFFF8F1DE);
+        : s?.sheet ?? const Color(0xFFF8F1DE);
     final titleColor = isDarkMode
         ? const Color(0xFFD6B35D)
-        : const Color(0xFF8D6E3F);
-    final textColor = isDarkMode ? Colors.white : const Color(0xFF35250E);
+        : s?.accent ?? const Color(0xFF8D6E3F);
+    final textColor = isDarkMode
+        ? Colors.white
+        : s?.text ?? const Color(0xFF35250E);
     final borderColor = isDarkMode
         ? const Color(0xFF53401F)
-        : const Color(0xFFE2D2A5);
+        : s?.border ?? const Color(0xFFE2D2A5);
     bool doNotShowAgain = false;
 
     showDialog(
@@ -8986,20 +9529,26 @@ class _QuranPagesState extends State<QuranPages>
           return AlertDialog(
             backgroundColor: bgColor,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(
+                s == null ? 20 : AppSurfaces.radius,
+              ),
             ),
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.fullscreen_rounded, color: titleColor, size: 24),
+                Icon(
+                  Icons.fullscreen_rounded,
+                  color: s?.icon ?? titleColor,
+                  size: 24,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'شرح وضع ملء الشاشة',
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: titleColor,
+                    fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                    color: s?.text ?? titleColor,
                   ),
                 ),
               ],
@@ -9242,12 +9791,16 @@ class _QuranPagesState extends State<QuranPages>
       orElse: () => QuranPageData(page: _recitationTargetPage + 1, ayahs: []),
     );
     final pageAyahs = pageData.ayahs;
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      backgroundColor: s?.sheet ?? Theme.of(context).scaffoldBackgroundColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(s == null ? 24 : 20),
+        ),
       ),
       builder: (context) {
         return SafeArea(
@@ -9258,9 +9811,10 @@ class _QuranPagesState extends State<QuranPages>
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   'اختر الآية - صفحة ${_recitationTargetPage + 1}',
-                  style: const TextStyle(
+                  style: TextStyle(
+                    color: s?.text,
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: s == null ? FontWeight.bold : FontWeight.w600,
                     fontFamily: 'Tajawal',
                   ),
                 ),
@@ -9290,15 +9844,20 @@ class _QuranPagesState extends State<QuranPages>
                         AudioService.instance.jumpToAyah(ayah.surah, ayah.ayah);
                       },
                       child: Container(
+                        // the new look: the chosen chip (demo phone 33)
                         decoration: BoxDecoration(
                           color: isCurrent
-                              ? const Color(0xFFD6B35D).withValues(alpha: 0.2)
-                              : Theme.of(context).cardColor,
+                              ? s?.selected ??
+                                    const Color(
+                                      0xFFD6B35D,
+                                    ).withValues(alpha: 0.2)
+                              : s?.card ?? Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: isCurrent
-                                ? const Color(0xFFD6B35D)
-                                : Colors.grey.withValues(alpha: 0.2),
+                                ? s?.selected ?? const Color(0xFFD6B35D)
+                                : s?.border ??
+                                      Colors.grey.withValues(alpha: 0.2),
                           ),
                         ),
                         alignment: Alignment.center,
@@ -9310,8 +9869,9 @@ class _QuranPagesState extends State<QuranPages>
                                 ? FontWeight.bold
                                 : FontWeight.normal,
                             color: isCurrent
-                                ? const Color(0xFFD6B35D)
-                                : Theme.of(context).textTheme.bodyLarge?.color,
+                                ? s?.onSelected ?? const Color(0xFFD6B35D)
+                                : s?.text ??
+                                      Theme.of(context).textTheme.bodyLarge?.color,
                           ),
                         ),
                       ),
@@ -9323,6 +9883,44 @@ class _QuranPagesState extends State<QuranPages>
           ),
         );
       },
+    );
+  }
+
+  /// The bar's colour for the listener's turn under تلقين (the app's green).
+  static const Color _talqeenTurnColor = Color(0xFF86C977);
+
+  /// The play button during the turn: a ring that empties as the turn runs
+  /// out, with the seconds left inside (a play arrow while it is paused).
+  /// No icon of its own: a microphone would say Tasmee, and the app does not
+  /// listen during the turn.
+  Widget _talqeenRing(TalqeenTurn turn, Color iconColor, double iconSize) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: CircularProgressIndicator(
+              value: turn.left,
+              strokeWidth: 3.5,
+              color: _talqeenTurnColor,
+              backgroundColor: Colors.white24,
+            ),
+          ),
+        ),
+        if (turn.paused)
+          Icon(Icons.play_arrow_rounded, color: iconColor, size: iconSize * 0.8)
+        else
+          Text(
+            '${turn.secondsLeft}',
+            style: TextStyle(
+              color: iconColor,
+              fontSize: iconSize * 0.55,
+              fontWeight: FontWeight.w900,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+      ],
     );
   }
 
@@ -9339,13 +9937,28 @@ class _QuranPagesState extends State<QuranPages>
         audio.pageRepeatCount,
         audio.repeatMode,
         audio.repeatCount,
+        audio.talqeenTurn,
+        TalqeenSetting.enabled,
         opacityService.opacity,
         opacityService.backgroundOpacity,
       ]),
       builder: (context, _) {
+        // تلقين: the listener's turn now running, and whether the mode is on.
+        final turn = audio.talqeenTurn.value;
+        final talqeenOn = TalqeenSetting.enabled.value;
         // Single knob for all bar icon/button opacity: 1.0 = fully white, 0.0 = fully transparent.
         final iconOpacity = opacityService.opacity.value;
-        final iconColor = Color.fromRGBO(255, 255, 255, iconOpacity);
+        // The new look swaps only the base colours; both alphas stay the
+        // reader's. Dark bars: charcoal and white; light bars: the bars'
+        // colour and icons. Android TV and the previous look keep black.
+        final AppChrome? chrome =
+            TvService.instance.isTv || AppLookScope.isPrevious(context)
+            ? null
+            : AppChrome.of(context);
+        final bool lightChrome = chrome != null && !chrome.dark;
+        final iconColor = lightChrome
+            ? chrome.bottomIcon.withValues(alpha: iconOpacity)
+            : Color.fromRGBO(255, 255, 255, iconOpacity);
         final backgroundOpacity = opacityService.backgroundOpacity.value;
         final isPlaying = audio.isPlaying.value;
         final currentAyah = audio.currentAyah.value;
@@ -9382,7 +9995,9 @@ class _QuranPagesState extends State<QuranPages>
           onTap: () {},
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: backgroundOpacity),
+              color: (chrome?.bar ?? Colors.black).withValues(
+                alpha: backgroundOpacity,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.2),
@@ -9390,8 +10005,16 @@ class _QuranPagesState extends State<QuranPages>
                   offset: const Offset(0, -3),
                 ),
               ],
-              border: const Border(
-                top: BorderSide(color: Color(0xFFD4A946), width: 2.0),
+              // the new look: one quiet line (demo phone 4), same width
+              border: Border(
+                top: BorderSide(
+                  color: chrome == null
+                      ? const Color(0xFFD4A946)
+                      : lightChrome
+                      ? chrome.barHair
+                      : const Color(0xFFD2B97E).withValues(alpha: 0.25),
+                  width: 2.0,
+                ),
               ),
             ),
             child: Stack(
@@ -9403,7 +10026,9 @@ class _QuranPagesState extends State<QuranPages>
                   right: 0,
                   child: Container(
                     height: 0.5,
-                    color: const Color(0xFFD4A946).withValues(alpha: 0.3),
+                    color: chrome == null
+                        ? const Color(0xFFD4A946).withValues(alpha: 0.3)
+                        : Colors.transparent,
                   ),
                 ),
                 Padding(
@@ -9575,14 +10200,20 @@ class _QuranPagesState extends State<QuranPages>
                               vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: accentColor.withValues(alpha: 0.15),
+                              color: turn != null
+                                  ? _talqeenTurnColor.withValues(alpha: 0.22)
+                                  : accentColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: accentColor.withValues(alpha: 0.3),
+                                color: turn != null
+                                    ? _talqeenTurnColor.withValues(alpha: 0.75)
+                                    : accentColor.withValues(alpha: 0.3),
                               ),
                             ),
                             child: Text(
-                              currentAyah != null
+                              turn != null
+                                  ? 'دورك'
+                                  : currentAyah != null
                                   ? 'آية ${currentAyah.ayah}'
                                   : 'آية 1',
                               style: TextStyle(
@@ -9601,7 +10232,10 @@ class _QuranPagesState extends State<QuranPages>
                         GestureDetector(
                           onTap: () {
                             _resetHideTimer();
-                            if (isPlaying) {
+                            if (turn != null) {
+                              // The ring: pause / resume the countdown.
+                              audio.toggleTalqeenPause();
+                            } else if (isPlaying) {
                               audio.pause();
                             } else {
                               // Check if the user navigated to a different page while paused
@@ -9612,31 +10246,75 @@ class _QuranPagesState extends State<QuranPages>
                               }
                             }
                           },
-                          child: Container(
-                            width: playCircleSize,
-                            height: playCircleSize,
-                            decoration: BoxDecoration(
-                              // On TV this doubles as the remote's focus
-                              // indicator: a full-strength gold ring when the
-                              // D-pad is sitting on it, so it reads from a couch.
-                              color: accentColor.withValues(
-                                alpha: _tvRecitationFocused ? 0.45 : 0.25,
-                              ),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: accentColor.withValues(
-                                  alpha: _tvRecitationFocused ? 1.0 : 0.4,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: playCircleSize,
+                                height: playCircleSize,
+                                decoration: BoxDecoration(
+                                  // On TV this doubles as the remote's focus
+                                  // indicator: a full-strength gold ring when
+                                  // the D-pad is sitting on it, so it reads
+                                  // from a couch.
+                                  color: accentColor.withValues(
+                                    alpha: _tvRecitationFocused ? 0.45 : 0.25,
+                                  ),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: accentColor.withValues(
+                                      alpha: _tvRecitationFocused ? 1.0 : 0.4,
+                                    ),
+                                    width: _tvRecitationFocused ? 3 : 1,
+                                  ),
                                 ),
-                                width: _tvRecitationFocused ? 3 : 1,
+                                child: turn != null
+                                    ? _talqeenRing(
+                                        turn,
+                                        iconColor,
+                                        playIconSize,
+                                      )
+                                    : Icon(
+                                        isPlaying
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        color: iconColor,
+                                        size: playIconSize,
+                                      ),
                               ),
-                            ),
-                            child: Icon(
-                              isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              color: iconColor,
-                              size: playIconSize,
-                            ),
+                              // «تلقين» is on: said on the button, the way
+                              // the repeat counts sit on theirs.
+                              if (talqeenOn && turn == null)
+                                Positioned(
+                                  top: isLandscape ? -6 : -9,
+                                  child: IgnorePointer(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: accentColor,
+                                        borderRadius: BorderRadius.circular(9),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        TalqeenSetting.shortName,
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          height: 1.15,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
@@ -9839,11 +10517,14 @@ class _MeasureSizeRenderObject extends RenderProxyBox {
 enum _TafsirCopyMode { ayah, tafsir, both }
 
 /// What the reader picked from the long-pressed ayah's menu.
-enum _AyahAction { bookmark, tafsir, tanzilat, recite, share }
+enum _AyahAction { bookmark, tafsir, tanzilat, khilaf, recite, share }
 
 /// Stateful Tafsir sheet with page navigation.
 class _TafsirSheetContent extends StatefulWidget {
   final int initialPageIndex;
+
+  /// [initialPageIndex]'s tafsir, already loaded, or null to load it here.
+  final List<Map<String, dynamic>>? initialData;
   final Color backgroundColor;
   final Color borderColor;
   final Color textColor;
@@ -9857,6 +10538,7 @@ class _TafsirSheetContent extends StatefulWidget {
 
   const _TafsirSheetContent({
     required this.initialPageIndex,
+    this.initialData,
     required this.backgroundColor,
     required this.borderColor,
     required this.textColor,
@@ -9880,6 +10562,10 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
   (int, int)? _pendingAyah;
   final GlobalKey _pendingAyahKey = GlobalKey();
 
+  /// Lays out every row, so the long-pressed ayah's row exists to scroll to.
+  /// Off while the sheet slides up: only the rows on screen are built then.
+  bool _layoutAllRows = false;
+
   @override
   void initState() {
     super.initState();
@@ -9887,7 +10573,19 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
     _pendingAyah = widget.initialAyah;
     // Switching tafsir edition from the header picker reloads the current page.
     TafsirEditionService.instance.selected.addListener(_onEditionChanged);
-    _loadTafsir(_currentPage);
+    final data = widget.initialData;
+    if (data == null) {
+      _loadTafsir(_currentPage);
+    } else {
+      _tafsirData = data;
+      // the jump to a long-pressed ayah waits until the sheet is up
+      if (_pendingAyah != null) {
+        afterOpening(() {
+          setState(() => _layoutAllRows = true);
+          _scrollToPendingAyah();
+        });
+      }
+    }
   }
 
   bool _isPendingAyah(Map<String, dynamic> data) {
@@ -9923,14 +10621,18 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
 
   Future<void> _openEditionPicker() async {
     final service = TafsirEditionService.instance;
+    // null in the previous look and in night mode: the colours passed in stay
+    final s = AppSurfaces.maybeOf(context);
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: widget.backgroundColor,
+      backgroundColor: s?.sheet ?? widget.backgroundColor,
       // Size the sheet to its content instead of the default ~half-screen cap,
       // so every edition is visible at once without scrolling.
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(s == null ? 22 : 20),
+        ),
       ),
       builder: (sheetContext) {
         final selectedId = service.selected.value.id;
@@ -9943,7 +10645,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                 width: 40,
                 height: 5,
                 decoration: BoxDecoration(
-                  color: widget.borderColor,
+                  color: s?.handle ?? widget.borderColor,
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
@@ -9952,8 +10654,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                 'اختر التفسير',
                 style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: widget.titleColor,
+                  fontWeight: s == null ? FontWeight.bold : FontWeight.w600,
+                  color: s?.text ?? widget.titleColor,
                 ),
               ),
               const SizedBox(height: 6),
@@ -9975,8 +10677,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                               ? Icons.check_circle_rounded
                               : Icons.menu_book_outlined,
                           color: edition.id == selectedId
-                              ? widget.accentColor
-                              : widget.borderColor,
+                              ? s?.accent ?? widget.accentColor
+                              : s?.icon ?? widget.borderColor,
                         ),
                         title: Text(
                           edition.name,
@@ -9984,7 +10686,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
-                            color: widget.titleColor,
+                            color: s?.text ?? widget.titleColor,
                           ),
                         ),
                         subtitle: Text(
@@ -9994,7 +10696,9 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                           textDirection: TextDirection.rtl,
                           style: TextStyle(
                             fontSize: 12,
-                            color: widget.titleColor.withValues(alpha: 0.6),
+                            color:
+                                s?.muted ??
+                                widget.titleColor.withValues(alpha: 0.6),
                           ),
                         ),
                         trailing: Icon(
@@ -10002,7 +10706,9 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                               ? Icons.offline_pin_outlined
                               : Icons.cloud_outlined,
                           size: 18,
-                          color: widget.titleColor.withValues(alpha: 0.45),
+                          color:
+                              s?.info ??
+                              widget.titleColor.withValues(alpha: 0.45),
                         ),
                       ),
                   ],
@@ -10022,6 +10728,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
     setState(() {
       _tafsirData = data;
       _isLoading = false;
+      _layoutAllRows = true;
     });
     _scrollToPendingAyah();
   }
@@ -10037,6 +10744,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
   /// the `SelectionArea` around the list; this is the shortcut for grabbing the
   /// verse, its commentary, or both without dragging handles around.
   Widget _buildCopyMenu(Map<String, dynamic> data) {
+    // null in the previous look and in night mode: the colours passed in stay
+    final s = AppSurfaces.maybeOf(context);
     return SizedBox(
       width: 40,
       height: 40,
@@ -10044,9 +10753,9 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
         tooltip: 'نسخ',
         icon: const Icon(Icons.copy_rounded),
         iconSize: 19,
-        iconColor: widget.accentColor,
+        iconColor: s?.icon ?? widget.accentColor,
         padding: EdgeInsets.zero,
-        color: widget.backgroundColor,
+        color: s?.sheet ?? widget.backgroundColor,
         position: PopupMenuPosition.under,
         constraints: const BoxConstraints(minWidth: 190),
         onSelected: (mode) => _copyEntry(data, mode),
@@ -10076,6 +10785,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
     IconData icon,
     String label,
   ) {
+    final s = AppSurfaces.maybeOf(context);
     return PopupMenuItem<_TafsirCopyMode>(
       value: mode,
       height: 44,
@@ -10083,14 +10793,14 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
         textDirection: TextDirection.rtl,
         child: Row(
           children: [
-            Icon(icon, size: 18, color: widget.accentColor),
+            Icon(icon, size: 18, color: s?.icon ?? widget.accentColor),
             const SizedBox(width: 10),
             Text(
               label,
               style: TextStyle(
                 fontSize: 14.5,
                 fontWeight: FontWeight.w600,
-                color: widget.titleColor,
+                color: s?.text ?? widget.titleColor,
               ),
             ),
           ],
@@ -10136,6 +10846,10 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
 
   @override
   Widget build(BuildContext context) {
+    // The frame follows the new look; the ayah and tafsir text keep the
+    // colours passed in. null in the previous look and in night mode.
+    final s = AppSurfaces.maybeOf(context);
+    final Color accent = s?.icon ?? widget.accentColor;
     return DraggableScrollableSheet(
       initialChildSize: 0.75,
       minChildSize: 0.5,
@@ -10143,10 +10857,16 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
       builder: (_, scrollController) {
         return Container(
           decoration: BoxDecoration(
-            color: widget.backgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            color: s?.sheet ?? widget.backgroundColor,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(s == null ? 22 : 20),
+            ),
+            // the new look's sheets have no outline (width kept)
             border: Border(
-              top: BorderSide(color: widget.borderColor, width: 2),
+              top: BorderSide(
+                color: s?.sheet ?? widget.borderColor,
+                width: 2,
+              ),
             ),
           ),
           child: Column(
@@ -10156,7 +10876,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                 width: 40,
                 height: 5,
                 decoration: BoxDecoration(
-                  color: widget.borderColor,
+                  color: s?.handle ?? widget.borderColor,
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
@@ -10169,7 +10889,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                     // Next page (left arrow in RTL = next page)
                     Container(
                       decoration: BoxDecoration(
-                        color: widget.accentColor.withValues(alpha: 0.12),
+                        color: accent.withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
@@ -10178,7 +10898,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                             : null,
                         icon: Icon(
                           Icons.chevron_left_rounded,
-                          color: widget.accentColor,
+                          color: accent,
                         ),
                         iconSize: 22,
                         padding: const EdgeInsets.all(6),
@@ -10209,15 +10929,20 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                     12,
                                     6,
                                   ),
+                                  // the new look: a quiet tile (demo phone 30)
                                   decoration: BoxDecoration(
-                                    color: widget.accentColor.withValues(
-                                      alpha: 0.14,
-                                    ),
+                                    color:
+                                        s?.tile ??
+                                        widget.accentColor.withValues(
+                                          alpha: 0.14,
+                                        ),
                                     borderRadius: BorderRadius.circular(22),
                                     border: Border.all(
-                                      color: widget.accentColor.withValues(
-                                        alpha: 0.55,
-                                      ),
+                                      color:
+                                          s?.border ??
+                                          widget.accentColor.withValues(
+                                            alpha: 0.55,
+                                          ),
                                       width: 1.3,
                                     ),
                                   ),
@@ -10227,7 +10952,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                       Icon(
                                         Icons.unfold_more_rounded,
                                         size: 20,
-                                        color: widget.accentColor,
+                                        color: accent,
                                       ),
                                       const SizedBox(width: 4),
                                       Flexible(
@@ -10241,8 +10966,10 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             fontSize: 17,
-                                            fontWeight: FontWeight.bold,
-                                            color: widget.titleColor,
+                                            fontWeight: s == null
+                                                ? FontWeight.bold
+                                                : FontWeight.w600,
+                                            color: s?.text ?? widget.titleColor,
                                           ),
                                         ),
                                       ),
@@ -10259,7 +10986,9 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 11.5,
-                              color: widget.accentColor.withValues(alpha: 0.85),
+                              color:
+                                  s?.muted ??
+                                  widget.accentColor.withValues(alpha: 0.85),
                             ),
                           ),
                         ],
@@ -10268,7 +10997,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                     // Previous page (right arrow in RTL = previous page)
                     Container(
                       decoration: BoxDecoration(
-                        color: widget.accentColor.withValues(alpha: 0.12),
+                        color: accent.withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
@@ -10277,7 +11006,7 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                             : null,
                         icon: Icon(
                           Icons.chevron_right_rounded,
-                          color: widget.accentColor,
+                          color: accent,
                         ),
                         iconSize: 22,
                         padding: const EdgeInsets.all(6),
@@ -10291,12 +11020,12 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                   ],
                 ),
               ),
-              const Divider(height: 20),
+              Divider(height: 20, color: s?.hair),
               Expanded(
                 child: _isLoading
                     ? Center(
                         child: CircularProgressIndicator(
-                          color: widget.borderColor,
+                          color: s?.accent ?? widget.borderColor,
                         ),
                       )
                     : _tafsirData.isEmpty
@@ -10325,7 +11054,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                           thumbVisibility: true,
                           thickness: 5,
                           radius: const Radius.circular(4),
-                          thumbColor: widget.accentColor.withValues(alpha: 0.5),
+                          thumbColor: (s?.accent ?? widget.accentColor)
+                              .withValues(alpha: 0.5),
                           child: ListView.separated(
                             controller: scrollController,
                             // The sheet reaches the screen's bottom edge, so
@@ -10339,12 +11069,13 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                             // Opening on a given ayah scrolls to its row, which
                             // must therefore exist: a page holds at most a few
                             // dozen rows, so building them all up front is cheap.
-                            scrollCacheExtent: _pendingAyah == null
+                            scrollCacheExtent:
+                                _pendingAyah == null || !_layoutAllRows
                                 ? null
                                 : const ScrollCacheExtent.pixels(1e6),
                             itemCount: _tafsirData.length,
                             separatorBuilder: (_, _) =>
-                                const Divider(height: 32),
+                                Divider(height: 32, color: s?.hair),
                             itemBuilder: (context, index) {
                               final data = _tafsirData[index];
                               return Column(
@@ -10362,7 +11093,8 @@ class _TafsirSheetContentState extends State<_TafsirSheetContent> {
                                           textAlign: TextAlign.center,
                                           textDirection: TextDirection.rtl,
                                           style: TextStyle(
-                                            color: widget.borderColor,
+                                            color:
+                                                s?.muted ?? widget.borderColor,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 16,
                                           ),

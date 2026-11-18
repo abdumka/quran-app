@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/search_page.dart';
+import 'package:islamic_dawah_mushaf/theme/app_surfaces.dart';
 
 /// The app draws edge to edge, so the results list runs under the system
 /// navigation bar. Scrolled to the end, the last result has to come to rest
@@ -12,12 +13,21 @@ void main() {
   const dpr = 2.625; // Pixel 7
   const screen = Size(1080 / dpr, 2400 / dpr);
 
-  /// A result card: the one box on the page painted in the card colour.
-  final cards = find.byWidgetPredicate(
-    (w) =>
-        w is Container &&
-        w.decoration is BoxDecoration &&
-        (w.decoration! as BoxDecoration).color == const Color(0xFFF7F3EA),
+  /// A result card: a box in the results list painted in the card colour
+  /// (the previous look's, or the new look's paper or cream card).
+  final cardColours = {
+    const Color(0xFFF7F3EA),
+    AppSurfaces.paper.card,
+    AppSurfaces.cream.card,
+  };
+  final cards = find.descendant(
+    of: find.byType(ListView),
+    matching: find.byWidgetPredicate(
+      (w) =>
+          w is Container &&
+          w.decoration is BoxDecoration &&
+          cardColours.contains((w.decoration! as BoxDecoration).color),
+    ),
   );
 
   /// Opens the search page, searches for [query] and scrolls the results to
