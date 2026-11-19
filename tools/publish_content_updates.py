@@ -441,6 +441,30 @@ def check_share_video(data):
             sys.exit(f"ABORT: share_video video.colors {k}: {v!r}")
     if look.get("icon"):
         paths.append(look["icon"])
+    # Build 168+: the reciter line under the surah name and its fonts.
+    credit = look.get("credit")
+    if credit is not None:
+        t = credit.get("template", "{reciter}") if isinstance(credit, dict) else None
+        if not isinstance(t, str) or not t.strip() or len(t) > 120 or "—" in t:
+            sys.exit(f"ABORT: share_video video.credit.template {t!r}")
+    fonts = data.get("fonts")
+    if fonts is not None:
+        fids = []
+        for f in fonts.get("list", []):
+            fid, title = f.get("id"), f.get("title")
+            if not (isinstance(fid, str) and re.fullmatch(r"[a-z0-9_]{1,32}", fid)) or fid in fids:
+                sys.exit(f"ABORT: share_video font id {fid!r}")
+            if not (isinstance(title, str) and title.strip() and len(title) <= 40) or "—" in title:
+                sys.exit(f"ABORT: share_video font {fid} title {title!r}")
+            scale = f.get("scale", 1)
+            if not (isinstance(scale, (int, float)) and 0.5 <= scale <= 3):
+                sys.exit(f"ABORT: share_video font {fid} scale {scale!r}")
+            for k in ("file", "preview"):
+                if f.get(k) is not None:
+                    paths.append(f[k])
+            fids.append(fid)
+        if fonts.get("default") not in fids:
+            sys.exit(f"ABORT: share_video fonts.default {fonts.get('default')!r} is not in the list")
     # The surah names cut from the mushaf (title.images), all 114 of them.
     title_images = (data.get("video", {}).get("title", {}) or {}).get("images")
     if title_images is not None:

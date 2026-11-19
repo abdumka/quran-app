@@ -13,7 +13,22 @@ void main() {
     expect(c.ver, ContentUpdateService.bundledVersions['share_video']);
     // ver 3: the 41 forward-only loops the owner kept on 2026-11-18
     expect(c.backgrounds.length, greaterThanOrEqualTo(41));
-    expect(c.shapes.map((s) => s.id), containsAll(['9x16', '1x1', '16x9']));
+    expect(
+      c.shapes.map((s) => s.id),
+      containsAll(['9x16', '4x5', '1x1', '16x9']),
+    );
+    // ver 4: the reciter line and its fonts (owner's list, 2026-11-19)
+    expect(c.video.showCredit, isTrue);
+    expect(c.video.creditTemplate, contains('{reciter}'));
+    expect(c.fonts.length, greaterThanOrEqualTo(25));
+    expect(c.defaultFont, 'naskh');
+    expect(c.fontNone, isTrue);
+    expect(c.font('system')!.isSystem, isTrue);
+    expect(c.font('thuluth')!.scale, 1.5);
+    for (final f in c.fonts.where((f) => !f.isSystem)) {
+      expect(f.preview, isNotNull, reason: f.id);
+      expect(f.bytes, greaterThan(0), reason: f.id);
+    }
     expect(c.effects.map((e) => e.id), ['none', 'echo', 'room', 'hall']);
     expect(c.background(c.defaultBackground), isNotNull);
     expect(c.textTemplate, contains('{text}'));
@@ -144,4 +159,49 @@ void main() {
       expect(c.album, ShareVideoConfig.defaultAlbum);
     },
   );
+
+  test('without credit or fonts the video has no reciter line', () {
+    final j = base()
+      ..remove('fonts');
+    (j['video'] as Map).remove('credit');
+    final c = ShareVideoConfig.parse(jsonEncode(j));
+    expect(c.video.showCredit, isFalse);
+    expect(c.fonts, isEmpty);
+    expect(c.defaultFont, 'system');
+  });
+
+  test('a bad font entry is dropped, not the whole config', () {
+    final j = base();
+    j['fonts'] = {
+      'default': 'gone',
+      'allowNone': true,
+      'list': [
+        {'id': 'ok', 'title': 'نسخ', 'file': 'fonts/v1/ok.ttf', 'scale': 9},
+        {'id': 'Bad Id', 'title': 'x', 'file': 'fonts/v1/x.ttf'},
+        {'id': 'climb', 'title': 'x', 'file': '../x.ttf'},
+        {'id': 'notitle', 'file': 'fonts/v1/y.ttf'},
+        {'id': 'ok', 'title': 'twice'},
+        {'id': 'system', 'title': 'خط الهاتف'},
+      ],
+    };
+    final c = ShareVideoConfig.parse(jsonEncode(j));
+    expect(c.fonts.map((f) => f.id), ['ok', 'system']);
+    expect(c.font('ok')!.scale, 3.0); // clamped
+    expect(c.defaultFont, 'ok'); // the unknown default falls to the first
+    expect(c.fontSample, ShareVideoConfig.defaultFontSample);
+  });
+
+  test('the reciter line numbers are clamped', () {
+    final j = base();
+    (j['video'] as Map)['credit'] = {
+      'template': '{reciter}',
+      'size': 1,
+      'opacity': 0,
+    };
+    final c = ShareVideoConfig.parse(jsonEncode(j));
+    expect(c.video.showCredit, isTrue);
+    expect(c.video.creditTemplate, '{reciter}');
+    expect(c.video.creditSize, 0.06);
+    expect(c.video.creditOpacity, 0.2);
+  });
 }

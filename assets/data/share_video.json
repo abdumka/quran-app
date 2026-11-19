@@ -1,5 +1,5 @@
 {
- "ver": 3,
+ "ver": 4,
  "enabled": true,
  "videoEnabled": true,
  "baseUrl": "https://quran-content.mushaf-qaloon.com/",
@@ -16,6 +16,7 @@
   "textWidth": 0.9,
   "textHeight": {
    "9x16": 0.62,
+   "4x5": 0.62,
    "1x1": 0.66,
    "16x9": 0.66
   },
@@ -43,6 +44,13 @@
     "App Store"
    ],
    "link": "mushaf-qaloon.com"
+  },
+  "credit": {
+   "show": true,
+   "template": "{reciter} · رواية قالون عن نافع",
+   "size": 0.026,
+   "opacity": 0.8,
+   "gap": 0.01
   }
  },
  "shapes": [
@@ -51,6 +59,12 @@
    "title": "طولي",
    "width": 1080,
    "height": 1920
+  },
+  {
+   "id": "4x5",
+   "title": "منشور",
+   "width": 1080,
+   "height": 1350
   },
   {
    "id": "1x1",
@@ -134,6 +148,10 @@
      "path": "video_bg/v3/isl07_faisal_dusk/9x16.mp4",
      "bytes": 633612
     },
+    "4x5": {
+     "path": "video_bg/v3/isl07_faisal_dusk/4x5.mp4",
+     "bytes": 498898
+    },
     "1x1": {
      "path": "video_bg/v3/isl07_faisal_dusk/1x1.mp4",
      "bytes": 416730
@@ -153,6 +171,10 @@
     "9x16": {
      "path": "video_bg/v3/isl08_faisal_aerial/9x16.mp4",
      "bytes": 6039866
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl08_faisal_aerial/4x5.mp4",
+     "bytes": 5760790
     },
     "1x1": {
      "path": "video_bg/v3/isl08_faisal_aerial/1x1.mp4",
@@ -174,6 +196,10 @@
      "path": "video_bg/v3/isl11_hassan2_sea/9x16.mp4",
      "bytes": 5327795
     },
+    "4x5": {
+     "path": "video_bg/v3/isl11_hassan2_sea/4x5.mp4",
+     "bytes": 4872379
+    },
     "1x1": {
      "path": "video_bg/v3/isl11_hassan2_sea/1x1.mp4",
      "bytes": 4113429
@@ -193,6 +219,10 @@
     "9x16": {
      "path": "video_bg/v3/isl12_hassan2_shore/9x16.mp4",
      "bytes": 1224140
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl12_hassan2_shore/4x5.mp4",
+     "bytes": 1185729
     },
     "1x1": {
      "path": "video_bg/v3/isl12_hassan2_shore/1x1.mp4",
@@ -214,6 +244,10 @@
      "path": "video_bg/v3/isl16_suleymaniye_bosphorus/9x16.mp4",
      "bytes": 3119883
     },
+    "4x5": {
+     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/4x5.mp4",
+     "bytes": 2780863
+    },
     "1x1": {
      "path": "video_bg/v3/isl16_suleymaniye_bosphorus/1x1.mp4",
      "bytes": 2404994
@@ -233,6 +267,10 @@
     "9x16": {
      "path": "video_bg/v3/isl21_crescent_night/9x16.mp4",
      "bytes": 1823252
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl21_crescent_night/4x5.mp4",
+     "bytes": 1492323
     },
     "1x1": {
      "path": "video_bg/v3/isl21_crescent_night/1x1.mp4",
@@ -254,6 +292,10 @@
      "path": "video_bg/v3/isl28_minarets_sunset/9x16.mp4",
      "bytes": 547712
     },
+    "4x5": {
+     "path": "video_bg/v3/isl28_minarets_sunset/4x5.mp4",
+     "bytes": 553356
+    },
     "1x1": {
      "path": "video_bg/v3/isl28_minarets_sunset/1x1.mp4",
      "bytes": 459923
@@ -273,6 +315,10 @@
     "9x16": {
      "path": "video_bg/v3/isl29_minaret_moon/9x16.mp4",
      "bytes": 663131
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl29_minaret_moon/4x5.mp4",
+     "bytes": 483059
     },
     "1x1": {
      "path": "video_bg/v3/isl29_minaret_moon/1x1.mp4",
@@ -294,6 +340,10 @@
      "path": "video_bg/v3/isl38_madinah_walkway/9x16.mp4",
      "bytes": 1510676
     },
+    "4x5": {
+     "path": "video_bg/v3/isl38_madinah_walkway/4x5.mp4",
+     "bytes": 1275818
+    },
     "1x1": {
      "path": "video_bg/v3/isl38_madinah_walkway/1x1.mp4",
      "bytes": 1128665
@@ -313,6 +363,10 @@
     "9x16": {
      "path": "video_bg/v3/isl40_crescent_rising/9x16.mp4",
      "bytes": 1789372
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl40_crescent_rising/4x5.mp4",
+     "bytes": 1195725
     },
     "1x1": {
      "path": "video_bg/v3/isl40_crescent_rising/1x1.mp4",
@@ -334,6 +388,10 @@
      "path": "video_bg/v3/isl41_lantern/9x16.mp4",
      "bytes": 3338907
     },
+    "4x5": {
+     "path": "video_bg/v3/isl41_lantern/4x5.mp4",
+     "bytes": 4514409
+    },
     "1x1": {
      "path": "video_bg/v3/isl41_lantern/1x1.mp4",
      "bytes": 3259578
@@ -353,6 +411,10 @@
     "9x16": {
      "path": "video_bg/v3/isl43_istanbul_from_sea/9x16.mp4",
      "bytes": 5611401
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl43_istanbul_from_sea/4x5.mp4",
+     "bytes": 5035717
     },
     "1x1": {
      "path": "video_bg/v3/isl43_istanbul_from_sea/1x1.mp4",
@@ -374,6 +436,10 @@
      "path": "video_bg/v3/isl44_mosque_among_trees/9x16.mp4",
      "bytes": 6355490
     },
+    "4x5": {
+     "path": "video_bg/v3/isl44_mosque_among_trees/4x5.mp4",
+     "bytes": 6606892
+    },
     "1x1": {
      "path": "video_bg/v3/isl44_mosque_among_trees/1x1.mp4",
      "bytes": 5675339
@@ -393,6 +459,10 @@
     "9x16": {
      "path": "video_bg/v3/isl45_hazrati_imam/9x16.mp4",
      "bytes": 6106369
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl45_hazrati_imam/4x5.mp4",
+     "bytes": 4586976
     },
     "1x1": {
      "path": "video_bg/v3/isl45_hazrati_imam/1x1.mp4",
@@ -414,6 +484,10 @@
      "path": "video_bg/v3/isl46_al_jabbar/9x16.mp4",
      "bytes": 5115921
     },
+    "4x5": {
+     "path": "video_bg/v3/isl46_al_jabbar/4x5.mp4",
+     "bytes": 4822557
+    },
     "1x1": {
      "path": "video_bg/v3/isl46_al_jabbar/1x1.mp4",
      "bytes": 4103116
@@ -433,6 +507,10 @@
     "9x16": {
      "path": "video_bg/v3/isl47_minaret_sunset/9x16.mp4",
      "bytes": 3626779
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl47_minaret_sunset/4x5.mp4",
+     "bytes": 1774008
     },
     "1x1": {
      "path": "video_bg/v3/isl47_minaret_sunset/1x1.mp4",
@@ -454,6 +532,10 @@
      "path": "video_bg/v3/isl48_desert_mosque/9x16.mp4",
      "bytes": 4081861
     },
+    "4x5": {
+     "path": "video_bg/v3/isl48_desert_mosque/4x5.mp4",
+     "bytes": 3722255
+    },
     "1x1": {
      "path": "video_bg/v3/isl48_desert_mosque/1x1.mp4",
      "bytes": 3233735
@@ -473,6 +555,10 @@
     "9x16": {
      "path": "video_bg/v3/isl49_malacca_mosque/9x16.mp4",
      "bytes": 4856454
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl49_malacca_mosque/4x5.mp4",
+     "bytes": 5334419
     },
     "1x1": {
      "path": "video_bg/v3/isl49_malacca_mosque/1x1.mp4",
@@ -494,6 +580,10 @@
      "path": "video_bg/v3/isl50_mosque_dramatic_sky/9x16.mp4",
      "bytes": 8922027
     },
+    "4x5": {
+     "path": "video_bg/v3/isl50_mosque_dramatic_sky/4x5.mp4",
+     "bytes": 7752256
+    },
     "1x1": {
      "path": "video_bg/v3/isl50_mosque_dramatic_sky/1x1.mp4",
      "bytes": 5897559
@@ -513,6 +603,10 @@
     "9x16": {
      "path": "video_bg/v3/isl51_istanbul_sunset/9x16.mp4",
      "bytes": 1829204
+    },
+    "4x5": {
+     "path": "video_bg/v3/isl51_istanbul_sunset/4x5.mp4",
+     "bytes": 1418731
     },
     "1x1": {
      "path": "video_bg/v3/isl51_istanbul_sunset/1x1.mp4",
@@ -534,6 +628,10 @@
      "path": "video_bg/v3/isl52_crescent_clouds/9x16.mp4",
      "bytes": 3153340
     },
+    "4x5": {
+     "path": "video_bg/v3/isl52_crescent_clouds/4x5.mp4",
+     "bytes": 1590611
+    },
     "1x1": {
      "path": "video_bg/v3/isl52_crescent_clouds/1x1.mp4",
      "bytes": 1119193
@@ -553,6 +651,10 @@
     "9x16": {
      "path": "video_bg/v3/bg01_crescent_night/9x16.mp4",
      "bytes": 3378436
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg01_crescent_night/4x5.mp4",
+     "bytes": 1695872
     },
     "1x1": {
      "path": "video_bg/v3/bg01_crescent_night/1x1.mp4",
@@ -574,6 +676,10 @@
      "path": "video_bg/v3/bg02_moon_clouds/9x16.mp4",
      "bytes": 1179154
     },
+    "4x5": {
+     "path": "video_bg/v3/bg02_moon_clouds/4x5.mp4",
+     "bytes": 859515
+    },
     "1x1": {
      "path": "video_bg/v3/bg02_moon_clouds/1x1.mp4",
      "bytes": 669680
@@ -593,6 +699,10 @@
     "9x16": {
      "path": "video_bg/v3/bg04_starry_sky/9x16.mp4",
      "bytes": 2073171
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg04_starry_sky/4x5.mp4",
+     "bytes": 2155729
     },
     "1x1": {
      "path": "video_bg/v3/bg04_starry_sky/1x1.mp4",
@@ -614,6 +724,10 @@
      "path": "video_bg/v3/bg06_dawn_sky/9x16.mp4",
      "bytes": 4273366
     },
+    "4x5": {
+     "path": "video_bg/v3/bg06_dawn_sky/4x5.mp4",
+     "bytes": 2767237
+    },
     "1x1": {
      "path": "video_bg/v3/bg06_dawn_sky/1x1.mp4",
      "bytes": 2089643
@@ -633,6 +747,10 @@
     "9x16": {
      "path": "video_bg/v3/bg07_lake_sunset/9x16.mp4",
      "bytes": 1399557
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg07_lake_sunset/4x5.mp4",
+     "bytes": 803948
     },
     "1x1": {
      "path": "video_bg/v3/bg07_lake_sunset/1x1.mp4",
@@ -654,6 +772,10 @@
      "path": "video_bg/v3/bg13_mountain_mist/9x16.mp4",
      "bytes": 4895415
     },
+    "4x5": {
+     "path": "video_bg/v3/bg13_mountain_mist/4x5.mp4",
+     "bytes": 3728246
+    },
     "1x1": {
      "path": "video_bg/v3/bg13_mountain_mist/1x1.mp4",
      "bytes": 3146537
@@ -673,6 +795,10 @@
     "9x16": {
      "path": "video_bg/v3/bg14_misty_peak/9x16.mp4",
      "bytes": 1184687
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg14_misty_peak/4x5.mp4",
+     "bytes": 659479
     },
     "1x1": {
      "path": "video_bg/v3/bg14_misty_peak/1x1.mp4",
@@ -694,6 +820,10 @@
      "path": "video_bg/v3/bg18_forest_light/9x16.mp4",
      "bytes": 6169763
     },
+    "4x5": {
+     "path": "video_bg/v3/bg18_forest_light/4x5.mp4",
+     "bytes": 5418110
+    },
     "1x1": {
      "path": "video_bg/v3/bg18_forest_light/1x1.mp4",
      "bytes": 4735005
@@ -713,6 +843,10 @@
     "9x16": {
      "path": "video_bg/v3/bg19_rain_glass/9x16.mp4",
      "bytes": 3360081
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg19_rain_glass/4x5.mp4",
+     "bytes": 2851376
     },
     "1x1": {
      "path": "video_bg/v3/bg19_rain_glass/1x1.mp4",
@@ -734,6 +868,10 @@
      "path": "video_bg/v3/bg20_snow_pines/9x16.mp4",
      "bytes": 4581621
     },
+    "4x5": {
+     "path": "video_bg/v3/bg20_snow_pines/4x5.mp4",
+     "bytes": 4180545
+    },
     "1x1": {
      "path": "video_bg/v3/bg20_snow_pines/1x1.mp4",
      "bytes": 3599314
@@ -753,6 +891,10 @@
     "9x16": {
      "path": "video_bg/v3/bg21_morning_clouds/9x16.mp4",
      "bytes": 9393674
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg21_morning_clouds/4x5.mp4",
+     "bytes": 8422523
     },
     "1x1": {
      "path": "video_bg/v3/bg21_morning_clouds/1x1.mp4",
@@ -774,6 +916,10 @@
      "path": "video_bg/v3/bg22_sky_clouds/9x16.mp4",
      "bytes": 9341321
     },
+    "4x5": {
+     "path": "video_bg/v3/bg22_sky_clouds/4x5.mp4",
+     "bytes": 8247993
+    },
     "1x1": {
      "path": "video_bg/v3/bg22_sky_clouds/1x1.mp4",
      "bytes": 7184025
@@ -793,6 +939,10 @@
     "9x16": {
      "path": "video_bg/v3/bg23_waterfall/9x16.mp4",
      "bytes": 5970725
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg23_waterfall/4x5.mp4",
+     "bytes": 6638617
     },
     "1x1": {
      "path": "video_bg/v3/bg23_waterfall/1x1.mp4",
@@ -814,6 +964,10 @@
      "path": "video_bg/v3/bg24_cloudscape/9x16.mp4",
      "bytes": 6775761
     },
+    "4x5": {
+     "path": "video_bg/v3/bg24_cloudscape/4x5.mp4",
+     "bytes": 5824924
+    },
     "1x1": {
      "path": "video_bg/v3/bg24_cloudscape/1x1.mp4",
      "bytes": 4963282
@@ -833,6 +987,10 @@
     "9x16": {
      "path": "video_bg/v3/bg25_fog_mountain/9x16.mp4",
      "bytes": 4876137
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg25_fog_mountain/4x5.mp4",
+     "bytes": 3731379
     },
     "1x1": {
      "path": "video_bg/v3/bg25_fog_mountain/1x1.mp4",
@@ -854,6 +1012,10 @@
      "path": "video_bg/v3/bg26_rainforest_fog/9x16.mp4",
      "bytes": 6656860
     },
+    "4x5": {
+     "path": "video_bg/v3/bg26_rainforest_fog/4x5.mp4",
+     "bytes": 5263411
+    },
     "1x1": {
      "path": "video_bg/v3/bg26_rainforest_fog/1x1.mp4",
      "bytes": 4126715
@@ -873,6 +1035,10 @@
     "9x16": {
      "path": "video_bg/v3/bg27_lake_reflection/9x16.mp4",
      "bytes": 8472054
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg27_lake_reflection/4x5.mp4",
+     "bytes": 7225162
     },
     "1x1": {
      "path": "video_bg/v3/bg27_lake_reflection/1x1.mp4",
@@ -894,6 +1060,10 @@
      "path": "video_bg/v3/bg28_blue_sky/9x16.mp4",
      "bytes": 8984416
     },
+    "4x5": {
+     "path": "video_bg/v3/bg28_blue_sky/4x5.mp4",
+     "bytes": 7915855
+    },
     "1x1": {
      "path": "video_bg/v3/bg28_blue_sky/1x1.mp4",
      "bytes": 6827323
@@ -913,6 +1083,10 @@
     "9x16": {
      "path": "video_bg/v3/bg29_ocean_waves/9x16.mp4",
      "bytes": 7751213
+    },
+    "4x5": {
+     "path": "video_bg/v3/bg29_ocean_waves/4x5.mp4",
+     "bytes": 6888928
     },
     "1x1": {
      "path": "video_bg/v3/bg29_ocean_waves/1x1.mp4",
@@ -934,6 +1108,10 @@
      "path": "video_bg/v3/bg30_rocky_shore/9x16.mp4",
      "bytes": 7705926
     },
+    "4x5": {
+     "path": "video_bg/v3/bg30_rocky_shore/4x5.mp4",
+     "bytes": 6992268
+    },
     "1x1": {
      "path": "video_bg/v3/bg30_rocky_shore/1x1.mp4",
      "bytes": 6051222
@@ -944,5 +1122,188 @@
     }
    }
   }
- ]
+ ],
+ "fonts": {
+  "default": "naskh",
+  "allowNone": true,
+  "sample": "رواية قالون عن نافع",
+  "list": [
+   {
+    "id": "thuluth",
+    "title": "ثلث",
+    "file": "fonts/v1/thuluth.ttf",
+    "bytes": 188812,
+    "scale": 1.5,
+    "preview": "fonts/v1/thuluth.png"
+   },
+   {
+    "id": "diwani",
+    "title": "ديواني",
+    "file": "fonts/v1/diwani.ttf",
+    "bytes": 172612,
+    "scale": 1.8,
+    "preview": "fonts/v1/diwani.png"
+   },
+   {
+    "id": "system",
+    "title": "خط الهاتف"
+   },
+   {
+    "id": "naskh",
+    "title": "نسخ",
+    "file": "fonts/v1/naskh.ttf",
+    "bytes": 152608,
+    "preview": "fonts/v1/naskh.png"
+   },
+   {
+    "id": "lateef",
+    "title": "لطيف",
+    "file": "fonts/v1/lateef.ttf",
+    "bytes": 241092,
+    "scale": 1.25,
+    "preview": "fonts/v1/lateef.png"
+   },
+   {
+    "id": "mirza",
+    "title": "ميرزا",
+    "file": "fonts/v1/mirza.ttf",
+    "bytes": 128516,
+    "preview": "fonts/v1/mirza.png"
+   },
+   {
+    "id": "ruqaa",
+    "title": "رقعة",
+    "file": "fonts/v1/ruqaa.ttf",
+    "bytes": 107472,
+    "preview": "fonts/v1/ruqaa.png"
+   },
+   {
+    "id": "laylaruqaa",
+    "title": "رقعة تقليدية",
+    "file": "fonts/v1/laylaruqaa.ttf",
+    "bytes": 153068,
+    "scale": 1.15,
+    "preview": "fonts/v1/laylaruqaa.png"
+   },
+   {
+    "id": "gulzar",
+    "title": "نستعليق",
+    "file": "fonts/v1/gulzar.ttf",
+    "bytes": 963496,
+    "preview": "fonts/v1/gulzar.png"
+   },
+   {
+    "id": "reemkufi",
+    "title": "كوفي ريم",
+    "file": "fonts/v1/reemkufi.ttf",
+    "bytes": 48628,
+    "preview": "fonts/v1/reemkufi.png"
+   },
+   {
+    "id": "notokufi",
+    "title": "كوفي",
+    "file": "fonts/v1/notokufi.ttf",
+    "bytes": 135712,
+    "preview": "fonts/v1/notokufi.png"
+   },
+   {
+    "id": "kufam",
+    "title": "كوفي عريض",
+    "file": "fonts/v1/kufam.ttf",
+    "bytes": 198840,
+    "preview": "fonts/v1/kufam.png"
+   },
+   {
+    "id": "laylakoufi",
+    "title": "كوفي تقليدي",
+    "file": "fonts/v1/laylakoufi.ttf",
+    "bytes": 167312,
+    "preview": "fonts/v1/laylakoufi.png"
+   },
+   {
+    "id": "katibeh",
+    "title": "كاتبة",
+    "file": "fonts/v1/katibeh.ttf",
+    "bytes": 133884,
+    "preview": "fonts/v1/katibeh.png"
+   },
+   {
+    "id": "messiri",
+    "title": "المسيري",
+    "file": "fonts/v1/messiri.ttf",
+    "bytes": 62644,
+    "preview": "fonts/v1/messiri.png"
+   },
+   {
+    "id": "plex",
+    "title": "بلكس",
+    "file": "fonts/v1/plex.ttf",
+    "bytes": 235924,
+    "preview": "fonts/v1/plex.png"
+   },
+   {
+    "id": "notosans",
+    "title": "حديث",
+    "file": "fonts/v1/notosans.ttf",
+    "bytes": 145604,
+    "preview": "fonts/v1/notosans.png"
+   },
+   {
+    "id": "mada",
+    "title": "مدى",
+    "file": "fonts/v1/mada.ttf",
+    "bytes": 52012,
+    "preview": "fonts/v1/mada.png"
+   },
+   {
+    "id": "beiruti",
+    "title": "بيروتي",
+    "file": "fonts/v1/beiruti.ttf",
+    "bytes": 145956,
+    "preview": "fonts/v1/beiruti.png"
+   },
+   {
+    "id": "marhey",
+    "title": "مرحى",
+    "file": "fonts/v1/marhey.ttf",
+    "bytes": 100640,
+    "preview": "fonts/v1/marhey.png"
+   },
+   {
+    "id": "playpen",
+    "title": "خط يد",
+    "file": "fonts/v1/playpen.ttf",
+    "bytes": 285880,
+    "preview": "fonts/v1/playpen.png"
+   },
+   {
+    "id": "lalezar",
+    "title": "لالزار",
+    "file": "fonts/v1/lalezar.ttf",
+    "bytes": 211400,
+    "preview": "fonts/v1/lalezar.png"
+   },
+   {
+    "id": "rakkas",
+    "title": "رقّاص",
+    "file": "fonts/v1/rakkas.ttf",
+    "bytes": 112184,
+    "preview": "fonts/v1/rakkas.png"
+   },
+   {
+    "id": "ruwudu",
+    "title": "رودو",
+    "file": "fonts/v1/ruwudu.ttf",
+    "bytes": 121440,
+    "preview": "fonts/v1/ruwudu.png"
+   },
+   {
+    "id": "harmattan",
+    "title": "هرمتان",
+    "file": "fonts/v1/harmattan.ttf",
+    "bytes": 573500,
+    "preview": "fonts/v1/harmattan.png"
+   }
+  ]
+ }
 }

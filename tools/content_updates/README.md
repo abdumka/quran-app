@@ -280,6 +280,7 @@ publish. Phones read it the next time a share sheet opens.
     `cancel` «إلغاء»,
     `close` «إغلاق»,
     `create` «إنشاء الفيديو»,
+    `font` «خط اسم القارئ» (build 168+),
     `effect` «تأثير الصوت»,
     `from` «من»,
     `galleryDenied` «لم يُحفظ: اسمح للتطبيق بإضافة الصور من إعدادات الهاتف»,
@@ -294,6 +295,7 @@ publish. Phones read it the next time a share sheet opens.
     `minute` «دقيقة»,
     `minutes` «{n} دقائق»,
     `noBackgroundShape` «لا تتوفر هذه الخلفية بهذا الشكل»,
+    `noCredit` «بدون سطر القارئ» (build 168+),
     `noRecitation` «لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ»,
     `pause` «إيقاف مؤقت»,
     `play` «تشغيل»,
@@ -333,6 +335,27 @@ publish. Phones read it the next time a share sheet opens.
   - `video.icon`: the app icon of the watermark and closing card as a picture
     on the bucket (square PNG; a new picture needs a new path). Missing or
     unreachable = the bundled icon.
+- Build 168+ (ver 4, 2026-11-19), all optional:
+  - Shape `4x5` (1080x1350, «منشور») after `9x16`: every background has a
+    `4x5.mp4` under `video_bg/v3/<id>/`, cut by `tools\cut3.py` with
+    `BG_SHAPES=4x5` from the same sources and loop points. Older builds show
+    it as a fourth text chip and render it too (both renderers take any
+    size). The shape picker draws each shape in proportion with the chosen
+    background inside and `title` under it.
+  - `video.credit`: the line under the surah name. `template` (`{reciter}` =
+    the reciter's full name, `{riwaya}` = the riwayah note of the reciter
+    list), `size` (share of the short side, 0.026), `opacity` (0.8), `gap`
+    (0.01). Missing `credit` = no line.
+  - `fonts`: `list` in picker order, each `{id, title, file, bytes, scale,
+    preview}`; no `file` = the phone's own font. `default` (first pick),
+    `allowNone` («بدون سطر القارئ» first), `sample` (what the previews say).
+    Files and previews live under `fonts/v1/` (C:\Down\AyahVideoBackgrounds\fonts:
+    `prepare_fonts.py` trims to Arabic and one weight, except fonts whose
+    licence reserves their name, which ship unmodified; the previews are drawn
+    by Flutter itself). A font is downloaded only when picked; a bad entry
+    drops that font only. `scale` enlarges fonts that draw small (Thuluth
+    1.5, Diwani 1.8). A changed font needs a new path, like clips.
+  - Uploaded with `tools\upload_v5.py` (it also writes this part of the json).
 
 ## Still needs a store release
 New screens or behaviour (code); joining or splitting words; moving an ayah
