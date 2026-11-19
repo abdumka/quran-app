@@ -511,6 +511,7 @@ class AyahVideoService {
     required ShareVideoEffect effect,
     required AyahVideoProgress progress,
     ShareVideoFont? font,
+    double creditSize = 1,
   }) async {
     void check() {
       if (progress.cancelled) throw const AyahVideoCancelled();
@@ -639,6 +640,7 @@ class AyahVideoService {
       credit = creditLine(look, reciter);
       creditFont = await fontFamily(config, font);
       if (creditFont != null) creditScale = font.scale;
+      creditScale *= creditSize;
     }
     for (var i = 0; i < plan.groups.length; i++) {
       check();

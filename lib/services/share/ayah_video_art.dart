@@ -476,10 +476,7 @@ class AyahVideoArt {
         FontWeight.w400,
         w * 0.9,
         fontFamily: creditFont,
-        shadows: const [
-          Shadow(color: Color(0xBF000000), blurRadius: 6),
-          Shadow(color: Color(0x80000000), blurRadius: 2),
-        ],
+        shadows: _creditShadows(look, unit),
         maxLines: 2,
       );
       final y =
@@ -570,6 +567,41 @@ class AyahVideoArt {
     final bytes = await _png(recorder, width, height);
     ownIcon?.dispose();
     return bytes;
+  }
+
+  /// The reciter line's shadow ([ShareVideoLook.creditHalo]): the ayat's
+  /// halo made small and light, sized by the frame like theirs.
+  static List<Shadow> _creditShadows(ShareVideoLook look, double unit) {
+    if (look.creditHalo <= 0 &&
+        look.creditHaloWide <= 0 &&
+        look.creditDrop <= 0) {
+      return const [
+        Shadow(color: Color(0xBF000000), blurRadius: 6),
+        Shadow(color: Color(0x80000000), blurRadius: 2),
+      ];
+    }
+    // Shadow takes a blur radius; the halos are thought of as a Gaussian
+    // sigma, like the ayat's (sigma = radius * 0.57735 + 0.5).
+    double radius(double sigma) => sigma <= 0.5 ? 0 : (sigma - 0.5) / 0.57735;
+    Color black(double a) => Color.fromRGBO(0, 0, 0, a.clamp(0, 1));
+    final tight = radius(math.max(1.2, unit * 0.0015));
+    return [
+      if (look.creditHalo > 0) ...[
+        Shadow(color: black(look.creditHalo), blurRadius: tight),
+        Shadow(color: black(look.creditHalo), blurRadius: tight),
+      ],
+      if (look.creditHaloWide > 0)
+        Shadow(
+          color: black(look.creditHaloWide),
+          blurRadius: radius(math.max(2.5, unit * 0.0046)),
+        ),
+      if (look.creditDrop > 0)
+        Shadow(
+          color: black(look.creditDrop),
+          offset: Offset(0, math.max(1, unit * 0.0019)),
+          blurRadius: radius(math.max(1.2, unit * 0.0019)),
+        ),
+    ];
   }
 
   /// Icon, name and link at the foot; returns the top of the mark.

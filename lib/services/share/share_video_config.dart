@@ -362,7 +362,11 @@ class ShareVideoLook {
     this.creditTemplate = defaultCreditTemplate,
     this.creditSize = 0.026,
     this.creditOpacity = 0.8,
+    this.creditHalo = 0,
+    this.creditHaloWide = 0,
+    this.creditDrop = 0,
     this.creditGap = 0.01,
+    this.creditSizes = defaultCreditSizes,
     required this.showWatermark,
     required this.watermarkName,
     required this.watermarkLink,
@@ -430,7 +434,20 @@ class ShareVideoLook {
   /// side (each font's own `scale` multiplies the size), and its opacity.
   final double creditSize;
   final double creditOpacity;
+
+  /// The reciter line's shadow, the ayat's way but lighter: a dark halo
+  /// hugging the letters ([creditHalo], drawn twice), a wider soft one
+  /// ([creditHaloWide]) and a small shadow under them ([creditDrop]), each
+  /// a darkness 0–1. All 0 = the first soft shadow (builds 168–170).
+  final double creditHalo;
+  final double creditHaloWide;
+  final double creditDrop;
   final double creditGap;
+
+  /// The three sizes the sharer can pick for the reciter line (small,
+  /// medium, large), times [creditSize] (`video.credit.sizes`).
+  final List<double> creditSizes;
+  static const defaultCreditSizes = [0.8, 1.0, 1.25];
   final bool showWatermark;
   final String watermarkName;
   final String watermarkLink;
@@ -521,7 +538,16 @@ class ShareVideoLook {
           : defaultCreditTemplate,
       creditSize: d(cr['size'], 0.026, 0.012, 0.06),
       creditOpacity: d(cr['opacity'], 0.8, 0.2, 1),
+      creditHalo: d(cr['halo'], 0, 0, 1),
+      creditHaloWide: d(
+        cr['haloWide'],
+        0.7 * d(cr['halo'], 0, 0, 1),
+        0,
+        1,
+      ),
+      creditDrop: d(cr['drop'], 0, 0, 1),
       creditGap: d(cr['gap'], 0.01, 0, 0.06),
+      creditSizes: _creditSizes(cr['sizes']),
       showWatermark: mark['show'] != false,
       watermarkName: s(mark['name'], 'المصحف الجامع'),
       watermarkLink: s(mark['link'], 'mushaf-qaloon.com'),
@@ -723,4 +749,15 @@ class ShareVideoBackground {
       files: Map.unmodifiable(files),
     );
   }
+}
+
+/// `video.credit.sizes`: three growing numbers within 0.5–2, else the
+/// defaults (a wrong list must not make the line unreadable).
+List<double> _creditSizes(Object? v) {
+  if (v is! List || v.length != 3 || v.any((x) => x is! num)) {
+    return ShareVideoLook.defaultCreditSizes;
+  }
+  final l = [for (final x in v) (x as num).toDouble()];
+  final ok = l.every((x) => x >= 0.5 && x <= 2) && l[0] < l[1] && l[1] < l[2];
+  return ok ? l : ShareVideoLook.defaultCreditSizes;
 }

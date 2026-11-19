@@ -296,6 +296,8 @@ publish. Phones read it the next time a share sheet opens.
     `minutes` «{n} دقائق»,
     `noBackgroundShape` «لا تتوفر هذه الخلفية بهذا الشكل»,
     `noCredit` «بدون سطر القارئ» (build 168+),
+    `sizeSmall` «صغير», `sizeMedium` «وسط», `sizeLarge` «كبير» (build 171+,
+    read aloud by screen readers on the size buttons),
     `noRecitation` «لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ»,
     `pause` «إيقاف مؤقت»,
     `play` «تشغيل»,
@@ -345,10 +347,18 @@ publish. Phones read it the next time a share sheet opens.
   - `video.credit`: the line under the surah name. `template` (`{reciter}` =
     the reciter's full name, `{riwaya}` = the riwayah note of the reciter
     list), `size` (share of the short side, 0.026), `opacity` (0.8), `gap`
-    (0.01). Missing `credit` = no line.
+    (0.01), `sizes` (build 171+: the small, medium and large buttons beside
+    the font, times `size`, default `[0.8, 1, 1.25]`; three growing numbers
+    within 0.5–2 or the default is used), `halo`, `haloWide`, `drop`
+    (build 171+: the line's shadow the ayat's way, each a darkness 0–1: a
+    tight halo drawn twice, a wide soft one (default 0.7 of `halo`) and a
+    small shadow under the letters; all 0 = the first soft shadow). Missing
+    `credit` = no line.
   - `fonts`: `list` in picker order, each `{id, title, file, bytes, scale,
     preview}`; no `file` = the phone's own font. `default` (first pick),
-    `allowNone` («بدون سطر القارئ» first), `sample` (what the previews say).
+    `allowNone` («بدون سطر القارئ» first), `sample` (what the previews say:
+    «اسم القارئ» since ver 5; the riwayah line made it look like the list
+    picks the riwayah, so the pictures moved to `fonts/v1/<id>_name.png`).
     Files and previews live under `fonts/v1/` (C:\Down\AyahVideoBackgrounds\fonts:
     `prepare_fonts.py` trims to Arabic and one weight, except fonts whose
     licence reserves their name, which ship unmodified; the previews are drawn

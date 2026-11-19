@@ -1,5 +1,5 @@
 {
- "ver": 4,
+ "ver": 6,
  "enabled": true,
  "videoEnabled": true,
  "baseUrl": "https://quran-content.mushaf-qaloon.com/",
@@ -49,8 +49,9 @@
    "show": true,
    "template": "{reciter} · رواية قالون عن نافع",
    "size": 0.026,
-   "opacity": 0.8,
-   "gap": 0.01
+   "opacity": 0.9,
+   "gap": 0.01,
+   "halo": 1
   }
  },
  "shapes": [
@@ -1126,7 +1127,7 @@
  "fonts": {
   "default": "naskh",
   "allowNone": true,
-  "sample": "رواية قالون عن نافع",
+  "sample": "اسم القارئ",
   "list": [
    {
     "id": "thuluth",
@@ -1134,7 +1135,7 @@
     "file": "fonts/v1/thuluth.ttf",
     "bytes": 188812,
     "scale": 1.5,
-    "preview": "fonts/v1/thuluth.png"
+    "preview": "fonts/v1/thuluth_name.png"
    },
    {
     "id": "diwani",
@@ -1142,7 +1143,7 @@
     "file": "fonts/v1/diwani.ttf",
     "bytes": 172612,
     "scale": 1.8,
-    "preview": "fonts/v1/diwani.png"
+    "preview": "fonts/v1/diwani_name.png"
    },
    {
     "id": "system",
@@ -1153,7 +1154,7 @@
     "title": "نسخ",
     "file": "fonts/v1/naskh.ttf",
     "bytes": 152608,
-    "preview": "fonts/v1/naskh.png"
+    "preview": "fonts/v1/naskh_name.png"
    },
    {
     "id": "lateef",
@@ -1161,21 +1162,21 @@
     "file": "fonts/v1/lateef.ttf",
     "bytes": 241092,
     "scale": 1.25,
-    "preview": "fonts/v1/lateef.png"
+    "preview": "fonts/v1/lateef_name.png"
    },
    {
     "id": "mirza",
     "title": "ميرزا",
     "file": "fonts/v1/mirza.ttf",
     "bytes": 128516,
-    "preview": "fonts/v1/mirza.png"
+    "preview": "fonts/v1/mirza_name.png"
    },
    {
     "id": "ruqaa",
     "title": "رقعة",
     "file": "fonts/v1/ruqaa.ttf",
     "bytes": 107472,
-    "preview": "fonts/v1/ruqaa.png"
+    "preview": "fonts/v1/ruqaa_name.png"
    },
    {
     "id": "laylaruqaa",
@@ -1183,126 +1184,126 @@
     "file": "fonts/v1/laylaruqaa.ttf",
     "bytes": 153068,
     "scale": 1.15,
-    "preview": "fonts/v1/laylaruqaa.png"
+    "preview": "fonts/v1/laylaruqaa_name.png"
    },
    {
     "id": "gulzar",
     "title": "نستعليق",
     "file": "fonts/v1/gulzar.ttf",
     "bytes": 963496,
-    "preview": "fonts/v1/gulzar.png"
+    "preview": "fonts/v1/gulzar_name.png"
    },
    {
     "id": "reemkufi",
     "title": "كوفي ريم",
     "file": "fonts/v1/reemkufi.ttf",
     "bytes": 48628,
-    "preview": "fonts/v1/reemkufi.png"
+    "preview": "fonts/v1/reemkufi_name.png"
    },
    {
     "id": "notokufi",
     "title": "كوفي",
     "file": "fonts/v1/notokufi.ttf",
     "bytes": 135712,
-    "preview": "fonts/v1/notokufi.png"
+    "preview": "fonts/v1/notokufi_name.png"
    },
    {
     "id": "kufam",
     "title": "كوفي عريض",
     "file": "fonts/v1/kufam.ttf",
     "bytes": 198840,
-    "preview": "fonts/v1/kufam.png"
+    "preview": "fonts/v1/kufam_name.png"
    },
    {
     "id": "laylakoufi",
     "title": "كوفي تقليدي",
     "file": "fonts/v1/laylakoufi.ttf",
     "bytes": 167312,
-    "preview": "fonts/v1/laylakoufi.png"
+    "preview": "fonts/v1/laylakoufi_name.png"
    },
    {
     "id": "katibeh",
     "title": "كاتبة",
     "file": "fonts/v1/katibeh.ttf",
     "bytes": 133884,
-    "preview": "fonts/v1/katibeh.png"
+    "preview": "fonts/v1/katibeh_name.png"
    },
    {
     "id": "messiri",
     "title": "المسيري",
     "file": "fonts/v1/messiri.ttf",
     "bytes": 62644,
-    "preview": "fonts/v1/messiri.png"
+    "preview": "fonts/v1/messiri_name.png"
    },
    {
     "id": "plex",
     "title": "بلكس",
     "file": "fonts/v1/plex.ttf",
     "bytes": 235924,
-    "preview": "fonts/v1/plex.png"
+    "preview": "fonts/v1/plex_name.png"
    },
    {
     "id": "notosans",
     "title": "حديث",
     "file": "fonts/v1/notosans.ttf",
     "bytes": 145604,
-    "preview": "fonts/v1/notosans.png"
+    "preview": "fonts/v1/notosans_name.png"
    },
    {
     "id": "mada",
     "title": "مدى",
     "file": "fonts/v1/mada.ttf",
     "bytes": 52012,
-    "preview": "fonts/v1/mada.png"
+    "preview": "fonts/v1/mada_name.png"
    },
    {
     "id": "beiruti",
     "title": "بيروتي",
     "file": "fonts/v1/beiruti.ttf",
     "bytes": 145956,
-    "preview": "fonts/v1/beiruti.png"
+    "preview": "fonts/v1/beiruti_name.png"
    },
    {
     "id": "marhey",
     "title": "مرحى",
     "file": "fonts/v1/marhey.ttf",
     "bytes": 100640,
-    "preview": "fonts/v1/marhey.png"
+    "preview": "fonts/v1/marhey_name.png"
    },
    {
     "id": "playpen",
     "title": "خط يد",
     "file": "fonts/v1/playpen.ttf",
     "bytes": 285880,
-    "preview": "fonts/v1/playpen.png"
+    "preview": "fonts/v1/playpen_name.png"
    },
    {
     "id": "lalezar",
     "title": "لالزار",
     "file": "fonts/v1/lalezar.ttf",
     "bytes": 211400,
-    "preview": "fonts/v1/lalezar.png"
+    "preview": "fonts/v1/lalezar_name.png"
    },
    {
     "id": "rakkas",
     "title": "رقّاص",
     "file": "fonts/v1/rakkas.ttf",
     "bytes": 112184,
-    "preview": "fonts/v1/rakkas.png"
+    "preview": "fonts/v1/rakkas_name.png"
    },
    {
     "id": "ruwudu",
     "title": "رودو",
     "file": "fonts/v1/ruwudu.ttf",
     "bytes": 121440,
-    "preview": "fonts/v1/ruwudu.png"
+    "preview": "fonts/v1/ruwudu_name.png"
    },
    {
     "id": "harmattan",
     "title": "هرمتان",
     "file": "fonts/v1/harmattan.ttf",
     "bytes": 573500,
-    "preview": "fonts/v1/harmattan.png"
+    "preview": "fonts/v1/harmattan_name.png"
    }
   ]
  }

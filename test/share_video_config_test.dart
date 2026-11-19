@@ -203,5 +203,44 @@ void main() {
     expect(c.video.creditTemplate, '{reciter}');
     expect(c.video.creditSize, 0.06);
     expect(c.video.creditOpacity, 0.2);
+    expect(c.video.creditSizes, [0.8, 1.0, 1.25]); // the default three
+    // no halo numbers = the first soft shadow
+    expect(c.video.creditHalo, 0);
+    expect(c.video.creditHaloWide, 0);
+    expect(c.video.creditDrop, 0);
+  });
+
+  test('the reciter line halo comes from the server, clamped', () {
+    ShareVideoLook look(Map<String, Object?> credit) {
+      final j = base();
+      (j['video'] as Map)['credit'] = credit;
+      return ShareVideoConfig.parse(jsonEncode(j)).video;
+    }
+
+    final half = look({'halo': 0.5, 'drop': 0.45});
+    expect(half.creditHalo, 0.5);
+    expect(half.creditHaloWide, closeTo(0.35, 1e-9)); // 0.7 of the halo
+    expect(half.creditDrop, 0.45);
+    final thin = look({'halo': 0.6, 'haloWide': 0});
+    expect(thin.creditHaloWide, 0);
+    final wild = look({'halo': 7, 'haloWide': -1, 'drop': 'x'});
+    expect(wild.creditHalo, 1);
+    expect(wild.creditHaloWide, 0);
+    expect(wild.creditDrop, 0);
+  });
+
+  test('the three sizes of the reciter line come from the server', () {
+    List<double> sizes(Object? v) {
+      final j = base();
+      (j['video'] as Map)['credit'] = {'sizes': v};
+      return ShareVideoConfig.parse(jsonEncode(j)).video.creditSizes;
+    }
+
+    expect(sizes([0.7, 1, 1.4]), [0.7, 1.0, 1.4]);
+    // a wrong list keeps the defaults: not three, not growing, out of range
+    expect(sizes([0.8, 1]), [0.8, 1.0, 1.25]);
+    expect(sizes([1.2, 1, 0.8]), [0.8, 1.0, 1.25]);
+    expect(sizes([0.1, 1, 5]), [0.8, 1.0, 1.25]);
+    expect(sizes('big'), [0.8, 1.0, 1.25]);
   });
 }

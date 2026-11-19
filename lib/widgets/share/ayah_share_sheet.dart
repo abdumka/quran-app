@@ -12,6 +12,7 @@ import '../../services/share/ayah_video_service.dart';
 import '../../services/share/share_video_config.dart';
 import '../../theme/app_surfaces.dart';
 import '../menu_scroll_cue.dart';
+import '../sheet_pull_to_close.dart';
 import 'ayah_video_player.dart';
 
 /// Wording the server can change (`strings` in share_video.json).
@@ -146,10 +147,10 @@ Future<void> showAyahShareSheet(
   if (choice == 'text') {
     await AyahShareText.share(context, surah, ayah);
   } else {
-    await showModalBottomSheet<void>(
+    // A swipe down on the content closes it too (it scrolls on small
+    // screens, which used to leave only the handle to drag).
+    await showPullToCloseSheet<void>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       backgroundColor: c.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -279,6 +280,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   static const _prefShape = 'shareVideo.shape';
   static const _prefEffect = 'shareVideo.effect';
   static const _prefFont = 'shareVideo.font';
+  static const _prefFontSize = 'shareVideo.fontSize';
 
   /// The «بدون سطر القارئ» choice of the font picker.
   static const _noFont = 'none';
@@ -286,6 +288,9 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   late ShareVideoShape _shape = widget.config.shapes.first;
   late ShareVideoEffect _effect = widget.config.effects.first;
   late String _fontId = widget.config.defaultFont;
+
+  /// 0 small, 1 medium, 2 large ([ShareVideoLook.creditSizes]).
+  int _fontSize = 1;
   late ShareVideoBackground _bg =
       widget.config.background(widget.config.defaultBackground) ??
       widget.config.backgrounds.first;
@@ -451,6 +456,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       if ((font == _noFont && config.fontNone) || config.font(font) != null) {
         _fontId = font!;
       }
+      _fontSize = (prefs.getInt(_prefFontSize) ?? 1).clamp(0, 2);
     });
   }
 
@@ -460,6 +466,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     await prefs.setString(_prefShape, _shape.id);
     await prefs.setString(_prefEffect, _effect.id);
     await prefs.setString(_prefFont, _fontId);
+    await prefs.setInt(_prefFontSize, _fontSize);
   }
 
   /// The font of the reciter line; null = no line («بدون سطر القارئ»). A
@@ -516,6 +523,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         effect: _effect,
         progress: progress,
         font: _font,
+        creditSize: config.video.creditSizes[_fontSize],
       );
       if (!mounted) return;
       setState(() {
@@ -579,6 +587,9 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SingleChildScrollView(
+        // The pull past the top closes the sheet (SheetPullToClose), so no
+        // iOS bounce here.
+        physics: const ClampingScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
           16,
           12,
@@ -666,7 +677,15 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       ),
       if (config.video.showCredit && config.fonts.isNotEmpty) ...[
         _label(_t('font', 'خط اسم القارئ')),
-        _fontPicker(),
+        Row(
+          children: [
+            Expanded(child: _fontPicker()),
+            if (_fontId != _noFont) ...[
+              const SizedBox(width: 8),
+              _fontSizePicker(),
+            ],
+          ],
+        ),
       ],
       _label(_t('background', 'الخلفية')),
       Wrap(
@@ -1013,6 +1032,8 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         ),
       ],
       child: Container(
+        // as tall as the size buttons beside it, whatever the font
+        constraints: const BoxConstraints(minHeight: _fieldHeight),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: c.card,
@@ -1027,6 +1048,60 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             Icon(Icons.expand_more_rounded, color: c.muted),
           ],
         ),
+      ),
+    );
+  }
+
+  static const double _fieldHeight = 46;
+
+  /// Small, medium and large for the reciter line: three «أ» growing, on the
+  /// font's own row so they take no extra line.
+  Widget _fontSizePicker() {
+    const glyph = [12.0, 15.0, 19.0];
+    final names = [
+      _t('sizeSmall', 'صغير'),
+      _t('sizeMedium', 'وسط'),
+      _t('sizeLarge', 'كبير'),
+    ];
+    return Container(
+      height: _fieldHeight,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.hair),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < 3; i++)
+            Semantics(
+              button: true,
+              selected: i == _fontSize,
+              label: names[i],
+              excludeSemantics: true,
+              child: Material(
+                color: i == _fontSize ? c.chipOn : Colors.transparent,
+                child: InkWell(
+                  onTap: () => setState(() => _fontSize = i),
+                  child: SizedBox(
+                    width: 38,
+                    height: _fieldHeight,
+                    child: Center(
+                      child: Text(
+                        'أ',
+                        style: TextStyle(
+                          fontSize: glyph[i],
+                          fontWeight: FontWeight.w700,
+                          color: i == _fontSize ? c.onChipOn : c.text,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
