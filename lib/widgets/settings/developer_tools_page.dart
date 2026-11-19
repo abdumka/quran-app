@@ -227,6 +227,7 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                           line('quran_text', 'تصحيحات نص المصحف'),
                           line('athkar', 'الأذكار'),
                           line('khilaf', 'خلافات القراء'),
+                          line('usul', 'أحكام وأصول الرواية'),
                           if (s.pendingRestart.isNotEmpty)
                             'نُزِّل تحديث يظهر عند فتح التطبيق من جديد.',
                         ].join('\n'),

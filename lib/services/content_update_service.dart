@@ -17,6 +17,7 @@ import 'server_notice_service.dart';
 import 'share/share_video_config.dart';
 import 'tasmee_data_patch.dart';
 import '../widgets/quran/khilaf_sheet.dart' show KhilafData;
+import '../models/usul.dart' show UsulData;
 
 /// Data the app can refresh from our server without a store release:
 ///
@@ -51,6 +52,8 @@ import '../widgets/quran/khilaf_sheet.dart' show KhilafData;
 ///                    (`AthkarData`); applied at once.
 ///   * `khilaf`:    «خلافات القراء» whole (`KhilafData`); used from the
 ///                    next sheet opened.
+///   * `usul`:      «أحكام وأصول الرواية» whole (`UsulData`); used from the
+///                    next time the section is opened.
 ///
 /// Layout on `quran-content.mushaf-qaloon.com` (the R2 bucket the tafsir
 /// pages and timings already come from), published by
@@ -69,6 +72,7 @@ import '../widgets/quran/khilaf_sheet.dart' show KhilafData;
 ///     data/share_video/share_video_v<N>.json
 ///     data/athkar/athkar_v<N>.json
 ///     data/khilaf/khilaf_v<N>.json
+///     data/usul/usul_v<N>.json
 ///
 /// The manifest names each item's version, file, size and SHA-256. A file is
 /// downloaded only when its version is newer than both the version bundled in
@@ -100,6 +104,7 @@ class ContentUpdateService {
     'athkar',
     'share_video',
     'khilaf',
+    'usul',
   ];
 
   /// What the assets of THIS build carry. A download older than or equal to
@@ -131,6 +136,8 @@ class ContentUpdateService {
     'share_video': 3,
     // matches the `ver` of `assets/data/khilaf.json` (a test keeps them in step)
     'khilaf': 1,
+    // matches the `ver` of `assets/data/usul.json` (a test keeps them in step)
+    'usul': 1,
   };
 
   /// How often the silent check runs (`content.checkHours`, [RemoteConfig]).
@@ -462,6 +469,8 @@ class ContentUpdateService {
         ShareVideoConfig.parse(text);
       case 'khilaf':
         KhilafData.parse(text);
+      case 'usul':
+        UsulData.parse(text);
     }
   }
 
@@ -573,6 +582,7 @@ class ContentCheckResult {
     'quran_data': 'بيانات المصحف',
     'athkar': 'الأذكار',
     'khilaf': 'خلافات القراء',
+    'usul': 'أحكام وأصول الرواية',
   };
 
   /// Items the reader is not told about (settings and messages from us).

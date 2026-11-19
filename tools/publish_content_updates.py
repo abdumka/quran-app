@@ -15,6 +15,7 @@
     data/share_video/share_video_v<N>.json   assets/data/share_video.json, N = its "ver"
     data/athkar/athkar_v<N>.json             assets/data/athkar.json, N = its "ver" (VER in build_athkar_data.py)
     data/khilaf/khilaf_v<N>.json             assets/data/khilaf.json, N = its "ver" (VER in build_khilaf_data.py)
+    data/usul/usul_v<N>.json                 assets/data/usul.json, N = its "ver" (VER in build_usul_data.py)
 
 Each payload is uploaded under its version (immutable, cached for a year) and
 the manifest is rewritten last, so a phone never sees a manifest pointing at a
@@ -63,15 +64,18 @@ MIN_BUILD = 126  # the first build with ContentUpdateService
 # keep the v5 they have and only builds that colour from the pictures take newer boxes.
 # tasmee_data / app_config / quran_data / notices: the first build with their code
 # (2026-11-17 work, the release after 1.5.6+140). Older builds do not know these items
-# and ignore them anyway; the number only keeps the manifest honest. Raise it if that
-# release ships with a higher build number.
-NEW_ITEMS_MIN_BUILD = 148
+# and ignore them anyway; the number only keeps the manifest honest. That release went to
+# the App Store as 1.5.7+140 (2026-11-18), the same build number as 1.5.6+140, so the gate
+# is 140: 1.5.6+140 does not know these items and skips them, 1.5.7+140 and later read them.
+NEW_ITEMS_MIN_BUILD = 140
 MIN_BUILD_OF = {"tanzilat_paint": 133, "word_masks": 133,
                 "tasmee_data": NEW_ITEMS_MIN_BUILD, "app_config": NEW_ITEMS_MIN_BUILD,
                 "quran_data": NEW_ITEMS_MIN_BUILD, "notices": NEW_ITEMS_MIN_BUILD,
                 "athkar": NEW_ITEMS_MIN_BUILD, "khilaf": NEW_ITEMS_MIN_BUILD,
                 # «مشاركة الآية» / «فيديو الآية»: first in test build 151 (2026-11-17).
-                "share_video": 151}
+                "share_video": NEW_ITEMS_MIN_BUILD,
+                # «أحكام وأصول الرواية»: first in 1.5.7+141 (2026-11-19).
+                "usul": 141}
 PUBLIC = "https://quran-content.mushaf-qaloon.com/"
 NUL = os.devnull
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -98,6 +102,9 @@ ITEMS = {
     # «خلافات القراء»: the whole file (tools/build_khilaf_data.py writes it; raise VER
     # there). Phones take it only when ver > the bundled one.
     "khilaf": (ROOT / "assets" / "data" / "khilaf.json", "data/khilaf/khilaf_v{ver}.json"),
+    # «أحكام وأصول الرواية»: the whole file (tools/build_usul_data.py writes it; raise VER
+    # there). Phones take it only when ver > the bundled one.
+    "usul": (ROOT / "assets" / "data" / "usul.json", "data/usul/usul_v{ver}.json"),
 }
 EASTERN = set("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹")
 
@@ -519,6 +526,8 @@ def main():
             sys.exit(f"ABORT: {src} has no sections")
         if name == "khilaf" and not (isinstance(data.get("a"), dict) and data["a"] and data.get("v") == 1):
             sys.exit(f"ABORT: {src} has no ayat (or a format this app cannot read)")
+        if name == "usul" and not (isinstance(data.get("groups"), list) and data["groups"] and data.get("v") == 1):
+            sys.exit(f"ABORT: {src} has no chapters (or a format this app cannot read)")
         if name == "tanzilat_paint" and data.get("tz") != tanzilat_ver:
             sys.exit(f"ABORT: the pictures are for tanzilat v{data.get('tz')}, the data is v{tanzilat_ver}: rebuild them")
         if name not in ("tanzilat", "tanzilat_paint") and any(c in EASTERN for c in body.decode("utf-8")):

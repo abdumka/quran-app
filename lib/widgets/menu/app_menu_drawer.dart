@@ -12,6 +12,7 @@ import 'fullscreen_menu_page.dart';
 import '../../theme/app_surfaces.dart';
 import '../../utils/rate_app.dart';
 import '../athkar/athkar_home_page.dart';
+import '../usul/usul_pages.dart';
 
 /// What the reader does for the drawer rows that act on the reader itself
 /// (the current page, its Settings route). The app rows (contact, share,
@@ -278,6 +279,28 @@ class AppMenuDrawer extends StatelessWidget {
                           navigator.push(
                             MaterialPageRoute<void>(
                               builder: (_) => const AthkarHomePage(),
+                            ),
+                          );
+                        },
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_left_rounded,
+                        color: c.drawerMuted,
+                        size: 20,
+                      ),
+                    ),
+                    // «أحكام وأصول الرواية» right under الأذكار (owner,
+                    // 2026-11-18), its own window too.
+                    _MenuRowView(
+                      row: _MenuRow(
+                        'أحكام وأصول الرواية',
+                        Icons.menu_book_rounded,
+                        onTap: () {
+                          final navigator = Navigator.of(context);
+                          navigator.pop();
+                          navigator.push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const UsulHomePage(),
                             ),
                           );
                         },

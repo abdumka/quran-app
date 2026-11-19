@@ -24,8 +24,10 @@ server hook is still missing, so the next change of that kind skips the store.
 
 The four items added 2026-11-17 (`tasmee_data`, `app_config`, `quran_data`,
 `notices`) and the new `reciters` override keys are read only by the release
-after 1.5.6+140 (build 148+, `NEW_ITEMS_MIN_BUILD` in the publisher); older
-builds ignore them. Each file is checked by the publisher with the app's own
+after 1.5.6+140. That release went out as 1.5.7+140 (the same build number),
+so `NEW_ITEMS_MIN_BUILD` in the publisher is 140: 1.5.6+140 does not know these
+items and ignores them, 1.5.7+140 and later read them. In the headings below,
+"build 140+" means 1.5.7+140 and later. Each file is checked by the publisher with the app's own
 rules and refused before upload if the app would refuse it; the app checks it
 again at download and at load and keeps its bundle when anything is wrong.
 
@@ -84,8 +86,8 @@ id a later build bundles in `Reciter.all` is skipped (the bundle wins).
 (`{"rajab_qaloun": {"timingsRevision": 2}}`) so phones re-fetch corrected
 timings. Western digits only.
 
-### Overrides for the bundled reciters (build 148+)
-Older builds read only `timingsRevision`; build 148+ also reads, per id:
+### Overrides for the bundled reciters (build 140+)
+Older builds read only `timingsRevision`; 1.5.7+140 and later also read, per id:
 
 | key | effect |
 |---|---|
@@ -150,7 +152,7 @@ derived-artifact rebuild). When a release bundles the corrected
 `output.json`, raise `ContentUpdateService.bundledVersions['quran_text']` to
 the patch file's `ver` and add that release as a base.
 
-## tasmee_data_patch.json (build 148+)
+## tasmee_data_patch.json (build 140+)
 Tasmee pronunciation fixes: whole ayat of `assets/data/page_phonemes.json`
 plus `lexiconAdd` / `lexiconRemove` for `phoneme_lexicon.json`. Applied when
 Tasmee first loads in a run (never during a session). Rules in
@@ -168,7 +170,7 @@ from any base and the lexicon changes, and bumps `"ver"`. Publish
 Checked 2026-11-17: HEAD's bundle plus a patch built against it reproduces
 the working tree's page phonemes exactly.
 
-## app_config.json (build 148+)
+## app_config.json (build 140+)
 `{"ver": N, "values": {...}, "tafsirEditions": [...]}`. Read at launch; a
 newer file applies at the next launch. Only the keys in
 `lib/services/remote_config.dart` (`RemoteConfig.keys`) exist, each with its
@@ -188,7 +190,7 @@ or a value out of range (the app would ignore it). Current keys:
 | `content.checkHours` | 24 | silent check interval (6-168) |
 
 The ranges are in the Dart file. Tasmee numbers: change them only after a
-replay study shows the gain; every phone on 148+ takes them at its next
+replay study shows the gain; every phone on 1.5.7+140 and later takes them at its next
 launch. To undo, publish a new `ver` without the key.
 
 `tafsirEditions`: online tafsir editions added without a release,
@@ -197,7 +199,7 @@ Upload the 602 pages to `quran-content.../tafsir/<id>/page_NNN.json` first
 (the same format as the four online editions); the publisher checks pages 1,
 300 and 602 are reachable.
 
-## quran_data.json (build 148+)
+## quran_data.json (build 140+)
 Optional sections, each checked as a whole (`lib/services/quran_data_patch.dart`):
 - `ayahRegions`: `{"<page>": <the page's entry of ayah_regions.json>}`, the
   ayah highlight and Tasmee masks. Same ayat in the same order as the bundle,
@@ -210,13 +212,13 @@ Optional sections, each checked as a whole (`lib/services/quran_data_patch.dart`
 
 Read once per run when each data set first loads.
 
-## notices.json (build 148+)
+## notices.json (build 140+)
 Messages shown once per install at launch, in the «ما الجديد» card, only on a
 launch where neither «ما الجديد» nor the update dialog appeared:
 ```json
 {"ver": 1, "notices": [{"id": "reciter-younsi", "title": "قارئ جديد",
   "lines": ["أضفنا تلاوة الشيخ علي اليونسي برواية قالون."],
-  "from": "2026-11-20", "until": "2026-12-20", "minBuild": 148,
+  "from": "2026-11-20", "until": "2026-12-20", "minBuild": 141,
   "platforms": ["android", "ios"],
   "button": {"label": "افتح الصفحة", "action": "page:1"}}]}
 ```
@@ -225,7 +227,7 @@ launch where neither «ما الجديد» nor the update dialog appeared:
 `page:<1-604>`, `url:https://...`, `store:`, `chat:`. At most 20 notices and
 8 lines. Western digits only (the publisher refuses Eastern ones).
 
-## share_video.json (build 151+)
+## share_video.json (build 140+)
 «مشاركة الآية» and «فيديو الآية». The source is the bundled
 `assets/data/share_video.json` itself (like athkar): edit it, raise `ver`,
 publish. Phones read it the next time a share sheet opens.
@@ -345,3 +347,13 @@ tile has the name drawn in).
    and `build_tasmee_data_patch.py --base`.
 3. Check `NEW_ITEMS_MIN_BUILD` in the publisher if the build number moved.
 4. Add any missing server hook the release could carry (see the rule above).
+
+## usul.json (build 141+)
+«أحكام وأصول الرواية» (side menu, under الأذكار). The whole
+`assets/data/usul.json`, written by `tools/build_usul_data.py` from the
+reviewed mockup builder in C:/Down/Books/usul_qalun/mockup_2026-11-18 (every
+example is looked up in output.json there; the build stops on a missing word).
+Edit the mockup builder, raise `VER` in build_usul_data.py, rebuild, publish.
+Phones read it the next time the section is opened. A block kind an older
+build does not know is skipped; raise `v` (the format) only for a change old
+builds must not show.
