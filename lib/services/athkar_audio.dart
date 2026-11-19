@@ -13,6 +13,7 @@ import '../models/reciter.dart';
 import 'athkar_service.dart';
 import 'audio_ayah_map_service.dart';
 import 'audio_service.dart';
+import 'quran_media_handler.dart';
 import 'reciter_service.dart';
 import 'surah_timings_service.dart';
 
@@ -45,77 +46,188 @@ abstract class AthkarPlayer {
   Future<void> pause();
   Future<void> resume();
   Future<void> stop();
+
+  /// 1 is normal; the hidden «أدوات الاختبار» page sets more.
+  Future<void> setSpeed(double speed);
 }
 
+/// Plays one piece at a time from its WHOLE file: seeks to the piece's start
+/// and watches the position to stop at its end, the way the mushaf plays a
+/// timed reciter's ayah. No playlist and no ClippingAudioSource: on the
+/// iPhone a playlist of clipped pieces (the three Quls from النائحي's surah
+/// files) played the first piece and then hung, still showing pause,
+/// 2026-11-18.
 class JustAudioAthkarPlayer implements AthkarPlayer {
   AudioPlayer? _player;
   Completer<bool>? _done;
-  List<AthkarSource>? _loaded;
+  Uri? _loaded;
+  Duration? _end;
+  int _session = 0;
+  double _speed = 1;
+
+  /// Told when Android or iOS pauses the player itself (a call, headphones
+  /// pulled out, Bluetooth gone: just_audio pauses for those) and when it
+  /// resumes it, so the bar and the lock screen show the truth.
+  void Function(bool paused)? onSystemPause;
+  bool _ourPause = false;
+  bool _systemPaused = false;
+
+  /// A piece that says it is playing while its position does not move for
+  /// this long has hung; it is reported as a failure, never left spinning.
+  static const Duration stallLimit = Duration(seconds: 12);
+  Timer? _stallTimer;
+  Duration _lastPosition = Duration.zero;
+  DateTime _lastMove = DateTime.now();
 
   AudioPlayer _ensure() {
     final existing = _player;
     if (existing != null) return existing;
     final player = AudioPlayer();
     player.processingStateStream.listen((state) {
+      // the file ended before the piece's end (or the piece is the whole file)
       if (state == ProcessingState.completed) _finish(true);
     });
     player.playbackEventStream.listen(
       (_) {},
-      onError: (Object error, StackTrace _) {
-        final done = _done;
-        _done = null;
-        _loaded = null;
-        if (done != null && !done.isCompleted) done.completeError(error);
-      },
+      onError: (Object error, StackTrace _) => _fail(error),
     );
+    // one stream for the player's life (see AudioService for why)
+    player
+        .createPositionStream(
+          steps: 800,
+          minPeriod: const Duration(milliseconds: 16),
+          maxPeriod: const Duration(milliseconds: 40),
+        )
+        .listen(_onPosition);
+    player.playingStream.listen((playing) {
+      if (_done == null) return; // between pieces: our own doing
+      if (!playing && !_ourPause && !_systemPaused) {
+        _systemPaused = true;
+        onSystemPause?.call(true);
+      } else if (playing && _systemPaused) {
+        _systemPaused = false;
+        onSystemPause?.call(false);
+      }
+    });
+    unawaited(player.setSpeed(_speed));
     return _player = player;
+  }
+
+  void _onPosition(Duration position) {
+    if (_done == null) return;
+    if (position != _lastPosition) {
+      _lastPosition = position;
+      _lastMove = DateTime.now();
+    }
+    final end = _end;
+    // a frame early at speed, so nothing of what follows is heard
+    final early = Duration(milliseconds: (12 * _speed).round());
+    if (end != null && position >= end - early) {
+      _ourPause = true;
+      unawaited(_player?.pause());
+      _finish(true);
+    }
+  }
+
+  void _checkStall() {
+    final player = _player;
+    if (_done == null || player == null) return;
+    if (!player.playing || player.processingState != ProcessingState.ready) {
+      _lastMove = DateTime.now();
+      return;
+    }
+    if (DateTime.now().difference(_lastMove) > stallLimit) {
+      _fail(StateError('playback stalled at $_lastPosition'));
+    }
   }
 
   void _finish(bool value) {
     final done = _done;
     _done = null;
+    _end = null;
     if (done != null && !done.isCompleted) done.complete(value);
+  }
+
+  void _fail(Object error) {
+    final done = _done;
+    _done = null;
+    _end = null;
+    _loaded = null;
+    _ourPause = true;
+    unawaited(_player?.pause());
+    if (done != null && !done.isCompleted) done.completeError(error);
   }
 
   @override
   Future<bool> play(List<AthkarSource> sources) async {
-    final player = _ensure();
+    final session = ++_session;
     _finish(false);
-    if (listEquals(_loaded, sources)) {
-      // the same dhikr again (it is said several times): no second load
-      await player.seek(Duration.zero, index: 0);
-    } else {
-      _loaded = null;
-      await player.setAudioSources([
-        for (final s in sources)
-          s.start == null && s.end == null
-              ? AudioSource.uri(s.uri)
-              : ClippingAudioSource(
-                  child: AudioSource.uri(s.uri),
-                  start: s.start,
-                  end: s.end,
-                ),
-      ]);
-      _loaded = sources;
+    _stallTimer ??= Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _checkStall(),
+    );
+    for (final source in sources) {
+      final finished = await _playOne(source, session);
+      if (!finished || session != _session) return false;
     }
+    return true;
+  }
+
+  Future<bool> _playOne(AthkarSource source, int session) async {
+    final player = _ensure();
+    final start = source.start ?? Duration.zero;
+    if (_loaded != source.uri) {
+      _loaded = null;
+      await player.setAudioSource(
+        AudioSource.uri(source.uri),
+        initialPosition: start,
+      );
+      _loaded = source.uri;
+    } else {
+      // the same file again (a dhikr said several times, or the next ayah
+      // range in it): no second load
+      await player.seek(start);
+    }
+    if (session != _session) return false;
     final done = _done = Completer<bool>();
+    _end = source.end;
+    _lastPosition = start;
+    _lastMove = DateTime.now();
+    _ourPause = false;
+    _systemPaused = false;
     unawaited(player.play());
     return done.future;
   }
 
   @override
-  Future<void> pause() async => _player?.pause();
+  Future<void> pause() async {
+    _ourPause = true;
+    await _player?.pause();
+  }
 
   @override
   Future<void> resume() async {
     final player = _player;
-    if (player != null && _done != null) unawaited(player.play());
+    if (player != null && _done != null) {
+      _lastMove = DateTime.now();
+      _ourPause = false;
+      _systemPaused = false;
+      unawaited(player.play());
+    }
   }
 
   @override
   Future<void> stop() async {
+    _session++;
+    _ourPause = true;
     _finish(false);
     await _player?.pause();
+  }
+
+  @override
+  Future<void> setSpeed(double speed) async {
+    _speed = speed;
+    await _player?.setSpeed(speed);
   }
 }
 
@@ -130,16 +242,74 @@ class JustAudioAthkarPlayer implements AthkarPlayer {
 ///   data, so voices are added from the server without a release. A voice
 ///   that did not record a dhikr is skipped for it in favour of one that did.
 class AthkarAudio extends ChangeNotifier {
-  AthkarAudio._();
+  AthkarAudio._() {
+    final p = player;
+    if (p is JustAudioAthkarPlayer) p.onSystemPause = _onSystemPause;
+  }
   static final AthkarAudio instance = AthkarAudio._();
 
   AthkarPlayer player = JustAudioAthkarPlayer();
+
+  /// A call, unplugged headphones or a lost Bluetooth link paused the
+  /// player (or the end of a call resumed it): the bar follows.
+  void _onSystemPause(bool paused) {
+    if (!isActive || _paused == paused) return;
+    _paused = paused;
+    notifyListeners();
+  }
 
   /// Keep heard voice clips on the phone ([voiceClipUri]); tests turn it off.
   bool cacheClips = !kIsWeb;
 
   /// Silences the Qur'an recitation first; tests replace it.
   VoidCallback stopOtherAudio = () => AudioService.instance.stop();
+
+  /// Shows the listening on the media session (notification, lock screen,
+  /// headset buttons) and so keeps the app in the foreground while it
+  /// plays: on a plain player a locked phone cut the network within seconds
+  /// (2026-11-18). Tests replace it.
+  void Function(AthkarAudio audio) session = _toMediaSession;
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    session(this);
+  }
+
+  static void _toMediaSession(AthkarAudio a) {
+    final handler = QuranMediaHandler.instance;
+    if (handler == null) return;
+    final item = a.current;
+    if (item == null) {
+      handler.endGuest();
+      return;
+    }
+    final text = item.text.replaceAll(RegExp(r'\s+'), ' ');
+    final repeat = a.repeat;
+    handler.showGuest(
+      GuestPlayback(
+        id: '${item.id}:${repeat?.$1 ?? 0}',
+        title: text.length > 90 ? '${text.substring(0, 90)}…' : text,
+        artist: [
+          ?a.voiceNameFor(item),
+          if (repeat != null) 'المرة ${repeat.$1} من ${repeat.$2}',
+        ].join(' · '),
+        album: 'الأذكار',
+        artUri: item.isQuran
+            ? QuranMediaHandler.reciterArt(a.quranReciter.id)
+            : null,
+        playing: !a.isPaused,
+        onPlay: () {
+          if (a.isPaused) a.togglePause();
+        },
+        onPause: () {
+          if (!a.isPaused) a.togglePause();
+        },
+        onStop: a.stop,
+        onNext: a.hasNext ? a.skip : null,
+      ),
+    );
+  }
 
   /// Where the verses' audio comes from; tests replace it.
   Future<List<AthkarSource>?> Function(Reciter reciter, AthkarItem item)
@@ -153,6 +323,10 @@ class AthkarAudio extends ChangeNotifier {
 
   /// Bumped when a recording could not be played (no network, missing file).
   final ValueNotifier<int> failures = ValueNotifier<int>(0);
+
+  /// Bumped when the dhikr the reader pressed ▶ on has no recording to play
+  /// (so the press is answered, never met with silence).
+  final ValueNotifier<int> unavailable = ValueNotifier<int>(0);
 
   AthkarData get _data => AthkarService.instance.data;
 
@@ -269,6 +443,8 @@ class AthkarAudio extends ChangeNotifier {
     _queue = List.of(items);
     _paused = false;
     final store = AthkarStore.instance;
+    await player.setSpeed(store.speed);
+    if (session != _session) return;
     List<AthkarSource>? previous;
     for (var i = index; i < _queue.length; i++) {
       // «تشغيل متواصل» off: only the dhikr that was played (read each time,
@@ -288,7 +464,10 @@ class AthkarAudio extends ChangeNotifier {
         _skip = false;
         continue;
       }
-      if (sources == null || sources.isEmpty) continue;
+      if (sources == null || sources.isEmpty) {
+        if (i == index) unavailable.value++;
+        continue;
+      }
       // one recording that covers two athkar in a row is not played twice
       if (i != index && listEquals(sources, previous)) continue;
       previous = sources;

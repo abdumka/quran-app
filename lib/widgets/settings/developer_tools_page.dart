@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/app_update_service.dart';
+import '../../services/athkar_service.dart';
 import '../../services/content_update_service.dart';
 import '../../services/notification_center.dart';
 import '../../services/push_notification_service.dart';
@@ -33,6 +34,8 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
   @override
   void initState() {
     super.initState();
+    // the athkar speed below is saved through the athkar store
+    AthkarStore.instance.load();
     _refresh();
   }
 
@@ -222,10 +225,63 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                           line('word_masks', 'تصحيحات تلوين الكلمات'),
                           line('reciters', 'القرّاء'),
                           line('quran_text', 'تصحيحات نص المصحف'),
+                          line('athkar', 'الأذكار'),
+                          line('khilaf', 'خلافات القراء'),
                           if (s.pendingRestart.isNotEmpty)
                             'نُزِّل تحديث يظهر عند فتح التطبيق من جديد.',
                         ].join('\n'),
                         style: const TextStyle(fontSize: 12, height: 1.6),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            // Going through the athkar recordings quickly (the owner's
+            // checks of the 100-times athkar, 2026-11-18). Ordinary readers
+            // never see it: listening is always at 1x for them.
+            _Section(
+              title: 'الأذكار',
+              children: [
+                ListenableBuilder(
+                  listenable: AthkarStore.instance,
+                  builder: (context, _) {
+                    final store = AthkarStore.instance;
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'سرعة تشغيل الأذكار',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF2C2C2C),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'للمراجعة السريعة فقط. تبدأ من الذكر التالي الذي تشغّله.',
+                            style: TextStyle(fontSize: 11, color: _gold),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final r in const [1.0, 1.5, 2.0, 3.0, 4.0])
+                                ChoiceChip(
+                                  label: Text(
+                                    '${r == r.roundToDouble() ? r.toInt() : r}×',
+                                    textDirection: TextDirection.ltr,
+                                  ),
+                                  selected: store.speed == r,
+                                  onSelected: (_) => store.speed = r,
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
                     );
                   },

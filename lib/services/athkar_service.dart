@@ -95,6 +95,7 @@ class AthkarStore extends ChangeNotifier {
   static const String _reciterKey = 'athkar.reciter';
   static const String _quranReciterKey = 'athkar.quranReciter';
   static const String _continuousKey = 'athkar.continuous';
+  static const String _speedKey = 'athkar.speed';
 
   SharedPreferences? _prefs;
   Future<void>? _loading;
@@ -105,6 +106,7 @@ class AthkarStore extends ChangeNotifier {
   String? _reciterId;
   String? _quranReciterId;
   bool _continuous = true;
+  double _speed = 1;
   Timer? _saveTimer;
 
   /// Tests set the clock.
@@ -141,6 +143,7 @@ class AthkarStore extends ChangeNotifier {
     _reciterId = prefs.getString(_reciterKey);
     _quranReciterId = prefs.getString(_quranReciterKey);
     _continuous = prefs.getBool(_continuousKey) ?? true;
+    _speed = (prefs.getDouble(_speedKey) ?? 1).clamp(0.5, 4).toDouble();
     _rollDay();
     notifyListeners();
   }
@@ -246,6 +249,17 @@ class AthkarStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// How fast the athkar play: 1 for everyone; only the hidden «أدوات
+  /// الاختبار» page changes it (to go through the recordings quickly).
+  double get speed => _speed;
+
+  set speed(double value) {
+    if (value == _speed) return;
+    _speed = value;
+    _prefs?.setDouble(_speedKey, value);
+    notifyListeners();
+  }
+
   /// The chosen voice, or the first one when none was chosen (or the chosen
   /// one is gone).
   AthkarReciter? reciterOf(AthkarData data) {
@@ -300,6 +314,7 @@ class AthkarStore extends ChangeNotifier {
     _reciterId = null;
     _quranReciterId = null;
     _continuous = true;
+    _speed = 1;
     now = DateTime.now;
   }
 }

@@ -52,6 +52,7 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
   final ScrollController _scroll = ScrollController();
   Timer? _advance;
   int _seenFailures = 0;
+  int _seenUnavailable = 0;
   int? _followed;
 
   List<AthkarItem> get _items => widget.items;
@@ -64,6 +65,8 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     _pages = PageController(initialPage: _index);
     _seenFailures = _audio.failures.value;
     _audio.failures.addListener(_onAudioFailure);
+    _seenUnavailable = _audio.unavailable.value;
+    _audio.unavailable.addListener(_onUnavailable);
     _audio.addListener(_followAudio);
     if (_index > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(_index));
@@ -74,12 +77,19 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
   void dispose() {
     _advance?.cancel();
     _audio.failures.removeListener(_onAudioFailure);
+    _audio.unavailable.removeListener(_onUnavailable);
     _audio.removeListener(_followAudio);
     // listening belongs to the page it was started on
     if (_audio.isActive) _audio.stop();
     _pages.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _onUnavailable() {
+    if (!mounted || _audio.unavailable.value == _seenUnavailable) return;
+    _seenUnavailable = _audio.unavailable.value;
+    CopyHelper.showToast(context, 'لا يوجد تسجيل صوتي لهذا الذكر');
   }
 
   void _onAudioFailure() {
@@ -132,16 +142,29 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     );
   }
 
+  /// When a dhikr was just completed, and which: fast taps that run on past
+  /// its last count must not land on the next one as the list moves to it.
+  DateTime? _completedAt;
+  int? _completedIndex;
+
   void _count(int i) {
     final item = _items[i];
     if (_store.isDone(item)) return;
+    final at = _completedAt;
+    if (at != null &&
+        i != _completedIndex &&
+        DateTime.now().difference(at) < const Duration(milliseconds: 900)) {
+      return;
+    }
     _index = i;
     final completed = _store.increment(item);
     if (!completed) {
-      HapticFeedback.selectionClick();
+      athkarBuzz();
       return;
     }
-    HapticFeedback.heavyImpact();
+    _completedAt = DateTime.now();
+    _completedIndex = i;
+    athkarBuzz(strong: true);
     if (i + 1 >= _items.length) return;
     // the next one comes by itself, unless the reader moved meanwhile
     _advance?.cancel();
@@ -155,6 +178,17 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
   void _skip(int i) {
     HapticFeedback.selectionClick();
     _advance?.cancel();
+    if (_audio.current?.id == _items[i].id) {
+      // the one being heard: the listening moves on too, and the view
+      // follows it there (the owner pressed «التالي» and it kept repeating)
+      if (_audio.hasNext) {
+        _audio.skip();
+      } else {
+        _audio.stop();
+        _goTo(i + 1);
+      }
+      return;
+    }
     _goTo(i + 1);
   }
 
@@ -163,9 +197,28 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     _audio.start(_items, i);
   }
 
+  /// The dhikr at the top of the list as it is scrolled now (the owner
+  /// scrolled to dhikr 5, switched views and landed on dhikr 1).
+  int _topVisible() {
+    final viewport = _scroll.hasClients
+        ? _scroll.position.context.storageContext.findRenderObject()
+        : null;
+    if (viewport is! RenderBox) return _index;
+    // the first card with a fair part of it still on screen
+    final top = viewport.localToGlobal(Offset.zero).dy + 80;
+    for (var i = 0; i < _keys.length; i++) {
+      final box = _keys[i].currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached) continue;
+      final bottom = box.localToGlobal(Offset(0, box.size.height)).dy;
+      if (bottom > top) return i;
+    }
+    return _index;
+  }
+
   void _switchView() {
     final single = _store.view == AthkarView.single;
-    final at = _index;
+    final at = single ? _index : _topVisible();
+    _index = at;
     _store.view = single ? AthkarView.list : AthkarView.single;
     if (single) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(at));
@@ -190,12 +243,15 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
               context,
               widget.title,
               actions: [
-                if (_items.any(_audio.canPlay))
-                  IconButton(
-                    tooltip: 'القارئ وطريقة الاستماع',
-                    icon: const Icon(Icons.headphones_rounded),
-                    onPressed: () => showAthkarReciterSheet(context),
+                IconButton(
+                  tooltip: 'إعدادات الأذكار',
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () => showAthkarSettingsSheet(
+                    context,
+                    items: _items,
+                    switchView: _switchView,
                   ),
+                ),
                 if (_items.isNotEmpty)
                   IconButton(
                     tooltip: single
@@ -219,7 +275,7 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
                       ? _singleView(c)
                       : _listView(c),
                 ),
-                const AthkarPlayerBar(),
+                AthkarPlayerBar(items: _items),
               ],
             ),
           );

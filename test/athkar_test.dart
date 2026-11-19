@@ -19,6 +19,10 @@ class _FakePlayer implements AthkarPlayer {
   final List<AthkarSource> sources = [];
   Completer<bool>? _current;
   bool failNext = false;
+  double speed = 1;
+
+  @override
+  Future<void> setSpeed(double speed) async => this.speed = speed;
 
   @override
   Future<bool> play(List<AthkarSource> sources) {
@@ -52,66 +56,67 @@ class _FakePlayer implements AthkarPlayer {
   }
 }
 
-AthkarData _sample({bool withReciter = false}) => AthkarData.parse(
-  json.encode({
-    'ver': 1,
-    'featured': [
-      {'section': 10, 'label': 'أذكار الصباح', 'icon': 'sun'},
-    ],
-    'groups': [
-      {
-        'id': 'g',
-        'name': 'اليوم والليلة',
-        'sections': [10, 11],
-      },
-    ],
-    'sections': [
-      {
-        'id': 10,
-        'name': 'أذكار الصباح',
-        'items': [
-          {'id': 1, 't': 'الذكر الأول', 'n': 1, 's': 'رواه مسلم', 'a': 75},
-          {'id': 2, 't': 'الذكر الثاني', 'n': 3, 's': 'رواه الترمذي', 'a': 76},
-          {'id': 3, 't': 'الذكر الثالث', 'n': 1, 'a': 77},
-        ],
-      },
-      {
-        'id': 11,
-        'name': 'أذكار النوم',
-        'items': [
-          {'id': 4, 't': 'باسمك اللهم أموت وأحيا', 'n': 1},
-          {
-            'id': 5,
-            't': '﴿قُلْ هُوَ اَ۬للَّهُ أَحَدٌ﴾',
-            'n': 3,
-            'q': [
-              [112, 1, 4],
-            ],
-          },
-        ],
-      },
-    ],
-    'reciters': [
-      if (withReciter)
+AthkarData _sample({bool withReciter = false}) =>
+    AthkarData.parse(_sampleJson(withReciter: withReciter));
+
+String _sampleJson({bool withReciter = false}) => json.encode({
+  'ver': 1,
+  'featured': [
+    {'section': 10, 'label': 'أذكار الصباح', 'icon': 'sun'},
+  ],
+  'groups': [
+    {
+      'id': 'g',
+      'name': 'اليوم والليلة',
+      'sections': [10, 11],
+    },
+  ],
+  'sections': [
+    {
+      'id': 10,
+      'name': 'أذكار الصباح',
+      'items': [
+        {'id': 1, 't': 'الذكر الأول', 'n': 1, 's': 'رواه مسلم', 'a': 75},
+        {'id': 2, 't': 'الذكر الثاني', 'n': 3, 's': 'رواه الترمذي', 'a': 76},
+        {'id': 3, 't': 'الذكر الثالث', 'n': 1, 'a': 77},
+      ],
+    },
+    {
+      'id': 11,
+      'name': 'أذكار النوم',
+      'items': [
+        {'id': 4, 't': 'باسمك اللهم أموت وأحيا', 'n': 1},
         {
-          'id': 'one',
-          'name': 'القارئ الأول',
-          'url': 'https://example.com/one/{a}.mp3',
-          'files': {'3': 'special.mp3'},
-          'spans': {
-            '2': [6.0, 9.5],
-          },
+          'id': 5,
+          't': '﴿قُلْ هُوَ اَ۬للَّهُ أَحَدٌ﴾',
+          'n': 3,
+          'q': [
+            [112, 1, 4],
+          ],
         },
-      if (withReciter)
-        {
-          'id': 'two',
-          'name': 'القارئ الثاني',
-          'url': 'https://example.com/two/{id}.mp3',
-          'items': [4],
+      ],
+    },
+  ],
+  'reciters': [
+    if (withReciter)
+      {
+        'id': 'one',
+        'name': 'القارئ الأول',
+        'url': 'https://example.com/one/{a}.mp3',
+        'files': {'3': 'special.mp3'},
+        'spans': {
+          '2': [6.0, 9.5],
         },
-    ],
-  }),
-);
+      },
+    if (withReciter)
+      {
+        'id': 'two',
+        'name': 'القارئ الثاني',
+        'url': 'https://example.com/two/{id}.mp3',
+        'items': [4],
+      },
+  ],
+});
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -219,6 +224,26 @@ void main() {
       expect(store.countOf(data.item(2)!), 1);
       expect(store.favourites, [1, 4]);
       expect(store.view, AthkarView.single);
+    });
+
+    test('the share line comes from the data (the server can change it)', () {
+      final data = AthkarData.parse(
+        json.encode({
+          ...json.decode(_sampleJson()) as Map,
+          'shareLine': 'سطر من الخادم',
+        }),
+      );
+      expect(data.shareLine, 'سطر من الخادم');
+      expect(
+        athkarShareText(data.item(1)!, shareLine: data.shareLine),
+        endsWith('سطر من الخادم'),
+      );
+      // older data without it keeps the app's line
+      expect(_sample().shareLine, AthkarData.defaultShareLine);
+      final bundled = AthkarData.parse(
+        File('assets/data/athkar.json').readAsStringSync(),
+      );
+      expect(bundled.shareLine, 'من تطبيق المصحف الجامع');
     });
 
     test('share text: the dhikr, its count, its source, the app line', () {
@@ -406,6 +431,50 @@ void main() {
       expect(player.played.length, 5);
     });
 
+    test(
+      'the listening is shown on the media session, then handed back',
+      () async {
+        final seen = <String>[];
+        final before = audio.session;
+        audio.session = (a) => seen.add(
+          a.current == null
+              ? 'end'
+              : '${a.current!.id} ${a.isPaused ? 'paused' : 'playing'}',
+        );
+        addTearDown(() => audio.session = before);
+        final items = AthkarService.instance.data.section(10)!.items;
+        unawaited(audio.start(items, 0));
+        await pumpEventQueue();
+        expect(seen.last, '1 playing');
+        await audio.togglePause();
+        expect(seen.last, '1 paused');
+        await audio.togglePause();
+        await audio.stop();
+        expect(seen.last, 'end');
+      },
+    );
+
+    test('the hidden speed reaches the player', () async {
+      final items = AthkarService.instance.data.section(10)!.items;
+      store.speed = 3;
+      unawaited(audio.start(items, 0));
+      await pumpEventQueue();
+      expect(player.speed, 3);
+    });
+
+    test('▶ on a dhikr with no recording is answered, not silent', () async {
+      AthkarService.instance.debugSetData(_sample(withReciter: true));
+      final data = AthkarService.instance.data;
+      final before = audio.unavailable.value;
+      // dhikr 5 is Qur'an; its verse reciter gives nothing here
+      final was = audio.quranSources;
+      audio.quranSources = (r, item) async => null;
+      addTearDown(() => audio.quranSources = was);
+      await audio.start([data.item(5)!], 0);
+      expect(audio.unavailable.value, before + 1);
+      expect(audio.isActive, isFalse);
+    });
+
     test('stop ends it; a failure is reported and ends it', () async {
       final items = AthkarService.instance.data.section(10)!.items;
       unawaited(audio.start(items, 0));
@@ -552,14 +621,14 @@ void main() {
       expect(find.text('القارئ الأول'), findsNothing);
     });
 
-    testWidgets('the headphones open the listening sheet: «تشغيل متواصل»', (
+    testWidgets('the settings button opens the sheet: «تشغيل متواصل»', (
       tester,
     ) async {
       AthkarService.instance.debugSetData(_sample(withReciter: true));
       audio.player = _FakePlayer();
       final items = AthkarService.instance.data.section(10)!.items;
       await pump(tester, AthkarReaderPage(title: 'أذكار الصباح', items: items));
-      await tester.tap(find.byTooltip('القارئ وطريقة الاستماع'));
+      await tester.tap(find.byTooltip('إعدادات الأذكار'));
       await tester.pumpAndSettle();
       expect(find.text('تشغيل متواصل'), findsOneWidget);
       expect(find.text('بعد انتهاء الذكر يبدأ الذي يليه'), findsOneWidget);
@@ -567,6 +636,123 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.continuous, isFalse);
       expect(find.text('يتوقف بعد الذكر الذي تستمع إليه'), findsOneWidget);
+    });
+
+    testWidgets('the athkar home has the settings too', (tester) async {
+      await pump(tester, const AthkarHomePage());
+      await tester.tap(find.byTooltip('إعدادات الأذكار'));
+      await tester.pumpAndSettle();
+      expect(find.text('إعدادات الأذكار'), findsWidgets);
+      expect(find.text('ذكر واحد في الصفحة'), findsOneWidget);
+      await tester.tap(find.text('ذكر واحد في الصفحة'));
+      await tester.pumpAndSettle();
+      expect(store.view, AthkarView.single);
+    });
+
+    testWidgets('«التالي» on the dhikr being heard moves the listening on', (
+      tester,
+    ) async {
+      AthkarService.instance.debugSetData(_sample(withReciter: true));
+      final player = _FakePlayer();
+      audio.player = player;
+      final items = AthkarService.instance.data.section(10)!.items;
+      await pump(tester, AthkarReaderPage(title: 'أذكار الصباح', items: items));
+      unawaited(audio.start(items, 1)); // dhikr 2, said 3 times
+      await tester.pump();
+      await tester.pump();
+      expect(audio.current!.id, 2);
+      // the card's «التالي» (the bar has one too)
+      await tester.tap(find.widgetWithText(OutlinedButton, 'التالي'));
+      await tester.pump();
+      await tester.pump();
+      expect(audio.current!.id, 3);
+      expect(store.isDone(items[1]), isFalse);
+      await audio.stop();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a voice that lacks a dhikr: its card says whose voice', (
+      tester,
+    ) async {
+      AthkarService.instance.debugSetData(_sample(withReciter: true));
+      audio.player = _FakePlayer();
+      final data = AthkarService.instance.data;
+      store.chooseReciter(data.reciters[1]); // «two» has only dhikr 4
+      await pump(
+        tester,
+        AthkarReaderPage(title: 'أذكار الصباح', items: data.section(10)!.items),
+      );
+      expect(find.text('بصوت القارئ الأول'), findsNWidgets(3));
+      await tester.tap(find.byTooltip('إعدادات الأذكار'));
+      await tester.pumpAndSettle();
+      expect(find.text('كل أذكار هذه الصفحة'), findsOneWidget);
+      expect(find.text('لا تسجيل له في هذه الصفحة'), findsOneWidget);
+    });
+
+    testWidgets('no recording at all: a muted speaker that says so', (
+      tester,
+    ) async {
+      audio.player = _FakePlayer();
+      final data = _sample(withReciter: true);
+      // dhikr 4 is only in «two»; drop «two» from the voices
+      final only = AthkarData.parse(
+        json.encode({
+          ...json.decode(_sampleJson(withReciter: true)) as Map,
+          'reciters': [
+            (json.decode(_sampleJson(withReciter: true)) as Map)['reciters'][0],
+          ],
+        }),
+      );
+      AthkarService.instance.debugSetData(only);
+      expect(data.item(4), isNotNull);
+      await pump(
+        tester,
+        AthkarReaderPage(title: 'أذكار النوم', items: only.section(11)!.items),
+      );
+      expect(find.byTooltip('لا يوجد تسجيل صوتي'), findsOneWidget);
+    });
+
+    testWidgets('switching to one a page opens on the dhikr scrolled to', (
+      tester,
+    ) async {
+      final many = AthkarData.parse(
+        json.encode({
+          'ver': 1,
+          'featured': [],
+          'groups': [
+            {
+              'id': 'g',
+              'name': 'g',
+              'sections': [1],
+            },
+          ],
+          'sections': [
+            {
+              'id': 1,
+              'name': 'كثيرة',
+              'items': [
+                for (var i = 1; i <= 12; i++)
+                  {'id': i, 't': 'ذكر رقم $i ${'كلمة ' * 30}', 'n': 1},
+              ],
+            },
+          ],
+          'reciters': [],
+        }),
+      );
+      AthkarService.instance.debugSetData(many);
+      final items = many.section(1)!.items;
+      await pump(tester, AthkarReaderPage(title: 'كثيرة', items: items));
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -1500),
+      );
+      await tester.pumpAndSettle();
+      // scrolled past dhikr 1
+      expect(find.textContaining('ذكر رقم 1 ').hitTestable(), findsNothing);
+      await tester.tap(find.byTooltip('ذكر واحد في الصفحة'));
+      await tester.pumpAndSettle();
+      expect(store.view, AthkarView.single);
+      expect(find.textContaining('ذكر رقم 1 '), findsNothing);
     });
   });
 }

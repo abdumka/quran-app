@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:vibration/vibration.dart';
 
 import '../../models/athkar.dart';
 import '../../services/athkar_audio.dart';
@@ -235,6 +238,25 @@ class AthkarCounterBar extends StatelessWidget {
   }
 }
 
+/// A counted tap is felt, as a short real vibration on both phones. The
+/// system's light haptic taps were not enough: Android drops them whenever
+/// the phone's touch vibration is off, and the owner felt nothing on either
+/// phone (2026-11-18). No hasVibrator() check first: the plugin answers
+/// false for any emulator, and its native side checks for a vibrator itself.
+void athkarBuzz({bool strong = false}) {
+  unawaited(() async {
+    try {
+      await Vibration.vibrate(
+        duration: strong ? 90 : 30,
+        amplitude: strong ? 255 : 150,
+      );
+    } catch (_) {
+      // no vibration plugin (tests, some tablets): the haptic, at least
+      strong ? HapticFeedback.heavyImpact() : HapticFeedback.mediumImpact();
+    }
+  }());
+}
+
 /// The buttons on top of a dhikr: listen, more, favourite, its number.
 class AthkarCardHeader extends StatelessWidget {
   const AthkarCardHeader({
@@ -259,9 +281,27 @@ class AthkarCardHeader extends StatelessWidget {
     final audio = AthkarAudio.instance;
     final favourite = store.isFavourite(item);
     final playingThis = audio.current?.id == item.id;
+    final canPlay = audio.canPlay(item);
+    // the chosen voice did not record this one: say whose voice it plays in
+    final voice = item.isQuran ? null : audio.voiceFor(item);
+    final chosen = audio.reciter;
+    final otherVoice = voice != null && chosen != null && voice.id != chosen.id
+        ? voice.name
+        : null;
     return Row(
       children: [
-        if (audio.canPlay(item))
+        if (!canPlay && audio.hasReciters)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'لا يوجد تسجيل صوتي',
+            icon: Icon(
+              Icons.volume_off_outlined,
+              color: c.muted.withValues(alpha: 0.6),
+            ),
+            onPressed: () =>
+                CopyHelper.showToast(context, 'لا يوجد تسجيل صوتي لهذا الذكر'),
+          ),
+        if (canPlay)
           IconButton(
             visualDensity: VisualDensity.compact,
             tooltip: playingThis && !audio.isPaused ? 'إيقاف مؤقت' : 'استماع',
@@ -282,6 +322,16 @@ class AthkarCardHeader extends StatelessWidget {
                 showAthkarItemSheet(buttonContext, item, onPlay: onPlay),
           ),
         ),
+        if (otherVoice != null)
+          Flexible(
+            flex: 3,
+            child: Text(
+              'بصوت $otherVoice',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: c.muted, fontSize: 12),
+            ),
+          ),
         const Spacer(),
         IconButton(
           visualDensity: VisualDensity.compact,
@@ -368,7 +418,10 @@ Future<void> _shareAthkarItem(
   BuildContext anchorContext,
   AthkarItem item,
 ) async {
-  final text = athkarShareText(item);
+  final text = athkarShareText(
+    item,
+    shareLine: AthkarService.instance.data.shareLine,
+  );
   final box = anchorContext.findRenderObject() as RenderBox?;
   final origin = box == null || !box.hasSize
       ? null
@@ -433,7 +486,13 @@ Future<void> showAthkarItemSheet(
               ),
               row(Icons.copy_rounded, 'نسخ', () {
                 Navigator.of(sheetContext).pop();
-                CopyHelper.copy(context, athkarShareText(item));
+                CopyHelper.copy(
+                  context,
+                  athkarShareText(
+                    item,
+                    shareLine: AthkarService.instance.data.shareLine,
+                  ),
+                );
               }),
               Builder(
                 builder: (rowContext) => row(
@@ -450,9 +509,9 @@ Future<void> showAthkarItemSheet(
                   Navigator.of(sheetContext).pop();
                   onPlay();
                 }),
-                row(Icons.tune_rounded, 'القارئ وطريقة الاستماع', () {
+                row(Icons.settings_outlined, 'إعدادات الأذكار', () {
                   Navigator.of(sheetContext).pop();
-                  showAthkarReciterSheet(context);
+                  showAthkarSettingsSheet(context);
                 }),
               ],
               if (store.countOf(item) > 0)
@@ -470,9 +529,12 @@ Future<void> showAthkarItemSheet(
 }
 
 /// The slim player under the athkar while one is being listened to: pause,
-/// what is playing, the voice (tap to change it), close.
+/// what is playing and in whose voice (tap to change it), «التالي», close.
 class AthkarPlayerBar extends StatelessWidget {
-  const AthkarPlayerBar({super.key});
+  const AthkarPlayerBar({super.key, this.items});
+
+  /// The athkar on the page, for the voices' counts in the settings sheet.
+  final List<AthkarItem>? items;
 
   @override
   Widget build(BuildContext context) {
@@ -492,116 +554,121 @@ class AthkarPlayerBar extends StatelessWidget {
             ? 'الذكر $at من $of'
             : '';
         final voiceName = audio.voiceNameFor(item);
-        return Material(
-          color: chrome.bar,
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-              child: Row(
-                children: [
-                  IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: chrome.barIcon,
-                      foregroundColor: chrome.bar,
+        final sub = TextStyle(color: chrome.barSubtext, fontSize: 12);
+        // the phone's largest text left the status line and the voice as
+        // «ال…» beside «التالي» (emulator, 2026-11-18): the bar grows only so far
+        return MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.25,
+          child: Material(
+            color: chrome.bar,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+                child: Row(
+                  children: [
+                    IconButton.filled(
+                      style: IconButton.styleFrom(
+                        backgroundColor: chrome.barIcon,
+                        foregroundColor: chrome.bar,
+                      ),
+                      tooltip: audio.isPaused ? 'متابعة' : 'إيقاف مؤقت',
+                      icon: Icon(
+                        audio.isPaused
+                            ? Icons.play_arrow_rounded
+                            : Icons.pause_rounded,
+                      ),
+                      onPressed: audio.togglePause,
                     ),
-                    tooltip: audio.isPaused ? 'متابعة' : 'إيقاف مؤقت',
-                    icon: Icon(
-                      audio.isPaused
-                          ? Icons.play_arrow_rounded
-                          : Icons.pause_rounded,
-                    ),
-                    onPressed: audio.togglePause,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          item.text.replaceAll('\n', ' '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: chrome.barText,
-                            fontSize: 13.5,
-                          ),
-                        ),
-                        if (status.isNotEmpty)
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           Text(
-                            status,
+                            item.text.replaceAll('\n', ' '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: chrome.barSubtext,
-                              fontSize: 12,
+                              color: chrome.barText,
+                              fontSize: 13.5,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  if (voiceName != null)
-                    Tooltip(
-                      message: 'تغيير القارئ',
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => showAthkarReciterSheet(context),
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 150),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: chrome.barText.withValues(alpha: 0.4),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          Row(
                             children: [
-                              Flexible(
-                                child: Text(
-                                  voiceName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: chrome.barText,
-                                    fontSize: 12.5,
+                              if (status.isNotEmpty) ...[
+                                Flexible(
+                                  child: Text(
+                                    status,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: sub,
                                   ),
                                 ),
-                              ),
-                              Icon(
-                                Icons.expand_more_rounded,
-                                size: 16,
-                                color: chrome.barSubtext,
-                              ),
+                                Text('  ·  ', style: sub),
+                              ],
+                              if (voiceName != null)
+                                Flexible(
+                                  child: Tooltip(
+                                    message: 'تغيير القارئ',
+                                    child: InkWell(
+                                      onTap: () => showAthkarSettingsSheet(
+                                        context,
+                                        items: items,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              voiceName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: sub.copyWith(
+                                                color: chrome.barText,
+                                                decoration:
+                                                    TextDecoration.underline,
+                                                decorationColor: chrome.barText
+                                                    .withValues(alpha: 0.4),
+                                              ),
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.expand_more_rounded,
+                                            size: 16,
+                                            color: chrome.barSubtext,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                  if (audio.hasNext)
+                    if (audio.hasNext)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: chrome.barIcon,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        // chevron_right is drawn pointing left in Arabic
+                        icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                        iconAlignment: IconAlignment.end,
+                        label: const Text('التالي'),
+                        onPressed: audio.skip,
+                      ),
                     IconButton(
-                      tooltip: 'التالي',
-                      // "next" points left in Arabic, like the page arrows
-                      icon: Transform.flip(
-                        flipX: true,
-                        child: Icon(
-                          Icons.skip_next_rounded,
-                          color: chrome.barIcon,
-                        ),
-                      ),
-                      onPressed: audio.skip,
+                      tooltip: 'إيقاف',
+                      icon: Icon(Icons.close_rounded, color: chrome.barSubtext),
+                      onPressed: audio.stop,
                     ),
-                  IconButton(
-                    tooltip: 'إيقاف',
-                    icon: Icon(Icons.close_rounded, color: chrome.barSubtext),
-                    onPressed: audio.stop,
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -611,14 +678,26 @@ class AthkarPlayerBar extends StatelessWidget {
   }
 }
 
-/// How the athkar are listened to: on to the next one by itself or not, and
-/// the voices: one for the athkar, one for the verses (the mushaf's
-/// reciters, so one the server adds is offered here too).
-Future<void> showAthkarReciterSheet(BuildContext context) {
+/// «إعدادات الأذكار»: on to the next dhikr by itself or not, list or one a
+/// page, and the voices: one for the athkar (with how many of [items] each
+/// recorded, so a voice that lacks some is seen before it is picked) and
+/// one for the verses (the mushaf's reciters, so one the server adds is
+/// offered here too). [switchView] is the open reader's own view switch,
+/// which keeps the reader on the dhikr it is at.
+Future<void> showAthkarSettingsSheet(
+  BuildContext context, {
+  List<AthkarItem>? items,
+  VoidCallback? switchView,
+}) {
   final c = AthkarColors.of(context);
   final audio = AthkarAudio.instance;
+  final store = AthkarStore.instance;
   final voices = AthkarService.instance.data.reciters;
   final quranReciters = ReciterService.instance.reciters;
+  final spoken = [
+    for (final i in items ?? const <AthkarItem>[])
+      if (!i.isQuran) i,
+  ];
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: c.card,
@@ -636,69 +715,120 @@ Future<void> showAthkarReciterSheet(BuildContext context) {
           ),
         ),
       );
-      Widget row(String name, bool chosen, VoidCallback onTap) => ListTile(
+      Widget row(
+        String name,
+        bool chosen,
+        VoidCallback onTap, {
+        String? note,
+        bool faint = false,
+        bool close = true,
+      }) => ListTile(
         dense: true,
-        title: Text(name, style: TextStyle(color: c.text, fontSize: 15.5)),
+        title: Text(
+          name,
+          style: TextStyle(color: faint ? c.muted : c.text, fontSize: 15.5),
+        ),
+        subtitle: note == null
+            ? null
+            : Text(note, style: TextStyle(color: c.muted, fontSize: 12.5)),
         trailing: chosen ? Icon(Icons.check_rounded, color: c.accent) : null,
         onTap: () {
-          Navigator.of(sheetContext).pop();
+          if (close) Navigator.of(sheetContext).pop();
           onTap();
         },
       );
+      String? coverage(AthkarReciter r) {
+        if (spoken.isEmpty) return null;
+        final n = spoken.where(r.has).length;
+        if (n == spoken.length) return 'كل أذكار هذه الصفحة';
+        if (n == 0) return 'لا تسجيل له في هذه الصفحة';
+        return '$n من ${spoken.length} في هذه الصفحة';
+      }
+
       final quranId = audio.quranReciter.id;
       return Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.75,
+              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.8,
             ),
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                ListenableBuilder(
-                  listenable: AthkarStore.instance,
-                  builder: (context, _) {
-                    final store = AthkarStore.instance;
-                    return SwitchListTile(
-                      value: store.continuous,
-                      onChanged: (v) => store.continuous = v,
-                      title: Text(
-                        'تشغيل متواصل',
-                        style: TextStyle(
-                          color: c.text,
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w600,
-                        ),
+            child: ListenableBuilder(
+              listenable: store,
+              builder: (context, _) => ListView(
+                shrinkWrap: true,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                    child: Text(
+                      'إعدادات الأذكار',
+                      style: TextStyle(
+                        color: c.text,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
                       ),
-                      subtitle: Text(
-                        store.continuous
-                            ? 'بعد انتهاء الذكر يبدأ الذي يليه'
-                            : 'يتوقف بعد الذكر الذي تستمع إليه',
-                        style: TextStyle(color: c.muted, fontSize: 13),
+                    ),
+                  ),
+                  SwitchListTile(
+                    value: store.continuous,
+                    onChanged: (v) => store.continuous = v,
+                    title: Text(
+                      'تشغيل متواصل',
+                      style: TextStyle(
+                        color: c.text,
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w600,
                       ),
-                    );
-                  },
-                ),
-                Divider(height: 8, color: c.muted.withValues(alpha: 0.2)),
-                if (voices.isNotEmpty) ...[
-                  heading('قارئ الأذكار'),
-                  for (final r in voices)
+                    ),
+                    subtitle: Text(
+                      store.continuous
+                          ? 'بعد انتهاء الذكر يبدأ الذي يليه'
+                          : 'يتوقف بعد الذكر الذي تستمع إليه',
+                      style: TextStyle(color: c.muted, fontSize: 13),
+                    ),
+                  ),
+                  heading('طريقة العرض'),
+                  for (final (view, label) in const [
+                    (AthkarView.list, 'كل الأذكار في قائمة'),
+                    (AthkarView.single, 'ذكر واحد في الصفحة'),
+                  ])
+                    row(label, store.view == view, () {
+                      if (store.view == view) return;
+                      if (switchView != null) {
+                        switchView();
+                      } else {
+                        store.view = view;
+                      }
+                    }, close: false),
+                  if (voices.isNotEmpty) ...[
+                    heading('قارئ الأذكار'),
+                    for (final r in voices)
+                      row(
+                        r.name,
+                        r.id == audio.reciter?.id,
+                        () => audio.chooseReciter(r),
+                        note: coverage(r),
+                        faint: spoken.isNotEmpty && !spoken.any(r.has),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
+                      child: Text(
+                        'ما لم يسجّله القارئ يُقرأ بصوت قارئ آخر، ويظهر اسمه '
+                        'فوق الذكر.',
+                        style: TextStyle(color: c.muted, fontSize: 12.5),
+                      ),
+                    ),
+                  ],
+                  heading('قارئ الآيات'),
+                  for (final r in quranReciters)
                     row(
                       r.name,
-                      r.id == audio.reciter?.id,
-                      () => audio.chooseReciter(r),
+                      r.id == quranId,
+                      () => audio.chooseQuranReciter(r),
                     ),
+                  const SizedBox(height: 8),
                 ],
-                heading('قارئ الآيات'),
-                for (final r in quranReciters)
-                  row(
-                    r.name,
-                    r.id == quranId,
-                    () => audio.chooseQuranReciter(r),
-                  ),
-                const SizedBox(height: 8),
-              ],
+              ),
             ),
           ),
         ),

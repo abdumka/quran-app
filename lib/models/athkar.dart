@@ -193,7 +193,12 @@ class AthkarReciter {
     }
     Set<int>? items;
     final rawItems = raw['items'];
-    if (rawItems is List) items = {for (final x in rawItems) if (x is int) x};
+    if (rawItems is List) {
+      items = {
+        for (final x in rawItems)
+          if (x is int) x,
+      };
+    }
     if (url == null && files.isEmpty) return null;
     return AthkarReciter(
       id: id,
@@ -216,6 +221,7 @@ class AthkarData {
     required this.sections,
     required this.reciters,
     this.quranReciterId = defaultQuranReciterId,
+    this.shareLine = defaultShareLine,
   }) {
     for (final s in sections) {
       _sections[s.id] = s;
@@ -243,6 +249,11 @@ class AthkarData {
   /// another (owner, 2026-11-17: النهي). The data may name another one.
   final String quranReciterId;
   static const String defaultQuranReciterId = 'naihi_qaloun';
+
+  /// The last line of a copied or shared dhikr; from the data, so the
+  /// server can change it with everything else.
+  final String shareLine;
+  static const String defaultShareLine = 'من تطبيق المصحف الجامع';
 
   final Map<int, AthkarSection> _sections = {};
   final Map<int, AthkarItem> _items = {};
@@ -386,7 +397,11 @@ class AthkarData {
 
     final ver = decoded['ver'];
     final quranReciter = decoded['quranReciter'];
+    final shareLine = decoded['shareLine'];
     return AthkarData(
+      shareLine: shareLine is String && shareLine.trim().isNotEmpty
+          ? shareLine.trim()
+          : defaultShareLine,
       quranReciterId: quranReciter is String && quranReciter.isNotEmpty
           ? quranReciter
           : defaultQuranReciterId,
@@ -408,11 +423,14 @@ String athkarCount(int n) =>
     arabicCount(n, one: 'ذكر واحد', two: 'ذكران', few: 'أذكار', many: 'ذكرًا');
 
 /// What copy and share send: the dhikr, how many times, who narrated it, and
-/// the app's line (owner, 2026-11-17).
-String athkarShareText(AthkarItem item) {
+/// the app's line (owner, 2026-11-17; the line comes from the data).
+String athkarShareText(
+  AthkarItem item, {
+  String shareLine = AthkarData.defaultShareLine,
+}) {
   final b = StringBuffer(item.text);
   if (item.count > 1) b.write('\n(${athkarTimes(item.count)})');
   if (item.source.isNotEmpty) b.write('\n${item.source}');
-  b.write('\n\nمن تطبيق المصحف الجامع');
+  b.write('\n\n$shareLine');
   return b.toString();
 }

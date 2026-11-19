@@ -80,7 +80,17 @@ class _AthkarHomePageState extends State<AthkarHomePage> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: c.page,
-        appBar: athkarAppBar(context, 'الأذكار'),
+        appBar: athkarAppBar(
+          context,
+          'الأذكار',
+          actions: [
+            IconButton(
+              tooltip: 'إعدادات الأذكار',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => showAthkarSettingsSheet(context),
+            ),
+          ],
+        ),
         body: !_ready
             ? Center(child: CircularProgressIndicator(color: c.accent))
             : ListenableBuilder(
@@ -174,6 +184,16 @@ class _AthkarHomePageState extends State<AthkarHomePage> {
     'prayer' => Icons.mosque_outlined,
     'bed' => Icons.bed_outlined,
     'wake' => Icons.wb_twilight_rounded,
+    // more names the server's data may give tiles it adds later
+    'star' => Icons.star_outline_rounded,
+    'heart' => Icons.favorite_outline_rounded,
+    'travel' => Icons.flight_outlined,
+    'home' => Icons.home_outlined,
+    'food' => Icons.restaurant_outlined,
+    'rain' => Icons.water_drop_outlined,
+    'quran' => Icons.auto_stories_outlined,
+    'hands' => Icons.volunteer_activism_outlined,
+    'night' => Icons.dark_mode_outlined,
     _ => Icons.menu_book_outlined,
   };
 

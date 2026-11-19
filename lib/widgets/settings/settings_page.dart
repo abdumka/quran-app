@@ -52,6 +52,7 @@ import '../../theme/app_surfaces.dart';
 import '../../services/chat_service.dart';
 import '../../utils/share_app.dart';
 import '../../utils/after_opening.dart';
+import '../athkar/athkar_home_page.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
 import '../menu/fullscreen_menu_page.dart';
@@ -1987,6 +1988,22 @@ class _SettingsPageState extends State<SettingsPage> {
                     // drawer, so they stay here as they were.
                     if (AppLookScope.isPrevious(context)) ...[
                       const SizedBox(height: 6),
+                      // «الأذكار» lives in the drawer too: without this the
+                      // previous look had no way to reach it (emulator,
+                      // 2026-11-18)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: CompactActionTile(
+                          title: 'الأذكار',
+                          icon: Icons.wb_twilight_rounded,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const AthkarHomePage(),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       _buildPreviousLookCards(),
                     ],
                   ],

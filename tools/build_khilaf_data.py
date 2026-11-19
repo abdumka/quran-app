@@ -16,6 +16,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 KH = Path(r'C:/Down/Books/khilaf/review_2026-11-13/data')
+# The data version: the app's bundled one and the `khilaf` server item. Raise
+# it for a fix that phones should take from the server, then publish with
+# tools/publish_content_updates.py.
+VER = 1
 OUT = REPO / 'assets/data/khilaf.json'
 QALUN = 2
 
@@ -82,7 +86,7 @@ for key, v in src.items():
         A.setdefault(f'{s}:{a}', []).append([e['phrase'], idx(P, Pi, json.dumps([r for _, r in rows]))])
         n_cards += 1
 
-OUT.write_text(json.dumps({'v': 1, 'w': W, 'd': D, 'p': [json.loads(x) for x in P], 'a': A}, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+OUT.write_text(json.dumps({'v': 1, 'ver': VER, 'w': W, 'd': D, 'p': [json.loads(x) for x in P], 'a': A}, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
 print(f'{n_cards} cards in {len(A)} ayat; {len(W)} labels, {len(D)} descriptions, {len(P)} card shapes; Qalun row moved up in {moved}; '
       f'{OUT.stat().st_size / 1024:.0f} KB -> {OUT}')
 assert n_cards == 33603, n_cards

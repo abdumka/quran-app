@@ -33,6 +33,7 @@ import 'reciter_service.dart';
 /// playing and has ±10 s, أعد الآية and القارئ التالي beside ⏮ ⏯ ⏭.
 class QuranMediaHandler extends BaseAudioHandler {
   QuranMediaHandler() {
+    instance = this;
     final audio = AudioService.instance;
     audio.player.playbackEventStream.listen(
       (_) => _broadcastState(),
@@ -51,6 +52,85 @@ class QuranMediaHandler extends BaseAudioHandler {
     audio.playbackSpeed.addListener(_broadcastState);
     audio.player.playingStream.listen(_onPlayingChanged);
     ReciterService.instance.selected.addListener(_publishItem);
+  }
+
+  /// The live handler: null until audio_service has started it (and in
+  /// tests, and on platforms without a media session).
+  static QuranMediaHandler? instance;
+
+  // ─────────────────────────────────────
+  //  GUEST PLAYBACK (the athkar)
+  // ─────────────────────────────────────
+
+  /// Something other than the recitation is being heard: the athkar. It
+  /// borrows the session, so the notification, the lock screen and headset
+  /// buttons drive it, and Android keeps the app in the foreground while
+  /// it plays. Without this the athkar played on a plain player outside the
+  /// session's foreground service, and a locked phone cut the app's network
+  /// within seconds (emulator, 2026-11-18).
+  ///
+  /// [playing] is the listening as a whole, not the player between clips:
+  /// a «pause» between two pieces would drop the foreground service, and
+  /// Android does not let it start again from a locked screen.
+  GuestPlayback? _guest;
+
+  bool get hasGuest => _guest != null;
+
+  void showGuest(GuestPlayback guest) {
+    final changedItem = _guest?.id != guest.id;
+    _guest = guest;
+    if (changedItem) {
+      mediaItem.add(
+        MediaItem(
+          id: 'guest:${guest.id}',
+          title: guest.title,
+          artist: guest.artist,
+          album: guest.album,
+          artUri: guest.artUri,
+        ),
+      );
+    }
+    _broadcastState();
+  }
+
+  /// The guest is done: the session goes back to the recitation (idle).
+  void endGuest() {
+    if (_guest == null) return;
+    _guest = null;
+    playbackState.add(
+      playbackState.value.copyWith(
+        controls: const [],
+        processingState: AudioProcessingState.idle,
+        playing: false,
+      ),
+    );
+    // the last dhikr's title is not left on the session; the recitation's
+    // ayah comes back if one is loaded
+    mediaItem.add(null);
+    _publishItem();
+    _broadcastState();
+  }
+
+  void _broadcastGuest(GuestPlayback g) {
+    playbackState.add(
+      playbackState.value.copyWith(
+        controls: [
+          g.playing ? MediaControl.pause : MediaControl.play,
+          if (g.onNext != null) MediaControl.skipToNext,
+          MediaControl.stop,
+        ],
+        systemActions: const {},
+        androidCompactActionIndices: g.onNext != null
+            ? const [0, 1]
+            : const [0],
+        queueIndex: null,
+        processingState: AudioProcessingState.ready,
+        playing: g.playing,
+        updatePosition: Duration.zero,
+        bufferedPosition: Duration.zero,
+        speed: 1,
+      ),
+    );
   }
 
   // ─────────────────────────────────────
@@ -166,6 +246,8 @@ class QuranMediaHandler extends BaseAudioHandler {
   /// keep the plain ⏮ ⏯ ⏭ ⏹ notification; Android 13+ shows the first two
   /// (±10 s) beside ⏮ ⏯ ⏭, and the car shows all four.
   void _broadcastState() {
+    final guest = _guest;
+    if (guest != null) return _broadcastGuest(guest);
     final audio = AudioService.instance;
     final p = audio.player;
     final active = audio.currentAyah.value != null;
@@ -246,6 +328,7 @@ class QuranMediaHandler extends BaseAudioHandler {
   /// name the surah, while this follows every ayah. The duration stays the
   /// source's, so the bar is the same one the seek controls move.
   void _publishItem() {
+    if (_guest != null) return;
     final audio = AudioService.instance;
     final ayah = audio.currentAyah.value;
     if (ayah == null) return;
@@ -372,6 +455,8 @@ class QuranMediaHandler extends BaseAudioHandler {
 
   @override
   Future<void> play() async {
+    final guest = _guest;
+    if (guest != null) return guest.onPlay();
     final audio = AudioService.instance;
     if (audio.currentAyah.value == null) {
       await _playResume();
@@ -381,38 +466,62 @@ class QuranMediaHandler extends BaseAudioHandler {
   }
 
   @override
-  Future<void> pause() async => AudioService.instance.pause();
+  Future<void> pause() async {
+    final guest = _guest;
+    if (guest != null) return guest.onPause();
+    AudioService.instance.pause();
+  }
 
   @override
   Future<void> stop() async {
+    final guest = _guest;
+    if (guest != null) {
+      guest.onStop();
+      endGuest();
+      return;
+    }
     _setSleep(_Sleep.off);
     AudioService.instance.stop();
     await super.stop();
   }
 
   @override
-  Future<void> skipToNext() async => AudioService.instance.nextAyah();
+  Future<void> skipToNext() async {
+    final guest = _guest;
+    if (guest != null) return guest.onNext?.call();
+    AudioService.instance.nextAyah();
+  }
 
   @override
-  Future<void> skipToPrevious() async => AudioService.instance.previousAyah();
+  Future<void> skipToPrevious() async {
+    if (_guest != null) return; // the athkar have no ⏮
+    AudioService.instance.previousAyah();
+  }
 
   @override
-  Future<void> seek(Duration position) =>
-      AudioService.instance.player.seek(position); // the engine re-syncs the ayah itself (AudioService._onExternalSeek)
+  Future<void> seek(Duration position) async {
+    if (_guest != null) return;
+    await AudioService.instance.player.seek(position);
+  } // the engine re-syncs the ayah itself (AudioService._onExternalSeek)
 
   @override
-  Future<void> fastForward() =>
-      AudioService.instance.seekBy(const Duration(seconds: 10));
+  Future<void> fastForward() async {
+    if (_guest != null) return;
+    await AudioService.instance.seekBy(const Duration(seconds: 10));
+  }
 
   @override
-  Future<void> rewind() =>
-      AudioService.instance.seekBy(const Duration(seconds: -10));
+  Future<void> rewind() async {
+    if (_guest != null) return;
+    await AudioService.instance.seekBy(const Duration(seconds: -10));
+  }
 
   @override
   Future<dynamic> customAction(
     String name, [
     Map<String, dynamic>? extras,
   ]) async {
+    if (_guest != null) return null; // the recitation's own buttons
     switch (name) {
       case 'rewind10':
         await rewind();
@@ -423,9 +532,7 @@ class QuranMediaHandler extends BaseAudioHandler {
       case 'nextReciter':
         await _selectNextReciter();
       case 'sleep':
-        _setSleep(
-          _Sleep.values[(_sleep.index + 1) % _Sleep.values.length],
-        );
+        _setSleep(_Sleep.values[(_sleep.index + 1) % _Sleep.values.length]);
       case 'speed':
         final audio = AudioService.instance;
         final i = _speedCycle.indexOf(audio.playbackSpeed.value);
@@ -571,11 +678,7 @@ class QuranMediaHandler extends BaseAudioHandler {
       _sleepSurah = surah;
       _sleepArmed = false;
     }
-    return AudioService.instance.playFromAyah(
-      surah,
-      ayah,
-      onlyThisAyah: false,
-    );
+    return AudioService.instance.playFromAyah(surah, ayah, onlyThisAyah: false);
   }
 
   Future<void> _playHizb(int hizb) async {
@@ -793,9 +896,7 @@ class QuranMediaHandler extends BaseAudioHandler {
   Future<List<MediaItem>> getChildren(
     String parentMediaId, [
     Map<String, dynamic>? options,
-  ]) async => [
-    for (final item in await _children(parentMediaId)) _shown(item),
-  ];
+  ]) async => [for (final item in await _children(parentMediaId)) _shown(item)];
 
   /// Android shows an item's [MediaItem.displaySubtitle] only when it also
   /// has a [MediaItem.displayTitle] (MediaMetadataCompat.getDescription;
@@ -1100,6 +1201,7 @@ class QuranMediaHandler extends BaseAudioHandler {
     if (words.length <= 5) return words.join(' ');
     return '${words.take(5).join(' ')}…';
   }
+
   Future<void>? _dataFuture;
 
   /// The car can connect with the app closed (audio_service then runs main()
@@ -1151,3 +1253,32 @@ class QuranMediaHandler extends BaseAudioHandler {
 
 /// مؤقت الإيقاف, in the order the car's button cycles through.
 enum _Sleep { off, surahEnd, min15, min30, min60 }
+
+/// What a guest (see [QuranMediaHandler.showGuest]) shows and answers.
+class GuestPlayback {
+  const GuestPlayback({
+    required this.id,
+    required this.title,
+    required this.artist,
+    required this.playing,
+    required this.onPlay,
+    required this.onPause,
+    required this.onStop,
+    this.album,
+    this.artUri,
+    this.onNext,
+  });
+
+  final String id;
+  final String title;
+  final String artist;
+  final String? album;
+  final Uri? artUri;
+  final bool playing;
+  final VoidCallback onPlay;
+  final VoidCallback onPause;
+  final VoidCallback onStop;
+
+  /// Null hides ⏭ (the last dhikr, or «تشغيل متواصل» off).
+  final VoidCallback? onNext;
+}

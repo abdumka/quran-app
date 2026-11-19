@@ -12,6 +12,9 @@
     data/app_config/config_v<N>.json         tools/content_updates/app_config.json
     data/quran_data/patch_v<N>.json          tools/content_updates/quran_data.json
     data/notices/notices_v<N>.json           tools/content_updates/notices.json
+    data/share_video/share_video_v<N>.json   assets/data/share_video.json, N = its "ver"
+    data/athkar/athkar_v<N>.json             assets/data/athkar.json, N = its "ver" (VER in build_athkar_data.py)
+    data/khilaf/khilaf_v<N>.json             assets/data/khilaf.json, N = its "ver" (VER in build_khilaf_data.py)
 
 Each payload is uploaded under its version (immutable, cached for a year) and
 the manifest is rewritten last, so a phone never sees a manifest pointing at a
@@ -66,7 +69,7 @@ NEW_ITEMS_MIN_BUILD = 148
 MIN_BUILD_OF = {"tanzilat_paint": 133, "word_masks": 133,
                 "tasmee_data": NEW_ITEMS_MIN_BUILD, "app_config": NEW_ITEMS_MIN_BUILD,
                 "quran_data": NEW_ITEMS_MIN_BUILD, "notices": NEW_ITEMS_MIN_BUILD,
-                "athkar": NEW_ITEMS_MIN_BUILD,
+                "athkar": NEW_ITEMS_MIN_BUILD, "khilaf": NEW_ITEMS_MIN_BUILD,
                 # «مشاركة الآية» / «فيديو الآية»: first in test build 151 (2026-11-17).
                 "share_video": 151}
 PUBLIC = "https://quran-content.mushaf-qaloon.com/"
@@ -92,6 +95,9 @@ ITEMS = {
     # live under video_bg/<id>/ on the same bucket (upload them first; a changed clip
     # needs a NEW path, phones cache by path).
     "share_video": (ROOT / "assets" / "data" / "share_video.json", "data/share_video/share_video_v{ver}.json"),
+    # «خلافات القراء»: the whole file (tools/build_khilaf_data.py writes it; raise VER
+    # there). Phones take it only when ver > the bundled one.
+    "khilaf": (ROOT / "assets" / "data" / "khilaf.json", "data/khilaf/khilaf_v{ver}.json"),
 }
 EASTERN = set("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹")
 
@@ -511,6 +517,8 @@ def main():
             check_share_video(data)
         if name == "athkar" and not (isinstance(data.get("sections"), list) and data["sections"]):
             sys.exit(f"ABORT: {src} has no sections")
+        if name == "khilaf" and not (isinstance(data.get("a"), dict) and data["a"] and data.get("v") == 1):
+            sys.exit(f"ABORT: {src} has no ayat (or a format this app cannot read)")
         if name == "tanzilat_paint" and data.get("tz") != tanzilat_ver:
             sys.exit(f"ABORT: the pictures are for tanzilat v{data.get('tz')}, the data is v{tanzilat_ver}: rebuild them")
         if name not in ("tanzilat", "tanzilat_paint") and any(c in EASTERN for c in body.decode("utf-8")):

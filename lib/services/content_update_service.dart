@@ -16,6 +16,7 @@ import 'remote_config.dart';
 import 'server_notice_service.dart';
 import 'share/share_video_config.dart';
 import 'tasmee_data_patch.dart';
+import '../widgets/quran/khilaf_sheet.dart' show KhilafData;
 
 /// Data the app can refresh from our server without a store release:
 ///
@@ -45,6 +46,11 @@ import 'tasmee_data_patch.dart';
 ///   * `share_video`: «مشاركة الآية»: share text and link, the video
 ///                    backgrounds, sound effects, watermark and closing card
 ///                    (`ShareVideoConfig`); used from the next share sheet.
+///   * `athkar`:    «الأذكار» whole: texts, sections, tiles, the share line
+///                    and the athkar voices with their clip timings
+///                    (`AthkarData`); applied at once.
+///   * `khilaf`:    «خلافات القراء» whole (`KhilafData`); used from the
+///                    next sheet opened.
 ///
 /// Layout on `quran-content.mushaf-qaloon.com` (the R2 bucket the tafsir
 /// pages and timings already come from), published by
@@ -61,6 +67,8 @@ import 'tasmee_data_patch.dart';
 ///     data/quran_data/patch_v<N>.json
 ///     data/notices/notices_v<N>.json
 ///     data/share_video/share_video_v<N>.json
+///     data/athkar/athkar_v<N>.json
+///     data/khilaf/khilaf_v<N>.json
 ///
 /// The manifest names each item's version, file, size and SHA-256. A file is
 /// downloaded only when its version is newer than both the version bundled in
@@ -91,6 +99,7 @@ class ContentUpdateService {
     'notices',
     'athkar',
     'share_video',
+    'khilaf',
   ];
 
   /// What the assets of THIS build carry. A download older than or equal to
@@ -117,9 +126,11 @@ class ContentUpdateService {
     'notices': 0,
     // matches the `ver` of `assets/data/athkar.json` (a test keeps them in
     // step)
-    'athkar': 1,
+    'athkar': 2,
     // matches the `ver` of `assets/data/share_video.json`
     'share_video': 3,
+    // matches the `ver` of `assets/data/khilaf.json` (a test keeps them in step)
+    'khilaf': 1,
   };
 
   /// How often the silent check runs (`content.checkHours`, [RemoteConfig]).
@@ -394,9 +405,7 @@ class ContentUpdateService {
     for (var i = 0; i < magic.length; i++) {
       if (body[i] != magic[i]) throw const FormatException('paint: bad magic');
     }
-    final headerLength = ByteData.sublistView(
-      body,
-    ).getUint32(4, Endian.little);
+    final headerLength = ByteData.sublistView(body).getUint32(4, Endian.little);
     if (8 + headerLength > body.length) {
       throw const FormatException('paint: short header');
     }
@@ -451,6 +460,8 @@ class ContentUpdateService {
         AthkarData.parse(text);
       case 'share_video':
         ShareVideoConfig.parse(text);
+      case 'khilaf':
+        KhilafData.parse(text);
     }
   }
 
@@ -561,6 +572,7 @@ class ContentCheckResult {
     'tasmee_data': 'التسميع',
     'quran_data': 'بيانات المصحف',
     'athkar': 'الأذكار',
+    'khilaf': 'خلافات القراء',
   };
 
   /// Items the reader is not told about (settings and messages from us).

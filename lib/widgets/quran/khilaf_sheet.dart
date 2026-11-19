@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+import '../../services/content_update_service.dart';
 import '../../services/quran_json_service.dart';
 import '../../surah_data.dart';
 import '../../theme/app_surfaces.dart';
@@ -34,13 +35,52 @@ class KhilafData {
 
   static Future<KhilafData>? _loading;
 
-  static Future<KhilafData> load() => _loading ??= rootBundle
-      .loadString('assets/data/khilaf.json')
-      .then((s) => compute(_decode, s))
-      .then(KhilafData._fromJson);
+  /// The newest data: a fix downloaded from our server (the `khilaf` content
+  /// item, see ContentUpdateService) when there is one, else the bundled
+  /// file. A downloaded fix is used from the next sheet opened.
+  static Future<KhilafData> load() {
+    if (!_registered) {
+      _registered = true;
+      ContentUpdateService.instance.registerItem(
+        'khilaf',
+        apply: () async => _loading = null,
+        isLoaded: () => _loading != null,
+      );
+    }
+    return _loading ??= _read();
+  }
+
+  static bool _registered = false;
+
+  static Future<KhilafData> _read() async {
+    final downloaded = await ContentUpdateService.instance.readFor('khilaf');
+    if (downloaded != null) {
+      try {
+        return KhilafData._fromJson(await compute(_decode, downloaded));
+      } catch (error) {
+        debugPrint('KhilafData: downloaded file refused: $error');
+      }
+    }
+    final bundled = await rootBundle.loadString('assets/data/khilaf.json');
+    return KhilafData._fromJson(await compute(_decode, bundled));
+  }
 
   static Map<String, dynamic> _decode(String s) =>
       jsonDecode(s) as Map<String, dynamic>;
+
+  /// Throws [FormatException] on anything that is not usable data, so a
+  /// broken download is never installed over a good one.
+  static KhilafData parse(String text) {
+    try {
+      final data = KhilafData._fromJson(_decode(text));
+      if (data._ayat.isEmpty) throw const FormatException('khilaf: no ayat');
+      return data;
+    } on FormatException {
+      rethrow;
+    } catch (error) {
+      throw FormatException('khilaf: $error');
+    }
+  }
 
   static KhilafData _fromJson(Map<String, dynamic> j) => KhilafData._(
     (j['w'] as List).cast<String>(),
@@ -147,8 +187,10 @@ class KhilafSheetContent extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: FutureBuilder<(KhilafData, String?)>(
-        future: Future.wait([KhilafData.load(), _ayahText(surah, ayah)])
-            .then((r) => (r[0] as KhilafData, r[1] as String?)),
+        future: Future.wait([
+          KhilafData.load(),
+          _ayahText(surah, ayah),
+        ]).then((r) => (r[0] as KhilafData, r[1] as String?)),
         builder: (context, snap) {
           final data = snap.data;
           final cards = data?.$1.forAyah(surah, ayah) ?? const [];

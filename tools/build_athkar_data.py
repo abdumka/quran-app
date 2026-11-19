@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, 'assets', 'data', 'athkar.json')
 
 # Raise when the content changes; ContentUpdateService.bundledVersions
 # ['athkar'] must match (a test keeps them in step).
-VER = 1
+VER = 2
 
 # The themed groups of the home screen (ours: the book is one flat list).
 # Numbers are the book's section order; the order inside a group is the
@@ -366,6 +366,8 @@ def main():
         # The app reciter the verses play in until the reader picks another
         # (owner, 2026-11-17).
         'quranReciter': 'naihi_qaloun',
+        # the last line of a copied or shared dhikr (the app has the same default)
+        'shareLine': 'من تطبيق المصحف الجامع',
         # The athkar voices (AthkarReciter in the app), first = default.
         # Written by C:/Down/AthkarAudio/pipeline/publish_voices.py.
         'reciters': voices(),
