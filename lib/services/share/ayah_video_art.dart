@@ -28,7 +28,6 @@ class AyahVideoArt {
   AyahVideoArt._();
 
   static const String iconAsset = 'assets/images/share_app_icon.png';
-  static const Color _gold = Color(0xFFF3E6C4);
 
   // ───────────────────── the mushaf text ─────────────────────
 
@@ -385,7 +384,9 @@ class AyahVideoArt {
     required ui.Image? ayat,
     required String? title,
     ui.Image? titleImage,
+    ui.Image? iconImage,
   }) async {
+    final gold = Color(look.titleColor);
     final w = width.toDouble();
     final h = height.toDouble();
     final unit = math.min(w, h);
@@ -396,7 +397,7 @@ class AyahVideoArt {
       Paint()..color = Color.fromRGBO(0, 0, 0, look.dim),
     );
 
-    var top = h * 0.05;
+    var top = h * (look.titleTop - 0.005);
     if (look.showTitle && titleImage != null) {
       // The surah name in the mushaf's own hand (white ink, tinted cream),
       // with a soft shadow so it reads on bright skies too.
@@ -408,7 +409,7 @@ class AyahVideoArt {
       }
       final dst = Rect.fromLTWH(
         (w - iw * scale) / 2,
-        h * 0.055,
+        h * look.titleTop,
         iw * scale,
         ih * scale,
       );
@@ -434,14 +435,14 @@ class AyahVideoArt {
         dst,
         Paint()
           ..filterQuality = FilterQuality.high
-          ..colorFilter = const ColorFilter.mode(_gold, BlendMode.srcIn),
+          ..colorFilter = ColorFilter.mode(gold, BlendMode.srcIn),
       );
       top = dst.bottom;
     } else if (look.showTitle && title != null && title.isNotEmpty) {
-      final p = _paragraph(title, unit * 0.04, _gold, FontWeight.w600, w);
+      final p = _paragraph(title, unit * 0.04, gold, FontWeight.w600, w);
       final pw = p.longestLine;
       final chip = Rect.fromCenter(
-        center: Offset(w / 2, h * 0.065 + p.height / 2),
+        center: Offset(w / 2, h * (look.titleTop + 0.01) + p.height / 2),
         width: pw + unit * 0.06,
         height: p.height + unit * 0.018,
       );
@@ -452,7 +453,7 @@ class AyahVideoArt {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = math.max(1.5, unit * 0.0022)
-          ..color = _gold.withValues(alpha: 0.55),
+          ..color = gold.withValues(alpha: 0.55),
       );
       canvas.drawParagraph(
         p,
@@ -462,9 +463,9 @@ class AyahVideoArt {
     }
 
     var markTop = h;
-    ui.Image? icon;
+    ui.Image? ownIcon;
     if (look.showWatermark) {
-      icon = await _icon();
+      final icon = iconImage ?? (ownIcon = await _icon());
       markTop = _drawWatermark(canvas, w, h, unit, look, icon);
     }
 
@@ -541,7 +542,7 @@ class AyahVideoArt {
       );
     }
     final bytes = await _png(recorder, width, height);
-    icon?.dispose();
+    ownIcon?.dispose();
     return bytes;
   }
 
@@ -628,6 +629,7 @@ class AyahVideoArt {
     required int width,
     required int height,
     required ShareVideoLook look,
+    ui.Image? iconImage,
   }) async {
     final w = width.toDouble();
     final h = height.toDouble();
@@ -638,13 +640,14 @@ class AyahVideoArt {
     canvas.drawRect(
       rect,
       Paint()
-        ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, const [
-          Color(0xFF3B2C17),
-          Color(0xFF1D160C),
+        ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, [
+          Color(look.closingTop),
+          Color(look.closingBottom),
         ]),
     );
-    const cream = Color(0xFFF6ECD6);
-    final icon = await _icon();
+    final cream = Color(look.closingText);
+    final ownIcon = iconImage == null ? await _icon() : null;
+    final icon = iconImage ?? ownIcon!;
     final title = _paragraph(
       look.closingTitle,
       unit * 0.06,
@@ -739,7 +742,7 @@ class AyahVideoArt {
       canvas.drawParagraph(link, Offset(0, y));
     }
     final bytes = await _png(recorder, width, height);
-    icon.dispose();
+    ownIcon?.dispose();
     return bytes;
   }
 

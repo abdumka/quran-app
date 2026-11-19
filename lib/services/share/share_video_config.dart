@@ -29,6 +29,10 @@ class ShareVideoConfig {
     required this.categories,
     required this.defaultBackground,
     required this.backgrounds,
+    this.strings = const {},
+    this.album = defaultAlbum,
+    this.videoPlatforms = const {'android', 'ios'},
+    this.videoOffBuilds = const {},
   });
 
   static const String assetPath = 'assets/data/share_video.json';
@@ -56,6 +60,41 @@ class ShareVideoConfig {
   final List<ShareVideoCategory> categories;
   final String defaultBackground;
   final List<ShareVideoBackground> backgrounds;
+
+  /// Wording of the share sheet and its messages, by key, replacing the
+  /// built-in text (see [tr]; the keys are listed in README «مشاركة الآية»).
+  final Map<String, String> strings;
+
+  /// The Android gallery album the videos go into.
+  final String album;
+  static const String defaultAlbum = 'المصحف الجامع';
+
+  /// The platforms that offer «فيديو الآية» (`android`, `ios`): the server
+  /// can switch the video off on one platform and keep it on the other.
+  final Set<String> videoPlatforms;
+
+  /// App builds on which the video choice is off (a build with a bug).
+  final Set<int> videoOffBuilds;
+
+  /// Whether this phone offers the video choice. [build] may be a split-ABI
+  /// version code (2000 + build on arm64), so both forms are checked.
+  bool videoOn({required String platform, required int build}) =>
+      videoEnabled &&
+      videoPlatforms.contains(platform) &&
+      !videoOffBuilds.contains(build) &&
+      !videoOffBuilds.contains(build % 1000);
+
+  /// The text of [key] from the server's `strings`, else [fallback]; `{name}`
+  /// placeholders are filled from [args] in either.
+  static String tr(
+    String key,
+    String fallback, [
+    Map<String, Object?> args = const {},
+  ]) {
+    var s = _current?.strings[key] ?? fallback;
+    args.forEach((k, v) => s = s.replaceAll('{$k}', '$v'));
+    return s;
+  }
 
   String urlOf(String path) => '$baseUrl$path';
 
@@ -172,6 +211,21 @@ class ShareVideoConfig {
       throw const FormatException('share_video: no backgrounds');
     }
     final def = j['defaultBackground'];
+    final strings = <String, String>{};
+    final sj = j['strings'];
+    if (sj is Map) {
+      sj.forEach((k, v) {
+        if (k is String &&
+            v is String &&
+            v.trim().isNotEmpty &&
+            v.length <= 400) {
+          strings[k] = v;
+        }
+      });
+    }
+    final album = j['album'];
+    final platforms = j['videoPlatforms'];
+    final offBuilds = j['videoOffBuilds'];
     return ShareVideoConfig._(
       ver: ver,
       enabled: j['enabled'] != false,
@@ -189,7 +243,37 @@ class ShareVideoConfig {
           ? def
           : backgrounds.first.id,
       backgrounds: List.unmodifiable(backgrounds),
+      strings: Map.unmodifiable(strings),
+      album:
+          album is String &&
+              album.trim().isNotEmpty &&
+              album.length <= 60 &&
+              !album.contains(RegExp(r'[/\:*?"<>|]'))
+          ? album
+          : defaultAlbum,
+      videoPlatforms: platforms is List
+          ? {
+              for (final x in platforms)
+                if (x is String) x,
+            }
+          : const {'android', 'ios'},
+      videoOffBuilds: {
+        if (offBuilds is List)
+          for (final x in offBuilds)
+            if (x is int) x,
+      },
     );
+  }
+
+  /// A safe path under [baseUrl] (letters, digits, `_-/.`), or null.
+  static String? safePath(Object? v) {
+    if (v is! String || v.isEmpty) return null;
+    if (!ShareVideoBackground._safePath.hasMatch(v) ||
+        v.contains('..') ||
+        v.startsWith('/')) {
+      return null;
+    }
+    return v;
   }
 
   static String _str(Object? v, String what) {
@@ -221,6 +305,12 @@ class ShareVideoLook {
     this.titleImages,
     this.titleImageHeight = 0.085,
     this.titleImageMaxWidth = 0.72,
+    this.titleTop = 0.055,
+    this.titleColor = 0xFFF3E6C4,
+    this.closingTop = 0xFF3B2C17,
+    this.closingBottom = 0xFF1D160C,
+    this.closingText = 0xFFF6ECD6,
+    this.icon,
     required this.showWatermark,
     required this.watermarkName,
     required this.watermarkLink,
@@ -262,6 +352,20 @@ class ShareVideoLook {
 
   /// Its widest, as a share of the frame's width.
   final double titleImageMaxWidth;
+
+  /// Where the title starts, as a share of the frame's height.
+  final double titleTop;
+
+  /// Colours as 0xAARRGGBB (`video.colors`: `"#RRGGBB"` or `"#AARRGGBB"`):
+  /// the surah title, the closing card's gradient and its writing.
+  final int titleColor;
+  final int closingTop;
+  final int closingBottom;
+  final int closingText;
+
+  /// The app icon of the watermark and the closing card as a picture on the
+  /// server (path under [ShareVideoConfig.baseUrl]); null = the bundled icon.
+  final String? icon;
   final bool showWatermark;
   final String watermarkName;
   final String watermarkLink;
@@ -299,6 +403,17 @@ class ShareVideoLook {
         x is num ? x.toInt().clamp(lo, hi) : def;
     String s(Object? x, String def) => x is String ? x : def;
     Map sub(Object? x) => x is Map ? x : const {};
+    int color(Object? x, int def) {
+      if (x is! String) return def;
+      final h = x.startsWith('#') ? x.substring(1) : x;
+      if (!RegExp(r'^([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$').hasMatch(h)) {
+        return def;
+      }
+      final v = int.parse(h, radix: 16);
+      return h.length == 6 ? 0xFF000000 | v : v;
+    }
+
+    final colors = sub(m['colors']);
     final title = sub(m['title']);
     final mark = sub(m['watermark']);
     final close = sub(m['closing']);
@@ -325,6 +440,12 @@ class ShareVideoLook {
       titleImages: _titleImages(title['images']),
       titleImageHeight: d(title['imageHeight'], 0.085, 0.03, 0.2),
       titleImageMaxWidth: d(title['imageMaxWidth'], 0.72, 0.3, 0.95),
+      titleTop: d(title['top'], 0.055, 0, 0.3),
+      titleColor: color(colors['title'], 0xFFF3E6C4),
+      closingTop: color(colors['closingTop'], 0xFF3B2C17),
+      closingBottom: color(colors['closingBottom'], 0xFF1D160C),
+      closingText: color(colors['closingText'], 0xFFF6ECD6),
+      icon: ShareVideoConfig.safePath(m['icon']),
       showWatermark: mark['show'] != false,
       watermarkName: s(mark['name'], 'المصحف الجامع'),
       watermarkLink: s(mark['link'], 'mushaf-qaloon.com'),

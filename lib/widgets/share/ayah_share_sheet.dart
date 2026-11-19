@@ -5,12 +5,20 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/reciter.dart';
+import '../../services/app_update_service.dart';
 import '../../services/reciter_service.dart';
 import '../../services/share/ayah_share_text.dart';
 import '../../services/share/ayah_video_service.dart';
 import '../../services/share/share_video_config.dart';
 import '../../theme/app_surfaces.dart';
 import 'ayah_video_player.dart';
+
+/// Wording the server can change (`strings` in share_video.json).
+String _t(
+  String key,
+  String fallback, [
+  Map<String, Object?> args = const {},
+]) => ShareVideoConfig.tr(key, fallback, args);
 
 /// The share icon of the ayah menu: «فيديو الآية» or «نص الآية». Where the
 /// video cannot be made (web, or switched off from the server) the text is
@@ -21,8 +29,13 @@ Future<void> showAyahShareSheet(
   required int ayah,
 }) async {
   final config = await ShareVideoConfig.load();
+  await AppUpdateService.instance.load();
   final video =
-      config.videoEnabled && await AyahVideoService.instance.isSupported();
+      config.videoOn(
+        platform: Platform.isIOS ? 'ios' : 'android',
+        build: AppUpdateService.instance.currentBuild,
+      ) &&
+      await AyahVideoService.instance.isSupported();
   if (!context.mounted) return;
   if (!video) {
     await AyahShareText.share(context, surah, ayah);
@@ -101,7 +114,7 @@ Future<void> showAyahShareSheet(
               _Handle(color: c.handle),
               const SizedBox(height: 10),
               Text(
-                'مشاركة الآية',
+                _t('sheetTitle', 'مشاركة الآية'),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -112,14 +125,14 @@ Future<void> showAyahShareSheet(
               option(
                 'video',
                 Icons.videocam_rounded,
-                'فيديو الآية',
-                'تلاوة بخط المصحف على خلفية متحركة',
+                _t('videoChoice', 'فيديو الآية'),
+                _t('videoChoiceNote', 'تلاوة بخط المصحف على خلفية متحركة'),
               ),
               option(
                 'text',
                 Icons.text_fields_rounded,
-                'نص الآية',
-                'النص مع اسم السورة ورقم الآية',
+                _t('textChoice', 'نص الآية'),
+                _t('textChoiceNote', 'النص مع اسم السورة ورقم الآية'),
               ),
               const SizedBox(height: 6),
             ],
@@ -365,7 +378,11 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     final single = b != null && b.indexOf(from) == b.indexOf(to);
     if (b != null && growing && !single) {
       if (to - from + 1 > look.maxAyat) {
-        setState(() => _limitNote = 'لا يزيد الفيديو على ${look.maxAyat} آية');
+        setState(
+          () => _limitNote = _t('limitAyat', 'لا يزيد الفيديو على {n} آية', {
+            'n': look.maxAyat,
+          }),
+        );
         return;
       }
       setState(() => _stepping = true);
@@ -379,8 +396,9 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       if (len != null && len.inMilliseconds > look.maxSeconds * 1000) {
         setState(() {
           _stepping = false;
-          _limitNote =
-              'لا يزيد الفيديو على ${AyahVideoService.formatLimit(look.maxSeconds)}';
+          _limitNote = _t('limitTime', 'لا يزيد الفيديو على {limit}', {
+            'limit': AyahVideoService.formatLimit(look.maxSeconds),
+          });
         });
         return;
       }
@@ -463,8 +481,11 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       if (plan.from != _from || plan.to != _to) {
         // The reciter joins these ayat in one breath, so the video holds
         // the whole breath.
-        _note =
-            'يقرأ القارئ هذه الآيات بنفَس واحد، فشمل الفيديو الآيات من ${plan.from} إلى ${plan.to}.';
+        _note = _t(
+          'breathWidened',
+          'يقرأ القارئ هذه الآيات بنفَس واحد، فشمل الفيديو الآيات من {from} إلى {to}.',
+          {'from': plan.from, 'to': plan.to},
+        );
       }
       final out = await AyahVideoService.instance.render(
         config: config,
@@ -498,7 +519,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       if (mounted) {
         setState(() {
           _phase = _Phase.failed;
-          _error = 'تعذّر إنشاء الفيديو';
+          _error = _t('renderFailed', 'تعذّر إنشاء الفيديو');
         });
       }
     }
@@ -551,7 +572,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             const SizedBox(height: 10),
             Center(
               child: Text(
-                'فيديو الآية',
+                _t('videoTitle', 'فيديو الآية'),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -604,16 +625,16 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     final maxAyat = config.video.maxAyat;
     final count = _count == 0 ? widget.ayah : _count;
     return [
-      _label('القارئ'),
+      _label(_t('reciter', 'القارئ')),
       _reciterPicker(),
-      _label('الشكل'),
+      _label(_t('shape', 'الشكل')),
       Wrap(
         children: [
           for (final s in config.shapes)
             _chip(s.title, s.id == _shape.id, () => setState(() => _shape = s)),
         ],
       ),
-      _label('الخلفية'),
+      _label(_t('background', 'الخلفية')),
       Wrap(
         children: [
           for (final cat in config.categories)
@@ -648,7 +669,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         padding: const EdgeInsets.only(top: 4),
         child: Text(_bg.title, style: TextStyle(fontSize: 12.5, color: c.text)),
       ),
-      _label('تأثير الصوت'),
+      _label(_t('effect', 'تأثير الصوت')),
       Wrap(
         children: [
           for (final e in config.effects)
@@ -659,12 +680,12 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             ),
         ],
       ),
-      _label('الآيات'),
+      _label(_t('ayat', 'الآيات')),
       Row(
         children: [
           Expanded(
             child: _Stepper(
-              label: 'من',
+              label: _t('from', 'من'),
               value: _from,
               colors: c,
               onMinus: _stepping ? null : _fromMinus(),
@@ -674,7 +695,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           const SizedBox(width: 10),
           Expanded(
             child: _Stepper(
-              label: 'إلى',
+              label: _t('to', 'إلى'),
               value: _to,
               colors: c,
               onMinus: _stepping ? null : _toMinus(),
@@ -696,8 +717,8 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               ),
               onPressed: _tooLong || _stepping ? null : _make,
               icon: const Icon(Icons.movie_creation_outlined),
-              label: const Text(
-                'إنشاء الفيديو',
+              label: Text(
+                _t('create', 'إنشاء الفيديو'),
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
               ),
             ),
@@ -705,7 +726,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           const SizedBox(width: 8),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text('إغلاق', style: TextStyle(color: c.text)),
+            child: Text(_t('close', 'إغلاق'), style: TextStyle(color: c.text)),
           ),
         ],
       ),
@@ -767,7 +788,13 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     if (b != null) {
       for (final e in {b.at(_from), b.at(_to)}) {
         if (e.isJoined) {
-          lines.add('يقرأ هذا القارئ الآيات ${e.from} إلى ${e.to} بنفَس واحد');
+          lines.add(
+            _t(
+              'breathNote',
+              'يقرأ هذا القارئ الآيات {from} إلى {to} بنفَس واحد',
+              {'from': e.from, 'to': e.to},
+            ),
+          );
         }
       }
     }
@@ -779,8 +806,8 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           padding: const EdgeInsets.only(top: 8),
           child: Text(
             len == null || _measuring
-                ? 'مدة التلاوة…'
-                : 'مدة التلاوة نحو ${_clock(len)}',
+                ? _t('lengthMeasuring', 'مدة التلاوة…')
+                : _t('length', 'مدة التلاوة نحو {time}', {'time': _clock(len)}),
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,
@@ -803,7 +830,11 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           padding: const EdgeInsets.only(top: 4),
           child: Text(
             over
-                ? 'المقطع أطول من ${AyahVideoService.formatLimit(config.video.maxSeconds)}، قصّره'
+                ? _t('tooLong', 'المقطع أطول من {limit}، قصّره', {
+                    'limit': AyahVideoService.formatLimit(
+                      config.video.maxSeconds,
+                    ),
+                  })
                 : _limitNote,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12.5, color: Colors.red.shade700),
@@ -890,7 +921,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       ValueListenableBuilder<String>(
         valueListenable: pr.stage,
         builder: (_, stage, _) => Text(
-          stage.isEmpty ? 'جارٍ التجهيز' : stage,
+          stage.isEmpty ? _t('preparing', 'جارٍ التجهيز') : stage,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 15,
@@ -923,7 +954,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       ),
       const SizedBox(height: 8),
       Text(
-        'يُنشأ الفيديو على هاتفك، ولا يُرفع إلى أي مكان.',
+        _t('privacyNote', 'يُنشأ الفيديو على هاتفك، ولا يُرفع إلى أي مكان.'),
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12.5, color: c.muted),
       ),
@@ -931,7 +962,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       Center(
         child: TextButton(
           onPressed: () => AyahVideoService.instance.cancel(pr),
-          child: Text('إلغاء', style: TextStyle(color: c.text)),
+          child: Text(_t('cancel', 'إلغاء'), style: TextStyle(color: c.text)),
         ),
       ),
     ];
@@ -968,8 +999,8 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       ),
       onPressed: _share,
       icon: const Icon(Icons.share_rounded),
-      label: const Text(
-        'مشاركة الفيديو',
+      label: Text(
+        _t('shareVideo', 'مشاركة الفيديو'),
         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
       ),
     ),
@@ -979,11 +1010,14 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       children: [
         TextButton(
           onPressed: () => setState(() => _phase = _Phase.choose),
-          child: Text('فيديو آخر', style: TextStyle(color: c.text)),
+          child: Text(
+            _t('another', 'فيديو آخر'),
+            style: TextStyle(color: c.text),
+          ),
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text('إغلاق', style: TextStyle(color: c.text)),
+          child: Text(_t('close', 'إغلاق'), style: TextStyle(color: c.text)),
         ),
       ],
     ),
@@ -993,22 +1027,28 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   Widget _galleryLine() {
     final saved = _saved;
     final (IconData icon, String text) = switch (saved) {
-      null => (Icons.downloading_rounded, 'جارٍ الحفظ في معرض الصور…'),
+      null => (
+        Icons.downloading_rounded,
+        _t('gallerySaving', 'جارٍ الحفظ في معرض الصور…'),
+      ),
       GallerySave.saved => (
         Icons.check_circle_rounded,
-        'تم الحفظ في معرض الصور',
+        _t('gallerySaved', 'تم الحفظ في معرض الصور'),
       ),
       GallerySave.denied => (
         Icons.block_rounded,
-        'لم يُحفظ: اسمح للتطبيق بإضافة الصور من إعدادات الهاتف',
+        _t(
+          'galleryDenied',
+          'لم يُحفظ: اسمح للتطبيق بإضافة الصور من إعدادات الهاتف',
+        ),
       ),
       GallerySave.noSpace => (
         Icons.sd_card_alert_rounded,
-        'لم يُحفظ: لا توجد مساحة كافية في الهاتف',
+        _t('galleryNoSpace', 'لم يُحفظ: لا توجد مساحة كافية في الهاتف'),
       ),
       GallerySave.failed => (
         Icons.error_outline_rounded,
-        'تعذّر الحفظ في معرض الصور',
+        _t('galleryFailed', 'تعذّر الحفظ في معرض الصور'),
       ),
     };
     return Wrap(
@@ -1037,7 +1077,10 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               minimumSize: const Size(0, 32),
             ),
             onPressed: _saveToGallery,
-            child: Text('حاول مجددًا', style: TextStyle(color: c.accent)),
+            child: Text(
+              _t('retrySave', 'حاول مجددًا'),
+              style: TextStyle(color: c.accent),
+            ),
           ),
       ],
     );
@@ -1066,12 +1109,12 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             foregroundColor: c.onAccent,
           ),
           onPressed: _make,
-          child: const Text('حاول مرة أخرى'),
+          child: Text(_t('retry', 'حاول مرة أخرى')),
         ),
         const SizedBox(width: 8),
         TextButton(
           onPressed: () => setState(() => _phase = _Phase.choose),
-          child: Text('رجوع', style: TextStyle(color: c.text)),
+          child: Text(_t('back', 'رجوع'), style: TextStyle(color: c.text)),
         ),
       ],
     ),

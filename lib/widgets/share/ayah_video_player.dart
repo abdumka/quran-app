@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/audio_service.dart';
+import '../../services/share/share_video_config.dart';
 
 /// Plays a finished «فيديو الآية» inside the share sheet: it starts on its
 /// own, plays once and stops on the closing card. Tap to pause, play or
@@ -140,7 +141,9 @@ class _AyahVideoPlayerState extends State<AyahVideoPlayer>
                 Positioned.fill(
                   child: Semantics(
                     button: true,
-                    label: _playing ? 'إيقاف مؤقت' : 'تشغيل',
+                    label: _playing
+                        ? ShareVideoConfig.tr('pause', 'إيقاف مؤقت')
+                        : ShareVideoConfig.tr('play', 'تشغيل'),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: _toggle,
@@ -151,8 +154,11 @@ class _AyahVideoPlayerState extends State<AyahVideoPlayer>
                           color: Colors.black26,
                           alignment: Alignment.center,
                           child: _error
-                              ? const Text(
-                                  'تعذّر تشغيل الفيديو',
+                              ? Text(
+                                  ShareVideoConfig.tr(
+                                    'playFailed',
+                                    'تعذّر تشغيل الفيديو',
+                                  ),
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 14,

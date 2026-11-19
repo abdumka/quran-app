@@ -230,6 +230,9 @@ launch where neither «ما الجديد» nor the update dialog appeared:
 `assets/data/share_video.json` itself (like athkar): edit it, raise `ver`,
 publish. Phones read it the next time a share sheet opens.
 - `enabled` hides the share icon; `videoEnabled` hides only the video choice.
+  Build 162+: `videoPlatforms` (`["android", "ios"]`: drop one to switch the
+  video off there only) and `videoOffBuilds` (e.g. `[158]`: builds with a
+  video bug; text sharing stays). Older builds read only `videoEnabled`.
 - `link` and `text.template` (`{text}`, `{surah}`, `{ayah}`, `{link}`): the
   shared text. Only https links on mushaf-qaloon.com are accepted.
 - `video`: `maxAyat`, `maxSeconds`, `fps`, `bitrate`, `dim` (darkening of the
@@ -256,7 +259,78 @@ publish. Phones read it the next time a share sheet opens.
   bucket (source and cutter: `C:\Down\AyahVideoBackgrounds`, `tools\cut2.py`).
   Upload clips BEFORE publishing (the publisher HEAD-checks every path). A
   changed clip needs a new path: phones cache by path and never re-download.
-  `bytes` is checked after download.
+  `bytes` is checked after download. Background set v3 (2026-11-18): 41
+  forward-only loops under `video_bg/v3/`, cut with `tools\cut3.py`, uploaded
+  with `tools\upload_v4.py` (no boomerang: a loop is 30 s or longer, or its
+  return is hidden in a 1.5 s dissolve).
+- Build 162+, all optional (missing = today's look and wording):
+  - `strings`: `{"key": "text"}` replaces any wording of the share sheet, its
+    progress steps and messages; `{n}`, `{limit}`, `{from}`, `{to}`, `{time}`
+    are filled where the built-in text has them. The publisher refuses a key
+    the app does not use (a typo) and em dashes. Keys and built-in text:
+    `another` «فيديو آخر»,
+    `ayat` «الآيات»,
+    `back` «رجوع»,
+    `background` «الخلفية»,
+    `backgroundDownloadFailed` «تعذّر تنزيل الخلفية، تحقّق من الاتصال»,
+    `breathNote` «يقرأ هذا القارئ الآيات {from} إلى {to} بنفَس واحد»,
+    `breathWidened` «يقرأ القارئ هذه الآيات بنفَس واحد، فشمل الفيديو الآيات من {from} إلى {to}.»,
+    `cancel` «إلغاء»,
+    `close` «إغلاق»,
+    `create` «إنشاء الفيديو»,
+    `effect` «تأثير الصوت»,
+    `from` «من»,
+    `galleryDenied` «لم يُحفظ: اسمح للتطبيق بإضافة الصور من إعدادات الهاتف»,
+    `galleryFailed` «تعذّر الحفظ في معرض الصور»,
+    `galleryNoSpace` «لم يُحفظ: لا توجد مساحة كافية في الهاتف»,
+    `gallerySaved` «تم الحفظ في معرض الصور»,
+    `gallerySaving` «جارٍ الحفظ في معرض الصور…»,
+    `length` «مدة التلاوة نحو {time}»,
+    `lengthMeasuring` «مدة التلاوة…»,
+    `limitAyat` «لا يزيد الفيديو على {n} آية»,
+    `limitTime` «لا يزيد الفيديو على {limit}»,
+    `minute` «دقيقة»,
+    `minutes` «{n} دقائق»,
+    `noBackgroundShape` «لا تتوفر هذه الخلفية بهذا الشكل»,
+    `noRecitation` «لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ»,
+    `pause` «إيقاف مؤقت»,
+    `play` «تشغيل»,
+    `playFailed` «تعذّر تشغيل الفيديو»,
+    `preparing` «جارٍ التجهيز»,
+    `privacyNote` «يُنشأ الفيديو على هاتفك، ولا يُرفع إلى أي مكان.»,
+    `recitationDownloadFailed` «تعذّر تنزيل التلاوة، تحقّق من الاتصال»,
+    `reciter` «القارئ»,
+    `renderFailed` «تعذّر إنشاء الفيديو»,
+    `retry` «حاول مرة أخرى»,
+    `retrySave` «حاول مجددًا»,
+    `seconds` «{n} ثانية»,
+    `shape` «الشكل»,
+    `shareVideo` «مشاركة الفيديو»,
+    `sheetTitle` «مشاركة الآية»,
+    `stepDone` «تم»,
+    `stepDownloadBackground` «تنزيل الخلفية»,
+    `stepDownloadRecitation` «تنزيل التلاوة»,
+    `stepRecitation` «تجهيز التلاوة»,
+    `stepRender` «إنشاء الفيديو»,
+    `stepText` «تجهيز النص»,
+    `textChoice` «نص الآية»,
+    `textChoiceNote` «النص مع اسم السورة ورقم الآية»,
+    `textCopied` «تم نسخ نص الآية، الصقه لمشاركته»,
+    `textFailed` «تعذّر تجهيز نص الآية»,
+    `to` «إلى»,
+    `tooLong` «المقطع أطول من {limit}، قصّره»,
+    `tooLongPick` «المقطع أطول من {limit}، اختر آيات أقل»,
+    `twoMinutes` «دقيقتين»,
+    `videoChoice` «فيديو الآية»,
+    `videoChoiceNote` «تلاوة بخط المصحف على خلفية متحركة»,
+    `videoTitle` «فيديو الآية».
+  - `album`: the Android gallery album (default «المصحف الجامع»).
+  - `video.colors`: `title`, `closingTop`, `closingBottom`, `closingText` as
+    `"#RRGGBB"` or `"#AARRGGBB"`; `video.title.top` (share of the height,
+    default 0.055).
+  - `video.icon`: the app icon of the watermark and closing card as a picture
+    on the bucket (square PNG; a new picture needs a new path). Missing or
+    unreachable = the bundled icon.
 
 ## Still needs a store release
 New screens or behaviour (code); joining or splitting words; moving an ayah

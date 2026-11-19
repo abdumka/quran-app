@@ -400,6 +400,34 @@ def check_share_video(data):
             paths.append(b["files"][s]["path"])
     if not ids:
         sys.exit("ABORT: share_video has no backgrounds")
+    # Server switches, wording and look (all optional; the app's defaults are
+    # today's behaviour). A key the app never asks for is a typo: refuse it.
+    known = set()
+    for f in list((ROOT / "lib" / "services" / "share").glob("*.dart")) + list((ROOT / "lib" / "widgets" / "share").glob("*.dart")):
+        known |= set(re.findall(r"(?:_t|ShareVideoConfig\.tr)\(\s*'([A-Za-z]+)'", f.read_text(encoding="utf-8")))
+    strings = data.get("strings", {})
+    if not isinstance(strings, dict):
+        sys.exit("ABORT: share_video strings must be an object")
+    for k, v in strings.items():
+        if k not in known:
+            sys.exit(f"ABORT: share_video strings key {k!r} is not used by the app (known: {', '.join(sorted(known))})")
+        if not isinstance(v, str) or not v.strip() or len(v) > 400:
+            sys.exit(f"ABORT: share_video strings {k!r} must be 1-400 characters")
+        if "—" in v:
+            sys.exit(f"ABORT: share_video strings {k!r} has an em dash")
+    album = data.get("album", "")
+    if album and (not isinstance(album, str) or len(album) > 60 or re.search(r'[/\\:*?"<>|]', album)):
+        sys.exit(f"ABORT: share_video album {album!r}")
+    if not set(data.get("videoPlatforms", ["android", "ios"])) <= {"android", "ios"}:
+        sys.exit("ABORT: share_video videoPlatforms takes android / ios")
+    if not all(isinstance(b, int) for b in data.get("videoOffBuilds", [])):
+        sys.exit("ABORT: share_video videoOffBuilds must be build numbers")
+    look = data.get("video", {})
+    for k, v in (look.get("colors") or {}).items():
+        if k not in ("title", "closingTop", "closingBottom", "closingText") or not re.fullmatch(r"#?([0-9a-fA-F]{6}|[0-9a-fA-F]{8})", str(v)):
+            sys.exit(f"ABORT: share_video video.colors {k}: {v!r}")
+    if look.get("icon"):
+        paths.append(look["icon"])
     # The surah names cut from the mushaf (title.images), all 114 of them.
     title_images = (data.get("video", {}).get("title", {}) or {}).get("images")
     if title_images is not None:

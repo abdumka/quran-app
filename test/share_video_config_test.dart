@@ -79,4 +79,69 @@ void main() {
     expect(c.enabled, isTrue);
     expect(c.videoEnabled, isTrue);
   });
+
+  test('without the server switches, video is on everywhere', () {
+    final c = ShareVideoConfig.parse(bundled);
+    expect(c.videoOn(platform: 'android', build: 160), isTrue);
+    expect(c.videoOn(platform: 'ios', build: 160), isTrue);
+    expect(c.album, ShareVideoConfig.defaultAlbum);
+    expect(c.strings, isEmpty);
+  });
+
+  test('the server can switch the video off per platform and per build', () {
+    final j = base()
+      ..['videoPlatforms'] = ['android']
+      ..['videoOffBuilds'] = [158];
+    final c = ShareVideoConfig.parse(jsonEncode(j));
+    expect(c.videoOn(platform: 'ios', build: 160), isFalse);
+    expect(c.videoOn(platform: 'android', build: 160), isTrue);
+    expect(c.videoOn(platform: 'android', build: 158), isFalse);
+    // an arm64 split APK reports 2000 + build
+    expect(c.videoOn(platform: 'android', build: 2158), isFalse);
+  });
+
+  test('server wording replaces the built-in text, placeholders filled', () {
+    final j = base()
+      ..['strings'] = {'limitAyat': 'حد الآيات {n}', 'bad': 5, 'empty': '  '};
+    final c = ShareVideoConfig.parse(jsonEncode(j));
+    expect(c.strings.keys, ['limitAyat']);
+    ShareVideoConfig.debugSet(c);
+    expect(
+      ShareVideoConfig.tr('limitAyat', 'x {n}', {'n': 30}),
+      'حد الآيات 30',
+    );
+    expect(ShareVideoConfig.tr('other', 'نص {n}', {'n': 2}), 'نص 2');
+    ShareVideoConfig.debugSet(null);
+    expect(ShareVideoConfig.tr('limitAyat', 'x {n}', {'n': 30}), 'x 30');
+  });
+
+  test('colours, title position, icon and album come from the server', () {
+    final j = base()..['album'] = 'ألبوم';
+    final v = j['video'] as Map;
+    v['colors'] = {
+      'title': '#112233',
+      'closingTop': '#80FFFFFF',
+      'closingText': 'pink',
+    };
+    v['icon'] = 'share_icon/v1/icon.png';
+    (v['title'] as Map)['top'] = 0.1;
+    final c = ShareVideoConfig.parse(jsonEncode(j));
+    expect(c.album, 'ألبوم');
+    expect(c.video.titleColor, 0xFF112233);
+    expect(c.video.closingTop, 0x80FFFFFF);
+    expect(c.video.closingText, 0xFFF6ECD6); // not a colour: default kept
+    expect(c.video.icon, 'share_icon/v1/icon.png');
+    expect(c.video.titleTop, 0.1);
+  });
+
+  test(
+    'an icon path that climbs out and an album with a slash are ignored',
+    () {
+      final j = base()..['album'] = '../x';
+      (j['video'] as Map)['icon'] = '../icon.png';
+      final c = ShareVideoConfig.parse(jsonEncode(j));
+      expect(c.video.icon, isNull);
+      expect(c.album, ShareVideoConfig.defaultAlbum);
+    },
+  );
 }

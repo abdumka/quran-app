@@ -58,7 +58,11 @@ class AyahShareText {
     final message = await build(surah, ayah);
     if (message == null) {
       messenger?.showSnackBar(
-        const SnackBar(content: Text('تعذّر تجهيز نص الآية')),
+        SnackBar(
+          content: Text(
+            ShareVideoConfig.tr('textFailed', 'تعذّر تجهيز نص الآية'),
+          ),
+        ),
       );
       return;
     }
@@ -72,7 +76,11 @@ class AyahShareText {
     }
     await Clipboard.setData(ClipboardData(text: message));
     messenger?.showSnackBar(
-      const SnackBar(content: Text('تم نسخ نص الآية، الصقه لمشاركته')),
+      SnackBar(
+        content: Text(
+          ShareVideoConfig.tr('textCopied', 'تم نسخ نص الآية، الصقه لمشاركته'),
+        ),
+      ),
     );
   }
 }

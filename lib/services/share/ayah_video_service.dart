@@ -19,6 +19,13 @@ import 'ayah_video_art.dart';
 import 'mp3_length.dart';
 import 'share_video_config.dart';
 
+/// Wording the server can change (`strings` in share_video.json).
+String _t(
+  String key,
+  String fallback, [
+  Map<String, Object?> args = const {},
+]) => ShareVideoConfig.tr(key, fallback, args);
+
 /// One recited stretch of the video: the ayat shown together and the audio
 /// that recites them. Ayat a reciter joins in one breath share a group.
 class AyahVideoGroup {
@@ -159,8 +166,13 @@ class AyahVideoService {
   /// The surah's name cut from the mushaf (option «خط المصحف»), downloaded
   /// once and kept; null when the config has none or it cannot be fetched,
   /// and the video then writes the name as text.
-  Future<File?> surahTitle(ShareVideoConfig config, int surah) async {
-    final path = config.video.titleImageFor(surah);
+  Future<File?> surahTitle(ShareVideoConfig config, int surah) =>
+      _picture(config, config.video.titleImageFor(surah));
+
+  /// A picture under the config's baseUrl, downloaded once and kept (phones
+  /// cache by path, so a changed picture needs a new path); null when unset
+  /// or it cannot be fetched.
+  Future<File?> _picture(ShareVideoConfig config, String? path) async {
     if (path == null) return null;
     final f = await _local(path);
     if (await f.exists() && await f.length() > 0) return f;
@@ -168,7 +180,7 @@ class AyahVideoService {
       await _download(Uri.parse(config.urlOf(path)), f);
       return f;
     } catch (e) {
-      debugPrint('AyahVideo: surah title $surah: $e');
+      debugPrint('AyahVideo: picture $path: $e');
       return null;
     }
   }
@@ -190,7 +202,9 @@ class AyahVideoService {
   }) async {
     final file = bg.files[shape];
     if (file == null) {
-      throw const AyahVideoError('لا تتوفر هذه الخلفية بهذا الشكل');
+      throw AyahVideoError(
+        _t('noBackgroundShape', 'لا تتوفر هذه الخلفية بهذا الشكل'),
+      );
     }
     final f = await _local(file.path);
     if (await f.exists() &&
@@ -425,9 +439,13 @@ class AyahVideoService {
   static String formatLimit(int seconds) {
     if (seconds % 60 == 0) {
       final m = seconds ~/ 60;
-      return m == 1 ? 'دقيقة' : (m == 2 ? 'دقيقتين' : '$m دقائق');
+      return m == 1
+          ? _t('minute', 'دقيقة')
+          : (m == 2
+                ? _t('twoMinutes', 'دقيقتين')
+                : _t('minutes', '{n} دقائق', {'n': m}));
     }
-    return '$seconds ثانية';
+    return _t('seconds', '{n} ثانية', {'n': seconds});
   }
 
   // ───────────────────── making the video ─────────────────────
@@ -447,7 +465,9 @@ class AyahVideoService {
 
     final look = config.video;
     if (plan.groups.isEmpty) {
-      throw const AyahVideoError('لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ');
+      throw AyahVideoError(
+        _t('noRecitation', 'لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ'),
+      );
     }
     // The limit (owner, 2026-11-18: 4 minutes) never refuses a single
     // breath: the longest ayah alone is always allowed.
@@ -463,7 +483,9 @@ class AyahVideoService {
       }
       if (total.inMilliseconds > look.maxSeconds * 1000 * 1.05) {
         throw AyahVideoError(
-          'المقطع أطول من ${formatLimit(look.maxSeconds)}، اختر آيات أقل',
+          _t('tooLongPick', 'المقطع أطول من {limit}، اختر آيات أقل', {
+            'limit': formatLimit(look.maxSeconds),
+          }),
         );
       }
     }
@@ -479,7 +501,7 @@ class AyahVideoService {
     await work.create(recursive: true);
 
     // 1. the recitation
-    progress._set('تجهيز التلاوة', 0.02);
+    progress._set(_t('stepRecitation', 'تجهيز التلاوة'), 0.02);
     final segments = <Map<String, Object?>>[];
     final allClips = plan.groups.fold<int>(0, (n, g) => n + g.clips.length);
     var done = 0;
@@ -494,38 +516,51 @@ class AyahVideoService {
               reciter,
               c,
               onProgress: (f) => progress._set(
-                'تنزيل التلاوة',
+                _t('stepDownloadRecitation', 'تنزيل التلاوة'),
                 0.02 + 0.1 * (done + f) / allClips,
               ),
             ),
           );
         } catch (e) {
-          throw const AyahVideoError('تعذّر تنزيل التلاوة، تحقّق من الاتصال');
+          throw AyahVideoError(
+            _t(
+              'recitationDownloadFailed',
+              'تعذّر تنزيل التلاوة، تحقّق من الاتصال',
+            ),
+          );
         }
         done++;
-        progress._set('تجهيز التلاوة', 0.02 + 0.1 * done / allClips);
+        progress._set(
+          _t('stepRecitation', 'تجهيز التلاوة'),
+          0.02 + 0.1 * done / allClips,
+        );
       }
       clipArgs.add(args);
     }
 
     // 2. the background
     check();
-    progress._set('تنزيل الخلفية', 0.12);
+    progress._set(_t('stepDownloadBackground', 'تنزيل الخلفية'), 0.12);
     final File bg;
     try {
       bg = await clip(
         config,
         background,
         shape.id,
-        onProgress: (f) => progress._set('تنزيل الخلفية', 0.12 + 0.15 * f),
+        onProgress: (f) => progress._set(
+          _t('stepDownloadBackground', 'تنزيل الخلفية'),
+          0.12 + 0.15 * f,
+        ),
       );
     } catch (e) {
-      throw const AyahVideoError('تعذّر تنزيل الخلفية، تحقّق من الاتصال');
+      throw AyahVideoError(
+        _t('backgroundDownloadFailed', 'تعذّر تنزيل الخلفية، تحقّق من الاتصال'),
+      );
     }
 
     // 3. the pictures
     check();
-    progress._set('تجهيز النص', 0.28);
+    progress._set(_t('stepText', 'تجهيز النص'), 0.28);
     final title = look.titleTemplate.replaceAll(
       '{surah}',
       AyahShareText.surahName(plan.surah),
@@ -536,6 +571,13 @@ class AyahVideoService {
     final titleImage = titleFile == null
         ? null
         : await AyahVideoArt.decodeFile(titleFile);
+    // The app icon of the watermark and closing card: the server's, if set.
+    final iconFile = look.showWatermark || look.showClosing
+        ? await _picture(config, look.icon)
+        : null;
+    final iconImage = iconFile == null
+        ? null
+        : await AyahVideoArt.decodeFile(iconFile);
     for (var i = 0; i < plan.groups.length; i++) {
       check();
       final image = await AyahVideoArt.ayatImage(
@@ -550,12 +592,16 @@ class AyahVideoService {
         ayat: image,
         title: title,
         titleImage: titleImage,
+        iconImage: iconImage,
       );
       image?.dispose();
       final f = File(p.join(work.path, 'frame_$i.png'));
       await f.writeAsBytes(png);
       segments.add({'clips': clipArgs[i], 'overlay': f.path});
-      progress._set('تجهيز النص', 0.28 + 0.07 * (i + 1) / plan.groups.length);
+      progress._set(
+        _t('stepText', 'تجهيز النص'),
+        0.28 + 0.07 * (i + 1) / plan.groups.length,
+      );
     }
     titleImage?.dispose();
     Map<String, Object?>? closing;
@@ -566,6 +612,7 @@ class AyahVideoService {
           width: shape.width,
           height: shape.height,
           look: look,
+          iconImage: iconImage,
         ),
       );
       final silence = File(p.join(work.path, 'silence.wav'));
@@ -577,9 +624,11 @@ class AyahVideoService {
       };
     }
 
+    iconImage?.dispose();
+
     // 4. the encoder
     check();
-    progress._set('إنشاء الفيديو', 0.35);
+    progress._set(_t('stepRender', 'إنشاء الفيديو'), 0.35);
     final name = plan.from == plan.to
         ? 'ayah_${plan.surah}_${plan.from}.mp4'
         : 'ayah_${plan.surah}_${plan.from}-${plan.to}.mp4';
@@ -588,7 +637,7 @@ class AyahVideoService {
       try {
         final f = await _channel.invokeMethod<double>('progress');
         if (f != null && !progress.cancelled) {
-          progress._set('إنشاء الفيديو', 0.35 + 0.65 * f);
+          progress._set(_t('stepRender', 'إنشاء الفيديو'), 0.35 + 0.65 * f);
         }
       } catch (_) {}
     });
@@ -609,12 +658,12 @@ class AyahVideoService {
         throw const AyahVideoCancelled();
       }
       debugPrint('AyahVideo: render failed: ${e.code} ${e.message}');
-      throw const AyahVideoError('تعذّر إنشاء الفيديو');
+      throw AyahVideoError(_t('renderFailed', 'تعذّر إنشاء الفيديو'));
     } finally {
       poll.cancel();
     }
     check();
-    progress._set('تم', 1);
+    progress._set(_t('stepDone', 'تم'), 1);
     return out;
   }
 
@@ -627,19 +676,15 @@ class AyahVideoService {
 
   // ───────────────────── the gallery ─────────────────────
 
-  /// The album the videos go into on Android (a folder the gallery shows).
-  static const galleryAlbum = 'المصحف الجامع';
-
   /// Puts a finished video in the phone's gallery. Every video made is saved
   /// this way. Android: the «المصحف الجامع» album, with no permission asked
   /// on Android 11+. iOS: the Photos library with add-only access (no album,
   /// so iOS asks only to add, never to read the user's photos).
+  /// The album name comes from the config (`album`).
   Future<GallerySave> saveToGallery(File video) async {
     try {
-      await Gal.putVideo(
-        video.path,
-        album: Platform.isAndroid ? galleryAlbum : null,
-      );
+      final album = (await ShareVideoConfig.load()).album;
+      await Gal.putVideo(video.path, album: Platform.isAndroid ? album : null);
       return GallerySave.saved;
     } on GalException catch (e) {
       debugPrint('AyahVideo: gallery save failed: ${e.type}');
