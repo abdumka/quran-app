@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
@@ -41,19 +42,6 @@ void main() {
     AudioService.instance.isRecitationBarVisible.value = false;
   });
 
-  /// [page]'s line rects of ([surah], [ayah]), as ratios of the page.
-  Future<(double, double)> span(int page, int surah, int ayah) async {
-    final regions = (await AyahRegionService.forPage(page))!;
-    final a = regions.ayahs.firstWhere(
-      (a) => a.surah == surah && a.ayah == ayah,
-    );
-    final top = a.rects.map((r) => r.y).reduce((x, y) => x < y ? x : y);
-    final bottom = a.rects
-        .map((r) => r.y + r.height)
-        .reduce((x, y) => x > y ? x : y);
-    return (top, bottom);
-  }
-
   final key = GlobalKey<ContinuousQuranViewState>();
 
   Future<void> showReader(
@@ -61,8 +49,9 @@ void main() {
     int initialPage = 355, // page 356, 0-based
     bool autoScroll = false,
     double obscuredBottom = 0,
+    double height = 360,
   }) async {
-    tester.view.physicalSize = screen;
+    tester.view.physicalSize = Size(screen.width, height);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -94,21 +83,35 @@ void main() {
   double offsetOf(WidgetTester tester) =>
       tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels;
 
-  /// Whether page [page]'s ayah ([surah], [ayah]) is wholly on screen,
-  /// above [obscuredBottom].
+  /// Whether page [page]'s ayah ([surah], [ayah]) is on screen above
+  /// [obscuredBottom], judged on its tint (the boxes the highlight paints):
+  /// all of it, or for an ayah taller than the screen its first line, the
+  /// one being recited when it starts.
   Future<bool> onScreen(
     WidgetTester tester,
     int page,
     int surah,
     int ayah, {
     double obscuredBottom = 0,
+    double height = 360,
   }) async {
-    final (top, bottom) = await span(page, surah, ayah);
-    final offset = offsetOf(tester);
+    final lines = (await ayahLineBoxes(
+      pageNumber: page,
+      keys: {(surah, ayah)},
+      box: Size(screen.width, pageHeight),
+      marginView: false,
+    ))!;
+    expect(lines, isNotEmpty, reason: '$surah:$ayah is not on page $page');
     final pageTop = (page - 1) * pageHeight;
-    return pageTop + top * pageHeight >= offset - 1 &&
-        pageTop + bottom * pageHeight <=
-            offset + screen.height - obscuredBottom + 1;
+    final top = pageTop + lines.map((r) => r.top).reduce(math.min);
+    final bottom = pageTop + lines.map((r) => r.bottom).reduce(math.max);
+    final offset = offsetOf(tester);
+    final visibleBottom = offset + height - obscuredBottom;
+    final room = height - obscuredBottom - 12;
+    final mustShowBottom = bottom - top <= room
+        ? bottom
+        : pageTop + lines.first.bottom;
+    return top >= offset - 0.5 && mustShowBottom <= visibleBottom + 0.5;
   }
 
   testWidgets('an ayah further down the page is brought on screen', (
@@ -141,11 +144,13 @@ void main() {
   testWidgets('the view moves only when the ayah is not on screen', (
     tester,
   ) async {
+    // A taller screen, where 24:42 and 24:43 (lines 1-4) both show.
     recite(24, 42);
-    await showReader(tester);
+    await showReader(tester, height: 700);
     await tester.pumpAndSettle();
     final before = offsetOf(tester);
-    recite(24, 43); // lines 2-4: on screen already
+    expect(await onScreen(tester, 356, 24, 43, height: 700), isTrue);
+    recite(24, 43);
     await tester.pumpAndSettle();
     expect(offsetOf(tester), before);
   });
@@ -256,6 +261,114 @@ void main() {
     expect(await onScreen(tester, 356, 24, 50), isTrue);
   });
 
+  group('a pinch-zoomed page (upright reader)', () {
+    // A phone held upright, page 356 filling the reader, zoomed in 2x at
+    // its top: the top half of the page shows.
+    const viewer = Size(400, 800);
+
+    (TransformationController, ZoomedPageFollower) follower({
+      double bar = 0,
+      bool zoomed = true,
+    }) {
+      final controller = TransformationController(
+        zoomed ? (Matrix4.identity()..scaleByDouble(2, 2, 1, 1)) : null,
+      );
+      final f = ZoomedPageFollower(
+        controller: controller,
+        active: () => zoomed,
+        pageNumber: () => 356,
+        pageBox: () => Offset.zero & viewer,
+        viewportHeight: () => viewer.height,
+        obscuredBottom: () => bar,
+        marginView: () => false,
+      );
+      controller.addListener(f.transformChanged);
+      addTearDown(() {
+        f.dispose();
+        controller.dispose();
+      });
+      return (controller, f);
+    }
+
+    /// Whether ([surah], [ayah])'s tint (or its first line, for an ayah
+    /// taller than the view) is inside the zoomed view above [bar].
+    Future<bool> inView(
+      TransformationController c,
+      int surah,
+      int ayah, {
+      double bar = 0,
+    }) async {
+      final lines = (await ayahLineBoxes(
+        pageNumber: 356,
+        keys: {(surah, ayah)},
+        box: viewer,
+        marginView: false,
+      ))!;
+      final s = c.value.getMaxScaleOnAxis();
+      final ty = c.value.getTranslation().y;
+      final top = lines.map((r) => r.top).reduce(math.min) * s + ty;
+      var bottom = lines.map((r) => r.bottom).reduce(math.max) * s + ty;
+      if (bottom - top > viewer.height - bar - 12) {
+        bottom = lines.first.bottom * s + ty;
+      }
+      return top >= -0.5 && bottom <= viewer.height - bar + 0.5;
+    }
+
+    testWidgets('the view pans down to the ayah being recited', (
+      tester,
+    ) async {
+      final (c, f) = follower();
+      for (final ayah in [42, 45, 47, 49, 51]) {
+        recite(24, ayah);
+        f.recitationChanged();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(await inView(c, 24, ayah), isTrue, reason: '24:$ayah');
+      }
+      expect(c.value.getMaxScaleOnAxis(), 2, reason: 'the zoom is kept');
+      expect(c.value.getTranslation().x, 0, reason: 'and the sideways spot');
+    });
+
+    testWidgets('and keeps it above the recitation bar', (tester) async {
+      final (c, f) = follower(bar: 90);
+      for (final ayah in [44, 46, 48]) {
+        recite(24, ayah);
+        f.recitationChanged();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(await inView(c, 24, ayah, bar: 90), isTrue, reason: '24:$ayah');
+      }
+    });
+
+    testWidgets('an ayah already in view does not move it', (tester) async {
+      final (c, f) = follower();
+      recite(24, 43);
+      f.recitationChanged();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.value.getTranslation().y, 0);
+    });
+
+    testWidgets('a pinch or pan of the reader wins for a while', (
+      tester,
+    ) async {
+      final (c, f) = follower();
+      // The reader pans a little.
+      c.value = c.value.clone()..setTranslationRaw(0, -10, 0);
+      recite(24, 51);
+      f.recitationChanged();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.value.getTranslation().y, -10);
+    });
+
+    testWidgets('not zoomed: nothing to do', (tester) async {
+      final (c, f) = follower(zoomed: false);
+      recite(24, 51);
+      f.recitationChanged();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.value, Matrix4.identity());
+    });
+  });
+
   group('the scroll rule', () {
     test('in view: stays', () {
       expect(
@@ -338,6 +451,56 @@ void main() {
           targetBottom: 650,
         ),
         400,
+      );
+    });
+  });
+
+  group('the upright scroll mode (a page per screen)', () {
+    // Pages 800 tall; the reader stopped half way down page 10 (0-based).
+    const extent = 800.0;
+    const pageTop = 10 * extent;
+
+    test('the ayah shows: stays', () {
+      expect(
+        pageScrollRevealOffset(
+          offset: pageTop + 400,
+          viewport: extent,
+          maxScroll: 600 * extent,
+          pageTop: pageTop,
+          ayahTop: pageTop + 500,
+          ayahBottom: pageTop + 600,
+        ),
+        isNull,
+      );
+    });
+
+    test('in the half above the screen: the whole page', () {
+      expect(
+        pageScrollRevealOffset(
+          offset: pageTop + 400,
+          viewport: extent,
+          maxScroll: 600 * extent,
+          pageTop: pageTop,
+          ayahTop: pageTop + 100,
+          ayahBottom: pageTop + 200,
+        ),
+        pageTop,
+      );
+    });
+
+    test('under the bar at the page foot: the ayah at the top', () {
+      expect(
+        pageScrollRevealOffset(
+          offset: pageTop,
+          viewport: extent,
+          maxScroll: 600 * extent,
+          pageTop: pageTop,
+          ayahTop: pageTop + 720,
+          ayahBottom: pageTop + 780,
+          bottomInset: 100,
+          lead: 12,
+        ),
+        pageTop + 708,
       );
     });
   });

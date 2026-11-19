@@ -550,6 +550,7 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
     if (!widget.autoScrollEnabled) {
       _cancelProgressFollow();
       _turnedToPage = safePage;
+      _turnedAt = DateTime.now();
       // As the page turn always did, but only when the new page's top is not
       // on screen already (it often is, under the page before), and gliding
       // when it is close. The ayah being recited is then brought into view
@@ -649,13 +650,13 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
     if (turned) {
       _turnedToPage = null;
     } else {
-      if (_userRecentlyScrolled) return;
-      final offset = _controller.offset;
-      final viewport = _controller.position.viewportDimension;
-      final pageTop = _offsetForPage(pageIndex);
-      if (pageTop + _pageHeight <= offset || pageTop >= offset + viewport) {
+      // Still the ayah before a page turn just asked for (the new page's
+      // first ayah is on its way): it must not pull the view back.
+      if (_turnedToPage != null &&
+          DateTime.now().difference(_turnedAt) < _turnSettle) {
         return;
       }
+      if (_userRecentlyScrolled || !_pageInView(pageIndex)) return;
     }
     _followLines(pageIndex, lines);
 
@@ -670,7 +671,9 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
             _cancelProgressFollow();
             return;
           }
-          if (!AudioService.instance.isPlaying.value || _userRecentlyScrolled) {
+          if (!AudioService.instance.isPlaying.value ||
+              _userRecentlyScrolled ||
+              !_pageInView(pageIndex)) {
             return;
           }
           _followLines(pageIndex, lines);
@@ -681,6 +684,16 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
 
   /// The page last turned to by the recitation, until its ayah is shown.
   int? _turnedToPage;
+  DateTime _turnedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _turnSettle = Duration(seconds: 2);
+
+  /// Whether any of [pageIndex] is on screen.
+  bool _pageInView(int pageIndex) {
+    final offset = _controller.offset;
+    final viewport = _controller.position.viewportDimension;
+    final pageTop = _offsetForPage(pageIndex);
+    return pageTop + _pageHeight > offset && pageTop < offset + viewport;
+  }
 
   static const double _followLead = 12;
 

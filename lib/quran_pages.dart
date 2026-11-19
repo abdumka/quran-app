@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'widgets/quran/ayah_follow.dart';
 import 'widgets/quran/bookmark_picker_dialog.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/tv/tv_focus_scope.dart';
@@ -384,6 +385,42 @@ class _QuranPagesState extends State<QuranPages>
   final TransformationController _pageZoomController =
       TransformationController();
   bool _isPageZoomed = false;
+
+  /// The area the paged reader fills, measured as it lays out.
+  Size? _pagedReaderSize;
+
+  /// Keeps the recited ayah in a pinch-zoomed page's view (ayah_follow.dart).
+  late final ZoomedPageFollower _zoomFollower = ZoomedPageFollower(
+    controller: _pageZoomController,
+    active: () =>
+        mounted &&
+        _isPageZoomed &&
+        _pagedReaderSize != null &&
+        !_isMemorizationTestEnabled &&
+        !_isPhoneLandscape(context) &&
+        !_useTwoPageView(context) &&
+        !(_supportsPortraitScrollMode(context) &&
+            (_showAutoScrollBar || _isPortraitScrollMode)),
+    pageNumber: () => _currentPage + 1,
+    // As _buildSinglePage lays the page out: the whole area, less the
+    // margin-safe inset an upright phone gives the margin scans.
+    pageBox: () {
+      final phonePortrait =
+          !TabletLayoutHelper.isTabletDevice(context) &&
+          MediaQuery.of(context).orientation == Orientation.portrait;
+      final inset = phonePortrait && _isMarginImagesEnabled
+          ? const EdgeInsets.fromLTRB(4, 2, 4, 4)
+          : EdgeInsets.zero;
+      return inset.deflateRect(Offset.zero & _pagedReaderSize!);
+    },
+    viewportHeight: () => _pagedReaderSize?.height ?? 0,
+    obscuredBottom: () =>
+        AudioService.instance.isRecitationBarVisible.value &&
+            !_recitationBarHidden
+        ? _recitationBarHeight
+        : 0,
+    marginView: () => _isMarginImagesEnabled,
+  );
   // Hover state for the edge page-turn arrows (desktop/web only).
   bool _hoverLeftEdge = false;
   bool _hoverRightEdge = false;
@@ -628,6 +665,85 @@ class _QuranPagesState extends State<QuranPages>
     final audio = AudioService.instance;
     if (audio.currentAyah.value != null && audio.isRecitationBarVisible.value) {
       _clearSearchResultHighlight();
+    }
+    _zoomFollower.recitationChanged();
+    _followRecitationInPortraitScroll();
+  }
+
+  bool _portraitScrollTouching = false;
+  DateTime _portraitScrollTouchedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// The upright scroll mode: each page is a screen tall, but the reader can
+  /// stop between two, and then the ayah being recited may sit in the half
+  /// that is off screen until the recitation turns the page. Brings it in
+  /// while part of its page shows (a reader who went elsewhere is left
+  /// there, as in the paged reader) and the reader is not touching the list.
+  Future<void> _followRecitationInPortraitScroll() async {
+    if (!mounted ||
+        _isAutoScrollEnabled ||
+        _isMemorizationTestEnabled ||
+        _portraitScrollTouching ||
+        DateTime.now().difference(_portraitScrollTouchedAt) <
+            const Duration(seconds: 3)) {
+      return;
+    }
+    final controller = _portraitAutoScrollController;
+    final extent = _portraitAutoScrollViewportHeight;
+    final size = _pagedReaderSize;
+    if (controller == null ||
+        !controller.hasClients ||
+        extent == null ||
+        extent <= 0 ||
+        size == null ||
+        _isPhoneLandscape(context) ||
+        _useTwoPageView(context) ||
+        !_supportsPortraitScrollMode(context) ||
+        !(_showAutoScrollBar || _isPortraitScrollMode)) {
+      return;
+    }
+    final keys = recitedAyatToFollow();
+    if (keys.isEmpty) return;
+    final audioPage = AudioService.instance.currentAudioPageIndex;
+    for (final page in <int>{
+      _currentPage,
+      if (audioPage >= 0) audioPage,
+      _currentPage + 1,
+    }) {
+      if (page < 0 || page >= pages.length) continue;
+      final lines = await ayahLineBoxes(
+        pageNumber: page + 1,
+        keys: keys,
+        box: Size(size.width, extent),
+        marginView: _isMarginImagesEnabled,
+      );
+      if (!mounted || !controller.hasClients) return;
+      if (lines == null || lines.isEmpty) continue;
+      final pageTop = page * extent;
+      final offset = controller.offset;
+      final viewport = controller.position.viewportDimension;
+      if (pageTop + extent <= offset || pageTop >= offset + viewport) return;
+      final target = pageScrollRevealOffset(
+        offset: offset,
+        viewport: viewport,
+        maxScroll: controller.position.maxScrollExtent,
+        pageTop: pageTop,
+        ayahTop: pageTop + lines.map((r) => r.top).reduce((a, b) => a < b ? a : b),
+        ayahBottom:
+            pageTop + lines.map((r) => r.bottom).reduce((a, b) => a > b ? a : b),
+        bottomInset:
+            AudioService.instance.isRecitationBarVisible.value &&
+                !_recitationBarHidden
+            ? _recitationBarHeight
+            : 0,
+      );
+      if (target != null) {
+        controller.animateTo(
+          target,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+      return;
     }
   }
 
@@ -992,6 +1108,7 @@ class _QuranPagesState extends State<QuranPages>
     _portraitAutoScrollTimer?.cancel();
     _portraitAutoScrollResumeTimer?.cancel();
     _portraitAutoScrollController?.dispose();
+    _zoomFollower.dispose();
     _pageZoomController.removeListener(_handlePageZoomChanged);
     _pageZoomController.dispose();
     PageZoomService.instance.enabled.removeListener(
@@ -6176,6 +6293,7 @@ class _QuranPagesState extends State<QuranPages>
   /// Tracks whether the paged reader is currently zoomed in (scale > 1) so we can
   /// lock/unlock page-flipping accordingly.
   void _handlePageZoomChanged() {
+    _zoomFollower.transformChanged();
     final zoomed = _pageZoomController.value.getMaxScaleOnAxis() > 1.01;
     if (zoomed != _isPageZoomed && mounted) {
       setState(() => _isPageZoomed = zoomed);
@@ -6219,6 +6337,7 @@ class _QuranPagesState extends State<QuranPages>
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
+        _pagedReaderSize = constraints.biggest;
         final usePortraitScrolling =
             _supportsPortraitScrollMode(context) &&
             (_showAutoScrollBar || _isPortraitScrollMode);
@@ -6249,17 +6368,22 @@ class _QuranPagesState extends State<QuranPages>
 
           readerContent = Listener(
             onPointerDown: (_) {
+              _portraitScrollTouching = true;
               if (_isAutoScrollEnabled) {
                 _portraitAutoScrollResumeTimer?.cancel();
                 _stopPortraitAutoScroll();
               }
             },
             onPointerUp: (_) {
+              _portraitScrollTouching = false;
+              _portraitScrollTouchedAt = DateTime.now();
               if (_isAutoScrollEnabled) {
                 _schedulePortraitAutoScrollResume(fixedPageExtent);
               }
             },
             onPointerCancel: (_) {
+              _portraitScrollTouching = false;
+              _portraitScrollTouchedAt = DateTime.now();
               if (_isAutoScrollEnabled) {
                 _schedulePortraitAutoScrollResume(fixedPageExtent);
               }
