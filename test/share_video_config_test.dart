@@ -11,7 +11,8 @@ void main() {
   test('the bundled config parses and matches bundledVersions', () {
     final c = ShareVideoConfig.parse(bundled);
     expect(c.ver, ContentUpdateService.bundledVersions['share_video']);
-    expect(c.backgrounds.length, greaterThanOrEqualTo(59));
+    // ver 3: the 41 forward-only loops the owner kept on 2026-11-18
+    expect(c.backgrounds.length, greaterThanOrEqualTo(41));
     expect(c.shapes.map((s) => s.id), containsAll(['9x16', '1x1', '16x9']));
     expect(c.effects.map((e) => e.id), ['none', 'echo', 'room', 'hall']);
     expect(c.background(c.defaultBackground), isNotNull);

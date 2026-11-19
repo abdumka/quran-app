@@ -1,5 +1,5 @@
 {
- "ver": 2,
+ "ver": 3,
  "enabled": true,
  "videoEnabled": true,
  "baseUrl": "https://quran-content.mushaf-qaloon.com/",
@@ -122,145 +122,25 @@
    "title": "طبيعة"
   }
  ],
- "defaultBackground": "isl04_green_dome",
+ "defaultBackground": "isl51_istanbul_sunset",
  "backgrounds": [
-  {
-   "id": "isl01_kaaba",
-   "title": "الكعبة المشرفة",
-   "category": "islamic",
-   "thumb": "video_bg/isl01_kaaba/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl01_kaaba/9x16.mp4",
-     "bytes": 2496895
-    },
-    "1x1": {
-     "path": "video_bg/isl01_kaaba/1x1.mp4",
-     "bytes": 2000559
-    },
-    "16x9": {
-     "path": "video_bg/isl01_kaaba/16x9.mp4",
-     "bytes": 3069485
-    }
-   }
-  },
-  {
-   "id": "isl02_kaaba_clock_tower",
-   "title": "الكعبة وبرج الساعة",
-   "category": "islamic",
-   "thumb": "video_bg/isl02_kaaba_clock_tower/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl02_kaaba_clock_tower/9x16.mp4",
-     "bytes": 2622552
-    },
-    "1x1": {
-     "path": "video_bg/isl02_kaaba_clock_tower/1x1.mp4",
-     "bytes": 1845186
-    },
-    "16x9": {
-     "path": "video_bg/isl02_kaaba_clock_tower/16x9.mp4",
-     "bytes": 2108393
-    }
-   }
-  },
-  {
-   "id": "isl03_makkah_night",
-   "title": "مكة المكرمة ليلًا",
-   "category": "islamic",
-   "thumb": "video_bg/isl03_makkah_night/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl03_makkah_night/9x16.mp4",
-     "bytes": 1673603
-    },
-    "1x1": {
-     "path": "video_bg/isl03_makkah_night/1x1.mp4",
-     "bytes": 2342147
-    },
-    "16x9": {
-     "path": "video_bg/isl03_makkah_night/16x9.mp4",
-     "bytes": 3683998
-    }
-   }
-  },
-  {
-   "id": "isl04_green_dome",
-   "title": "القبة الخضراء",
-   "category": "islamic",
-   "thumb": "video_bg/isl04_green_dome/v2/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl04_green_dome/v2/9x16.mp4",
-     "bytes": 2194930
-    },
-    "1x1": {
-     "path": "video_bg/isl04_green_dome/v2/1x1.mp4",
-     "bytes": 1413444
-    },
-    "16x9": {
-     "path": "video_bg/isl04_green_dome/v2/16x9.mp4",
-     "bytes": 2870744
-    }
-   }
-  },
-  {
-   "id": "isl05_madinah_above",
-   "title": "المسجد النبوي من الأعلى",
-   "category": "islamic",
-   "thumb": "video_bg/isl05_madinah_above/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl05_madinah_above/9x16.mp4",
-     "bytes": 2349769
-    },
-    "1x1": {
-     "path": "video_bg/isl05_madinah_above/1x1.mp4",
-     "bytes": 2412271
-    },
-    "16x9": {
-     "path": "video_bg/isl05_madinah_above/16x9.mp4",
-     "bytes": 3902889
-    }
-   }
-  },
-  {
-   "id": "isl06_dome_of_the_rock",
-   "title": "قبة الصخرة",
-   "category": "islamic",
-   "thumb": "video_bg/isl06_dome_of_the_rock/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl06_dome_of_the_rock/9x16.mp4",
-     "bytes": 2537328
-    },
-    "1x1": {
-     "path": "video_bg/isl06_dome_of_the_rock/1x1.mp4",
-     "bytes": 2987849
-    },
-    "16x9": {
-     "path": "video_bg/isl06_dome_of_the_rock/16x9.mp4",
-     "bytes": 4261051
-    }
-   }
-  },
   {
    "id": "isl07_faisal_dusk",
    "title": "مسجد فيصل عند الغروب",
    "category": "islamic",
-   "thumb": "video_bg/isl07_faisal_dusk/v2/thumb.jpg",
+   "thumb": "video_bg/v3/isl07_faisal_dusk/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl07_faisal_dusk/v2/9x16.mp4",
-     "bytes": 1822422
+     "path": "video_bg/v3/isl07_faisal_dusk/9x16.mp4",
+     "bytes": 633612
     },
     "1x1": {
-     "path": "video_bg/isl07_faisal_dusk/v2/1x1.mp4",
-     "bytes": 1071940
+     "path": "video_bg/v3/isl07_faisal_dusk/1x1.mp4",
+     "bytes": 416730
     },
     "16x9": {
-     "path": "video_bg/isl07_faisal_dusk/v2/16x9.mp4",
-     "bytes": 1771520
+     "path": "video_bg/v3/isl07_faisal_dusk/16x9.mp4",
+     "bytes": 608935
     }
    }
   },
@@ -268,59 +148,19 @@
    "id": "isl08_faisal_aerial",
    "title": "مسجد فيصل",
    "category": "islamic",
-   "thumb": "video_bg/isl08_faisal_aerial/thumb.jpg",
+   "thumb": "video_bg/v3/isl08_faisal_aerial/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl08_faisal_aerial/9x16.mp4",
-     "bytes": 2950795
+     "path": "video_bg/v3/isl08_faisal_aerial/9x16.mp4",
+     "bytes": 6039866
     },
     "1x1": {
-     "path": "video_bg/isl08_faisal_aerial/1x1.mp4",
-     "bytes": 2869940
+     "path": "video_bg/v3/isl08_faisal_aerial/1x1.mp4",
+     "bytes": 4958064
     },
     "16x9": {
-     "path": "video_bg/isl08_faisal_aerial/16x9.mp4",
-     "bytes": 3952262
-    }
-   }
-  },
-  {
-   "id": "isl09_zayed_clouds",
-   "title": "جامع الشيخ زايد",
-   "category": "islamic",
-   "thumb": "video_bg/isl09_zayed_clouds/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl09_zayed_clouds/9x16.mp4",
-     "bytes": 2283695
-    },
-    "1x1": {
-     "path": "video_bg/isl09_zayed_clouds/1x1.mp4",
-     "bytes": 1322880
-    },
-    "16x9": {
-     "path": "video_bg/isl09_zayed_clouds/16x9.mp4",
-     "bytes": 2214095
-    }
-   }
-  },
-  {
-   "id": "isl10_zayed_night",
-   "title": "جامع الشيخ زايد ليلًا",
-   "category": "islamic",
-   "thumb": "video_bg/isl10_zayed_night/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl10_zayed_night/9x16.mp4",
-     "bytes": 2344831
-    },
-    "1x1": {
-     "path": "video_bg/isl10_zayed_night/1x1.mp4",
-     "bytes": 1452190
-    },
-    "16x9": {
-     "path": "video_bg/isl10_zayed_night/16x9.mp4",
-     "bytes": 2569817
+     "path": "video_bg/v3/isl08_faisal_aerial/16x9.mp4",
+     "bytes": 6267178
     }
    }
   },
@@ -328,19 +168,19 @@
    "id": "isl11_hassan2_sea",
    "title": "مسجد الحسن الثاني",
    "category": "islamic",
-   "thumb": "video_bg/isl11_hassan2_sea/thumb.jpg",
+   "thumb": "video_bg/v3/isl11_hassan2_sea/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl11_hassan2_sea/9x16.mp4",
-     "bytes": 2661944
+     "path": "video_bg/v3/isl11_hassan2_sea/9x16.mp4",
+     "bytes": 5327795
     },
     "1x1": {
-     "path": "video_bg/isl11_hassan2_sea/1x1.mp4",
-     "bytes": 2116671
+     "path": "video_bg/v3/isl11_hassan2_sea/1x1.mp4",
+     "bytes": 4113429
     },
     "16x9": {
-     "path": "video_bg/isl11_hassan2_sea/16x9.mp4",
-     "bytes": 2658134
+     "path": "video_bg/v3/isl11_hassan2_sea/16x9.mp4",
+     "bytes": 5305928
     }
    }
   },
@@ -348,79 +188,19 @@
    "id": "isl12_hassan2_shore",
    "title": "مسجد الحسن الثاني على البحر",
    "category": "islamic",
-   "thumb": "video_bg/isl12_hassan2_shore/thumb.jpg",
+   "thumb": "video_bg/v3/isl12_hassan2_shore/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl12_hassan2_shore/9x16.mp4",
-     "bytes": 2098735
+     "path": "video_bg/v3/isl12_hassan2_shore/9x16.mp4",
+     "bytes": 1224140
     },
     "1x1": {
-     "path": "video_bg/isl12_hassan2_shore/1x1.mp4",
-     "bytes": 1834568
+     "path": "video_bg/v3/isl12_hassan2_shore/1x1.mp4",
+     "bytes": 1049420
     },
     "16x9": {
-     "path": "video_bg/isl12_hassan2_shore/16x9.mp4",
-     "bytes": 1718478
-    }
-   }
-  },
-  {
-   "id": "isl13_suleymaniye_aerial",
-   "title": "جامع السليمانية",
-   "category": "islamic",
-   "thumb": "video_bg/isl13_suleymaniye_aerial/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl13_suleymaniye_aerial/9x16.mp4",
-     "bytes": 3434619
-    },
-    "1x1": {
-     "path": "video_bg/isl13_suleymaniye_aerial/1x1.mp4",
-     "bytes": 2582215
-    },
-    "16x9": {
-     "path": "video_bg/isl13_suleymaniye_aerial/16x9.mp4",
-     "bytes": 3876485
-    }
-   }
-  },
-  {
-   "id": "isl14_suleymaniye_sunset",
-   "title": "السليمانية عند الغروب",
-   "category": "islamic",
-   "thumb": "video_bg/isl14_suleymaniye_sunset/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl14_suleymaniye_sunset/9x16.mp4",
-     "bytes": 2005335
-    },
-    "1x1": {
-     "path": "video_bg/isl14_suleymaniye_sunset/1x1.mp4",
-     "bytes": 1300884
-    },
-    "16x9": {
-     "path": "video_bg/isl14_suleymaniye_sunset/16x9.mp4",
-     "bytes": 2471052
-    }
-   }
-  },
-  {
-   "id": "isl15_suleymaniye_snow",
-   "title": "السليمانية في الثلج",
-   "category": "islamic",
-   "thumb": "video_bg/isl15_suleymaniye_snow/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl15_suleymaniye_snow/9x16.mp4",
-     "bytes": 2866010
-    },
-    "1x1": {
-     "path": "video_bg/isl15_suleymaniye_snow/1x1.mp4",
-     "bytes": 2231940
-    },
-    "16x9": {
-     "path": "video_bg/isl15_suleymaniye_snow/16x9.mp4",
-     "bytes": 3593996
+     "path": "video_bg/v3/isl12_hassan2_shore/16x9.mp4",
+     "bytes": 1272476
     }
    }
   },
@@ -428,99 +208,19 @@
    "id": "isl16_suleymaniye_bosphorus",
    "title": "السليمانية على البوسفور",
    "category": "islamic",
-   "thumb": "video_bg/isl16_suleymaniye_bosphorus/thumb.jpg",
+   "thumb": "video_bg/v3/isl16_suleymaniye_bosphorus/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl16_suleymaniye_bosphorus/9x16.mp4",
-     "bytes": 2563264
+     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/9x16.mp4",
+     "bytes": 3119883
     },
     "1x1": {
-     "path": "video_bg/isl16_suleymaniye_bosphorus/1x1.mp4",
-     "bytes": 2086480
+     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/1x1.mp4",
+     "bytes": 2404994
     },
     "16x9": {
-     "path": "video_bg/isl16_suleymaniye_bosphorus/16x9.mp4",
-     "bytes": 2639389
-    }
-   }
-  },
-  {
-   "id": "isl17_camlica_aerial",
-   "title": "جامع تشامليجا",
-   "category": "islamic",
-   "thumb": "video_bg/isl17_camlica_aerial/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl17_camlica_aerial/9x16.mp4",
-     "bytes": 3467751
-    },
-    "1x1": {
-     "path": "video_bg/isl17_camlica_aerial/1x1.mp4",
-     "bytes": 2618886
-    },
-    "16x9": {
-     "path": "video_bg/isl17_camlica_aerial/16x9.mp4",
-     "bytes": 3898451
-    }
-   }
-  },
-  {
-   "id": "isl18_camlica_night",
-   "title": "تشامليجا ليلًا",
-   "category": "islamic",
-   "thumb": "video_bg/isl18_camlica_night/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl18_camlica_night/9x16.mp4",
-     "bytes": 1951016
-    },
-    "1x1": {
-     "path": "video_bg/isl18_camlica_night/1x1.mp4",
-     "bytes": 1194251
-    },
-    "16x9": {
-     "path": "video_bg/isl18_camlica_night/16x9.mp4",
-     "bytes": 2035074
-    }
-   }
-  },
-  {
-   "id": "isl19_selimiye",
-   "title": "جامع السليمية",
-   "category": "islamic",
-   "thumb": "video_bg/isl19_selimiye/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl19_selimiye/9x16.mp4",
-     "bytes": 3907665
-    },
-    "1x1": {
-     "path": "video_bg/isl19_selimiye/1x1.mp4",
-     "bytes": 3381569
-    },
-    "16x9": {
-     "path": "video_bg/isl19_selimiye/16x9.mp4",
-     "bytes": 4233249
-    }
-   }
-  },
-  {
-   "id": "isl20_blue_mosque",
-   "title": "الجامع الأزرق",
-   "category": "islamic",
-   "thumb": "video_bg/isl20_blue_mosque/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl20_blue_mosque/9x16.mp4",
-     "bytes": 1672574
-    },
-    "1x1": {
-     "path": "video_bg/isl20_blue_mosque/1x1.mp4",
-     "bytes": 1233448
-    },
-    "16x9": {
-     "path": "video_bg/isl20_blue_mosque/16x9.mp4",
-     "bytes": 2229055
+     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/16x9.mp4",
+     "bytes": 3107735
     }
    }
   },
@@ -528,139 +228,19 @@
    "id": "isl21_crescent_night",
    "title": "هلال فوق المسجد",
    "category": "islamic",
-   "thumb": "video_bg/isl21_crescent_night/thumb.jpg",
+   "thumb": "video_bg/v3/isl21_crescent_night/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl21_crescent_night/9x16.mp4",
-     "bytes": 1937206
+     "path": "video_bg/v3/isl21_crescent_night/9x16.mp4",
+     "bytes": 1823252
     },
     "1x1": {
-     "path": "video_bg/isl21_crescent_night/1x1.mp4",
-     "bytes": 1127727
+     "path": "video_bg/v3/isl21_crescent_night/1x1.mp4",
+     "bytes": 1165927
     },
     "16x9": {
-     "path": "video_bg/isl21_crescent_night/16x9.mp4",
-     "bytes": 1741716
-    }
-   }
-  },
-  {
-   "id": "isl22_kul_sharif",
-   "title": "مسجد قول شريف",
-   "category": "islamic",
-   "thumb": "video_bg/isl22_kul_sharif/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl22_kul_sharif/9x16.mp4",
-     "bytes": 3844351
-    },
-    "1x1": {
-     "path": "video_bg/isl22_kul_sharif/1x1.mp4",
-     "bytes": 2659430
-    },
-    "16x9": {
-     "path": "video_bg/isl22_kul_sharif/16x9.mp4",
-     "bytes": 3554836
-    }
-   }
-  },
-  {
-   "id": "isl23_ceiling_camlica",
-   "title": "قبة من الداخل",
-   "category": "islamic",
-   "thumb": "video_bg/isl23_ceiling_camlica/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl23_ceiling_camlica/9x16.mp4",
-     "bytes": 3950404
-    },
-    "1x1": {
-     "path": "video_bg/isl23_ceiling_camlica/1x1.mp4",
-     "bytes": 3317047
-    },
-    "16x9": {
-     "path": "video_bg/isl23_ceiling_camlica/16x9.mp4",
-     "bytes": 4175054
-    }
-   }
-  },
-  {
-   "id": "isl24_ceiling_blue",
-   "title": "زخارف القباب",
-   "category": "islamic",
-   "thumb": "video_bg/isl24_ceiling_blue/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl24_ceiling_blue/9x16.mp4",
-     "bytes": 3905973
-    },
-    "1x1": {
-     "path": "video_bg/isl24_ceiling_blue/1x1.mp4",
-     "bytes": 3432990
-    },
-    "16x9": {
-     "path": "video_bg/isl24_ceiling_blue/16x9.mp4",
-     "bytes": 4355584
-    }
-   }
-  },
-  {
-   "id": "isl25_ceiling_gold",
-   "title": "قبة مذهّبة",
-   "category": "islamic",
-   "thumb": "video_bg/isl25_ceiling_gold/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl25_ceiling_gold/9x16.mp4",
-     "bytes": 3709975
-    },
-    "1x1": {
-     "path": "video_bg/isl25_ceiling_gold/1x1.mp4",
-     "bytes": 2912265
-    },
-    "16x9": {
-     "path": "video_bg/isl25_ceiling_gold/16x9.mp4",
-     "bytes": 3379771
-    }
-   }
-  },
-  {
-   "id": "isl26_minaret_sun",
-   "title": "مئذنة والشمس",
-   "category": "islamic",
-   "thumb": "video_bg/isl26_minaret_sun/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl26_minaret_sun/9x16.mp4",
-     "bytes": 1297073
-    },
-    "1x1": {
-     "path": "video_bg/isl26_minaret_sun/1x1.mp4",
-     "bytes": 718205
-    },
-    "16x9": {
-     "path": "video_bg/isl26_minaret_sun/16x9.mp4",
-     "bytes": 1169103
-    }
-   }
-  },
-  {
-   "id": "isl27_dome_minaret_dusk",
-   "title": "قبة ومئذنة عند المغيب",
-   "category": "islamic",
-   "thumb": "video_bg/isl27_dome_minaret_dusk/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl27_dome_minaret_dusk/9x16.mp4",
-     "bytes": 1452354
-    },
-    "1x1": {
-     "path": "video_bg/isl27_dome_minaret_dusk/1x1.mp4",
-     "bytes": 853905
-    },
-    "16x9": {
-     "path": "video_bg/isl27_dome_minaret_dusk/16x9.mp4",
-     "bytes": 1409969
+     "path": "video_bg/v3/isl21_crescent_night/16x9.mp4",
+     "bytes": 1722331
     }
    }
   },
@@ -668,19 +248,19 @@
    "id": "isl28_minarets_sunset",
    "title": "مآذن عند الغروب",
    "category": "islamic",
-   "thumb": "video_bg/isl28_minarets_sunset/thumb.jpg",
+   "thumb": "video_bg/v3/isl28_minarets_sunset/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl28_minarets_sunset/9x16.mp4",
-     "bytes": 454801
+     "path": "video_bg/v3/isl28_minarets_sunset/9x16.mp4",
+     "bytes": 547712
     },
     "1x1": {
-     "path": "video_bg/isl28_minarets_sunset/1x1.mp4",
-     "bytes": 382896
+     "path": "video_bg/v3/isl28_minarets_sunset/1x1.mp4",
+     "bytes": 459923
     },
     "16x9": {
-     "path": "video_bg/isl28_minarets_sunset/16x9.mp4",
-     "bytes": 665652
+     "path": "video_bg/v3/isl28_minarets_sunset/16x9.mp4",
+     "bytes": 782814
     }
    }
   },
@@ -688,179 +268,19 @@
    "id": "isl29_minaret_moon",
    "title": "مئذنة والقمر",
    "category": "islamic",
-   "thumb": "video_bg/isl29_minaret_moon/v2/thumb.jpg",
+   "thumb": "video_bg/v3/isl29_minaret_moon/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl29_minaret_moon/v2/9x16.mp4",
-     "bytes": 1220778
+     "path": "video_bg/v3/isl29_minaret_moon/9x16.mp4",
+     "bytes": 663131
     },
     "1x1": {
-     "path": "video_bg/isl29_minaret_moon/v2/1x1.mp4",
-     "bytes": 618725
+     "path": "video_bg/v3/isl29_minaret_moon/1x1.mp4",
+     "bytes": 360739
     },
     "16x9": {
-     "path": "video_bg/isl29_minaret_moon/v2/16x9.mp4",
-     "bytes": 736437
-    }
-   }
-  },
-  {
-   "id": "isl30_minaret_crescent",
-   "title": "هلال المئذنة",
-   "category": "islamic",
-   "thumb": "video_bg/isl30_minaret_crescent/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl30_minaret_crescent/9x16.mp4",
-     "bytes": 1528525
-    },
-    "1x1": {
-     "path": "video_bg/isl30_minaret_crescent/1x1.mp4",
-     "bytes": 880232
-    },
-    "16x9": {
-     "path": "video_bg/isl30_minaret_crescent/16x9.mp4",
-     "bytes": 1558448
-    }
-   }
-  },
-  {
-   "id": "isl31_desert_mosque",
-   "title": "مسجد في الصحراء",
-   "category": "islamic",
-   "thumb": "video_bg/isl31_desert_mosque/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl31_desert_mosque/9x16.mp4",
-     "bytes": 1620542
-    },
-    "1x1": {
-     "path": "video_bg/isl31_desert_mosque/1x1.mp4",
-     "bytes": 1571615
-    },
-    "16x9": {
-     "path": "video_bg/isl31_desert_mosque/16x9.mp4",
-     "bytes": 2933195
-    }
-   }
-  },
-  {
-   "id": "isl32_mosque_tiles",
-   "title": "زخارف وفسيفساء",
-   "category": "islamic",
-   "thumb": "video_bg/isl32_mosque_tiles/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl32_mosque_tiles/9x16.mp4",
-     "bytes": 2189588
-    },
-    "1x1": {
-     "path": "video_bg/isl32_mosque_tiles/1x1.mp4",
-     "bytes": 1336572
-    },
-    "16x9": {
-     "path": "video_bg/isl32_mosque_tiles/16x9.mp4",
-     "bytes": 2090844
-    }
-   }
-  },
-  {
-   "id": "isl33_madinah_minarets",
-   "title": "مآذن المسجد النبوي",
-   "category": "islamic",
-   "thumb": "video_bg/isl33_madinah_minarets/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl33_madinah_minarets/9x16.mp4",
-     "bytes": 2546830
-    },
-    "1x1": {
-     "path": "video_bg/isl33_madinah_minarets/1x1.mp4",
-     "bytes": 2745904
-    },
-    "16x9": {
-     "path": "video_bg/isl33_madinah_minarets/16x9.mp4",
-     "bytes": 4091303
-    }
-   }
-  },
-  {
-   "id": "isl34_kaaba_window",
-   "title": "الكعبة من الرواق",
-   "category": "islamic",
-   "thumb": "video_bg/isl34_kaaba_window/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl34_kaaba_window/9x16.mp4",
-     "bytes": 2891907
-    },
-    "1x1": {
-     "path": "video_bg/isl34_kaaba_window/1x1.mp4",
-     "bytes": 1909201
-    },
-    "16x9": {
-     "path": "video_bg/isl34_kaaba_window/16x9.mp4",
-     "bytes": 1992721
-    }
-   }
-  },
-  {
-   "id": "isl35_kaaba_above",
-   "title": "الكعبة من الأعلى",
-   "category": "islamic",
-   "thumb": "video_bg/isl35_kaaba_above/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl35_kaaba_above/9x16.mp4",
-     "bytes": 2142913
-    },
-    "1x1": {
-     "path": "video_bg/isl35_kaaba_above/1x1.mp4",
-     "bytes": 3241383
-    },
-    "16x9": {
-     "path": "video_bg/isl35_kaaba_above/16x9.mp4",
-     "bytes": 4122353
-    }
-   }
-  },
-  {
-   "id": "isl36_haram_night",
-   "title": "الحرم ليلًا",
-   "category": "islamic",
-   "thumb": "video_bg/isl36_haram_night/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl36_haram_night/9x16.mp4",
-     "bytes": 2335486
-    },
-    "1x1": {
-     "path": "video_bg/isl36_haram_night/1x1.mp4",
-     "bytes": 3092810
-    },
-    "16x9": {
-     "path": "video_bg/isl36_haram_night/16x9.mp4",
-     "bytes": 4325769
-    }
-   }
-  },
-  {
-   "id": "isl37_madinah_courtyard",
-   "title": "ساحة المسجد النبوي",
-   "category": "islamic",
-   "thumb": "video_bg/isl37_madinah_courtyard/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/isl37_madinah_courtyard/9x16.mp4",
-     "bytes": 2936835
-    },
-    "1x1": {
-     "path": "video_bg/isl37_madinah_courtyard/1x1.mp4",
-     "bytes": 2202179
-    },
-    "16x9": {
-     "path": "video_bg/isl37_madinah_courtyard/16x9.mp4",
-     "bytes": 3365693
+     "path": "video_bg/v3/isl29_minaret_moon/16x9.mp4",
+     "bytes": 406739
     }
    }
   },
@@ -868,39 +288,259 @@
    "id": "isl38_madinah_walkway",
    "title": "طريق المسجد النبوي",
    "category": "islamic",
-   "thumb": "video_bg/isl38_madinah_walkway/thumb.jpg",
+   "thumb": "video_bg/v3/isl38_madinah_walkway/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl38_madinah_walkway/9x16.mp4",
-     "bytes": 1139341
+     "path": "video_bg/v3/isl38_madinah_walkway/9x16.mp4",
+     "bytes": 1510676
     },
     "1x1": {
-     "path": "video_bg/isl38_madinah_walkway/1x1.mp4",
-     "bytes": 907725
+     "path": "video_bg/v3/isl38_madinah_walkway/1x1.mp4",
+     "bytes": 1128665
     },
     "16x9": {
-     "path": "video_bg/isl38_madinah_walkway/16x9.mp4",
-     "bytes": 1286210
+     "path": "video_bg/v3/isl38_madinah_walkway/16x9.mp4",
+     "bytes": 1618102
     }
    }
   },
   {
-   "id": "isl39_blue_mosque_aerial",
-   "title": "الجامع الأزرق من الأعلى",
+   "id": "isl40_crescent_rising",
+   "title": "الهلال",
    "category": "islamic",
-   "thumb": "video_bg/isl39_blue_mosque_aerial/thumb.jpg",
+   "thumb": "video_bg/v3/isl40_crescent_rising/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/isl39_blue_mosque_aerial/9x16.mp4",
-     "bytes": 3686012
+     "path": "video_bg/v3/isl40_crescent_rising/9x16.mp4",
+     "bytes": 1789372
     },
     "1x1": {
-     "path": "video_bg/isl39_blue_mosque_aerial/1x1.mp4",
-     "bytes": 3358700
+     "path": "video_bg/v3/isl40_crescent_rising/1x1.mp4",
+     "bytes": 864661
     },
     "16x9": {
-     "path": "video_bg/isl39_blue_mosque_aerial/16x9.mp4",
-     "bytes": 4192087
+     "path": "video_bg/v3/isl40_crescent_rising/16x9.mp4",
+     "bytes": 887657
+    }
+   }
+  },
+  {
+   "id": "isl41_lantern",
+   "title": "فانوس",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl41_lantern/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl41_lantern/9x16.mp4",
+     "bytes": 3338907
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl41_lantern/1x1.mp4",
+     "bytes": 3259578
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl41_lantern/16x9.mp4",
+     "bytes": 6009920
+    }
+   }
+  },
+  {
+   "id": "isl43_istanbul_from_sea",
+   "title": "مسجد في إسطنبول من البحر",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl43_istanbul_from_sea/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl43_istanbul_from_sea/9x16.mp4",
+     "bytes": 5611401
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl43_istanbul_from_sea/1x1.mp4",
+     "bytes": 4149245
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl43_istanbul_from_sea/16x9.mp4",
+     "bytes": 5358276
+    }
+   }
+  },
+  {
+   "id": "isl44_mosque_among_trees",
+   "title": "مسجد بين الأشجار",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl44_mosque_among_trees/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl44_mosque_among_trees/9x16.mp4",
+     "bytes": 6355490
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl44_mosque_among_trees/1x1.mp4",
+     "bytes": 5675339
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl44_mosque_among_trees/16x9.mp4",
+     "bytes": 7480032
+    }
+   }
+  },
+  {
+   "id": "isl45_hazrati_imam",
+   "title": "مجمع حضرة إمام، طشقند",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl45_hazrati_imam/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl45_hazrati_imam/9x16.mp4",
+     "bytes": 6106369
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl45_hazrati_imam/1x1.mp4",
+     "bytes": 3877935
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl45_hazrati_imam/16x9.mp4",
+     "bytes": 6679080
+    }
+   }
+  },
+  {
+   "id": "isl46_al_jabbar",
+   "title": "مسجد الجبار، باندونغ",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl46_al_jabbar/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl46_al_jabbar/9x16.mp4",
+     "bytes": 5115921
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl46_al_jabbar/1x1.mp4",
+     "bytes": 4103116
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl46_al_jabbar/16x9.mp4",
+     "bytes": 5094023
+    }
+   }
+  },
+  {
+   "id": "isl47_minaret_sunset",
+   "title": "مئذنة عند الغروب",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl47_minaret_sunset/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl47_minaret_sunset/9x16.mp4",
+     "bytes": 3626779
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl47_minaret_sunset/1x1.mp4",
+     "bytes": 1410126
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl47_minaret_sunset/16x9.mp4",
+     "bytes": 2036250
+    }
+   }
+  },
+  {
+   "id": "isl48_desert_mosque",
+   "title": "مسجد في الصحراء عند الشروق",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl48_desert_mosque/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl48_desert_mosque/9x16.mp4",
+     "bytes": 4081861
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl48_desert_mosque/1x1.mp4",
+     "bytes": 3233735
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl48_desert_mosque/16x9.mp4",
+     "bytes": 4407343
+    }
+   }
+  },
+  {
+   "id": "isl49_malacca_mosque",
+   "title": "مسجد مضيق ملقا",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl49_malacca_mosque/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl49_malacca_mosque/9x16.mp4",
+     "bytes": 4856454
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl49_malacca_mosque/1x1.mp4",
+     "bytes": 4653553
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl49_malacca_mosque/16x9.mp4",
+     "bytes": 6012964
+    }
+   }
+  },
+  {
+   "id": "isl50_mosque_dramatic_sky",
+   "title": "مسجد تحت سماء غائمة",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl50_mosque_dramatic_sky/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl50_mosque_dramatic_sky/9x16.mp4",
+     "bytes": 8922027
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl50_mosque_dramatic_sky/1x1.mp4",
+     "bytes": 5897559
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl50_mosque_dramatic_sky/16x9.mp4",
+     "bytes": 5945180
+    }
+   }
+  },
+  {
+   "id": "isl51_istanbul_sunset",
+   "title": "مسجد في إسطنبول عند الغروب",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl51_istanbul_sunset/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl51_istanbul_sunset/9x16.mp4",
+     "bytes": 1829204
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl51_istanbul_sunset/1x1.mp4",
+     "bytes": 1191501
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl51_istanbul_sunset/16x9.mp4",
+     "bytes": 2265723
+    }
+   }
+  },
+  {
+   "id": "isl52_crescent_clouds",
+   "title": "الهلال بين السحب",
+   "category": "islamic",
+   "thumb": "video_bg/v3/isl52_crescent_clouds/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/isl52_crescent_clouds/9x16.mp4",
+     "bytes": 3153340
+    },
+    "1x1": {
+     "path": "video_bg/v3/isl52_crescent_clouds/1x1.mp4",
+     "bytes": 1119193
+    },
+    "16x9": {
+     "path": "video_bg/v3/isl52_crescent_clouds/16x9.mp4",
+     "bytes": 2225540
     }
    }
   },
@@ -908,19 +548,19 @@
    "id": "bg01_crescent_night",
    "title": "هلال وغيوم",
    "category": "nature",
-   "thumb": "video_bg/bg01_crescent_night/thumb.jpg",
+   "thumb": "video_bg/v3/bg01_crescent_night/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg01_crescent_night/v2/9x16.mp4",
-     "bytes": 592123
+     "path": "video_bg/v3/bg01_crescent_night/9x16.mp4",
+     "bytes": 3378436
     },
     "1x1": {
-     "path": "video_bg/bg01_crescent_night/v2/1x1.mp4",
-     "bytes": 233814
+     "path": "video_bg/v3/bg01_crescent_night/1x1.mp4",
+     "bytes": 1318762
     },
     "16x9": {
-     "path": "video_bg/bg01_crescent_night/v2/16x9.mp4",
-     "bytes": 385790
+     "path": "video_bg/v3/bg01_crescent_night/16x9.mp4",
+     "bytes": 2225540
     }
    }
   },
@@ -928,39 +568,19 @@
    "id": "bg02_moon_clouds",
    "title": "قمر بين الغيوم",
    "category": "nature",
-   "thumb": "video_bg/bg02_moon_clouds/thumb.jpg",
+   "thumb": "video_bg/v3/bg02_moon_clouds/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg02_moon_clouds/9x16.mp4",
-     "bytes": 1466724
+     "path": "video_bg/v3/bg02_moon_clouds/9x16.mp4",
+     "bytes": 1179154
     },
     "1x1": {
-     "path": "video_bg/bg02_moon_clouds/1x1.mp4",
-     "bytes": 724790
+     "path": "video_bg/v3/bg02_moon_clouds/1x1.mp4",
+     "bytes": 669680
     },
     "16x9": {
-     "path": "video_bg/bg02_moon_clouds/16x9.mp4",
-     "bytes": 1071448
-    }
-   }
-  },
-  {
-   "id": "bg03_aurora",
-   "title": "الشفق القطبي",
-   "category": "nature",
-   "thumb": "video_bg/bg03_aurora/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg03_aurora/9x16.mp4",
-     "bytes": 2172132
-    },
-    "1x1": {
-     "path": "video_bg/bg03_aurora/1x1.mp4",
-     "bytes": 1379023
-    },
-    "16x9": {
-     "path": "video_bg/bg03_aurora/16x9.mp4",
-     "bytes": 2143133
+     "path": "video_bg/v3/bg02_moon_clouds/16x9.mp4",
+     "bytes": 984753
     }
    }
   },
@@ -968,39 +588,19 @@
    "id": "bg04_starry_sky",
    "title": "سماء مرصعة بالنجوم",
    "category": "nature",
-   "thumb": "video_bg/bg04_starry_sky/thumb.jpg",
+   "thumb": "video_bg/v3/bg04_starry_sky/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg04_starry_sky/9x16.mp4",
-     "bytes": 2685547
+     "path": "video_bg/v3/bg04_starry_sky/9x16.mp4",
+     "bytes": 2073171
     },
     "1x1": {
-     "path": "video_bg/bg04_starry_sky/1x1.mp4",
-     "bytes": 2216095
+     "path": "video_bg/v3/bg04_starry_sky/1x1.mp4",
+     "bytes": 1962464
     },
     "16x9": {
-     "path": "video_bg/bg04_starry_sky/16x9.mp4",
-     "bytes": 3361760
-    }
-   }
-  },
-  {
-   "id": "bg05_nebula",
-   "title": "سديم",
-   "category": "nature",
-   "thumb": "video_bg/bg05_nebula/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg05_nebula/9x16.mp4",
-     "bytes": 1963734
-    },
-    "1x1": {
-     "path": "video_bg/bg05_nebula/1x1.mp4",
-     "bytes": 1208866
-    },
-    "16x9": {
-     "path": "video_bg/bg05_nebula/16x9.mp4",
-     "bytes": 2060224
+     "path": "video_bg/v3/bg04_starry_sky/16x9.mp4",
+     "bytes": 2453341
     }
    }
   },
@@ -1008,19 +608,19 @@
    "id": "bg06_dawn_sky",
    "title": "سماء الفجر",
    "category": "nature",
-   "thumb": "video_bg/bg06_dawn_sky/thumb.jpg",
+   "thumb": "video_bg/v3/bg06_dawn_sky/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg06_dawn_sky/9x16.mp4",
-     "bytes": 1738761
+     "path": "video_bg/v3/bg06_dawn_sky/9x16.mp4",
+     "bytes": 4273366
     },
     "1x1": {
-     "path": "video_bg/bg06_dawn_sky/1x1.mp4",
-     "bytes": 910117
+     "path": "video_bg/v3/bg06_dawn_sky/1x1.mp4",
+     "bytes": 2089643
     },
     "16x9": {
-     "path": "video_bg/bg06_dawn_sky/16x9.mp4",
-     "bytes": 1323626
+     "path": "video_bg/v3/bg06_dawn_sky/16x9.mp4",
+     "bytes": 3319301
     }
    }
   },
@@ -1028,119 +628,19 @@
    "id": "bg07_lake_sunset",
    "title": "غروب على بحيرة",
    "category": "nature",
-   "thumb": "video_bg/bg07_lake_sunset/thumb.jpg",
+   "thumb": "video_bg/v3/bg07_lake_sunset/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg07_lake_sunset/9x16.mp4",
-     "bytes": 470669
+     "path": "video_bg/v3/bg07_lake_sunset/9x16.mp4",
+     "bytes": 1399557
     },
     "1x1": {
-     "path": "video_bg/bg07_lake_sunset/1x1.mp4",
-     "bytes": 210301
+     "path": "video_bg/v3/bg07_lake_sunset/1x1.mp4",
+     "bytes": 610899
     },
     "16x9": {
-     "path": "video_bg/bg07_lake_sunset/16x9.mp4",
-     "bytes": 400332
-    }
-   }
-  },
-  {
-   "id": "bg08_sunset_rays",
-   "title": "أشعة الغروب",
-   "category": "nature",
-   "thumb": "video_bg/bg08_sunset_rays/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg08_sunset_rays/9x16.mp4",
-     "bytes": 2963340
-    },
-    "1x1": {
-     "path": "video_bg/bg08_sunset_rays/1x1.mp4",
-     "bytes": 1897578
-    },
-    "16x9": {
-     "path": "video_bg/bg08_sunset_rays/16x9.mp4",
-     "bytes": 2799260
-    }
-   }
-  },
-  {
-   "id": "bg09_golden_clouds",
-   "title": "غيوم ذهبية",
-   "category": "nature",
-   "thumb": "video_bg/bg09_golden_clouds/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg09_golden_clouds/9x16.mp4",
-     "bytes": 1857060
-    },
-    "1x1": {
-     "path": "video_bg/bg09_golden_clouds/1x1.mp4",
-     "bytes": 926146
-    },
-    "16x9": {
-     "path": "video_bg/bg09_golden_clouds/16x9.mp4",
-     "bytes": 1598856
-    }
-   }
-  },
-  {
-   "id": "bg10_clear_sky",
-   "title": "سماء صافية",
-   "category": "nature",
-   "thumb": "video_bg/bg10_clear_sky/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg10_clear_sky/9x16.mp4",
-     "bytes": 1684390
-    },
-    "1x1": {
-     "path": "video_bg/bg10_clear_sky/1x1.mp4",
-     "bytes": 1045337
-    },
-    "16x9": {
-     "path": "video_bg/bg10_clear_sky/16x9.mp4",
-     "bytes": 1852025
-    }
-   }
-  },
-  {
-   "id": "bg11_white_clouds",
-   "title": "غيوم بيضاء",
-   "category": "nature",
-   "thumb": "video_bg/bg11_white_clouds/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg11_white_clouds/9x16.mp4",
-     "bytes": 3965572
-    },
-    "1x1": {
-     "path": "video_bg/bg11_white_clouds/1x1.mp4",
-     "bytes": 3008956
-    },
-    "16x9": {
-     "path": "video_bg/bg11_white_clouds/16x9.mp4",
-     "bytes": 4788466
-    }
-   }
-  },
-  {
-   "id": "bg12_sea_of_clouds",
-   "title": "بحر من الغيوم",
-   "category": "nature",
-   "thumb": "video_bg/bg12_sea_of_clouds/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg12_sea_of_clouds/9x16.mp4",
-     "bytes": 1550015
-    },
-    "1x1": {
-     "path": "video_bg/bg12_sea_of_clouds/1x1.mp4",
-     "bytes": 813581
-    },
-    "16x9": {
-     "path": "video_bg/bg12_sea_of_clouds/16x9.mp4",
-     "bytes": 1515362
+     "path": "video_bg/v3/bg07_lake_sunset/16x9.mp4",
+     "bytes": 1140595
     }
    }
   },
@@ -1148,19 +648,19 @@
    "id": "bg13_mountain_mist",
    "title": "ضباب الجبال",
    "category": "nature",
-   "thumb": "video_bg/bg13_mountain_mist/thumb.jpg",
+   "thumb": "video_bg/v3/bg13_mountain_mist/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg13_mountain_mist/9x16.mp4",
-     "bytes": 744791
+     "path": "video_bg/v3/bg13_mountain_mist/9x16.mp4",
+     "bytes": 4895415
     },
     "1x1": {
-     "path": "video_bg/bg13_mountain_mist/1x1.mp4",
-     "bytes": 491536
+     "path": "video_bg/v3/bg13_mountain_mist/1x1.mp4",
+     "bytes": 3146537
     },
     "16x9": {
-     "path": "video_bg/bg13_mountain_mist/16x9.mp4",
-     "bytes": 792827
+     "path": "video_bg/v3/bg13_mountain_mist/16x9.mp4",
+     "bytes": 5068085
     }
    }
   },
@@ -1168,79 +668,19 @@
    "id": "bg14_misty_peak",
    "title": "جبل في الضباب",
    "category": "nature",
-   "thumb": "video_bg/bg14_misty_peak/thumb.jpg",
+   "thumb": "video_bg/v3/bg14_misty_peak/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg14_misty_peak/9x16.mp4",
-     "bytes": 987633
+     "path": "video_bg/v3/bg14_misty_peak/9x16.mp4",
+     "bytes": 1184687
     },
     "1x1": {
-     "path": "video_bg/bg14_misty_peak/1x1.mp4",
-     "bytes": 234419
+     "path": "video_bg/v3/bg14_misty_peak/1x1.mp4",
+     "bytes": 350649
     },
     "16x9": {
-     "path": "video_bg/bg14_misty_peak/16x9.mp4",
-     "bytes": 415748
-    }
-   }
-  },
-  {
-   "id": "bg15_golden_mist",
-   "title": "ضباب ذهبي",
-   "category": "nature",
-   "thumb": "video_bg/bg15_golden_mist/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg15_golden_mist/9x16.mp4",
-     "bytes": 1118086
-    },
-    "1x1": {
-     "path": "video_bg/bg15_golden_mist/1x1.mp4",
-     "bytes": 712445
-    },
-    "16x9": {
-     "path": "video_bg/bg15_golden_mist/16x9.mp4",
-     "bytes": 1285609
-    }
-   }
-  },
-  {
-   "id": "bg16_beach_waves",
-   "title": "أمواج الشاطئ",
-   "category": "nature",
-   "thumb": "video_bg/bg16_beach_waves/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg16_beach_waves/9x16.mp4",
-     "bytes": 3846670
-    },
-    "1x1": {
-     "path": "video_bg/bg16_beach_waves/1x1.mp4",
-     "bytes": 3118748
-    },
-    "16x9": {
-     "path": "video_bg/bg16_beach_waves/16x9.mp4",
-     "bytes": 3847321
-    }
-   }
-  },
-  {
-   "id": "bg17_desert_sand",
-   "title": "رمال الصحراء",
-   "category": "nature",
-   "thumb": "video_bg/bg17_desert_sand/thumb.jpg",
-   "files": {
-    "9x16": {
-     "path": "video_bg/bg17_desert_sand/9x16.mp4",
-     "bytes": 1230578
-    },
-    "1x1": {
-     "path": "video_bg/bg17_desert_sand/1x1.mp4",
-     "bytes": 779161
-    },
-    "16x9": {
-     "path": "video_bg/bg17_desert_sand/16x9.mp4",
-     "bytes": 1428585
+     "path": "video_bg/v3/bg14_misty_peak/16x9.mp4",
+     "bytes": 731509
     }
    }
   },
@@ -1248,19 +688,19 @@
    "id": "bg18_forest_light",
    "title": "نور في الغابة",
    "category": "nature",
-   "thumb": "video_bg/bg18_forest_light/thumb.jpg",
+   "thumb": "video_bg/v3/bg18_forest_light/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg18_forest_light/9x16.mp4",
-     "bytes": 4713824
+     "path": "video_bg/v3/bg18_forest_light/9x16.mp4",
+     "bytes": 6169763
     },
     "1x1": {
-     "path": "video_bg/bg18_forest_light/1x1.mp4",
-     "bytes": 3759812
+     "path": "video_bg/v3/bg18_forest_light/1x1.mp4",
+     "bytes": 4735005
     },
     "16x9": {
-     "path": "video_bg/bg18_forest_light/16x9.mp4",
-     "bytes": 4634761
+     "path": "video_bg/v3/bg18_forest_light/16x9.mp4",
+     "bytes": 6144001
     }
    }
   },
@@ -1268,19 +708,19 @@
    "id": "bg19_rain_glass",
    "title": "مطر على الزجاج",
    "category": "nature",
-   "thumb": "video_bg/bg19_rain_glass/thumb.jpg",
+   "thumb": "video_bg/v3/bg19_rain_glass/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg19_rain_glass/9x16.mp4",
-     "bytes": 851940
+     "path": "video_bg/v3/bg19_rain_glass/9x16.mp4",
+     "bytes": 3360081
     },
     "1x1": {
-     "path": "video_bg/bg19_rain_glass/1x1.mp4",
-     "bytes": 648035
+     "path": "video_bg/v3/bg19_rain_glass/1x1.mp4",
+     "bytes": 2639342
     },
     "16x9": {
-     "path": "video_bg/bg19_rain_glass/16x9.mp4",
-     "bytes": 1172630
+     "path": "video_bg/v3/bg19_rain_glass/16x9.mp4",
+     "bytes": 4225962
     }
    }
   },
@@ -1288,19 +728,219 @@
    "id": "bg20_snow_pines",
    "title": "ثلج على الصنوبر",
    "category": "nature",
-   "thumb": "video_bg/bg20_snow_pines/thumb.jpg",
+   "thumb": "video_bg/v3/bg20_snow_pines/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/bg20_snow_pines/9x16.mp4",
-     "bytes": 4175655
+     "path": "video_bg/v3/bg20_snow_pines/9x16.mp4",
+     "bytes": 4581621
     },
     "1x1": {
-     "path": "video_bg/bg20_snow_pines/1x1.mp4",
-     "bytes": 2497537
+     "path": "video_bg/v3/bg20_snow_pines/1x1.mp4",
+     "bytes": 3599314
     },
     "16x9": {
-     "path": "video_bg/bg20_snow_pines/16x9.mp4",
-     "bytes": 4251443
+     "path": "video_bg/v3/bg20_snow_pines/16x9.mp4",
+     "bytes": 4472993
+    }
+   }
+  },
+  {
+   "id": "bg21_morning_clouds",
+   "title": "سحب الصباح",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg21_morning_clouds/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg21_morning_clouds/9x16.mp4",
+     "bytes": 9393674
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg21_morning_clouds/1x1.mp4",
+     "bytes": 7305606
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg21_morning_clouds/16x9.mp4",
+     "bytes": 9785758
+    }
+   }
+  },
+  {
+   "id": "bg22_sky_clouds",
+   "title": "سماء وسحب",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg22_sky_clouds/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg22_sky_clouds/9x16.mp4",
+     "bytes": 9341321
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg22_sky_clouds/1x1.mp4",
+     "bytes": 7184025
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg22_sky_clouds/16x9.mp4",
+     "bytes": 9346198
+    }
+   }
+  },
+  {
+   "id": "bg23_waterfall",
+   "title": "شلال",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg23_waterfall/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg23_waterfall/9x16.mp4",
+     "bytes": 5970725
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg23_waterfall/1x1.mp4",
+     "bytes": 5667891
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg23_waterfall/16x9.mp4",
+     "bytes": 7536661
+    }
+   }
+  },
+  {
+   "id": "bg24_cloudscape",
+   "title": "سحب في سماء زرقاء",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg24_cloudscape/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg24_cloudscape/9x16.mp4",
+     "bytes": 6775761
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg24_cloudscape/1x1.mp4",
+     "bytes": 4963282
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg24_cloudscape/16x9.mp4",
+     "bytes": 6801462
+    }
+   }
+  },
+  {
+   "id": "bg25_fog_mountain",
+   "title": "ضباب على الجبل",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg25_fog_mountain/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg25_fog_mountain/9x16.mp4",
+     "bytes": 4876137
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg25_fog_mountain/1x1.mp4",
+     "bytes": 3134962
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg25_fog_mountain/16x9.mp4",
+     "bytes": 5052637
+    }
+   }
+  },
+  {
+   "id": "bg26_rainforest_fog",
+   "title": "غابة في الضباب",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg26_rainforest_fog/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg26_rainforest_fog/9x16.mp4",
+     "bytes": 6656860
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg26_rainforest_fog/1x1.mp4",
+     "bytes": 4126715
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg26_rainforest_fog/16x9.mp4",
+     "bytes": 6768877
+    }
+   }
+  },
+  {
+   "id": "bg27_lake_reflection",
+   "title": "انعكاس البحيرة",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg27_lake_reflection/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg27_lake_reflection/9x16.mp4",
+     "bytes": 8472054
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg27_lake_reflection/1x1.mp4",
+     "bytes": 5895830
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg27_lake_reflection/16x9.mp4",
+     "bytes": 7995429
+    }
+   }
+  },
+  {
+   "id": "bg28_blue_sky",
+   "title": "سماء زرقاء",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg28_blue_sky/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg28_blue_sky/9x16.mp4",
+     "bytes": 8984416
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg28_blue_sky/1x1.mp4",
+     "bytes": 6827323
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg28_blue_sky/16x9.mp4",
+     "bytes": 8999644
+    }
+   }
+  },
+  {
+   "id": "bg29_ocean_waves",
+   "title": "أمواج البحر",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg29_ocean_waves/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg29_ocean_waves/9x16.mp4",
+     "bytes": 7751213
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg29_ocean_waves/1x1.mp4",
+     "bytes": 6006514
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg29_ocean_waves/16x9.mp4",
+     "bytes": 7783060
+    }
+   }
+  },
+  {
+   "id": "bg30_rocky_shore",
+   "title": "أمواج على الصخور",
+   "category": "nature",
+   "thumb": "video_bg/v3/bg30_rocky_shore/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v3/bg30_rocky_shore/9x16.mp4",
+     "bytes": 7705926
+    },
+    "1x1": {
+     "path": "video_bg/v3/bg30_rocky_shore/1x1.mp4",
+     "bytes": 6051222
+    },
+    "16x9": {
+     "path": "video_bg/v3/bg30_rocky_shore/16x9.mp4",
+     "bytes": 8399516
     }
    }
   }
