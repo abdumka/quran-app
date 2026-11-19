@@ -4,6 +4,7 @@ import '../../models/reciter.dart';
 import '../../services/ayah_play_setting.dart';
 import '../../services/reciter_service.dart';
 import '../../theme/app_surfaces.dart';
+import '../menu_scroll_cue.dart';
 
 /// The «تلاوة» line at the foot of an ayah's options: play from this ayah,
 /// the reciter it will use, and whether to go on past it («متابعة») or stop
@@ -151,8 +152,6 @@ class AyahReciteRow extends StatelessWidget {
         final reciters = service.reciters;
         return PopupMenuButton<String>(
           tooltip: 'اختيار القارئ',
-          // Opens scrolled to the reciter in use, however long the list.
-          initialValue: selected.id,
           color: c.menu,
           constraints: BoxConstraints(
             minWidth: 220,
@@ -172,12 +171,18 @@ class AyahReciteRow extends StatelessWidget {
               }
             }
           },
+          // One entry holding the whole list, so it can show the bold bar
+          // and the fade that say there are more reciters below (a popup
+          // menu has no scrollbar of its own on Android). It opens scrolled
+          // to the reciter in use, however long the list.
           itemBuilder: (context) => [
-            for (final r in reciters)
-              PopupMenuItem<String>(
-                value: r.id,
-                height: _menuItemHeight,
-                child: Row(
+            ScrollingMenuEntry<String>(
+              values: [for (final r in reciters) r.id],
+              selected: selected.id,
+              itemHeight: _menuItemHeight,
+              rowBuilder: (context, id) {
+                final r = reciters.firstWhere((r) => r.id == id);
+                return Row(
                   textDirection: TextDirection.rtl,
                   children: [
                     Icon(
@@ -201,8 +206,9 @@ class AyahReciteRow extends StatelessWidget {
                       ),
                     ),
                   ],
-                ),
-              ),
+                );
+              },
+            ),
           ],
           child: Container(
             height: _height,

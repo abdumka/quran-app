@@ -53,12 +53,14 @@ Future<void> press(
     await tester.sendKeyEvent(key);
     await tester.pump(const Duration(milliseconds: 50));
   }
-  // Select schedules retries out to 800 ms; let them run or the test ends
-  // with timers pending.
-  // Long enough to outlive the ring's delayed rect corrections (up to
-  // 600 ms) and Select's retries (up to 800 ms), or the test ends with
-  // timers pending.
-  await tester.pump(const Duration(seconds: 2));
+  // Select schedules retries out to 800 ms, and the ring corrects its rect
+  // up to 600 ms after a move. Pump real frames through all of that, the
+  // way a device draws them: one 2 s pump renders a single frame at the end,
+  // so every retry would see the screen as it was before a menu had even
+  // faded in.
+  for (int i = 0; i < 40; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
   await tester.pumpAndSettle();
 }
 
@@ -621,5 +623,163 @@ void main() {
       tester.element(find.byType(TextField)),
     ).focusedChild;
     expect(node?.hasFocus, isTrue, reason: 'the text field could not focus');
+  });
+
+  group('a capped dropdown in a sheet (the القارئ picker on a 1080p TV)', () {
+    // خيارات التلاوة: the reciter menu is capped at 6.5 rows and holds 11
+    // reciters. Reported from a real TV: the ring walked down to the half-cut
+    // 7th row and stuck there. The list never scrolled, so the last four
+    // reciters could not be reached at all.
+    const names = [
+      'الحصري',
+      'النائحي',
+      'قنيوه',
+      'الحذيفي',
+      'الدوكالي',
+      'القريو',
+      'أبوسنينة',
+      'رجب',
+      'الطرابلسي',
+      'المسلاتي',
+      'الزروق',
+    ];
+
+    Future<List<String>> openPicker(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1920, 1080);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final picked = <String>[];
+      await tester.pumpWidget(
+        app(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Stack(
+                children: [
+                  // The reader's bottom menu: a horizontal scrollable that
+                  // stays laid out behind the sheet, under the lower rows of
+                  // the open menu (y 424 to 476 on the TV, where the menu
+                  // ends at 473). The driver took it for the list the ring
+                  // was in. This harness's menu ends at 492, so the bar is
+                  // stretched to cover the same rows.
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 400,
+                    height: 92,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final l in const ['البحث', 'التفسير', 'التلاوة'])
+                          InkWell(
+                            onTap: () {},
+                            child: SizedBox(width: 320, child: Text(l)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Center(
+                    child: ElevatedButton(
+                      onPressed: () => showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (_) => Directionality(
+                          textDirection: TextDirection.rtl,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  onPressed: () {},
+                                  icon: const Icon(Icons.close),
+                                ),
+                                DropdownButton<int>(
+                                  value: 1,
+                                  isExpanded: true,
+                                  menuMaxHeight:
+                                      6.5 * kMinInteractiveDimension + 16,
+                                  items: [
+                                    for (int i = 0; i < names.length; i++)
+                                      DropdownMenuItem(
+                                        value: i,
+                                        child: Text(names[i]),
+                                      ),
+                                  ],
+                                  onChanged: (v) => picked.add(names[v!]),
+                                ),
+                                const SizedBox(height: 200),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      // Up to the top (the X), one down to the dropdown, open it.
+      await press(tester, LogicalKeyboardKey.arrowUp, 3);
+      await press(tester, LogicalKeyboardKey.arrowDown);
+      await press(tester, LogicalKeyboardKey.select);
+      // The first row is on screen only in the open menu (the button shows
+      // the current reciter).
+      expect(
+        find.text('الحصري'),
+        findsWidgets,
+        reason: 'the menu did not open',
+      );
+      return picked;
+    }
+
+    testWidgets('the ring opens on the current reciter', (tester) async {
+      final picked = await openPicker(tester);
+      await press(tester, LogicalKeyboardKey.select);
+      expect(picked, ['النائحي']);
+    });
+
+    testWidgets('Down reaches the last reciter and Select picks it', (
+      tester,
+    ) async {
+      final picked = await openPicker(tester);
+      await press(tester, LogicalKeyboardKey.arrowDown, 14);
+      // The last row is wholly inside the menu, not cut by its edge.
+      final menu = tester.getRect(find.byType(Scrollable).last);
+      final last = tester.getRect(find.text('الزروق').last);
+      expect(last.bottom, lessThanOrEqualTo(menu.bottom + 0.5));
+      await press(tester, LogicalKeyboardKey.select);
+      expect(picked, ['الزروق']);
+    });
+
+    testWidgets('Up walks back to the first reciter', (tester) async {
+      final picked = await openPicker(tester);
+      await press(tester, LogicalKeyboardKey.arrowDown, 14);
+      await press(tester, LogicalKeyboardKey.arrowUp, 14);
+      await press(tester, LogicalKeyboardKey.select);
+      expect(picked, ['الحصري']);
+    });
+
+    // Each step lands on the next row, none skipped or repeated. The menu
+    // opens on النائحي (row 1); Up goes to the top first, then count down.
+    for (int target = 0; target < names.length; target++) {
+      testWidgets(
+        'row $target (${names[target]}) is reached in $target steps',
+        (tester) async {
+          final picked = await openPicker(tester);
+          await press(tester, LogicalKeyboardKey.arrowUp, 3);
+          if (target > 0) {
+            await press(tester, LogicalKeyboardKey.arrowDown, target);
+          }
+          await press(tester, LogicalKeyboardKey.select);
+          expect(picked, [names[target]]);
+        },
+      );
+    }
   });
 }

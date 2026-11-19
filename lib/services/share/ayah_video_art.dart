@@ -385,6 +385,9 @@ class AyahVideoArt {
     required String? title,
     ui.Image? titleImage,
     ui.Image? iconImage,
+    String? credit,
+    String? creditFont,
+    double creditScale = 1,
   }) async {
     final gold = Color(look.titleColor);
     final w = width.toDouble();
@@ -460,6 +463,29 @@ class AyahVideoArt {
         Offset((w - p.width) / 2, chip.top + unit * 0.009),
       );
       top = chip.bottom;
+    }
+
+    if (credit != null && credit.trim().isNotEmpty) {
+      // The reciter and the riwayah, small and soft under the surah name,
+      // in the font the sharer picked ([creditFont] is null for the phone's
+      // own font, or when the picked one could not be loaded).
+      final p = _paragraph(
+        credit,
+        unit * look.creditSize * creditScale,
+        const Color(0xFFFFFFFF).withValues(alpha: look.creditOpacity),
+        FontWeight.w400,
+        w * 0.9,
+        fontFamily: creditFont,
+        shadows: const [
+          Shadow(color: Color(0xBF000000), blurRadius: 6),
+          Shadow(color: Color(0x80000000), blurRadius: 2),
+        ],
+        maxLines: 2,
+      );
+      final y =
+          (look.showTitle ? top : h * look.titleTop) + unit * look.creditGap;
+      canvas.drawParagraph(p, Offset((w - p.width) / 2, y));
+      top = y + p.height;
     }
 
     var markTop = h;
@@ -753,6 +779,11 @@ class AyahVideoArt {
     FontWeight weight,
     double width, {
     bool rtl = true,
+    String? fontFamily,
+    List<Shadow> shadows = const [
+      Shadow(color: Color(0x66000000), blurRadius: 4),
+    ],
+    int maxLines = 3,
   }) {
     final b =
         ui.ParagraphBuilder(
@@ -761,7 +792,8 @@ class AyahVideoArt {
               textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
               fontSize: size,
               fontWeight: weight,
-              maxLines: 3,
+              fontFamily: fontFamily,
+              maxLines: maxLines,
             ),
           )
           ..pushStyle(
@@ -769,7 +801,8 @@ class AyahVideoArt {
               color: color,
               fontSize: size,
               fontWeight: weight,
-              shadows: const [Shadow(color: Color(0x66000000), blurRadius: 4)],
+              fontFamily: fontFamily,
+              shadows: shadows,
             ),
           )
           ..addText(text);

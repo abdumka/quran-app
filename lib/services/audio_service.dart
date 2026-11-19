@@ -183,6 +183,30 @@ class AudioService {
   /// The page index currently playing.
   int get currentAudioPageIndex => _currentPageIndex;
 
+  /// How far the recitation is through the clip(s) of [currentAyah], 0 to 1,
+  /// or null when nothing is loaded. Read only by the landscape reader, to
+  /// keep the line being recited on screen inside an ayah taller than the
+  /// screen; playback never uses it.
+  double? get currentAyahProgress {
+    final clips = _currentAyahClips;
+    final index = _currentFileIndexWithinAyah;
+    if (currentAyah.value == null || clips.isEmpty || index >= clips.length) {
+      return null;
+    }
+    final clip = clips[index];
+    // A timed surah is one file seeked within, so the position is the file's;
+    // every other source starts at 0 (a ClippingAudioSource counts from its
+    // own start).
+    final timed = clip.isClipped && clip.end != null;
+    final start = timed ? (clip.start ?? Duration.zero) : Duration.zero;
+    final end = timed ? clip.end! : _player.duration;
+    if (end == null || end <= start) return null;
+    final f =
+        (_player.position - start).inMilliseconds /
+        (end - start).inMilliseconds;
+    return ((index + f.clamp(0.0, 1.0)) / clips.length).clamp(0.0, 1.0);
+  }
+
   /// Whether audio is currently playing.
   final ValueNotifier<bool> isPlaying = ValueNotifier(false);
 

@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'models/reader_bookmark.dart';
+import 'services/audio_service.dart';
 import 'services/debug_log_service.dart';
 import 'utils/responsive_helper.dart';
+import 'widgets/quran/ayah_follow.dart';
 import 'widgets/quran/hifz_reveal_view.dart';
 import 'widgets/quran/memorization_test_overlay.dart';
 import 'widgets/quran/page_image_crop.dart';
@@ -38,6 +40,7 @@ class ContinuousQuranView extends StatefulWidget {
     this.filterQuality = FilterQuality.low,
     this.marginView = false,
     this.spineShadow = false,
+    this.obscuredBottom = 0,
   });
 
   final List<String> pages;
@@ -82,6 +85,10 @@ class ContinuousQuranView extends StatefulWidget {
   /// Draw "ظلّ الكعب" on each page (see [SpineShadow]).
   final bool spineShadow;
 
+  /// Pixels at the bottom of the view hidden under the recitation bar, which
+  /// floats over the page. The ayah being recited is kept above it.
+  final double obscuredBottom;
+
   @override
   State<ContinuousQuranView> createState() => ContinuousQuranViewState();
 }
@@ -118,6 +125,28 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   final Map<int, Offset> _draggingBookmarkOffsets = <int, Offset>{};
   Timer? _precacheDebounceTimer;
   int _lastPrecacheCenterPage = -1;
+
+  // ── Keeping the ayah being recited on screen (see ayah_follow.dart) ──
+  //
+  // The page here is as wide as the screen, so only about a third of it
+  // shows at once. Without auto-scroll the view used to move only when the
+  // recitation turned the page, and then to the page's top: the tinted ayah
+  // went on down the page out of sight.
+
+  /// The page the recitation last asked the reader to show, 0-based. Tells
+  /// apart the two halves of an ayah printed across a page break.
+  int? _recitationPage;
+  bool _userScrolling = false;
+  DateTime _userScrollEndedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _revealScheduled = false;
+  int _revealGen = 0;
+
+  /// Moves the view down an ayah taller than the screen as it is recited.
+  Timer? _progressFollowTimer;
+
+  /// A drag of the reader's own wins for a few seconds: the next ayah brings
+  /// the view back.
+  static const Duration _userScrollGrace = Duration(seconds: 3);
 
   void _debugEvent(String name, [Map<String, Object?> details = const {}]) {
     if (!_debugTransitions) return;
@@ -208,6 +237,10 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
       keepScrollOffset: false,
     );
     _controller.addListener(_handleScroll);
+    final audio = AudioService.instance;
+    audio.currentAyah.addListener(_handleRecitationChanged);
+    audio.currentAyahGroup.addListener(_handleRecitationChanged);
+    audio.isRecitationBarVisible.addListener(_handleRecitationChanged);
     _debugEvent('initState', {
       'viewportWidth': widget.viewportWidth.toStringAsFixed(1),
       'initialOffset': _controller.initialScrollOffset.toStringAsFixed(1),
@@ -222,6 +255,9 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
         'positionCount': _controller.positions.length,
       });
       _syncAutoScroll();
+      // Turned sideways mid-recitation: the view opens on the page's top,
+      // and the ayah being recited may be further down.
+      _handleRecitationChanged();
     });
   }
 
@@ -269,6 +305,8 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
           math.max(0.0, _controller.position.maxScrollExtent),
         ));
       }
+      // The lines moved with the new page size.
+      _scheduleRecitationReveal();
     }
 
     if (widget.autoScrollEnabled != oldWidget.autoScrollEnabled ||
@@ -279,6 +317,11 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
 
   @override
   void dispose() {
+    final audio = AudioService.instance;
+    audio.currentAyah.removeListener(_handleRecitationChanged);
+    audio.currentAyahGroup.removeListener(_handleRecitationChanged);
+    audio.isRecitationBarVisible.removeListener(_handleRecitationChanged);
+    _progressFollowTimer?.cancel();
     _autoScrollTimer?.cancel();
     _pendingLongPressTimer?.cancel();
     _precacheDebounceTimer?.cancel();
@@ -493,7 +536,7 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
   /// Returns false when it can't act, so the caller can fall back to a plain
   /// page turn.
   bool followRecitationToPage(int pageIndex) {
-    if (!_controller.hasClients || !widget.autoScrollEnabled) return false;
+    if (!_controller.hasClients) return false;
 
     final safePage = pageIndex.clamp(0, widget.pages.length - 1);
     final double viewport = _controller.position.viewportDimension;
@@ -502,6 +545,35 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
     final double pageTop = _offsetForPage(safePage);
     final double offset = _controller.offset;
     _lastReportedPage = safePage;
+    _recitationPage = safePage;
+
+    if (!widget.autoScrollEnabled) {
+      _cancelProgressFollow();
+      _turnedToPage = safePage;
+      // As the page turn always did, but only when the new page's top is not
+      // on screen already (it often is, under the page before), and gliding
+      // when it is close. The ayah being recited is then brought into view
+      // by [_revealRecitation].
+      final double visibleBottom = offset + viewport - widget.obscuredBottom;
+      final bool topShowing = pageTop >= offset && pageTop + 1 < visibleBottom;
+      if (!topShowing) {
+        final double target = pageTop.clamp(
+          0.0,
+          _controller.position.maxScrollExtent,
+        );
+        if ((target - offset).abs() <= viewport * 1.5) {
+          _controller.animateTo(
+            target,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeInOutCubic,
+          );
+        } else {
+          _controller.jumpTo(target);
+        }
+      }
+      _scheduleRecitationReveal();
+      return true;
+    }
 
     if (offset >= pageTop - viewport && offset <= pageTop) return true;
 
@@ -521,6 +593,200 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
           if (mounted && widget.autoScrollEnabled) _syncAutoScroll();
         });
     return true;
+  }
+
+  void _handleRecitationChanged() {
+    // Lines worked out for the previous ayah must not steer the view while
+    // the new one is looked up.
+    _cancelProgressFollow();
+    if (!AudioService.instance.isRecitationBarVisible.value) {
+      _recitationPage = null;
+      _turnedToPage = null;
+      return;
+    }
+    _scheduleRecitationReveal();
+  }
+
+  /// One look per frame however many of the recitation's values changed.
+  void _scheduleRecitationReveal() {
+    if (_revealScheduled) return;
+    _revealScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revealScheduled = false;
+      if (mounted) unawaited(_revealRecitation());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  bool get _userRecentlyScrolled =>
+      _userScrolling ||
+      DateTime.now().difference(_userScrollEndedAt) < _userScrollGrace;
+
+  bool get _canFollowRecitation =>
+      _controller.hasClients &&
+      !widget.autoScrollEnabled &&
+      widget.memorizationTestPageIndex < 0;
+
+  /// Brings the ayah being recited into view.
+  ///
+  /// Only while the reader can see part of the page it is on, as the paged
+  /// reader does: someone who went to another page while it recites is left
+  /// there until the recitation turns the page. A page turn just asked for
+  /// counts as seen, the view may still be on its way there.
+  Future<void> _revealRecitation() async {
+    if (!_canFollowRecitation) return;
+    final keys = recitedAyatToFollow();
+    if (keys.isEmpty) return;
+    final hint = _recitationPage ??=
+        _lastReportedPage.clamp(0, widget.pages.length - 1);
+    final gen = ++_revealGen;
+    final found = await _findAyahLines(keys, hint);
+    if (!mounted || gen != _revealGen || !_canFollowRecitation) return;
+    if (found == null) return;
+    final (pageIndex, lines) = found;
+
+    final turned = _turnedToPage == pageIndex;
+    if (turned) {
+      _turnedToPage = null;
+    } else {
+      if (_userRecentlyScrolled) return;
+      final offset = _controller.offset;
+      final viewport = _controller.position.viewportDimension;
+      final pageTop = _offsetForPage(pageIndex);
+      if (pageTop + _pageHeight <= offset || pageTop >= offset + viewport) {
+        return;
+      }
+    }
+    _followLines(pageIndex, lines);
+
+    // An ayah taller than the screen: follow the recitation down it.
+    final top = lines.map((r) => r.top).reduce(math.min);
+    final bottom = lines.map((r) => r.bottom).reduce(math.max);
+    if (bottom - top > _followRoom && lines.length > 1) {
+      _progressFollowTimer = Timer.periodic(
+        const Duration(milliseconds: 400),
+        (_) {
+          if (!mounted || !_canFollowRecitation) {
+            _cancelProgressFollow();
+            return;
+          }
+          if (!AudioService.instance.isPlaying.value || _userRecentlyScrolled) {
+            return;
+          }
+          _followLines(pageIndex, lines);
+        },
+      );
+    }
+  }
+
+  /// The page last turned to by the recitation, until its ayah is shown.
+  int? _turnedToPage;
+
+  static const double _followLead = 12;
+
+  /// Height of the view the recited lines are kept in.
+  double get _followRoom => !_controller.hasClients
+      ? 0
+      : _controller.position.viewportDimension -
+            widget.obscuredBottom -
+            _followLead;
+
+  /// Where ([pageIndex], lines in scroll coordinates) [keys] are printed:
+  /// on the page the recitation is on first, so an ayah printed across a
+  /// page break follows the half being recited; then next to it.
+  Future<(int, List<Rect>)?> _findAyahLines(
+    Set<(int, int)> keys,
+    int hint,
+  ) async {
+    final audioPage = AudioService.instance.currentAudioPageIndex;
+    final candidates = <int>{
+      hint,
+      if (audioPage >= 0) audioPage,
+      hint + 1,
+      hint - 1,
+      if (audioPage >= 0) ...[audioPage + 1, audioPage - 1],
+    }.where((p) => p >= 0 && p < widget.pages.length);
+    final box = Size(_displayPageWidth, _pageHeight);
+    for (final page in candidates) {
+      final lines = await ayahLineBoxes(
+        pageNumber: page + 1,
+        keys: keys,
+        box: box,
+        marginView: widget.marginView,
+      );
+      if (lines == null || lines.isEmpty) continue;
+      final dy = _offsetForPage(page);
+      return (page, [for (final r in lines) r.shift(Offset(0, dy))]);
+    }
+    return null;
+  }
+
+  /// Scrolls just enough to show [lines] (or, for an ayah taller than the
+  /// screen, the line being recited), see [revealScrollOffset].
+  void _followLines(
+    int pageIndex,
+    List<Rect> lines, {
+    bool recited = true,
+  }) {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final (top, bottom) = followSpan(
+      lines,
+      _followRoom,
+      recited ? AudioService.instance.currentAyahProgress : null,
+    );
+    final target = revealScrollOffset(
+      offset: _controller.offset,
+      viewport: position.viewportDimension,
+      maxScroll: position.maxScrollExtent,
+      targetTop: top,
+      targetBottom: bottom,
+      minOffset: _offsetForPage(pageIndex),
+      bottomInset: widget.obscuredBottom,
+      lead: _followLead,
+    );
+    if (target == null) return;
+    _scrollTo(target);
+  }
+
+  void _scrollTo(double target) {
+    final distance = (target - _controller.offset).abs();
+    if (distance > _controller.position.viewportDimension * 3) {
+      // Far off: gliding there would decode every page on the way.
+      _controller.jumpTo(target);
+      return;
+    }
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  void _cancelProgressFollow() {
+    _progressFollowTimer?.cancel();
+    _progressFollowTimer = null;
+  }
+
+  /// Shows ([surah], [ayah]) on [pageIndex] (0-based) when it is not on
+  /// screen: a search result, or another place opened from an ayah's sheet.
+  /// The reader has just been taken to the page's top, and the ayah may be
+  /// further down.
+  Future<void> revealAyah(int pageIndex, int surah, int ayah) async {
+    if (pageIndex < 0 || pageIndex >= widget.pages.length) return;
+    final gen = ++_revealGen;
+    final lines = await ayahLineBoxes(
+      pageNumber: pageIndex + 1,
+      keys: {(surah, ayah)},
+      box: Size(_displayPageWidth, _pageHeight),
+      marginView: widget.marginView,
+    );
+    if (!mounted || gen != _revealGen || !_controller.hasClients) return;
+    if (lines == null || lines.isEmpty) return;
+    final dy = _offsetForPage(pageIndex);
+    _followLines(pageIndex, [
+      for (final r in lines) r.shift(Offset(0, dy)),
+    ], recited: false);
   }
 
   Future<void> scrollToBookmark(
@@ -578,6 +844,9 @@ class ContinuousQuranViewState extends State<ContinuousQuranView> {
 
     return NotificationListener<UserScrollNotification>(
       onNotification: (notification) {
+        final dragging = notification.direction != ScrollDirection.idle;
+        if (_userScrolling && !dragging) _userScrollEndedAt = DateTime.now();
+        _userScrolling = dragging;
         if (widget.autoScrollEnabled) {
           if (notification.direction == ScrollDirection.idle) {
             _syncAutoScroll();

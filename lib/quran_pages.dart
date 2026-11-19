@@ -108,6 +108,7 @@ import 'widgets/settings/settings_page.dart';
 import 'widgets/settings/settings_tour_overlay.dart';
 import 'widgets/update_available_dialog.dart';
 import 'widgets/whats_new_dialog.dart';
+import 'widgets/menu_scroll_cue.dart';
 import 'search_page.dart';
 import 'utils/after_opening.dart';
 
@@ -1967,6 +1968,14 @@ class _QuranPagesState extends State<QuranPages>
     final target = SelectedAyah(pageNumber: page, surah: surah, ayah: ayah);
     _searchResultHighlight = target;
     SelectedAyahHighlight.selected.value = target;
+    // The landscape reader shows a third of the page: [_goToPage] took it to
+    // the page's top, and the tinted ayah may be further down.
+    if (_isPhoneLandscape(context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _continuousViewKey.currentState?.revealAyah(page - 1, surah, ayah);
+      });
+    }
   }
 
   /// Lifts the search result's tint, if it is still the one on the page. The
@@ -5097,13 +5106,9 @@ class _QuranPagesState extends State<QuranPages>
   /// more adrift — is corrected, by gliding that first line back to the middle
   /// rather than by jumping.
   void _followRecitationToPage(int pageIndex) {
-    if (!_isAutoScrollEnabled) {
-      // The reader turns the page itself here, so on a TV the chrome stays:
-      // the user may be walking the bar with the remote at that very moment.
-      _goToPage(pageIndex + 1, keepChrome: TvService.instance.isTv);
-      return;
-    }
-
+    // The landscape reader follows the recitation itself, auto-scroll or not:
+    // its page is taller than the screen, so a plain page turn (to the top)
+    // left the ayah being recited out of sight further down.
     if (_isPhoneLandscape(context)) {
       final handled =
           _continuousViewKey.currentState?.followRecitationToPage(pageIndex) ??
@@ -5112,7 +5117,24 @@ class _QuranPagesState extends State<QuranPages>
         _goToPage(pageIndex + 1);
         return;
       }
+      if (!_isAutoScrollEnabled &&
+          (_showIndex || _showSurahs || _isSearching)) {
+        // As [_goToPage] does for this turn on a phone.
+        setState(() {
+          _showIndex = false;
+          _showSurahs = false;
+          _isSearching = false;
+        });
+        _updateSystemUI();
+      }
       _setCurrentPage(pageIndex, showHizbPopup: true);
+      return;
+    }
+
+    if (!_isAutoScrollEnabled) {
+      // The reader turns the page itself here, so on a TV the chrome stays:
+      // the user may be walking the bar with the remote at that very moment.
+      _goToPage(pageIndex + 1, keepChrome: TvService.instance.isTv);
       return;
     }
 
@@ -6085,6 +6107,11 @@ class _QuranPagesState extends State<QuranPages>
                       _imageProviderForPage(pageIndex, pages[pageIndex]),
                   marginView: _isMarginImagesEnabled,
                   spineShadow: _showSpineShadow(context),
+                  obscuredBottom:
+                      AudioService.instance.isRecitationBarVisible.value &&
+                          !_recitationBarHidden
+                      ? _recitationBarHeight
+                      : 0,
                   initialPage: _currentPage,
                   viewportWidth: constraints.maxWidth,
                   pageAspectRatio: _activePageAspectRatio,
@@ -8625,61 +8652,86 @@ class _QuranPagesState extends State<QuranPages>
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: borderColor),
                               ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: selected.id,
-                                  isExpanded: true,
-                                  icon: Icon(
-                                    Icons.keyboard_arrow_down_rounded,
-                                    color: titleColor,
+                              // The bold bar and the fade that show the
+                              // list goes on past the rows in view.
+                              child: MenuScrollCue(
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: selected.id,
+                                    isExpanded: true,
+                                    icon: Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      color: titleColor,
+                                    ),
+                                    dropdownColor: bgColor,
+                                    borderRadius: BorderRadius.circular(12),
+                                    menuMaxHeight:
+                                        ReciterService.pickerMenuMaxHeight(
+                                          kMinInteractiveDimension,
+                                        ),
+                                    items: [
+                                      for (final reciter
+                                          in reciterService.reciters)
+                                        DropdownMenuItem(
+                                          value: reciter.id,
+                                          child: MenuRowEdgeFade(
+                                            // The riwaya as a quieter second
+                                            // part of the row.
+                                            child: Text.rich(
+                                              TextSpan(
+                                                children: [
+                                                  TextSpan(
+                                                    text: reciter.shortName,
+                                                  ),
+                                                  TextSpan(
+                                                    text:
+                                                        '   ${reciter.riwaya.trim()}',
+                                                    style: TextStyle(
+                                                      color: subTextColor,
+                                                      fontSize: 12.5,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              style: TextStyle(
+                                                color: textColor,
+                                                fontSize: 14.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                    selectedItemBuilder: (context) => [
+                                      for (final reciter
+                                          in reciterService.reciters)
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text(
+                                            reciter.shortName,
+                                            style: TextStyle(
+                                              color: textColor,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                    ],
+                                    onChanged: (id) {
+                                      if (id == null) return;
+                                      _resetHideTimer();
+                                      reciterService.select(
+                                        reciterService.reciters.firstWhere(
+                                          (r) => r.id == id,
+                                        ),
+                                      );
+                                    },
                                   ),
-                                  dropdownColor: bgColor,
-                                  borderRadius: BorderRadius.circular(12),
-                                  menuMaxHeight:
-                                      ReciterService.pickerMenuMaxHeight(
-                                        kMinInteractiveDimension,
-                                      ),
-                                  items: [
-                                    for (final reciter
-                                        in reciterService.reciters)
-                                      DropdownMenuItem(
-                                        value: reciter.id,
-                                        child: Text(
-                                          '${reciter.shortName} — ${reciter.riwaya}',
-                                          style: TextStyle(
-                                            color: textColor,
-                                            fontSize: 14.5,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                  ],
-                                  selectedItemBuilder: (context) => [
-                                    for (final reciter
-                                        in reciterService.reciters)
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Text(
-                                          reciter.shortName,
-                                          style: TextStyle(
-                                            color: textColor,
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                  ],
-                                  onChanged: (id) {
-                                    if (id == null) return;
-                                    _resetHideTimer();
-                                    reciterService.select(
-                                      reciterService.reciters.firstWhere(
-                                        (r) => r.id == id,
-                                      ),
-                                    );
-                                  },
                                 ),
                               ),
                             );

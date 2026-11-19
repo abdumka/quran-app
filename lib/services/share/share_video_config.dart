@@ -33,6 +33,10 @@ class ShareVideoConfig {
     this.album = defaultAlbum,
     this.videoPlatforms = const {'android', 'ios'},
     this.videoOffBuilds = const {},
+    this.fonts = const [],
+    this.defaultFont = 'system',
+    this.fontNone = false,
+    this.fontSample = defaultFontSample,
   });
 
   static const String assetPath = 'assets/data/share_video.json';
@@ -75,6 +79,28 @@ class ShareVideoConfig {
 
   /// App builds on which the video choice is off (a build with a bug).
   final Set<int> videoOffBuilds;
+
+  /// The fonts the reciter line can be written in (`fonts.list`), in the
+  /// order the picker lists them. Empty: no font picker.
+  final List<ShareVideoFont> fonts;
+
+  /// The font picked the first time (`fonts.default`).
+  final String defaultFont;
+
+  /// Whether the picker offers «بدون سطر القارئ» first (`fonts.allowNone`).
+  final bool fontNone;
+
+  /// What the picker's preview pictures say; the phone's own font row writes
+  /// it as text.
+  final String fontSample;
+  static const String defaultFontSample = 'رواية قالون عن نافع';
+
+  ShareVideoFont? font(String? id) {
+    for (final f in fonts) {
+      if (f.id == id) return f;
+    }
+    return null;
+  }
 
   /// Whether this phone offers the video choice. [build] may be a split-ABI
   /// version code (2000 + build on arm64), so both forms are checked.
@@ -224,6 +250,19 @@ class ShareVideoConfig {
       });
     }
     final album = j['album'];
+    final fontsJ = j['fonts'] is Map ? j['fonts'] as Map : const {};
+    final fonts = <ShareVideoFont>[];
+    if (fontsJ['list'] is List) {
+      for (final f in fontsJ['list'] as List) {
+        // A bad entry drops that font only, never the whole config.
+        final font = ShareVideoFont._parse(f);
+        if (font != null && !fonts.any((x) => x.id == font.id)) {
+          fonts.add(font);
+        }
+      }
+    }
+    final defFont = fontsJ['default'];
+    final sample = fontsJ['sample'];
     final platforms = j['videoPlatforms'];
     final offBuilds = j['videoOffBuilds'];
     return ShareVideoConfig._(
@@ -262,6 +301,14 @@ class ShareVideoConfig {
           for (final x in offBuilds)
             if (x is int) x,
       },
+      fonts: List.unmodifiable(fonts),
+      defaultFont: fonts.any((f) => f.id == defFont)
+          ? defFont as String
+          : (fonts.isEmpty ? 'system' : fonts.first.id),
+      fontNone: fontsJ['allowNone'] == true,
+      fontSample: sample is String && sample.trim().isNotEmpty && sample.length <= 60
+          ? sample
+          : defaultFontSample,
     );
   }
 
@@ -311,6 +358,11 @@ class ShareVideoLook {
     this.closingBottom = 0xFF1D160C,
     this.closingText = 0xFFF6ECD6,
     this.icon,
+    this.showCredit = false,
+    this.creditTemplate = defaultCreditTemplate,
+    this.creditSize = 0.026,
+    this.creditOpacity = 0.8,
+    this.creditGap = 0.01,
     required this.showWatermark,
     required this.watermarkName,
     required this.watermarkLink,
@@ -366,6 +418,19 @@ class ShareVideoLook {
   /// The app icon of the watermark and the closing card as a picture on the
   /// server (path under [ShareVideoConfig.baseUrl]); null = the bundled icon.
   final String? icon;
+
+  /// The reciter line under the surah name (`video.credit`): `{reciter}` is
+  /// the reciter's name, `{riwaya}` the riwayah note the reciter list holds.
+  /// Off when the config has no `credit`, so older configs look as before.
+  final bool showCredit;
+  final String creditTemplate;
+  static const String defaultCreditTemplate = '{reciter} · رواية قالون عن نافع';
+
+  /// Its letter size and the space above it, as shares of the frame's short
+  /// side (each font's own `scale` multiplies the size), and its opacity.
+  final double creditSize;
+  final double creditOpacity;
+  final double creditGap;
   final bool showWatermark;
   final String watermarkName;
   final String watermarkLink;
@@ -417,6 +482,8 @@ class ShareVideoLook {
     final title = sub(m['title']);
     final mark = sub(m['watermark']);
     final close = sub(m['closing']);
+    final credit = m['credit'];
+    final cr = sub(credit);
     final heights = <String, double>{};
     final th = m['textHeight'];
     if (th is Map) {
@@ -446,6 +513,15 @@ class ShareVideoLook {
       closingBottom: color(colors['closingBottom'], 0xFF1D160C),
       closingText: color(colors['closingText'], 0xFFF6ECD6),
       icon: ShareVideoConfig.safePath(m['icon']),
+      showCredit: credit is Map && cr['show'] != false,
+      creditTemplate: cr['template'] is String &&
+              (cr['template'] as String).trim().isNotEmpty &&
+              (cr['template'] as String).length <= 120
+          ? cr['template'] as String
+          : defaultCreditTemplate,
+      creditSize: d(cr['size'], 0.026, 0.012, 0.06),
+      creditOpacity: d(cr['opacity'], 0.8, 0.2, 1),
+      creditGap: d(cr['gap'], 0.01, 0, 0.06),
       showWatermark: mark['show'] != false,
       watermarkName: s(mark['name'], 'المصحف الجامع'),
       watermarkLink: s(mark['link'], 'mushaf-qaloon.com'),
@@ -492,6 +568,60 @@ class ShareVideoShape {
       title: ShareVideoConfig._str(v['title'], 'shape title'),
       width: w,
       height: h,
+    );
+  }
+}
+
+/// A font for the reciter line. [file] null = the phone's own font (nothing
+/// to download). The file is a TTF/OTF under [ShareVideoConfig.baseUrl],
+/// downloaded only when picked; [preview] is a small picture of
+/// [ShareVideoConfig.fontSample] in it (dark ink on transparent, tinted in
+/// the picker), so listing the fonts downloads none of them.
+class ShareVideoFont {
+  const ShareVideoFont({
+    required this.id,
+    required this.title,
+    this.file,
+    this.bytes = 0,
+    this.scale = 1,
+    this.preview,
+  });
+
+  final String id;
+  final String title;
+  final String? file;
+  final int bytes;
+
+  /// Thuluth and Diwani draw small at the same size: their letters are
+  /// multiplied by this.
+  final double scale;
+  final String? preview;
+
+  bool get isSystem => file == null;
+
+  static final RegExp _id = RegExp(r'^[a-z0-9_]{1,32}$');
+
+  static ShareVideoFont? _parse(Object? v) {
+    if (v is! Map) return null;
+    final id = v['id'];
+    final title = v['title'];
+    if (id is! String || !_id.hasMatch(id)) return null;
+    if (title is! String || title.trim().isEmpty || title.length > 40) {
+      return null;
+    }
+    final file = ShareVideoConfig.safePath(v['file']);
+    if (v['file'] != null && file == null) return null;
+    final bytes = v['bytes'];
+    final scale = v['scale'];
+    return ShareVideoFont(
+      id: id,
+      title: title,
+      file: file,
+      bytes: bytes is int && bytes > 0 && bytes < 4000000 ? bytes : 0,
+      scale: scale is num && scale.isFinite
+          ? scale.toDouble().clamp(0.5, 3.0)
+          : 1,
+      preview: ShareVideoConfig.safePath(v['preview']),
     );
   }
 }

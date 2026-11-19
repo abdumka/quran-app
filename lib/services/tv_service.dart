@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// cache by URL, so "I installed it but nothing changed" is otherwise
 /// impossible to diagnose. Bump this with every APK you publish, and publish
 /// under a matching filename.
-const String kTvBuildStamp = 'TV build 37, 2026-11-18';
+const String kTvBuildStamp = 'TV build 39, 2026-11-18';
 
 /// Whether this process is running on an Android TV (leanback) device.
 ///

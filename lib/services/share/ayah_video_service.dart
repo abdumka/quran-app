@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -184,6 +185,57 @@ class AyahVideoService {
       return null;
     }
   }
+
+  // ───────────────────── fonts of the reciter line ─────────────────────
+
+  final Map<String, Future<File?>> _previews = {};
+  final Map<String, Future<String?>> _fonts = {};
+
+  /// The picture of [font] the picker shows, downloaded once and kept.
+  Future<File?> fontPreview(ShareVideoConfig config, ShareVideoFont font) {
+    final path = font.preview;
+    if (path == null) return Future.value(null);
+    return _previews[path] ??= _picture(config, path).then((f) {
+      if (f == null) _previews.remove(path);
+      return f;
+    });
+  }
+
+  /// [font] registered with the engine, downloaded the first time it is
+  /// used: its family name; null for the phone's own font, and when the file
+  /// cannot be had (the video is then written in the phone's font rather
+  /// than not made). The family carries the file's path, so a font replaced
+  /// on the server under a new path is registered afresh.
+  Future<String?> fontFamily(ShareVideoConfig config, ShareVideoFont font) {
+    final path = font.file;
+    if (path == null) return Future.value(null);
+    return _fonts[path] ??= () async {
+      try {
+        final f = await _local(path);
+        if (!(await f.exists() &&
+            (font.bytes == 0 || await f.length() == font.bytes))) {
+          await _download(
+            Uri.parse(config.urlOf(path)),
+            f,
+            expectBytes: font.bytes,
+          );
+        }
+        final family = 'share_video_${path.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_')}';
+        await ui.loadFontFromList(await f.readAsBytes(), fontFamily: family);
+        return family;
+      } catch (e) {
+        debugPrint('AyahVideo: font ${font.id}: $e');
+        _fonts.remove(path);
+        return null;
+      }
+    }();
+  }
+
+  /// The reciter line of a video by [reciter] (`video.credit`).
+  static String creditLine(ShareVideoLook look, Reciter reciter) => look
+      .creditTemplate
+      .replaceAll('{reciter}', reciter.name.trim())
+      .replaceAll('{riwaya}', reciter.riwaya.trim());
 
   Future<bool> isClipCached(ShareVideoBackground bg, String shape) async {
     final file = bg.files[shape];
@@ -458,6 +510,7 @@ class AyahVideoService {
     required ShareVideoBackground background,
     required ShareVideoEffect effect,
     required AyahVideoProgress progress,
+    ShareVideoFont? font,
   }) async {
     void check() {
       if (progress.cancelled) throw const AyahVideoCancelled();
@@ -578,6 +631,15 @@ class AyahVideoService {
     final iconImage = iconFile == null
         ? null
         : await AyahVideoArt.decodeFile(iconFile);
+    // The reciter line, in the picked font (no font = «بدون سطر القارئ»).
+    String? credit;
+    String? creditFont;
+    var creditScale = 1.0;
+    if (look.showCredit && font != null) {
+      credit = creditLine(look, reciter);
+      creditFont = await fontFamily(config, font);
+      if (creditFont != null) creditScale = font.scale;
+    }
     for (var i = 0; i < plan.groups.length; i++) {
       check();
       final image = await AyahVideoArt.ayatImage(
@@ -593,6 +655,9 @@ class AyahVideoService {
         title: title,
         titleImage: titleImage,
         iconImage: iconImage,
+        credit: credit,
+        creditFont: creditFont,
+        creditScale: creditScale,
       );
       image?.dispose();
       final f = File(p.join(work.path, 'frame_$i.png'));

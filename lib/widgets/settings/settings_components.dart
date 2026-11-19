@@ -13,6 +13,7 @@ import '../quran/page_image_crop.dart';
 import '../../surah_data.dart';
 import '../../services/app_look_service.dart';
 import '../../theme/app_surfaces.dart';
+import '../menu_scroll_cue.dart';
 
 class PremiumIconWrapper extends StatelessWidget {
   final IconData icon;
@@ -962,33 +963,41 @@ class ReciterTile extends StatelessWidget {
               ),
               child: Directionality(
                 textDirection: TextDirection.rtl,
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<Reciter>(
-                    isExpanded: true,
-                    isDense: true,
-                    value: current,
-                    itemHeight: 54,
-                    menuMaxHeight: ReciterService.pickerMenuMaxHeight(54),
-                    borderRadius: BorderRadius.circular(12),
-                    dropdownColor: const Color(0xFFF6F1E5),
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: Color(0xFF8B7355),
+                // The bold bar and the fade that show the list goes on.
+                child: MenuScrollCue(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<Reciter>(
+                      isExpanded: true,
+                      isDense: true,
+                      value: current,
+                      itemHeight: 54,
+                      menuMaxHeight: ReciterService.pickerMenuMaxHeight(54),
+                      borderRadius: BorderRadius.circular(12),
+                      dropdownColor: const Color(0xFFF6F1E5),
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: Color(0xFF8B7355),
+                      ),
+                      onChanged: (r) {
+                        if (r != null && r.id != selected.id) onSelect(r);
+                      },
+                      selectedItemBuilder: (context) => [
+                        for (final r in reciters)
+                          _reciterRow(r, checked: false, showRiwaya: false),
+                      ],
+                      items: [
+                        for (final r in reciters)
+                          DropdownMenuItem<Reciter>(
+                            value: r,
+                            child: MenuRowEdgeFade(
+                              child: _reciterRow(
+                                r,
+                                checked: r.id == selected.id,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                    onChanged: (r) {
-                      if (r != null && r.id != selected.id) onSelect(r);
-                    },
-                    selectedItemBuilder: (context) => [
-                      for (final r in reciters)
-                        _reciterRow(r, checked: false, showRiwaya: false),
-                    ],
-                    items: [
-                      for (final r in reciters)
-                        DropdownMenuItem<Reciter>(
-                          value: r,
-                          child: _reciterRow(r, checked: r.id == selected.id),
-                        ),
-                    ],
                   ),
                 ),
               ),

@@ -94,6 +94,17 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   Rect? _lastScopeRect;
   final List<(Rect, Rect?)> _scopeStack = [];
 
+  /// Global rects of the scroll containers inside the current route scope,
+  /// from the last [_targets] walk. Only these may be scrolled: see
+  /// [_scrollableContaining].
+  List<Rect> _scopeScrollRects = const [];
+
+  /// The ring was put on the first row of a scope that had just opened only
+  /// because nothing was marked as the current value YET. A dropdown marks
+  /// its current item by focusing it a frame or two after it opens, so until
+  /// the user presses an arrow the ring may still move there.
+  bool _provisional = false;
+
   bool get _active => TvService.instance.isTv;
   bool get _isTop => _stack.isNotEmpty && identical(_stack.last, this);
 
@@ -212,6 +223,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     _lastScopeRect = scopeRect;
 
     final out = <_TvTarget>[];
+    final scrollRects = <Rect>[];
     // A node's rect is in its own space and `transform` maps that to its
     // parent, so the global rect needs the ancestors' transforms accumulated
     // on the way down. SemanticsNode has no getTransformTo().
@@ -225,13 +237,24 @@ class _TvFocusScopeState extends State<TvFocusScope> {
           data.hasAction(SemanticsAction.increase) ||
           data.hasAction(SemanticsAction.decrease);
       final flags = data.flagsCollection;
-      // isSelected is a Tristate in this Flutter version.
+      // isSelected and isFocused are Tristates in this Flutter version.
       final bool selected = flags.isSelected == Tristate.isTrue;
+      final bool focused = flags.isFocused == Tristate.isTrue;
+      // Every Scrollable publishes one node carrying its scroll position.
+      if (data.scrollPosition != null && !n.rect.isEmpty) {
+        scrollRects.add(MatrixUtils.transformRect(m, n.rect));
+      }
       if ((tappable || adjustable) && !hidden && !n.rect.isEmpty) {
         final r = MatrixUtils.transformRect(m, n.rect);
         if (r.width > 1 && r.height > 1) {
           out.add(
-            _TvTarget(n.id, r, adjustable: adjustable, selected: selected),
+            _TvTarget(
+              n.id,
+              r,
+              adjustable: adjustable,
+              selected: selected,
+              focused: focused,
+            ),
           );
         }
       }
@@ -242,6 +265,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     }
 
     walk(scope, Matrix4.identity());
+    _scopeScrollRects = scrollRects;
 
     // Reading order: top to bottom, then right to left (the UI is RTL).
     out.sort((a, b) {
@@ -279,8 +303,31 @@ class _TvFocusScopeState extends State<TvFocusScope> {
         _scopeStack.add((prev, _anchor));
         _anchor = null;
       }
+      // The old target's id means nothing in the other scope. Ids are
+      // recycled, so keeping it let the dropdown's own id match some row of
+      // the menu it opened: القارئ opened with the ring on قنيوه, two rows
+      // from the current reciter, for no visible reason.
+      _targetId = null;
+      _provisional = false;
     }
     _scopeRect = sr;
+
+    // The ring went to the top of a scope that had just opened only because
+    // nothing was marked yet; if the current value has been marked since,
+    // and the user has not moved, go there.
+    if (_provisional && dir == null) {
+      final marked = targets.where((t) => t.current).firstOrNull;
+      if (marked != null && marked.id != _targetId) {
+        _provisional = false;
+        _anchor = marked.rect;
+        _highlight = marked.rect;
+        _targetId = marked.id;
+        _syncRing();
+        _resyncFromSemantics();
+        return true;
+      }
+    }
+    if (dir != null) _provisional = false;
 
     // By id first. The snapshot below may be a frame or two behind a scroll,
     // and matching by position against stale rects is what used to pick the
@@ -310,10 +357,17 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     final _TvTarget next;
     if (current == null || dir == null) {
       // Fresh target set (a chooser just opened): start on the current value
-      // if one is marked, otherwise the first entry.
-      next =
-          current ??
-          targets.firstWhere((t) => t.selected, orElse: () => targets.first);
+      // if one is marked, otherwise the first entry -- provisionally, since
+      // the mark may only arrive a frame later.
+      if (current != null) {
+        next = current;
+      } else {
+        next =
+            targets.where((t) => t.selected).firstOrNull ??
+            targets.where((t) => t.focused).firstOrNull ??
+            targets.first;
+        _provisional = !next.current;
+      }
     } else {
       next = _nearest(targets, current, dir) ?? current;
     }
@@ -729,7 +783,31 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   }
 
   /// Innermost scrollable whose viewport contains [target], with its rect.
+  ///
+  /// Only lists in the route the ring is in qualify. The element tree also
+  /// holds the routes BELOW an open sheet or menu, still laid out where they
+  /// were, and "innermost" means smallest. On a TV the reader's bottom menu
+  /// is a short, full-width horizontal list at y 424-476, right behind the
+  /// lower rows of the القارئ menu, so from the 7th reciter down it won as
+  /// the "innermost" list: the driver scrolled that (already at its end)
+  /// instead of the menu, the ring stuck on the half-cut row, and the
+  /// reciters below it could never be chosen. A list counts only if the
+  /// current scope's semantics hold a scroll container in the same place.
   (ScrollPosition, Rect)? _scrollableContaining(Rect target) {
+    final inScope = _scopeScrollRects;
+    bool ownedByScope(Rect r) {
+      final outer = r.inflate(4);
+      // A container's semantics rect can be clipped by its ancestors, but
+      // only ever to a part of the list's own box.
+      return inScope.any(
+        (s) =>
+            (s.left - r.left).abs() < 4 &&
+            (s.right - r.right).abs() < 4 &&
+            s.top >= outer.top &&
+            s.bottom <= outer.bottom,
+      );
+    }
+
     ScrollPosition? bestPos;
     Rect? bestRect;
     double bestArea = double.infinity;
@@ -740,7 +818,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
           final box = st.context.findRenderObject();
           if (box is RenderBox && box.hasSize && box.attached) {
             final r = box.localToGlobal(Offset.zero) & box.size;
-            if (r.contains(target.center)) {
+            if (r.contains(target.center) && ownedByScope(r)) {
               final area = r.width * r.height;
               if (area < bestArea) {
                 bestArea = area;
@@ -816,6 +894,7 @@ class _TvTarget {
     this.rect, {
     this.adjustable = false,
     this.selected = false,
+    this.focused = false,
   });
   final int id;
   final Rect rect;
@@ -824,6 +903,14 @@ class _TvTarget {
   /// when a chooser opens, so the remote lands on the current value rather
   /// than at the top of the list.
   final bool selected;
+
+  /// Holds Flutter focus. A Material dropdown marks its current item this
+  /// way (it autofocuses it) instead of as selected, so this is the second
+  /// choice for where an opening chooser puts the ring.
+  final bool focused;
+
+  /// Marks the current value, one way or the other.
+  bool get current => selected || focused;
 
   /// Sliders expose increase/decrease instead of a meaningful tap, so
   /// Left/Right adjust them rather than moving the highlight away.

@@ -74,9 +74,17 @@ void main() {
       tester.getSize(menu).height,
       lessThanOrEqualTo(ReciterService.pickerMenuMaxHeight(48)),
     );
+    // The list scrolls inside the menu's one entry, so it can carry the bold
+    // bar that says there are more reciters below; the menu itself has
+    // nothing to scroll.
+    final list = find.descendant(of: menu, matching: find.byType(ListView));
+    expect(
+      find.descendant(of: menu, matching: find.byType(Scrollbar)),
+      findsOneWidget,
+    );
     final position = tester
         .state<ScrollableState>(
-          find.descendant(of: menu, matching: find.byType(Scrollable)).first,
+          find.descendant(of: list, matching: find.byType(Scrollable)).first,
         )
         .position;
     expect(position.maxScrollExtent, greaterThan(0));

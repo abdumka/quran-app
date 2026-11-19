@@ -11,6 +11,7 @@ import '../../services/share/ayah_share_text.dart';
 import '../../services/share/ayah_video_service.dart';
 import '../../services/share/share_video_config.dart';
 import '../../theme/app_surfaces.dart';
+import '../menu_scroll_cue.dart';
 import 'ayah_video_player.dart';
 
 /// Wording the server can change (`strings` in share_video.json).
@@ -277,9 +278,14 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   static const _prefBg = 'shareVideo.background';
   static const _prefShape = 'shareVideo.shape';
   static const _prefEffect = 'shareVideo.effect';
+  static const _prefFont = 'shareVideo.font';
+
+  /// The «بدون سطر القارئ» choice of the font picker.
+  static const _noFont = 'none';
 
   late ShareVideoShape _shape = widget.config.shapes.first;
   late ShareVideoEffect _effect = widget.config.effects.first;
+  late String _fontId = widget.config.defaultFont;
   late ShareVideoBackground _bg =
       widget.config.background(widget.config.defaultBackground) ??
       widget.config.backgrounds.first;
@@ -441,6 +447,10 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       for (final e in config.effects) {
         if (e.id == effect) _effect = e;
       }
+      final font = prefs.getString(_prefFont);
+      if ((font == _noFont && config.fontNone) || config.font(font) != null) {
+        _fontId = font!;
+      }
     });
   }
 
@@ -449,6 +459,16 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     await prefs.setString(_prefBg, _bg.id);
     await prefs.setString(_prefShape, _shape.id);
     await prefs.setString(_prefEffect, _effect.id);
+    await prefs.setString(_prefFont, _fontId);
+  }
+
+  /// The font of the reciter line; null = no line («بدون سطر القارئ»). A
+  /// config without a font list writes it in the phone's font.
+  ShareVideoFont? get _font {
+    if (_fontId == _noFont) return null;
+    return config.font(_fontId) ??
+        config.font(config.defaultFont) ??
+        const ShareVideoFont(id: 'system', title: '');
   }
 
   @override
@@ -495,6 +515,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         background: _bg,
         effect: _effect,
         progress: progress,
+        font: _font,
       );
       if (!mounted) return;
       setState(() {
@@ -628,12 +649,25 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       _label(_t('reciter', 'القارئ')),
       _reciterPicker(),
       _label(_t('shape', 'الشكل')),
+      // Each shape drawn in proportion with the chosen background inside,
+      // its name small under it.
       Wrap(
         children: [
           for (final s in config.shapes)
-            _chip(s.title, s.id == _shape.id, () => setState(() => _shape = s)),
+            _ShapeTile(
+              config: config,
+              shape: s,
+              background: _bg,
+              selected: s.id == _shape.id,
+              colors: c,
+              onTap: () => setState(() => _shape = s),
+            ),
         ],
       ),
+      if (config.video.showCredit && config.fonts.isNotEmpty) ...[
+        _label(_t('font', 'خط اسم القارئ')),
+        _fontPicker(),
+      ],
       _label(_t('background', 'الخلفية')),
       Wrap(
         children: [
@@ -853,7 +887,6 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           _reciter = reciters.first;
         }
         return PopupMenuButton<String>(
-          initialValue: _reciter.id,
           color: c.sheet,
           constraints: BoxConstraints(
             minWidth: 240,
@@ -867,21 +900,25 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               }
             }
           },
+          // One scrolling entry with the bold bar and the fade that show
+          // there are more reciters below; it opens on the chosen one.
           itemBuilder: (_) => [
-            for (final r in reciters)
-              PopupMenuItem<String>(
-                value: r.id,
-                child: Text(
-                  r.shortName,
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    color: c.text,
-                    fontWeight: r.id == _reciter.id
-                        ? FontWeight.w800
-                        : FontWeight.w500,
-                  ),
+            ScrollingMenuEntry<String>(
+              values: [for (final r in reciters) r.id],
+              selected: _reciter.id,
+              itemHeight: 48,
+              width: 260,
+              rowBuilder: (context, id) => Text(
+                reciters.firstWhere((r) => r.id == id).shortName,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  color: c.text,
+                  fontWeight: id == _reciter.id
+                      ? FontWeight.w800
+                      : FontWeight.w500,
                 ),
               ),
+            ),
           ],
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -911,6 +948,81 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           ),
         );
       },
+    );
+  }
+
+  /// The font of the reciter line: a list like the reciter picker, each row
+  /// written in its own font (a small picture from the server, so opening
+  /// the list downloads no fonts).
+  Widget _fontPicker() {
+    final ids = [
+      if (config.fontNone) _noFont,
+      for (final f in config.fonts) f.id,
+    ];
+    if (!ids.contains(_fontId)) _fontId = config.defaultFont;
+    Widget row(String id, {required bool field}) {
+      final f = config.font(id);
+      if (f == null) {
+        return Text(
+          _t('noCredit', 'بدون سطر القارئ'),
+          style: TextStyle(color: c.text, fontSize: 14),
+        );
+      }
+      return Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: _FontSample(config: config, font: f, color: c.text),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            f.title,
+            style: TextStyle(
+              color: c.muted,
+              fontSize: 12,
+              fontWeight: id == _fontId && !field
+                  ? FontWeight.w800
+                  : FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return PopupMenuButton<String>(
+      initialValue: _fontId,
+      color: c.sheet,
+      constraints: BoxConstraints(
+        minWidth: 280,
+        maxHeight: ReciterService.pickerMenuMaxHeight(52),
+      ),
+      onSelected: (id) => setState(() => _fontId = id),
+      itemBuilder: (_) => [
+        for (final id in ids)
+          PopupMenuItem<String>(
+            value: id,
+            height: 52,
+            child: row(id, field: false),
+          ),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: c.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.hair),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.text_fields_rounded, size: 20, color: c.accent),
+            const SizedBox(width: 8),
+            Expanded(child: row(_fontId, field: true)),
+            Icon(Icons.expand_more_rounded, color: c.muted),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1225,6 +1337,160 @@ class _BgThumb extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// One shape of the video: drawn in proportion with the chosen background
+/// inside it, and its name small underneath.
+class _ShapeTile extends StatelessWidget {
+  const _ShapeTile({
+    required this.config,
+    required this.shape,
+    required this.background,
+    required this.selected,
+    required this.colors,
+    required this.onTap,
+  });
+
+  final ShareVideoConfig config;
+  final ShareVideoShape shape;
+  final ShareVideoBackground background;
+  final bool selected;
+  final _SheetColors colors;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const box = 40.0;
+    final ratio = shape.width / shape.height;
+    final w = ratio >= 1 ? box : box * ratio;
+    final h = ratio >= 1 ? box / ratio : box;
+    final c = colors;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8, bottom: 6),
+      child: Material(
+        color: c.chip,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            width: 70,
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected ? c.accent : Colors.transparent,
+                width: 2,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: box,
+                  child: Center(
+                    child: Container(
+                      width: w,
+                      height: h,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(3),
+                        border: Border.all(
+                          color: selected ? c.accent : c.muted,
+                          width: selected ? 2 : 1.2,
+                        ),
+                      ),
+                      child: Opacity(
+                        opacity: selected ? 1 : 0.6,
+                        child: FutureBuilder<File?>(
+                          future: AyahVideoService.instance.thumb(
+                            config,
+                            background,
+                          ),
+                          builder: (_, snap) {
+                            final f = snap.data;
+                            if (f == null) return ColoredBox(color: c.hair);
+                            return Image.file(
+                              f,
+                              fit: BoxFit.cover,
+                              cacheWidth: 120,
+                              errorBuilder: (_, _, _) =>
+                                  ColoredBox(color: c.hair),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  shape.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: c.text,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// [ShareVideoConfig.fontSample] written in [font]: the server's picture of
+/// it (dark ink, tinted [color]); the phone's own font writes it as text.
+class _FontSample extends StatelessWidget {
+  const _FontSample({
+    required this.config,
+    required this.font,
+    required this.color,
+  });
+
+  final ShareVideoConfig config;
+  final ShareVideoFont font;
+  final Color color;
+
+  static const double height = 28;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget text() => Text(
+      config.fontSample,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(color: color, fontSize: 16),
+    );
+    if (font.isSystem || font.preview == null) return text();
+    return SizedBox(
+      height: height,
+      child: FutureBuilder<File?>(
+        future: AyahVideoService.instance.fontPreview(config, font),
+        builder: (_, snap) {
+          final f = snap.data;
+          if (f == null) {
+            return snap.connectionState == ConnectionState.done
+                ? text()
+                : const SizedBox(width: 120);
+          }
+          return Image.file(
+            f,
+            height: height,
+            fit: BoxFit.contain,
+            alignment: AlignmentDirectional.centerStart,
+            color: color,
+            colorBlendMode: BlendMode.srcIn,
+            errorBuilder: (_, _, _) => text(),
+          );
+        },
       ),
     );
   }
