@@ -2049,7 +2049,12 @@ class _QuranPagesState extends State<QuranPages>
           sourceHeight: sourceHeight,
         );
       case _AyahAction.tafsir:
-        await _showTafsirDialog(page, initialAyah: hit);
+        // The head of an ayah printed across the break is pressed on the
+        // page before the one that lists it; its tafsir row is on that one.
+        await _showTafsirDialog(
+          await _pageIndexListing(hit, near: page),
+          initialAyah: hit,
+        );
       case _AyahAction.tanzilat:
         await _showTanzilatSheet(page + 1, hit.$1, hit.$2);
       case _AyahAction.khilaf:
@@ -2068,6 +2073,20 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
+  /// The 0-based page `output.json` lists [ayah] under: [near] itself, or
+  /// the page after it when [near] shows only the head of an ayah printed
+  /// across the break (it is listed where its end marker is printed).
+  Future<int> _pageIndexListing((int, int) ayah, {required int near}) async {
+    final pages = await QuranJsonService.loadQuranPages();
+    bool lists(int index) => pages.any(
+      (p) =>
+          p.page == index + 1 &&
+          p.ayahs.any((a) => a.surah == ayah.$1 && a.ayah == ayah.$2),
+    );
+    if (!lists(near) && lists(near + 1)) return near + 1;
+    return near;
+  }
+
   /// The «تنزيلات ومتشابهات» sheet of one ayah. Tapping a place opens its
   /// page with the ayah tinted, and a «رجوع» snack bar brings the reader back
   /// to [fromPage] (1-based) with the sheet open again.
@@ -2076,8 +2095,11 @@ class _QuranPagesState extends State<QuranPages>
       context,
       surah: surah,
       ayah: ayah,
-      onOpenPlace: (page, s, a) {
+      onOpenPlace: (listedPage, s, a) {
         if (!mounted) return;
+        // The sheet's own ayah stays where it was pressed: for an ayah
+        // printed across the break that may be the page before its listing.
+        final page = s == surah && a == ayah ? fromPage : listedPage;
         _goToPage(page);
         _highlightSearchResult(page, s, a);
         if (page == fromPage && s == surah && a == ayah) return;

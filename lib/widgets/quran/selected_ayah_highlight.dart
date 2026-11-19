@@ -48,6 +48,10 @@ class SelectedAyahHighlight extends StatelessWidget {
   /// The ayah under [ratio] (0..1 of the shown image box), or null when the
   /// press missed every ayah on [pageNumber] (a margin, a surah header...).
   /// In the margin view the page occupies only `marginRect` of the image.
+  ///
+  /// The head of an ayah printed across the break onto the next page counts
+  /// too: it is the page's [AyahRegionPageData.continuing], not one of its
+  /// own ayat, and a press there used to find nothing (24:42 on page 355).
   static Future<(int, int)?> hitTest(
     int pageNumber,
     Offset ratio, {
@@ -63,7 +67,7 @@ class SelectedAyahHighlight extends StatelessWidget {
       x = (x - m.left) / m.width;
       y = (y - m.top) / m.height;
     }
-    for (final a in regions.ayahs) {
+    for (final a in [...regions.ayahs, ?regions.continuing]) {
       for (final r in a.rects) {
         if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
           return (a.surah, a.ayah);
@@ -95,7 +99,10 @@ class SelectedAyahHighlight extends StatelessWidget {
       ]),
       builder: (context, _) {
         final sel = selected.value;
-        if (sel == null || sel.pageNumber != pageNumber) {
+        // The page next to the selected one is asked too: an ayah printed
+        // across the break is tinted on both pages, as the recitation does
+        // (the portrait scroll and the spread show both halves at once).
+        if (sel == null || (sel.pageNumber - pageNumber).abs() > 1) {
           return const SizedBox.shrink();
         }
         return FutureBuilder<(List<Rect>, Rect?)>(
@@ -118,17 +125,17 @@ class SelectedAyahHighlight extends StatelessWidget {
     );
   }
 
+  /// The selected ayah's line rects on this widget's own page: one of its
+  /// ayat or its [AyahRegionPageData.continuing] head; none on a neighbour
+  /// that does not hold it.
   Future<(List<Rect>, Rect?)> _rectsFor(SelectedAyah sel) async {
-    final regions = await AyahRegionService.forPage(sel.pageNumber);
+    final regions = await AyahRegionService.forPage(pageNumber);
     final margin = marginView
-        ? (await WordRegionService.forPage(sel.pageNumber))?.marginRect
+        ? (await WordRegionService.forPage(pageNumber))?.marginRect
         : null;
-    final rects = <Rect>[
-      if (regions != null && !recitationIsTinting())
-        for (final a in regions.ayahs)
-          if (a.surah == sel.surah && a.ayah == sel.ayah)
-            for (final r in a.rects) Rect.fromLTWH(r.x, r.y, r.width, r.height),
-    ];
+    final rects = regions == null || recitationIsTinting()
+        ? const <Rect>[]
+        : highlightRects(regions, {(sel.surah, sel.ayah)});
     return (rects, margin);
   }
 
