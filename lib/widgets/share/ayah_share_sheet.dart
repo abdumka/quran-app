@@ -951,9 +951,11 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     );
   }
 
-  /// The font of the reciter line: a list like the reciter picker, each row
-  /// written in its own font (a small picture from the server, so opening
-  /// the list downloads no fonts).
+  /// The font of the reciter line: a list like the reciter picker (the gold
+  /// bar and the fade that show there is more), each row written in its own
+  /// font (a small picture from the server, so opening the list downloads no
+  /// fonts). The menu is outside the sheet's right-to-left box, so the rows
+  /// set it themselves.
   Widget _fontPicker() {
     final ids = [
       if (config.fontNone) _noFont,
@@ -992,20 +994,23 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     }
 
     return PopupMenuButton<String>(
-      initialValue: _fontId,
       color: c.sheet,
       constraints: BoxConstraints(
-        minWidth: 280,
+        minWidth: 300,
         maxHeight: ReciterService.pickerMenuMaxHeight(52),
       ),
       onSelected: (id) => setState(() => _fontId = id),
       itemBuilder: (_) => [
-        for (final id in ids)
-          PopupMenuItem<String>(
-            value: id,
-            height: 52,
+        ScrollingMenuEntry<String>(
+          values: ids,
+          selected: _fontId,
+          itemHeight: 52,
+          width: 300,
+          rowBuilder: (context, id) => Directionality(
+            textDirection: TextDirection.rtl,
             child: row(id, field: false),
           ),
+        ),
       ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
