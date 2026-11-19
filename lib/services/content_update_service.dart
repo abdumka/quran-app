@@ -119,7 +119,7 @@ class ContentUpdateService {
     // step)
     'athkar': 1,
     // matches the `ver` of `assets/data/share_video.json`
-    'share_video': 1,
+    'share_video': 2,
   };
 
   /// How often the silent check runs (`content.checkHours`, [RemoteConfig]).

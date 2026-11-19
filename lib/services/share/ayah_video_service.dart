@@ -16,6 +16,7 @@ import '../quran_json_service.dart';
 import '../surah_timings_service.dart';
 import 'ayah_share_text.dart';
 import 'ayah_video_art.dart';
+import 'mp3_length.dart';
 import 'share_video_config.dart';
 
 /// One recited stretch of the video: the ayat shown together and the audio
@@ -24,6 +25,39 @@ class AyahVideoGroup {
   AyahVideoGroup(this.ayat, this.clips);
   final List<int> ayat;
   final List<AudioClip> clips;
+}
+
+/// One breath: ayat [from]..[to] that a reciter recites without stopping
+/// between them. One ayah for most reciters; several where a reciter joins
+/// ayat (the Habti waqf). A video always starts on a breath's first ayah and
+/// ends on a breath's last one, never where the reciter does not stop.
+class AyahBreath {
+  const AyahBreath(this.from, this.to, this.clips);
+  final int from;
+  final int to;
+
+  /// The audio of the whole breath (empty for an ayah a mirror lacks).
+  final List<AudioClip> clips;
+
+  bool get isJoined => to > from;
+}
+
+/// Every ayah of a surah in exactly one [AyahBreath], in order.
+class AyahBreaths {
+  AyahBreaths(this.list);
+  final List<AyahBreath> list;
+
+  int indexOf(int ayah) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].from <= ayah && ayah <= list[i].to) return i;
+    }
+    return ayah <= 1 ? 0 : list.length - 1;
+  }
+
+  AyahBreath at(int ayah) => list[indexOf(ayah)];
+
+  Iterable<AyahBreath> within(int from, int to) =>
+      list.where((b) => b.to >= from && b.from <= to);
 }
 
 class AyahVideoPlan {
@@ -262,6 +296,81 @@ class AyahVideoService {
     return AyahVideoPlan(surah, from, to, groups);
   }
 
+  /// [reciter]'s breaths in [surah], by the same rule as [plan].
+  Future<AyahBreaths> breaths(Reciter reciter, int surah) async {
+    if (reciter.scheme == AudioScheme.timedSurah) {
+      await SurahTimingsService.instance.load(reciter, surah);
+    } else {
+      await AudioAyahMapService.instance.load();
+    }
+    final count = await ayahCount(surah);
+    List<AudioClip> clipsOf(int a) =>
+        AudioService.instance.clipsForAyahOf(reciter, surah, a);
+    bool joined(int a) {
+      if (a <= 1 || reciter.isMissing(surah, a)) return false;
+      final c = clipsOf(a);
+      return c.isEmpty || listEquals(c, clipsOf(a - 1));
+    }
+
+    final list = <AyahBreath>[];
+    for (var a = 1; a <= count; a++) {
+      if (list.isNotEmpty && joined(a)) {
+        final last = list.removeLast();
+        list.add(AyahBreath(last.from, a, last.clips));
+      } else {
+        list.add(
+          AyahBreath(a, a, reciter.isMissing(surah, a) ? const [] : clipsOf(a)),
+        );
+      }
+    }
+    return AyahBreaths(list);
+  }
+
+  /// How long [clips] play: exact for a timed-surah reciter (the spans), from
+  /// the MP3 headers for per-ayah files (the app's own copy when it has one,
+  /// else the first bytes from the mirror). Null when it cannot be known.
+  Future<Duration?> clipsLength(Reciter reciter, List<AudioClip> clips) async {
+    var total = Duration.zero;
+    for (final c in clips) {
+      final d = c.duration;
+      if (d != null) {
+        total += d;
+        continue;
+      }
+      final local = File(
+        p.join(
+          (await getApplicationSupportDirectory()).path,
+          reciter.cacheFolder,
+          c.file,
+        ),
+      );
+      final whole = await Mp3Length.of(
+        Uri.parse('${reciter.audioBaseUrl}${c.file}'),
+        local: local,
+      );
+      if (whole == null) return null;
+      final start = c.start ?? Duration.zero;
+      total += whole > start ? whole - start : Duration.zero;
+    }
+    return total;
+  }
+
+  /// How long ayat [from]..[to] play (whole breaths), or null if unknown.
+  Future<Duration?> rangeLength(
+    Reciter reciter,
+    AyahBreaths breaths,
+    int from,
+    int to,
+  ) async {
+    var total = Duration.zero;
+    for (final b in breaths.within(from, to)) {
+      final d = await clipsLength(reciter, b.clips);
+      if (d == null) return null;
+      total += d;
+    }
+    return total;
+  }
+
   final Map<int, int> _counts = {};
 
   Future<int> ayahCount(int surah) async {
@@ -312,6 +421,15 @@ class AyahVideoService {
     };
   }
 
+  /// «4 دقائق», «90 ثانية»: the limit as the sheet words it.
+  static String formatLimit(int seconds) {
+    if (seconds % 60 == 0) {
+      final m = seconds ~/ 60;
+      return m == 1 ? 'دقيقة' : (m == 2 ? 'دقيقتين' : '$m دقائق');
+    }
+    return '$seconds ثانية';
+  }
+
   // ───────────────────── making the video ─────────────────────
 
   Future<File> render({
@@ -331,14 +449,23 @@ class AyahVideoService {
     if (plan.groups.isEmpty) {
       throw const AyahVideoError('لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ');
     }
-    final timedMs = plan.groups
-        .expand((g) => g.clips)
-        .map((c) => c.duration?.inMilliseconds ?? 0)
-        .fold<int>(0, (a, b) => a + b);
-    if (timedMs > look.maxSeconds * 1000) {
-      throw AyahVideoError(
-        'المقطع أطول من ${look.maxSeconds ~/ 60} دقائق، اختر آيات أقل',
-      );
+    // The limit (owner, 2026-11-18: 4 minutes) never refuses a single
+    // breath: the longest ayah alone is always allowed.
+    if (plan.groups.length > 1) {
+      var total = Duration.zero;
+      for (final g in plan.groups) {
+        final d = await clipsLength(reciter, g.clips);
+        if (d == null) {
+          total = Duration.zero;
+          break;
+        }
+        total += d;
+      }
+      if (total.inMilliseconds > look.maxSeconds * 1000 * 1.05) {
+        throw AyahVideoError(
+          'المقطع أطول من ${formatLimit(look.maxSeconds)}، اختر آيات أقل',
+        );
+      }
     }
 
     final work = Directory(

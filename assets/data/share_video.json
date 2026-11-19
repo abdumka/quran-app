@@ -1,5 +1,5 @@
 {
- "ver": 1,
+ "ver": 2,
  "enabled": true,
  "videoEnabled": true,
  "baseUrl": "https://quran-content.mushaf-qaloon.com/",
@@ -9,7 +9,7 @@
  },
  "video": {
   "maxAyat": 30,
-  "maxSeconds": 600,
+  "maxSeconds": 240,
   "fps": 30,
   "bitrate": 5000000,
   "dim": 0.38,

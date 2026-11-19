@@ -276,6 +276,20 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   late int _to = widget.ayah;
   int _count = 0;
 
+  /// [_reciter]'s breaths in this surah: the range only ever starts and ends
+  /// on a breath's edge. Null while loading, or when it cannot be loaded
+  /// (then the buttons step by one ayah and making the video still widens
+  /// the range to whole breaths).
+  AyahBreaths? _breaths;
+
+  /// How long [_from]..[_to] plays, when known.
+  Duration? _length;
+  bool _measuring = false;
+  bool _stepping = false;
+  String _limitNote = '';
+  int _breathsGen = 0;
+  int _measureGen = 0;
+
   _Phase _phase = _Phase.choose;
   AyahVideoProgress? _progress;
   File? _result;
@@ -296,7 +310,101 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     AyahVideoService.instance.ayahCount(widget.surah).then((n) {
       if (mounted) setState(() => _count = n);
     });
+    _loadBreaths();
   }
+
+  /// The reciter's breaths, then the range moved out to whole breaths: a
+  /// joining (Habti) reciter never gets a range that ends where he does
+  /// not stop. Runs again whenever the reciter changes.
+  Future<void> _loadBreaths() async {
+    final gen = ++_breathsGen;
+    setState(() {
+      _breaths = null;
+      _length = null;
+      _limitNote = '';
+    });
+    try {
+      final b = await AyahVideoService.instance.breaths(_reciter, widget.surah);
+      if (!mounted || gen != _breathsGen) return;
+      setState(() {
+        _breaths = b;
+        _from = b.at(_from).from;
+        _to = b.at(_to).to;
+      });
+      _measure();
+    } catch (e) {
+      debugPrint('AyahVideo: breaths: $e');
+    }
+  }
+
+  Future<void> _measure() async {
+    final b = _breaths;
+    if (b == null) return;
+    final gen = ++_measureGen;
+    setState(() => _measuring = true);
+    final len = await AyahVideoService.instance.rangeLength(
+      _reciter,
+      b,
+      _from,
+      _to,
+    );
+    if (!mounted || gen != _measureGen) return;
+    setState(() {
+      _length = len;
+      _measuring = false;
+    });
+  }
+
+  /// Moves the range to [from]..[to]. Growing it past the limits (owner,
+  /// 2026-11-18: 4 minutes; and the ayat count) is refused with a note,
+  /// except within a single breath: the longest ayah alone always fits.
+  Future<void> _setRange(int from, int to) async {
+    final b = _breaths;
+    final look = config.video;
+    final growing = to - from > _to - _from;
+    final single = b != null && b.indexOf(from) == b.indexOf(to);
+    if (b != null && growing && !single) {
+      if (to - from + 1 > look.maxAyat) {
+        setState(() => _limitNote = 'لا يزيد الفيديو على ${look.maxAyat} آية');
+        return;
+      }
+      setState(() => _stepping = true);
+      final len = await AyahVideoService.instance.rangeLength(
+        _reciter,
+        b,
+        from,
+        to,
+      );
+      if (!mounted) return;
+      if (len != null && len.inMilliseconds > look.maxSeconds * 1000) {
+        setState(() {
+          _stepping = false;
+          _limitNote =
+              'لا يزيد الفيديو على ${AyahVideoService.formatLimit(look.maxSeconds)}';
+        });
+        return;
+      }
+      _measureGen++;
+      setState(() {
+        _stepping = false;
+        _from = from;
+        _to = to;
+        _length = len;
+        _measuring = false;
+        _limitNote = '';
+      });
+      return;
+    }
+    setState(() {
+      _from = from;
+      _to = to;
+      _limitNote = '';
+    });
+    _measure();
+  }
+
+  static String _clock(Duration d) =>
+      '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
@@ -559,8 +667,8 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               label: 'من',
               value: _from,
               colors: c,
-              onMinus: _from > 1 ? () => setState(() => _from--) : null,
-              onPlus: _from < _to ? () => setState(() => _from++) : null,
+              onMinus: _stepping ? null : _fromMinus(),
+              onPlus: _stepping ? null : _fromPlus(),
             ),
           ),
           const SizedBox(width: 10),
@@ -569,14 +677,13 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               label: 'إلى',
               value: _to,
               colors: c,
-              onMinus: _to > _from ? () => setState(() => _to--) : null,
-              onPlus: _to < count && _to - _from + 1 < maxAyat
-                  ? () => setState(() => _to++)
-                  : null,
+              onMinus: _stepping ? null : _toMinus(),
+              onPlus: _stepping ? null : _toPlus(count, maxAyat),
             ),
           ),
         ],
       ),
+      ..._rangeNotes(),
       const SizedBox(height: 18),
       Row(
         children: [
@@ -587,7 +694,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
                 foregroundColor: c.onAccent,
                 padding: const EdgeInsets.symmetric(vertical: 13),
               ),
-              onPressed: _make,
+              onPressed: _tooLong || _stepping ? null : _make,
               icon: const Icon(Icons.movie_creation_outlined),
               label: const Text(
                 'إنشاء الفيديو',
@@ -602,6 +709,106 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           ),
         ],
       ),
+    ];
+  }
+
+  // Each button moves by a whole breath once the breaths are known.
+  VoidCallback? _fromMinus() {
+    final b = _breaths;
+    if (b == null) return _from > 1 ? () => _setRange(_from - 1, _to) : null;
+    final i = b.indexOf(_from);
+    return i > 0 ? () => _setRange(b.list[i - 1].from, _to) : null;
+  }
+
+  VoidCallback? _fromPlus() {
+    final b = _breaths;
+    if (b == null) return _from < _to ? () => _setRange(_from + 1, _to) : null;
+    final i = b.indexOf(_from);
+    return b.list[i].to < _to ? () => _setRange(b.list[i + 1].from, _to) : null;
+  }
+
+  VoidCallback? _toMinus() {
+    final b = _breaths;
+    if (b == null) return _to > _from ? () => _setRange(_from, _to - 1) : null;
+    final i = b.indexOf(_to);
+    return b.list[i].from > _from
+        ? () => _setRange(_from, b.list[i - 1].to)
+        : null;
+  }
+
+  VoidCallback? _toPlus(int count, int maxAyat) {
+    final b = _breaths;
+    if (b == null) {
+      return _to < count && _to - _from + 1 < maxAyat
+          ? () => _setRange(_from, _to + 1)
+          : null;
+    }
+    final i = b.indexOf(_to);
+    return i < b.list.length - 1
+        ? () => _setRange(_from, b.list[i + 1].to)
+        : null;
+  }
+
+  /// Making the video waits for a range that fits the limit.
+  bool get _tooLong {
+    final b = _breaths;
+    final len = _length;
+    return b != null &&
+        len != null &&
+        b.indexOf(_from) != b.indexOf(_to) &&
+        len.inMilliseconds > config.video.maxSeconds * 1000;
+  }
+
+  /// Under the ayat: the length, the reciter's joined ayat at the range's
+  /// edges, and why a button stopped.
+  List<Widget> _rangeNotes() {
+    final lines = <String>[];
+    final b = _breaths;
+    if (b != null) {
+      for (final e in {b.at(_from), b.at(_to)}) {
+        if (e.isJoined) {
+          lines.add('يقرأ هذا القارئ الآيات ${e.from} إلى ${e.to} بنفَس واحد');
+        }
+      }
+    }
+    final len = _length;
+    final over = _tooLong;
+    return [
+      if (_measuring || len != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            len == null || _measuring
+                ? 'مدة التلاوة…'
+                : 'مدة التلاوة نحو ${_clock(len)}',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: over ? Colors.red.shade700 : c.text,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      for (final l in lines)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            l,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, color: c.muted),
+          ),
+        ),
+      if (_limitNote.isNotEmpty || over)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            over
+                ? 'المقطع أطول من ${AyahVideoService.formatLimit(config.video.maxSeconds)}، قصّره'
+                : _limitNote,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, color: Colors.red.shade700),
+          ),
+        ),
     ];
   }
 
@@ -623,7 +830,10 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           ),
           onSelected: (id) {
             for (final r in reciters) {
-              if (r.id == id) setState(() => _reciter = r);
+              if (r.id == id && r.id != _reciter.id) {
+                setState(() => _reciter = r);
+                _loadBreaths();
+              }
             }
           },
           itemBuilder: (_) => [

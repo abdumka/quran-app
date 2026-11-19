@@ -34,6 +34,9 @@ Usage:
     python tools/publish_content_updates.py --dry-run  # show the manifest only
     python tools/publish_content_updates.py --publish  # upload + manifest
     python tools/publish_content_updates.py            # same as --publish
+    python tools/publish_content_updates.py --only=share_video --publish
+        publish only the named items (comma-separated); every other item
+        keeps exactly the entry the live manifest has (or stays out)
 Any other argument (--help included) prints this text and publishes nothing.
 Credentials: tools/.r2_secret (the quran-content block). Same handling as the
 tafsir mirror; never print the secret.
@@ -416,16 +419,39 @@ def check_share_video(data):
         sys.exit("ABORT: share_video files not on the server: " + ", ".join(missing[:20]))
 
 
+def live_manifest():
+    # curl, not urllib: Cloudflare answers Python's urllib with 403 on this host.
+    r = subprocess.run(["curl", "-s", "--max-time", "30", "-H", "Cache-Control: no-cache",
+                        PUBLIC + "data/manifest.json"], capture_output=True, text=True, encoding="utf-8")
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        sys.exit("ABORT: could not read the live manifest for --only")
+
+
 def main():
     args = sys.argv[1:]
+    only = None
+    for a in list(args):
+        if a.startswith("--only="):
+            only = [x for x in a[len("--only="):].split(",") if x]
+            args.remove(a)
+    if only is not None and (not only or any(x not in ITEMS for x in only)):
+        sys.exit(f"ABORT: --only takes item names from: {', '.join(ITEMS)}")
     if any(a not in ("--dry-run", "--publish") for a in args) or len(args) > 1:
         print(__doc__)
         return
     dry = "--dry-run" in args
+    live = live_manifest()["items"] if only is not None else {}
     tanzilat_ver = json.loads((ROOT / "assets" / "data" / "tanzilat.json").read_bytes()).get("ver")
     manifest = {"v": 1, "items": {}}
     uploads = []
     for name, (src, pattern) in ITEMS.items():
+        if only is not None and name not in only:
+            if name in live:
+                manifest["items"][name] = live[name]
+                print(f"{name}: kept as live (v{live[name].get('ver')})")
+            continue
         if not src.exists():
             print(f"{name}: no source file ({src.relative_to(ROOT)}), left out of the manifest")
             continue
