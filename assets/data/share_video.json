@@ -241,20 +241,20 @@
    "thumb": "video_bg/v3/isl16_suleymaniye_bosphorus/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/9x16.mp4",
-     "bytes": 3119883
+     "path": "video_bg/v4/isl16_suleymaniye_bosphorus/9x16.mp4",
+     "bytes": 3119894
     },
     "4x5": {
      "path": "video_bg/v3/isl16_suleymaniye_bosphorus/4x5.mp4",
      "bytes": 2780863
     },
     "1x1": {
-     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/1x1.mp4",
-     "bytes": 2404994
+     "path": "video_bg/v4/isl16_suleymaniye_bosphorus/1x1.mp4",
+     "bytes": 2405005
     },
     "16x9": {
-     "path": "video_bg/v3/isl16_suleymaniye_bosphorus/16x9.mp4",
-     "bytes": 3107735
+     "path": "video_bg/v4/isl16_suleymaniye_bosphorus/16x9.mp4",
+     "bytes": 3107746
     }
    }
   },
@@ -289,20 +289,20 @@
    "thumb": "video_bg/v3/isl28_minarets_sunset/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/isl28_minarets_sunset/9x16.mp4",
-     "bytes": 547712
+     "path": "video_bg/v4/isl28_minarets_sunset/9x16.mp4",
+     "bytes": 547704
     },
     "4x5": {
      "path": "video_bg/v3/isl28_minarets_sunset/4x5.mp4",
      "bytes": 553356
     },
     "1x1": {
-     "path": "video_bg/v3/isl28_minarets_sunset/1x1.mp4",
-     "bytes": 459923
+     "path": "video_bg/v4/isl28_minarets_sunset/1x1.mp4",
+     "bytes": 459915
     },
     "16x9": {
-     "path": "video_bg/v3/isl28_minarets_sunset/16x9.mp4",
-     "bytes": 782814
+     "path": "video_bg/v4/isl28_minarets_sunset/16x9.mp4",
+     "bytes": 782806
     }
    }
   },
@@ -529,20 +529,20 @@
    "thumb": "video_bg/v3/isl48_desert_mosque/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/isl48_desert_mosque/9x16.mp4",
-     "bytes": 4081861
+     "path": "video_bg/v4/isl48_desert_mosque/9x16.mp4",
+     "bytes": 4081872
     },
     "4x5": {
      "path": "video_bg/v3/isl48_desert_mosque/4x5.mp4",
      "bytes": 3722255
     },
     "1x1": {
-     "path": "video_bg/v3/isl48_desert_mosque/1x1.mp4",
-     "bytes": 3233735
+     "path": "video_bg/v4/isl48_desert_mosque/1x1.mp4",
+     "bytes": 3233746
     },
     "16x9": {
-     "path": "video_bg/v3/isl48_desert_mosque/16x9.mp4",
-     "bytes": 4407343
+     "path": "video_bg/v4/isl48_desert_mosque/16x9.mp4",
+     "bytes": 4407354
     }
    }
   },
@@ -577,20 +577,20 @@
    "thumb": "video_bg/v3/isl50_mosque_dramatic_sky/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/isl50_mosque_dramatic_sky/9x16.mp4",
-     "bytes": 8922027
+     "path": "video_bg/v4/isl50_mosque_dramatic_sky/9x16.mp4",
+     "bytes": 8922038
     },
     "4x5": {
      "path": "video_bg/v3/isl50_mosque_dramatic_sky/4x5.mp4",
      "bytes": 7752256
     },
     "1x1": {
-     "path": "video_bg/v3/isl50_mosque_dramatic_sky/1x1.mp4",
-     "bytes": 5897559
+     "path": "video_bg/v4/isl50_mosque_dramatic_sky/1x1.mp4",
+     "bytes": 5897570
     },
     "16x9": {
-     "path": "video_bg/v3/isl50_mosque_dramatic_sky/16x9.mp4",
-     "bytes": 5945180
+     "path": "video_bg/v4/isl50_mosque_dramatic_sky/16x9.mp4",
+     "bytes": 5945191
     }
    }
   },
@@ -625,20 +625,20 @@
    "thumb": "video_bg/v3/isl52_crescent_clouds/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/isl52_crescent_clouds/9x16.mp4",
-     "bytes": 3153340
+     "path": "video_bg/v4/isl52_crescent_clouds/9x16.mp4",
+     "bytes": 3153332
     },
     "4x5": {
      "path": "video_bg/v3/isl52_crescent_clouds/4x5.mp4",
      "bytes": 1590611
     },
     "1x1": {
-     "path": "video_bg/v3/isl52_crescent_clouds/1x1.mp4",
-     "bytes": 1119193
+     "path": "video_bg/v4/isl52_crescent_clouds/1x1.mp4",
+     "bytes": 1119185
     },
     "16x9": {
-     "path": "video_bg/v3/isl52_crescent_clouds/16x9.mp4",
-     "bytes": 2225540
+     "path": "video_bg/v4/isl52_crescent_clouds/16x9.mp4",
+     "bytes": 2225532
     }
    }
   },
@@ -649,20 +649,20 @@
    "thumb": "video_bg/v3/bg01_crescent_night/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/bg01_crescent_night/9x16.mp4",
-     "bytes": 3378436
+     "path": "video_bg/v4/bg01_crescent_night/9x16.mp4",
+     "bytes": 3378428
     },
     "4x5": {
      "path": "video_bg/v3/bg01_crescent_night/4x5.mp4",
      "bytes": 1695872
     },
     "1x1": {
-     "path": "video_bg/v3/bg01_crescent_night/1x1.mp4",
-     "bytes": 1318762
+     "path": "video_bg/v4/bg01_crescent_night/1x1.mp4",
+     "bytes": 1318754
     },
     "16x9": {
-     "path": "video_bg/v3/bg01_crescent_night/16x9.mp4",
-     "bytes": 2225540
+     "path": "video_bg/v4/bg01_crescent_night/16x9.mp4",
+     "bytes": 2225532
     }
    }
   },
@@ -1057,20 +1057,20 @@
    "thumb": "video_bg/v3/bg28_blue_sky/thumb.jpg",
    "files": {
     "9x16": {
-     "path": "video_bg/v3/bg28_blue_sky/9x16.mp4",
-     "bytes": 8984416
+     "path": "video_bg/v4/bg28_blue_sky/9x16.mp4",
+     "bytes": 8984408
     },
     "4x5": {
      "path": "video_bg/v3/bg28_blue_sky/4x5.mp4",
      "bytes": 7915855
     },
     "1x1": {
-     "path": "video_bg/v3/bg28_blue_sky/1x1.mp4",
-     "bytes": 6827323
+     "path": "video_bg/v4/bg28_blue_sky/1x1.mp4",
+     "bytes": 6827315
     },
     "16x9": {
-     "path": "video_bg/v3/bg28_blue_sky/16x9.mp4",
-     "bytes": 8999644
+     "path": "video_bg/v4/bg28_blue_sky/16x9.mp4",
+     "bytes": 8999636
     }
    }
   },
