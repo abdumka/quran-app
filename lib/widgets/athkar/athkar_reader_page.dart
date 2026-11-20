@@ -23,10 +23,15 @@ class AthkarReaderPage extends StatefulWidget {
     this.initialItemId,
     this.showSection = false,
     this.emptyHint,
+    this.section,
   });
 
   final String title;
   final List<AthkarItem> items;
+
+  /// The section these athkar are, when they are one: its star in the top
+  /// bar puts the whole section in the favourites.
+  final AthkarSection? section;
 
   /// Opens on this dhikr (a search result).
   final int? initialItemId;
@@ -228,6 +233,33 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     }
   }
 
+  Widget _sectionStar(AthkarColors c, AthkarSection section) {
+    final on = _store.isFavouriteSection(section);
+    return IconButton(
+      tooltip: on ? 'إزالة القسم من المفضلة' : 'إضافة القسم إلى المفضلة',
+      icon: Icon(
+        on ? Icons.star_rounded : Icons.star_outline_rounded,
+        color: on ? c.accent : null,
+      ),
+      onPressed: () {
+        final added = _store.toggleFavouriteSection(section);
+        ScaffoldMessenger.maybeOf(context)
+          ?..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                added
+                    ? 'أُضيف «${section.name}» كاملًا إلى المفضلة.'
+                    : 'أُزيل «${section.name}» من المفضلة.',
+                textDirection: TextDirection.rtl,
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = AthkarColors.of(context);
@@ -243,6 +275,7 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
               context,
               widget.title,
               actions: [
+                if (widget.section != null) _sectionStar(c, widget.section!),
                 IconButton(
                   tooltip: 'إعدادات الأذكار',
                   icon: const Icon(Icons.settings_outlined),

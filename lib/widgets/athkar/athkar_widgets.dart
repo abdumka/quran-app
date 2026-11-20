@@ -679,11 +679,12 @@ class AthkarPlayerBar extends StatelessWidget {
   }
 }
 
-/// «إعدادات الأذكار»: on to the next dhikr by itself or not, list or one a
-/// page, and the two voices side by side so both choices are in sight at
-/// once (owner, 2026-11-19): the athkar voice on the right, the verses'
-/// reciter on the left (the mushaf's reciters, so one the server adds is
-/// offered here too). Picking a voice keeps the sheet open, so both can be
+/// «إعدادات الأذكار»: the two voices side by side right under the title, so
+/// both choices are in sight at once (owner, 2026-11-19): the athkar voice
+/// on the right, every one of them showing, and the verses' reciter on the
+/// left (the mushaf's reciters, so one the server adds is offered here too).
+/// Then on to the next dhikr by itself or not, list or one a page, and the
+/// athkar reminders. Picking a voice keeps the sheet open, so both can be
 /// changed in one go. [switchView] is the open reader's own view switch,
 /// which keeps the reader on the dhikr it is at.
 Future<void> showAthkarSettingsSheet(
@@ -695,6 +696,9 @@ Future<void> showAthkarSettingsSheet(
   final store = AthkarStore.instance;
   final voices = AthkarService.instance.data.reciters;
   final quranReciters = ReciterService.instance.reciters;
+  // every athkar voice in sight without scrolling (up to 7); the verses'
+  // reciters, a longer list, scroll inside a list of the same height
+  final rows = (voices.isEmpty ? 6 : voices.length).clamp(4, 7).toDouble();
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: c.card,
@@ -742,6 +746,49 @@ Future<void> showAthkarSettingsSheet(
                       ),
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (voices.isNotEmpty) ...[
+                          Expanded(
+                            child: AthkarVoiceColumn(
+                              title: 'قارئ الأذكار',
+                              rows: rows,
+                              names: [for (final r in voices) r.name],
+                              chosen: voices.indexWhere(
+                                (r) => r.id == audio.reciter?.id,
+                              ),
+                              onPick: (i) => audio.chooseReciter(voices[i]),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: AthkarVoiceColumn(
+                            title: 'قارئ الآيات',
+                            rows: rows,
+                            names: [for (final r in quranReciters) r.name],
+                            chosen: quranReciters.indexWhere(
+                              (r) => r.id == audio.quranReciter.id,
+                            ),
+                            onPick: (i) =>
+                                audio.chooseQuranReciter(quranReciters[i]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (voices.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                      child: Text(
+                        'ما لم يسجّله قارئ الأذكار يُقرأ بصوت قارئ آخر، '
+                        'ويظهر اسمه فوق الذكر.',
+                        style: TextStyle(color: c.muted, fontSize: 12.5),
+                      ),
+                    ),
                   SwitchListTile(
                     value: store.continuous,
                     onChanged: (v) => store.continuous = v,
@@ -777,47 +824,6 @@ Future<void> showAthkarSettingsSheet(
                     heading('التذكير'),
                     const AthkarReminderRows(),
                   ],
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (voices.isNotEmpty) ...[
-                          Expanded(
-                            child: AthkarVoiceColumn(
-                              title: 'قارئ الأذكار',
-                              names: [for (final r in voices) r.name],
-                              chosen: voices.indexWhere(
-                                (r) => r.id == audio.reciter?.id,
-                              ),
-                              onPick: (i) => audio.chooseReciter(voices[i]),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                        ],
-                        Expanded(
-                          child: AthkarVoiceColumn(
-                            title: 'قارئ الآيات',
-                            names: [for (final r in quranReciters) r.name],
-                            chosen: quranReciters.indexWhere(
-                              (r) => r.id == audio.quranReciter.id,
-                            ),
-                            onPick: (i) =>
-                                audio.chooseQuranReciter(quranReciters[i]),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (voices.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                      child: Text(
-                        'ما لم يسجّله قارئ الأذكار يُقرأ بصوت قارئ آخر، '
-                        'ويظهر اسمه فوق الذكر.',
-                        style: TextStyle(color: c.muted, fontSize: 12.5),
-                      ),
-                    ),
                   const SizedBox(height: 10),
                 ],
               ),
@@ -830,9 +836,9 @@ Future<void> showAthkarSettingsSheet(
 }
 
 /// One of the two voice lists of «إعدادات الأذكار»: a title over a framed
-/// list about five rows high that scrolls inside itself, with the reciter
-/// menus' gold bar and edge fade (menu_scroll_cue.dart) so a longer list
-/// shows it goes on. It opens scrolled to the chosen voice.
+/// list [rows] high that scrolls inside itself when longer, with the reciter
+/// menus' gold bar and edge fade (menu_scroll_cue.dart) so it shows it goes
+/// on. When the chosen voice is further down, it opens scrolled to it.
 class AthkarVoiceColumn extends StatefulWidget {
   const AthkarVoiceColumn({
     super.key,
@@ -840,20 +846,21 @@ class AthkarVoiceColumn extends StatefulWidget {
     required this.names,
     required this.chosen,
     required this.onPick,
+    this.rows = 5.5,
   });
 
   final String title;
   final List<String> names;
+
+  /// How many rows high the list is.
+  final double rows;
 
   /// Index in [names] of the voice in use; -1 for none.
   final int chosen;
   final ValueChanged<int> onPick;
 
   /// One row: room for a name on two lines in half a phone's width.
-  static const double rowHeight = 52;
-
-  /// Five and a half rows: the half row says there is more below.
-  static const double listHeight = rowHeight * 5.5;
+  static const double rowHeight = 48;
 
   @override
   State<AthkarVoiceColumn> createState() => _AthkarVoiceColumnState();
@@ -861,8 +868,9 @@ class AthkarVoiceColumn extends StatefulWidget {
 
 class _AthkarVoiceColumnState extends State<AthkarVoiceColumn> {
   late final ScrollController _scroll = ScrollController(
-    initialScrollOffset: widget.chosen > 0
-        ? (widget.chosen - 1) * AthkarVoiceColumn.rowHeight
+    initialScrollOffset: widget.chosen >= widget.rows.floor()
+        ? (widget.chosen - widget.rows.floor() + 1) *
+              AthkarVoiceColumn.rowHeight
         : 0,
   );
 
@@ -875,10 +883,9 @@ class _AthkarVoiceColumnState extends State<AthkarVoiceColumn> {
   @override
   Widget build(BuildContext context) {
     final c = AthkarColors.of(context);
-    final height = math.min(
-      AthkarVoiceColumn.listHeight,
-      widget.names.length * AthkarVoiceColumn.rowHeight,
-    );
+    final height =
+        math.min(widget.rows, math.max(widget.names.length, 1).toDouble()) *
+        AthkarVoiceColumn.rowHeight;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

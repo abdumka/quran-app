@@ -664,6 +664,65 @@ void main() {
       expect(find.text('تذكير بأذكار الصباح والمساء'), findsNothing);
     });
 
+    testWidgets('a whole section in the favourites, from its star', (
+      tester,
+    ) async {
+      final section = AthkarService.instance.data.section(10)!;
+      await pump(
+        tester,
+        AthkarReaderPage(
+          title: section.name,
+          items: section.items,
+          section: section,
+        ),
+      );
+      await tester.tap(find.byTooltip('إضافة القسم إلى المفضلة'));
+      await tester.pump();
+      expect(store.isFavouriteSection(section), isTrue);
+      expect(find.byTooltip('إزالة القسم من المفضلة'), findsOneWidget);
+      // the favourites now list the section, which opens as itself
+      await pump(tester, const AthkarHomePage());
+      await tester.tap(find.text('المفضلة'));
+      await tester.pumpAndSettle();
+      expect(find.text('أقسام كاملة'), findsOneWidget);
+      expect(find.text(section.name), findsOneWidget);
+      expect(find.text('الأذكار المفضلة'), findsOneWidget);
+      await tester.tap(find.text(section.name));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('إزالة القسم من المفضلة'), findsOneWidget);
+    });
+
+    test('favourite sections survive a restart', () async {
+      final section = AthkarService.instance.data.section(10)!;
+      store.toggleFavouriteSection(section);
+      store.debugReset();
+      await store.load();
+      expect(store.favouriteSections, [10]);
+    });
+
+    testWidgets('every athkar voice shows without scrolling, the first too', (
+      tester,
+    ) async {
+      AthkarService.instance.debugSetData(_sample(withReciter: true));
+      store.chooseReciter(AthkarService.instance.data.reciters[1]);
+      await pump(tester, const AthkarHomePage());
+      await tester.tap(find.byTooltip('إعدادات الأذكار'));
+      await tester.pumpAndSettle();
+      final column = find.byType(AthkarVoiceColumn).first;
+      final box = tester.getRect(column);
+      for (final name in ['القارئ الأول', 'القارئ الثاني']) {
+        final r = tester.getRect(
+          find.descendant(of: column, matching: find.text(name)),
+        );
+        expect(box.contains(r.center), isTrue, reason: name);
+      }
+      // the voices come right under the title, above «تشغيل متواصل»
+      expect(
+        tester.getTopLeft(column).dy,
+        lessThan(tester.getTopLeft(find.text('تشغيل متواصل')).dy),
+      );
+    });
+
     testWidgets('the athkar home has the settings too', (tester) async {
       await pump(tester, const AthkarHomePage());
       await tester.tap(find.byTooltip('إعدادات الأذكار'));

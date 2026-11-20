@@ -128,6 +128,7 @@ Future<void> openAthkarForReminder(
       builder: (_) => AthkarReaderPage(
         title: section.label,
         items: section.section.items,
+        section: section.section,
       ),
     ),
   );

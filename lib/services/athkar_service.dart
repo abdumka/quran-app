@@ -91,6 +91,7 @@ class AthkarStore extends ChangeNotifier {
   static const String _dayKey = 'athkar.day';
   static const String _countsKey = 'athkar.counts';
   static const String _favouritesKey = 'athkar.favourites';
+  static const String _favouriteSectionsKey = 'athkar.favouriteSections';
   static const String _viewKey = 'athkar.view';
   static const String _reciterKey = 'athkar.reciter';
   static const String _quranReciterKey = 'athkar.quranReciter';
@@ -102,6 +103,7 @@ class AthkarStore extends ChangeNotifier {
   String _day = '';
   final Map<int, int> _counts = {};
   final List<int> _favourites = [];
+  final List<int> _favouriteSections = [];
   AthkarView _view = AthkarView.list;
   String? _reciterId;
   String? _quranReciterId;
@@ -135,6 +137,13 @@ class AthkarStore extends ChangeNotifier {
       ..clear()
       ..addAll([
         for (final s in prefs.getStringList(_favouritesKey) ?? const <String>[])
+          if (int.tryParse(s) != null) int.parse(s),
+      ]);
+    _favouriteSections
+      ..clear()
+      ..addAll([
+        for (final s
+            in prefs.getStringList(_favouriteSectionsKey) ?? const <String>[])
           if (int.tryParse(s) != null) int.parse(s),
       ]);
     _view = prefs.getString(_viewKey) == 'single'
@@ -227,6 +236,24 @@ class AthkarStore extends ChangeNotifier {
     return !had;
   }
 
+  /// Whole sections in the favourites (owner, 2026-11-19: «أذكار الاستيقاظ
+  /// من النوم» as one entry, not dhikr by dhikr). Newest first.
+  List<int> get favouriteSections => List.unmodifiable(_favouriteSections);
+
+  bool isFavouriteSection(AthkarSection section) =>
+      _favouriteSections.contains(section.id);
+
+  /// Returns true when [section] is a favourite after the call.
+  bool toggleFavouriteSection(AthkarSection section) {
+    final had = _favouriteSections.remove(section.id);
+    if (!had) _favouriteSections.insert(0, section.id);
+    _prefs?.setStringList(_favouriteSectionsKey, [
+      for (final id in _favouriteSections) '$id',
+    ]);
+    notifyListeners();
+    return !had;
+  }
+
   // ---- choices ----
 
   AthkarView get view => _view;
@@ -310,6 +337,7 @@ class AthkarStore extends ChangeNotifier {
     _day = '';
     _counts.clear();
     _favourites.clear();
+    _favouriteSections.clear();
     _view = AthkarView.list;
     _reciterId = null;
     _quranReciterId = null;
