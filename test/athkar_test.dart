@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:islamic_dawah_mushaf/models/athkar.dart';
 import 'package:islamic_dawah_mushaf/services/athkar_audio.dart';
+import 'package:islamic_dawah_mushaf/services/athkar_reminder_service.dart';
 import 'package:islamic_dawah_mushaf/services/athkar_service.dart';
 import 'package:islamic_dawah_mushaf/services/content_update_service.dart';
 import 'package:islamic_dawah_mushaf/widgets/athkar/athkar_home_page.dart';
@@ -125,7 +126,9 @@ void main() {
   final audio = AthkarAudio.instance;
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    // the reminders' first-opening sheet has its own test
+    SharedPreferences.setMockInitialValues({'athkarReminderIntroShown': true});
+    AthkarReminderService.instance.debugReset();
     store.debugReset();
     await store.load();
     AthkarService.instance.debugSetData(_sample());
@@ -632,10 +635,33 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('تشغيل متواصل'), findsOneWidget);
       expect(find.text('بعد انتهاء الذكر يبدأ الذي يليه'), findsOneWidget);
-      await tester.tap(find.byType(Switch));
+      // the first switch; the athkar reminders' two come after it
+      await tester.tap(find.byType(Switch).first);
       await tester.pumpAndSettle();
       expect(store.continuous, isFalse);
+      expect(find.text('تذكير أذكار الصباح'), findsOneWidget);
+      expect(find.text('تذكير أذكار المساء'), findsOneWidget);
       expect(find.text('يتوقف بعد الذكر الذي تستمع إليه'), findsOneWidget);
+    });
+
+    testWidgets('the first opening explains the reminders, once', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      AthkarReminderService.instance.debugReset();
+      await pump(tester, const AthkarHomePage());
+      expect(find.text('تذكير بأذكار الصباح والمساء'), findsOneWidget);
+      expect(find.text('استخدم موقعي'), findsOneWidget);
+      expect(find.text('اختر مدينتي من القائمة'), findsOneWidget);
+      await tester.tap(find.text('ليس الآن'));
+      await tester.pumpAndSettle();
+      expect(find.text('تذكير بأذكار الصباح والمساء'), findsNothing);
+      expect(AthkarReminderService.instance.introShown, isTrue);
+      // the reminders stay on (at their defaults) after «ليس الآن»
+      expect(AthkarReminderService.instance.morning.value.on, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      await pump(tester, const AthkarHomePage());
+      expect(find.text('تذكير بأذكار الصباح والمساء'), findsNothing);
     });
 
     testWidgets('the athkar home has the settings too', (tester) async {

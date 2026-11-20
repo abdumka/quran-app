@@ -78,6 +78,10 @@
 	<string>تختار صورة لإرفاقها برسالتك إلى الفريق، ولا يرى التطبيق غيرها.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>يُستخدم الميكروفون في وضع اختبار الحفظ للاستماع إلى تلاوتك والتحقق منها على جهازك، دون إرسال الصوت إلى أي خادم.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>يُستخدم موقعك التقريبي لحساب وقت الشروق والغروب في مدينتك لتذكيرك بأذكار الصباح والمساء. يُحسب الوقت على جهازك، ولا يُرسَل موقعك إلى أي جهة.</string>
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

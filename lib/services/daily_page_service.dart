@@ -123,7 +123,13 @@ class DailyPageService {
     if (_loaded) return;
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
-    enabled.value = prefs.getBool(_enabledPrefKey) ?? false;
+    // On by default since 1.5.8 (owner, 2026-11-19: "make most of the options
+    // ON by default"). A reader who never touched the switch is not switched
+    // off for good when notifications are not allowed: it waits, and comes on
+    // once they are (see [refreshSchedule]).
+    final stored = prefs.getBool(_enabledPrefKey);
+    _defaulted = stored == null;
+    enabled.value = stored ?? true;
     mode.value = prefs.getString(_modePrefKey) == 'random'
         ? DailyPageReminderMode.random
         : DailyPageReminderMode.fixed;
@@ -156,12 +162,16 @@ class DailyPageService {
     );
   }
 
+  /// Whether the switch is still at its default (the reader never set it).
+  bool _defaulted = false;
+
   /// Turns the feature on or off. Turning it on asks for the OS notification
   /// permission first and refuses if it is denied, so the switch never sits in
   /// an "on but silently doing nothing" state.
   Future<DailyPageEnableResult> setEnabled(bool value) async {
     await load();
     if (!value) {
+      _defaulted = false;
       enabled.value = false;
       nextReminderAt.value = null;
       final prefs = await SharedPreferences.getInstance();
@@ -181,6 +191,7 @@ class DailyPageService {
     final granted = await NotificationCenter.instance.requestPermission();
     if (!granted) return DailyPageEnableResult.permissionDenied;
 
+    _defaulted = false;
     enabled.value = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_enabledPrefKey, true);
@@ -251,7 +262,15 @@ class DailyPageService {
   /// resume.
   Future<void> refreshSchedule({bool verifyQueue = false}) async {
     await load();
-    if (!enabled.value || kIsWeb) return;
+    if (kIsWeb) return;
+    if (!enabled.value) {
+      // still at the default and notifications allowed since: on now
+      if (!_defaulted ||
+          !await NotificationCenter.instance.areNotificationsEnabled()) {
+        return;
+      }
+      enabled.value = true;
+    }
 
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString(_scheduledOnPrefKey) == _dateKey(DateTime.now())) {
@@ -295,6 +314,11 @@ class DailyPageService {
     enabled.value = false;
     nextReminderAt.value = null;
     final prefs = await SharedPreferences.getInstance();
+    if (_defaulted) {
+      // never set by the reader: wait for notifications instead of saving off
+      await prefs.remove(_scheduledOnPrefKey);
+      return false;
+    }
     await prefs.setBool(_enabledPrefKey, false);
     await prefs.remove(_scheduledOnPrefKey);
     await prefs.remove(_occurrencesPrefKey);

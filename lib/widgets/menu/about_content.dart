@@ -111,6 +111,20 @@ class AboutContent extends StatelessWidget {
                   color: s?.text ?? bodyColor,
                 ),
               ),
+              const SizedBox(height: 14),
+              // the city lists of the athkar reminders: both sources ask to
+              // be named (OpenStreetMap: ODbL, GeoNames: CC BY 4.0)
+              Text(
+                'أسماء المدن ومواقعها: © مساهمو OpenStreetMap (رخصة ODbL)، '
+                'وGeoNames (رخصة CC BY 4.0).',
+                textAlign: TextAlign.center,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.6,
+                  color: (s?.text ?? bodyColor).withValues(alpha: 0.6),
+                ),
+              ),
               // The installed apps don't need a link back to themselves; this
               // is only useful to visitors on the web build.
               if (kIsWeb) ...[

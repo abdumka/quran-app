@@ -4,6 +4,7 @@ import '../../models/athkar.dart';
 import '../../services/athkar_service.dart';
 import '../../utils/arabic_text_normalizer.dart';
 import 'athkar_reader_page.dart';
+import 'athkar_reminder_widgets.dart';
 import 'athkar_widgets.dart';
 
 /// «الأذكار», opened from the side menu as its own window.
@@ -32,6 +33,11 @@ class _AthkarHomePageState extends State<AthkarHomePage> {
     _ready = _service.isLoaded;
     Future.wait([_service.load(), _store.load()]).then((_) {
       if (mounted) setState(() => _ready = true);
+    });
+    // the first opening says what the athkar reminders are and asks for
+    // notifications and the place (once; never at app start)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) maybeShowAthkarReminderIntro(context);
     });
   }
 

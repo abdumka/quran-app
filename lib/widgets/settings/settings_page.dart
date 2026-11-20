@@ -53,6 +53,7 @@ import '../../services/chat_service.dart';
 import '../../utils/share_app.dart';
 import '../../utils/after_opening.dart';
 import '../athkar/athkar_home_page.dart';
+import '../athkar/athkar_reminder_widgets.dart';
 import '../menu/about_content.dart';
 import '../menu/contact_content.dart';
 import '../menu/fullscreen_menu_page.dart';
@@ -1252,6 +1253,18 @@ class _SettingsPageState extends State<SettingsPage> {
       title: 'التذكير والورد اليومي',
       children: [
         _buildDailyPageSection(),
+        // أذكار الصباح والمساء, next to صفحة اليوم and الكهف (owner,
+        // 2026-11-19); the same switches as in «إعدادات الأذكار»
+        if (athkarRemindersShown)
+          AthkarRemindersSettingsTile(
+            onInfo: () => _showInfoNotice(
+              'تذكير كل صباح بأذكار الصباح وكل مساء بأذكار المساء. الوقت يتبع '
+              'الشروق والغروب في مدينتك ويتغيّر كل يوم معهما (قبل الشروق بـ50 '
+              'دقيقة وقبل الغروب بـ30 دقيقة، ويمكنك تقديمه أو تأخيره)، أو '
+              'تختار وقتًا ثابتًا. يُحسب الوقت على هاتفك ولا يُرسَل موقعك إلى '
+              'أي جهة. الضغط على التذكير يفتح الأذكار، و«إيقاف» فيه يوقفه.',
+            ),
+          ),
         _buildKahfReminderSection(),
         if (!kIsWeb && !TvService.instance.isTv)
           AbsenceReminderTile(

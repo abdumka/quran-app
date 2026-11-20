@@ -15,7 +15,7 @@ publish_to: 'none'
 # (arm64-v8a) and 4102 (x86_64). Play refuses any versionCode it has seen before
 # on any track, so a LOWER build number here silently becomes an unuploadable
 # APK — e.g. +30 would produce 1030/2030/4030, beneath the 4102 already built.
-version: 1.5.7+141
+version: 1.5.8+142
 
 environment:
   sdk: ^3.11.1
@@ -57,6 +57,7 @@ dependencies:
   image_picker: ^1.2.4
   flutter_image_compress: ^2.5.1
   gal: ^3.0.1
+  geolocator: ^14.1.2
 
 dev_dependencies:
   flutter_test:
@@ -94,6 +95,11 @@ flutter:
     - assets/data/qaniwah_continuations.json
     - assets/data/tanzilat.json
     - assets/data/athkar.json
+    # athkar reminders: Libya's main cities (offline), the main city of each
+    # time zone, country names for the online city search
+    - assets/data/cities_ly.json
+    - assets/data/tz_places.json
+    - assets/data/countries_ar.json
     - assets/data/share_video.json
     - assets/data/tanzilat_paint.bin
   

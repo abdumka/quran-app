@@ -13,6 +13,7 @@ import '../../services/reciter_service.dart';
 import '../../theme/app_surfaces.dart';
 import '../../utils/copy_helper.dart';
 import '../menu_scroll_cue.dart';
+import 'athkar_reminder_widgets.dart';
 
 /// The colours of «الأذكار»: the menus' colours in the new look, charcoal in
 /// night mode, cream in the previous look.
@@ -772,6 +773,10 @@ Future<void> showAthkarSettingsSheet(
                         store.view = view;
                       }
                     }),
+                  if (athkarRemindersShown) ...[
+                    heading('التذكير'),
+                    const AthkarReminderRows(),
+                  ],
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                     child: Row(

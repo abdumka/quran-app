@@ -83,6 +83,8 @@ import 'widgets/menu/app_menu_drawer.dart';
 import 'services/app_look_service.dart';
 
 import 'services/absence_reminder_service.dart';
+import 'services/athkar_reminder_service.dart';
+import 'widgets/athkar/athkar_reminder_widgets.dart';
 import 'theme/app_surfaces.dart';
 import 'widgets/menu/bottom_overlay_menu.dart';
 import 'widgets/hifz/hifz_stats_page.dart';
@@ -952,6 +954,18 @@ class _QuranPagesState extends State<QuranPages>
     DailyPageService.instance.pendingOpenPage.addListener(
       _handleDailyPageRequested,
     );
+    // An athkar reminder tapped (opens its athkar) or its «إيقاف» pressed
+    // (says it is off, with an undo); a cold-start tap is already waiting.
+    AthkarReminderService.instance.pendingOpen.addListener(
+      _handleAthkarReminderOpen,
+    );
+    AthkarReminderService.instance.stoppedFromNotification.addListener(
+      _handleAthkarReminderStopped,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleAthkarReminderOpen();
+      _handleAthkarReminderStopped();
+    });
     // A cold-start tap is normally consumed by SplashScreen, but it gives up
     // after a couple of seconds; if the payload arrived in the gap between that
     // and the listener above, nothing else would pick it up.
@@ -967,6 +981,8 @@ class _QuranPagesState extends State<QuranPages>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DailyPageService.instance.refreshSchedule(verifyQueue: true);
       KahfReminderService.instance.refreshSchedule();
+      // the athkar reminders: the sun moves, so the queue is per day
+      AthkarReminderService.instance.refreshSchedule();
       // «لا تهجر القرآن»: every open moves the absence reminders forward.
       AbsenceReminderService.instance.rearm(force: true);
       // Firebase too stays off the launch path. A push tapped while the app was
@@ -1075,6 +1091,34 @@ class _QuranPagesState extends State<QuranPages>
     }
   }
 
+  void _handleAthkarReminderOpen() {
+    final service = AthkarReminderService.instance;
+    final kind = service.pendingOpen.value;
+    if (kind == null || !mounted) return;
+    service.pendingOpen.value = null;
+    openAthkarForReminder(Navigator.of(context), kind);
+  }
+
+  void _handleAthkarReminderStopped() {
+    final service = AthkarReminderService.instance;
+    final kind = service.stoppedFromNotification.value;
+    if (kind == null || !mounted) return;
+    service.stoppedFromNotification.value = null;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          'أوقفنا تذكير ${kind.label}. يمكنك تشغيله من الإعدادات.',
+          textDirection: TextDirection.rtl,
+        ),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'تراجع',
+          onPressed: () => service.setEnabled(kind, true),
+        ),
+      ),
+    );
+  }
+
   void _openChatFromNotification() {
     if (!mounted) return;
     Navigator.of(context).push(
@@ -1140,6 +1184,12 @@ class _QuranPagesState extends State<QuranPages>
     DailyPageService.instance.pendingOpenPage.removeListener(
       _handleDailyPageRequested,
     );
+    AthkarReminderService.instance.pendingOpen.removeListener(
+      _handleAthkarReminderOpen,
+    );
+    AthkarReminderService.instance.stoppedFromNotification.removeListener(
+      _handleAthkarReminderStopped,
+    );
     _setReadingMode(false);
     _marginImagesService.state.removeListener(_handleMarginImagesChanged);
     _pageQualityService.level.removeListener(_handlePageQualityChanged);
@@ -1194,6 +1244,9 @@ class _QuranPagesState extends State<QuranPages>
       // Keeps the "صفحة اليوم" queue a full horizon deep. Returns immediately
       // once it has run for the day, so this is cheap on every other resume.
       DailyPageService.instance.refreshSchedule();
+      // a new day, a new time zone or notifications allowed since: athkar
+      // reminders rebuilt (cheap otherwise)
+      AthkarReminderService.instance.refreshSchedule();
       // Moves «لا تهجر القرآن» forward; at most every few hours.
       AbsenceReminderService.instance.rearm();
       // Re-assert the keep-awake flag. It lives on the Activity's window, so

@@ -22,6 +22,7 @@ import 'services/recitation_bar_opacity_service.dart';
 import 'services/theme_service.dart';
 import 'services/tv_popup_observer.dart';
 import 'services/absence_reminder_service.dart';
+import 'services/athkar_reminder_service.dart';
 import 'services/app_look_service.dart';
 import 'services/tv_service.dart';
 import 'services/update_notification_service.dart';
@@ -145,6 +146,8 @@ Future<void> main() async {
     AppLookService.instance.load(),
     // prefs only, and it claims its tap prefix for a cold-start tap
     AbsenceReminderService.instance.load(),
+    // the same for the athkar reminders (and their «إيقاف» button)
+    AthkarReminderService.instance.load(),
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,

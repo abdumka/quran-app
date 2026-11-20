@@ -9,6 +9,10 @@
     <!-- Update-available notification (opt-in; default delivery is in-app only)
          and the "صفحة اليوم" daily reading reminder (also opt-in). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Athkar reminders timed to sunrise/sunset: the approximate location
+         only (no GPS), read while the app is open and kept on the phone. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-feature android:name="android.hardware.location" android:required="false"/>
     <!-- Lets flutter_local_notifications re-arm the scheduled "صفحة اليوم"
          reminders after a reboot or an app update; without it the queue is lost
          until the app is next opened.

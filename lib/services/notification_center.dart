@@ -54,17 +54,30 @@ class NotificationCenter {
   Future<void> ensureInitialized() async {
     if (_initialized) return;
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings(
+    final iosInit = DarwinInitializationSettings(
       // Don't request permission at init; each feature asks explicitly at the
       // moment the user opts into it, so the prompt has clear context.
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
+      // the athkar reminders' «إيقاف» button (iOS needs it declared up front)
+      notificationCategories: [
+        DarwinNotificationCategory(
+          'athkar_reminder',
+          actions: [
+            DarwinNotificationAction.plain(
+              'stop',
+              'إيقاف',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+          ],
+        ),
+      ],
     );
     await plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
+      InitializationSettings(android: androidInit, iOS: iosInit),
       onDidReceiveNotificationResponse: (response) =>
-          _dispatch(response.payload),
+          _dispatch(_withAction(response)),
     );
     _initialized = true;
 
@@ -74,12 +87,22 @@ class NotificationCenter {
     // for registerTapHandler otherwise.
     try {
       final details = await plugin.getNotificationAppLaunchDetails();
-      if (details?.didNotificationLaunchApp ?? false) {
-        _dispatch(details?.notificationResponse?.payload);
+      final response = details?.notificationResponse;
+      if ((details?.didNotificationLaunchApp ?? false) && response != null) {
+        _dispatch(_withAction(response));
       }
     } catch (error, stack) {
       debugPrint('NotificationCenter launch details failed: $error\n$stack');
     }
+  }
+
+  /// A button on the notification (the athkar reminders' «إيقاف») reaches the
+  /// handler as `<value>#<button id>`; a tap on the notification itself as
+  /// `<value>`.
+  static String? _withAction(NotificationResponse response) {
+    final action = response.actionId;
+    if (action == null || action.isEmpty) return response.payload;
+    return '${response.payload}#$action';
   }
 
   void _dispatch(String? payload) {
