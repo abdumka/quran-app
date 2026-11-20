@@ -1,5 +1,5 @@
 {
- "ver": 6,
+ "ver": 7,
  "enabled": true,
  "videoEnabled": true,
  "baseUrl": "https://quran-content.mushaf-qaloon.com/",
@@ -640,6 +640,30 @@
     "16x9": {
      "path": "video_bg/v4/isl52_crescent_clouds/16x9.mp4",
      "bytes": 2225532
+    }
+   }
+  },
+  {
+   "id": "bg31_clouds_hills",
+   "title": "غيوم فوق التلال",
+   "category": "nature",
+   "thumb": "video_bg/v5/bg31_clouds_hills/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v5/bg31_clouds_hills/9x16.mp4",
+     "bytes": 4788240
+    },
+    "4x5": {
+     "path": "video_bg/v5/bg31_clouds_hills/4x5.mp4",
+     "bytes": 4183849
+    },
+    "1x1": {
+     "path": "video_bg/v5/bg31_clouds_hills/1x1.mp4",
+     "bytes": 3859582
+    },
+    "16x9": {
+     "path": "video_bg/v5/bg31_clouds_hills/16x9.mp4",
+     "bytes": 5177602
     }
    }
   },
