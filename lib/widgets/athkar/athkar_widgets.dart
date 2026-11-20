@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../../services/athkar_service.dart';
 import '../../services/reciter_service.dart';
 import '../../theme/app_surfaces.dart';
 import '../../utils/copy_helper.dart';
+import '../menu_scroll_cue.dart';
 
 /// The colours of «الأذكار»: the menus' colours in the new look, charcoal in
 /// night mode, cream in the previous look.
@@ -613,10 +615,8 @@ class AthkarPlayerBar extends StatelessWidget {
                                   child: Tooltip(
                                     message: 'تغيير القارئ',
                                     child: InkWell(
-                                      onTap: () => showAthkarSettingsSheet(
-                                        context,
-                                        items: items,
-                                      ),
+                                      onTap: () =>
+                                          showAthkarSettingsSheet(context),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -679,14 +679,14 @@ class AthkarPlayerBar extends StatelessWidget {
 }
 
 /// «إعدادات الأذكار»: on to the next dhikr by itself or not, list or one a
-/// page, and the voices: one for the athkar (with how many of [items] each
-/// recorded, so a voice that lacks some is seen before it is picked) and
-/// one for the verses (the mushaf's reciters, so one the server adds is
-/// offered here too). [switchView] is the open reader's own view switch,
+/// page, and the two voices side by side so both choices are in sight at
+/// once (owner, 2026-11-19): the athkar voice on the right, the verses'
+/// reciter on the left (the mushaf's reciters, so one the server adds is
+/// offered here too). Picking a voice keeps the sheet open, so both can be
+/// changed in one go. [switchView] is the open reader's own view switch,
 /// which keeps the reader on the dhikr it is at.
 Future<void> showAthkarSettingsSheet(
   BuildContext context, {
-  List<AthkarItem>? items,
   VoidCallback? switchView,
 }) {
   final c = AthkarColors.of(context);
@@ -694,10 +694,6 @@ Future<void> showAthkarSettingsSheet(
   final store = AthkarStore.instance;
   final voices = AthkarService.instance.data.reciters;
   final quranReciters = ReciterService.instance.reciters;
-  final spoken = [
-    for (final i in items ?? const <AthkarItem>[])
-      if (!i.isQuran) i,
-  ];
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: c.card,
@@ -715,43 +711,19 @@ Future<void> showAthkarSettingsSheet(
           ),
         ),
       );
-      Widget row(
-        String name,
-        bool chosen,
-        VoidCallback onTap, {
-        String? note,
-        bool faint = false,
-        bool close = true,
-      }) => ListTile(
+      Widget row(String name, bool chosen, VoidCallback onTap) => ListTile(
         dense: true,
-        title: Text(
-          name,
-          style: TextStyle(color: faint ? c.muted : c.text, fontSize: 15.5),
-        ),
-        subtitle: note == null
-            ? null
-            : Text(note, style: TextStyle(color: c.muted, fontSize: 12.5)),
+        title: Text(name, style: TextStyle(color: c.text, fontSize: 15.5)),
         trailing: chosen ? Icon(Icons.check_rounded, color: c.accent) : null,
-        onTap: () {
-          if (close) Navigator.of(sheetContext).pop();
-          onTap();
-        },
+        onTap: onTap,
       );
-      String? coverage(AthkarReciter r) {
-        if (spoken.isEmpty) return null;
-        final n = spoken.where(r.has).length;
-        if (n == spoken.length) return 'كل أذكار هذه الصفحة';
-        if (n == 0) return 'لا تسجيل له في هذه الصفحة';
-        return '$n من ${spoken.length} في هذه الصفحة';
-      }
 
-      final quranId = audio.quranReciter.id;
       return Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.8,
+              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.85,
             ),
             child: ListenableBuilder(
               listenable: store,
@@ -799,34 +771,49 @@ Future<void> showAthkarSettingsSheet(
                       } else {
                         store.view = view;
                       }
-                    }, close: false),
-                  if (voices.isNotEmpty) ...[
-                    heading('قارئ الأذكار'),
-                    for (final r in voices)
-                      row(
-                        r.name,
-                        r.id == audio.reciter?.id,
-                        () => audio.chooseReciter(r),
-                        note: coverage(r),
-                        faint: spoken.isNotEmpty && !spoken.any(r.has),
-                      ),
+                    }),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (voices.isNotEmpty) ...[
+                          Expanded(
+                            child: AthkarVoiceColumn(
+                              title: 'قارئ الأذكار',
+                              names: [for (final r in voices) r.name],
+                              chosen: voices.indexWhere(
+                                (r) => r.id == audio.reciter?.id,
+                              ),
+                              onPick: (i) => audio.chooseReciter(voices[i]),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: AthkarVoiceColumn(
+                            title: 'قارئ الآيات',
+                            names: [for (final r in quranReciters) r.name],
+                            chosen: quranReciters.indexWhere(
+                              (r) => r.id == audio.quranReciter.id,
+                            ),
+                            onPick: (i) =>
+                                audio.chooseQuranReciter(quranReciters[i]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (voices.isNotEmpty)
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                       child: Text(
-                        'ما لم يسجّله القارئ يُقرأ بصوت قارئ آخر، ويظهر اسمه '
-                        'فوق الذكر.',
+                        'ما لم يسجّله قارئ الأذكار يُقرأ بصوت قارئ آخر، '
+                        'ويظهر اسمه فوق الذكر.',
                         style: TextStyle(color: c.muted, fontSize: 12.5),
                       ),
                     ),
-                  ],
-                  heading('قارئ الآيات'),
-                  for (final r in quranReciters)
-                    row(
-                      r.name,
-                      r.id == quranId,
-                      () => audio.chooseQuranReciter(r),
-                    ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                 ],
               ),
             ),
@@ -835,4 +822,141 @@ Future<void> showAthkarSettingsSheet(
       );
     },
   );
+}
+
+/// One of the two voice lists of «إعدادات الأذكار»: a title over a framed
+/// list about five rows high that scrolls inside itself, with the reciter
+/// menus' gold bar and edge fade (menu_scroll_cue.dart) so a longer list
+/// shows it goes on. It opens scrolled to the chosen voice.
+class AthkarVoiceColumn extends StatefulWidget {
+  const AthkarVoiceColumn({
+    super.key,
+    required this.title,
+    required this.names,
+    required this.chosen,
+    required this.onPick,
+  });
+
+  final String title;
+  final List<String> names;
+
+  /// Index in [names] of the voice in use; -1 for none.
+  final int chosen;
+  final ValueChanged<int> onPick;
+
+  /// One row: room for a name on two lines in half a phone's width.
+  static const double rowHeight = 52;
+
+  /// Five and a half rows: the half row says there is more below.
+  static const double listHeight = rowHeight * 5.5;
+
+  @override
+  State<AthkarVoiceColumn> createState() => _AthkarVoiceColumnState();
+}
+
+class _AthkarVoiceColumnState extends State<AthkarVoiceColumn> {
+  late final ScrollController _scroll = ScrollController(
+    initialScrollOffset: widget.chosen > 0
+        ? (widget.chosen - 1) * AthkarVoiceColumn.rowHeight
+        : 0,
+  );
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AthkarColors.of(context);
+    final height = math.min(
+      AthkarVoiceColumn.listHeight,
+      widget.names.length * AthkarVoiceColumn.rowHeight,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+          child: Text(
+            widget.title,
+            style: TextStyle(
+              color: c.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: c.page,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: c.hair),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ScrollbarTheme(
+            data: menuScrollbarTheme(context),
+            child: Scrollbar(
+              controller: _scroll,
+              child: ListView.builder(
+                controller: _scroll,
+                padding: EdgeInsets.zero,
+                itemExtent: AthkarVoiceColumn.rowHeight,
+                itemCount: widget.names.length,
+                itemBuilder: (context, i) {
+                  final chosen = i == widget.chosen;
+                  return Material(
+                    color: chosen
+                        ? c.accent.withValues(alpha: 0.14)
+                        : Colors.transparent,
+                    child: InkWell(
+                      onTap: () => widget.onPick(i),
+                      child: MenuRowEdgeFade(
+                        child: Padding(
+                          // the end side (left) leaves room for the scroll bar
+                          padding: const EdgeInsetsDirectional.fromSTEB(
+                            12,
+                            0,
+                            16,
+                            0,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  widget.names[i],
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: c.text,
+                                    fontSize: 14.5,
+                                    height: 1.25,
+                                    fontWeight: chosen
+                                        ? FontWeight.w700
+                                        : FontWeight.w400,
+                                  ),
+                                ),
+                              ),
+                              if (chosen)
+                                Icon(
+                                  Icons.check_rounded,
+                                  size: 18,
+                                  color: c.accent,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

@@ -246,11 +246,8 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
                 IconButton(
                   tooltip: 'إعدادات الأذكار',
                   icon: const Icon(Icons.settings_outlined),
-                  onPressed: () => showAthkarSettingsSheet(
-                    context,
-                    items: _items,
-                    switchView: _switchView,
-                  ),
+                  onPressed: () =>
+                      showAthkarSettingsSheet(context, switchView: _switchView),
                 ),
                 if (_items.isNotEmpty)
                   IconButton(

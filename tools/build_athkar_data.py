@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, 'assets', 'data', 'athkar.json')
 
 # Raise when the content changes; ContentUpdateService.bundledVersions
 # ['athkar'] must match (a test keeps them in step).
-VER = 2
+VER = 3
 
 # The themed groups of the home screen (ours: the book is one flat list).
 # Numbers are the book's section order; the order inside a group is the
@@ -254,11 +254,20 @@ def renumber(quran, src):
     return new
 
 
+# The first voice is the default, and a dhikr it did not record plays in the
+# next voice on this list that has it (owner, 2026-11-19: سعد الغامدي by
+# default, حمد الدريهم for what he lacks). Voices not named here follow in
+# the order publish_voices.py wrote them.
+VOICE_ORDER = ['ghamdi', 'duraihem']
+
+
 def voices():
     path = os.path.join(ROOT, 'tools', 'athkar_voices.json')
     if not os.path.exists(path):
         return []
-    return json.load(open(path, encoding='utf-8'))
+    found = json.load(open(path, encoding='utf-8'))
+    rank = {v: i for i, v in enumerate(VOICE_ORDER)}
+    return sorted(found, key=lambda v: rank.get(v['id'], len(rank)))  # stable: the rest keep their order
 
 
 def main():

@@ -685,8 +685,25 @@ void main() {
       expect(find.text('بصوت القارئ الأول'), findsNWidgets(3));
       await tester.tap(find.byTooltip('إعدادات الأذكار'));
       await tester.pumpAndSettle();
-      expect(find.text('كل أذكار هذه الصفحة'), findsOneWidget);
-      expect(find.text('لا تسجيل له في هذه الصفحة'), findsOneWidget);
+      // both voice lists side by side, and no per-page counts (owner,
+      // 2026-11-19)
+      expect(find.byType(AthkarVoiceColumn), findsNWidgets(2));
+      expect(find.text('قارئ الأذكار'), findsOneWidget);
+      expect(find.text('قارئ الآيات'), findsOneWidget);
+      expect(find.textContaining('هذه الصفحة'), findsNothing);
+      final columns = find.byType(AthkarVoiceColumn);
+      expect(
+        tester.getCenter(columns.first).dx,
+        greaterThan(tester.getCenter(columns.last).dx),
+        reason: 'the athkar voice is on the right',
+      );
+      // picking a voice keeps the sheet open, so the other can be changed too
+      await tester.tap(
+        find.descendant(of: columns.first, matching: find.text('القارئ الأول')),
+      );
+      await tester.pumpAndSettle();
+      expect(store.reciterOf(data)!.id, 'one');
+      expect(find.byType(AthkarVoiceColumn), findsNWidgets(2));
     });
 
     testWidgets('no recording at all: a muted speaker that says so', (
