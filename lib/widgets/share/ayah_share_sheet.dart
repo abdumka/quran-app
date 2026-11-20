@@ -733,7 +733,21 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             ),
         ],
       ),
-      _label(_t('ayat', 'الآيات')),
+      // The label and the length share one line, and the steppers are low,
+      // so «إنشاء الفيديو» fits on the screen without scrolling.
+      Padding(
+        padding: const EdgeInsets.fromLTRB(2, 14, 2, 6),
+        child: Row(
+          children: [
+            Text(
+              _t('ayat', 'الآيات'),
+              style: TextStyle(fontSize: 13, color: c.muted),
+            ),
+            const Spacer(),
+            ?_lengthText(),
+          ],
+        ),
+      ),
       Row(
         children: [
           Expanded(
@@ -745,7 +759,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               onPlus: _stepping ? null : _fromPlus(),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _Stepper(
               label: _t('to', 'إلى'),
@@ -758,7 +772,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         ],
       ),
       ..._rangeNotes(),
-      const SizedBox(height: 18),
+      const SizedBox(height: 14),
       Row(
         children: [
           Expanded(
@@ -851,24 +865,8 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         }
       }
     }
-    final len = _length;
     final over = _tooLong;
     return [
-      if (_measuring || len != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            len == null || _measuring
-                ? _t('lengthMeasuring', 'مدة التلاوة…')
-                : _t('length', 'مدة التلاوة نحو {time}', {'time': _clock(len)}),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              color: over ? Colors.red.shade700 : c.text,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
       for (final l in lines)
         Padding(
           padding: const EdgeInsets.only(top: 4),
@@ -894,6 +892,22 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           ),
         ),
     ];
+  }
+
+  /// «مدة التلاوة نحو 0:14» on the ayat label's line (red when too long).
+  Widget? _lengthText() {
+    final len = _length;
+    if (!_measuring && len == null) return null;
+    return Text(
+      len == null || _measuring
+          ? _t('lengthMeasuring', 'مدة التلاوة…')
+          : _t('length', 'مدة التلاوة نحو {time}', {'time': _clock(len)}),
+      style: TextStyle(
+        fontSize: 12.5,
+        color: _tooLong ? Colors.red.shade700 : c.text,
+        fontWeight: FontWeight.w600,
+      ),
+    );
   }
 
   Widget _reciterPicker() {
@@ -1333,6 +1347,8 @@ class _Stepper extends StatelessWidget {
     final c = colors;
     Widget button(IconData icon, VoidCallback? onTap) => IconButton(
       visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 34, height: 34),
       onPressed: onTap,
       icon: Icon(icon, size: 18),
       color: c.text,
@@ -1340,7 +1356,7 @@ class _Stepper extends StatelessWidget {
       style: IconButton.styleFrom(backgroundColor: c.chip),
     );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: c.card,
         borderRadius: BorderRadius.circular(12),
