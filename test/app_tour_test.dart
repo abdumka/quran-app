@@ -173,7 +173,9 @@ void main() {
     expect(find.text('حسنًا'), findsNothing);
   });
 
-  testWidgets('deck: «جرّبها الآن» returns the card', (tester) async {
+  testWidgets('deck: no «جرّبها الآن»; «كل التغييرات» returns all', (
+    tester,
+  ) async {
     phone(tester);
     String? result;
     await tester.pumpWidget(
@@ -184,7 +186,7 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () async => result = await WhatsNewDeck.show(
                   context,
-                  const ['talqeen', 'auto'],
+                  WhatsNewService.tourCards,
                 ),
                 child: const Text('open'),
               ),
@@ -196,8 +198,69 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('جرّبها الآن'));
+    for (var i = 0; i < WhatsNewService.tourCards.length; i++) {
+      expect(find.textContaining('جرّبها'), findsNothing);
+      if (i < WhatsNewService.tourCards.length - 1) {
+        await tester.tap(find.text('التالي'));
+        await tester.pump(const Duration(milliseconds: 700));
+      }
+    }
+    await tester.tap(find.text('كل التغييرات في هذا الإصدار'));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(result, 'talqeen');
+    expect(result, WhatsNewDeck.allChangesId);
+  });
+
+  group('the replay from the side menu closes', () {
+    Future<void> openReplay(WidgetTester tester) async {
+      phone(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => WelcomeTourPage.replay(context),
+                  child: const Text('menu'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('menu'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(WelcomeTourPage), findsOneWidget);
+    }
+
+    Future<void> expectClosed(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(WelcomeTourPage), findsNothing);
+      expect(find.text('menu'), findsOneWidget);
+    }
+
+    testWidgets('after all 12 stories, «ابدأ القراءة»', (tester) async {
+      await openReplay(tester);
+      for (var i = 1; i < WelcomeTourPage.stories.length; i++) {
+        await tester.tap(find.text('التالي'));
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+      await tester.tap(find.text('ابدأ القراءة'));
+      await expectClosed(tester);
+    });
+
+    testWidgets('«تخطّ»', (tester) async {
+      await openReplay(tester);
+      await tester.tap(find.text('تخطّ'));
+      await expectClosed(tester);
+    });
+
+    testWidgets('Back', (tester) async {
+      await openReplay(tester);
+      await tester.binding.handlePopRoute();
+      await expectClosed(tester);
+    });
   });
 }

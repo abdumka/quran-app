@@ -37,7 +37,9 @@ class WelcomeTourPage extends StatefulWidget {
       PageRouteBuilder<void>(
         transitionDuration: const Duration(milliseconds: 350),
         pageBuilder: (routeContext, _, _) => WelcomeTourPage(
-          onFinish: () => Navigator.of(routeContext).maybePop(),
+          // pop, not maybePop: the tour's PopScope (canPop: false, Back =
+          // «تخطّ») refuses maybePop, which left the replay stuck open
+          onFinish: () => Navigator.of(routeContext).pop(),
         ),
         transitionsBuilder: (_, animation, _, child) =>
             FadeTransition(opacity: animation, child: child),

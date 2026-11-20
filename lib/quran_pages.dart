@@ -30,8 +30,6 @@ import 'widgets/quran/khilaf_sheet.dart';
 import 'widgets/share/ayah_share_sheet.dart';
 import 'widgets/tour/welcome_tour_page.dart';
 import 'widgets/tour/whats_new_deck.dart';
-import 'widgets/athkar/athkar_home_page.dart';
-import 'widgets/usul/usul_pages.dart';
 import 'services/share/share_video_config.dart';
 import 'widgets/quran/ayah_recite_row.dart';
 import 'widgets/repeat_count_wheel.dart';
@@ -5743,39 +5741,12 @@ class _QuranPagesState extends State<QuranPages>
     if (showMe && mounted) _openSettings(startTour: true);
   }
 
-  /// The What's New card deck; «جرّبها الآن» opens that card's feature and
-  /// «كل التغييرات» the full list of the release.
+  /// The What's New card deck; «كل التغييرات» opens the full list.
   Future<void> _showWhatsNewDeck() async {
     final action =
         await WhatsNewDeck.show(context, WhatsNewService.tourCards);
-    if (!mounted || action == null) return;
-    switch (action) {
-      case WhatsNewDeck.allChangesId:
-        await WhatsNewDialog.show(
-          context,
-          WhatsNewService.currentReleaseChanges,
-        );
-      case 'talqeen':
-        _showTilawahOptionsSheet();
-      case 'athkar':
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const AthkarHomePage()),
-        );
-      case 'usul':
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const UsulHomePage()),
-        );
-      case 'video':
-        // the share sheet of the first ayah on the page being read
-        final pages = await QuranJsonService.loadQuranPages();
-        if (!mounted) return;
-        final page = pages.where((p) => p.page == _currentPage + 1).firstOrNull;
-        final ayah = page?.ayahs.firstOrNull;
-        if (ayah != null) {
-          await showAyahShareSheet(context,
-              surah: ayah.surah, ayah: ayah.ayah);
-        }
-    }
+    if (!mounted || action != WhatsNewDeck.allChangesId) return;
+    await WhatsNewDialog.show(context, WhatsNewService.currentReleaseChanges);
   }
 
   void _openSettings({bool startTour = false, SettingsSection? section}) {

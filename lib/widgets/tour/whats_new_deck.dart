@@ -4,9 +4,9 @@ import 'tour_scenes.dart';
 
 /// The What's New tour as a deck of tilted cards (owner picked option A,
 /// 2026-11-19). One card per new feature with its animated scene; «التالي»
-/// or a swipe sends the top card flying, «تخطّ» closes the deck, and
-/// «جرّبها الآن» closes it and returns that card's id so the reader can
-/// open the feature. «كل التغييرات» returns [allChangesId].
+/// or a swipe sends the top card flying, «تخطّ» closes the deck.
+/// «كل التغييرات» closes it and returns [allChangesId] (no «جرّبها الآن»
+/// buttons: owner, 2026-11-19).
 class WhatsNewDeck extends StatefulWidget {
   const WhatsNewDeck({super.key, required this.cards});
 
@@ -24,12 +24,8 @@ class WhatsNewDeck extends StatefulWidget {
     _ => null,
   };
 
-  /// Cards that open something with «جرّبها الآن» (the car has nothing to
-  /// open on the phone).
-  static bool canTry(String id) => id != 'auto';
-
-  /// Shows the deck; returns the id of the card whose «جرّبها الآن» was
-  /// pressed, [allChangesId], or null when it was simply closed.
+  /// Shows the deck; returns [allChangesId] when «كل التغييرات» was
+  /// pressed, or null when it was simply closed.
   static Future<String?> show(BuildContext context, List<String> cards) {
     final known = [
       for (final c in cards)
@@ -317,29 +313,6 @@ class _WhatsNewDeckState extends State<WhatsNewDeck> {
                                 color: TourColors.muted,
                               ),
                             ),
-                            if (WhatsNewDeck.canTry(id))
-                              TextButton.icon(
-                                onPressed: d == 0
-                                    ? () => Navigator.of(context).pop(id)
-                                    : null,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: TourColors.deepGold,
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: const Size(0, 36),
-                                ),
-                                iconAlignment: IconAlignment.end,
-                                icon: const Icon(
-                                  Icons.arrow_back_rounded,
-                                  size: 18,
-                                ),
-                                label: const Text(
-                                  'جرّبها الآن',
-                                  style: TextStyle(
-                                    fontFamily: 'Tajawal',
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       ),
