@@ -137,7 +137,7 @@ class ContentUpdateService {
     // matches the `ver` of `assets/data/khilaf.json` (a test keeps them in step)
     'khilaf': 1,
     // matches the `ver` of `assets/data/usul.json` (a test keeps them in step)
-    'usul': 1,
+    'usul': 2,
   };
 
   /// How often the silent check runs (`content.checkHours`, [RemoteConfig]).

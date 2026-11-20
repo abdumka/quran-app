@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-VER = 1
+VER = 2  # 2: every example carries its surah/ayah (the page preview highlights it)
 
 ROOT = Path(__file__).resolve().parent.parent
 MOCK = Path(r'C:/Down/Books/usul_qalun/mockup_2026-11-18')
@@ -41,6 +41,9 @@ src = src[:src.index("\nCSS = '''")]
 ns = {'__file__': str(MOCK / 'build_usul_mockup.py'), '__name__': 'usul_export'}
 exec(compile(src, str(MOCK / 'build_usul_mockup.py'), 'exec'), ns)
 
+
+SURAH_OF = {name: s_ for s_, name in ns['NAME'].items()}
+assert len(SURAH_OF) == 114
 
 # ---- a small HTML tree ----------------------------------------------------------------------
 class Node:
@@ -113,11 +116,27 @@ def ref_page(ref):
     return (ref[:m.start()], int(m.group(1))) if m else (ref, None)
 
 
+REF_RE = re.compile(r'^(.+?) (\d+)(?: و(\d+))?$')
+
+
+def where_of(ref):
+    """'آل عمران 99' -> (3, 99, None); 'طه 41 و42' -> (20, 41, 42)."""
+    m = REF_RE.match(ref)
+    assert m, ref
+    surah = SURAH_OF[m.group(1)]
+    a, a2 = int(m.group(2)), (int(m.group(3)) if m.group(3) else None)
+    assert (surah, a) in ns['AYAT'], ref
+    return surah, a, a2
+
+
 def word_item(w, r):
     r, p = ref_page(r)
-    d = {'w': w, 'r': r}
-    if p:
-        d['p'] = p
+    s_, a, a2 = where_of(r)
+    page = ns['page_of'][(s_, a)]
+    assert p in (None, page), (r, p, page)
+    d = {'w': w, 'r': r, 'p': page, 's': s_, 'a': a}
+    if a2:
+        d['a2'] = a2
     return d
 
 

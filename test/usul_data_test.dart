@@ -105,4 +105,84 @@ void main() {
     expect(find.byType(UsulChapterPage), findsOneWidget);
     ContentUpdateService.instance.debugReset();
   });
+
+  test('every example knows its surah, ayah and page', () {
+    var n = 0;
+    void walk(List<Map<String, dynamic>> blocks) {
+      for (final b in blocks) {
+        if (b['t'] == 'card') {
+          walk((b['blocks'] as List).cast<Map<String, dynamic>>());
+        }
+        if (b['t'] == 'ayah') {
+          expect([b['s'], b['a'], b['p']].every((v) => v is int), isTrue);
+        }
+        for (final i in (b['items'] is List ? b['items'] as List : const [])) {
+          if (i is Map && i.containsKey('w')) {
+            n++;
+            expect(
+              [i['s'], i['a'], i['p']].every((v) => v is int),
+              isTrue,
+              reason: '$i',
+            );
+          }
+        }
+      }
+    }
+
+    for (final c in data.chapters) {
+      walk(c.blocks);
+    }
+    expect(n, greaterThan(130));
+  });
+
+  testWidgets('a kind box scrolls to its list', (tester) async {
+    ContentUpdateService.instance.debugReset(
+      dir: Directory.systemTemp.createTempSync('usul_test'),
+    );
+    UsulData.debugReset();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(const MaterialApp(home: UsulHomePage()));
+      await UsulData.load();
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('8 فصول'), findsOneWidget); // كلمات متكررة
+    expect(find.text('15 فصلًا'), findsOneWidget); // الأصول
+    await tester.ensureVisible(find.text('8 فصول'));
+    await tester.pumpAndSettle();
+    final row = find.text('وَهْوَ، فَهْيَ، لَهْوَ');
+    expect(tester.getRect(row).top, greaterThan(600));
+    await tester.tap(find.text('8 فصول'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(row).top, lessThan(300));
+    ContentUpdateService.instance.debugReset();
+  });
+
+  testWidgets('an example opens its page over the حكم; back returns', (
+    tester,
+  ) async {
+    ContentUpdateService.instance.debugReset(
+      dir: Directory.systemTemp.createTempSync('usul_test'),
+    );
+    final nun = data.chapters.first;
+    await tester.pumpWidget(MaterialApp(home: UsulChapterPage(chapter: nun)));
+    await tester.pump();
+    // the rule is above its example
+    final rule = tester.getRect(find.text('الإظهار'));
+    final where = find.text('آل عمران 99 · صفحة 62');
+    expect(rule.top, lessThan(tester.getRect(where).top));
+    await tester.runAsync(() async {
+      await tester.tap(where);
+      await tester.pump();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('افتح في المصحف'), findsOneWidget);
+    expect(find.text('رجوع إلى الحكم'), findsOneWidget);
+    await tester.tap(find.text('رجوع إلى الحكم'));
+    await tester.pumpAndSettle();
+    expect(find.text('افتح في المصحف'), findsNothing);
+    expect(find.byType(UsulChapterPage), findsOneWidget);
+    expect(find.text('الإظهار'), findsOneWidget);
+    ContentUpdateService.instance.debugReset();
+  });
 }
