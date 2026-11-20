@@ -77,7 +77,16 @@ class QuranMediaHandler extends BaseAudioHandler {
   bool get hasGuest => _guest != null;
 
   void showGuest(GuestPlayback guest) {
-    final changedItem = _guest?.id != guest.id;
+    final was = _guest;
+    // the same dhikr in another voice, or «ينتظر الاتصال…» coming and going,
+    // is new text for the notification too (it kept the old voice's name)
+    final changedItem =
+        was == null ||
+        was.id != guest.id ||
+        was.title != guest.title ||
+        was.artist != guest.artist ||
+        was.album != guest.album ||
+        was.artUri != guest.artUri;
     _guest = guest;
     if (changedItem) {
       mediaItem.add(
@@ -483,6 +492,20 @@ class QuranMediaHandler extends BaseAudioHandler {
     _setSleep(_Sleep.off);
     AudioService.instance.stop();
     await super.stop();
+  }
+
+  /// The app swiped away from the recent apps (Android): the athkar stop
+  /// with it. They belong to the page they were started on, which is gone,
+  /// and an ayah of آية الكرسي went on playing after the app was closed
+  /// (owner, 2026-11-20). The recitation keeps its background playing.
+  @override
+  Future<void> onTaskRemoved() async {
+    final guest = _guest;
+    if (guest != null) {
+      guest.onStop();
+      endGuest();
+    }
+    await super.onTaskRemoved();
   }
 
   @override

@@ -1,3 +1,4 @@
+import '../data/recitation_end_caps.dart';
 import 'doukali_covered_ayat.dart';
 
 /// How a reciter's mirror maps a *displayed* (output.json) ayah to file name(s).
@@ -664,7 +665,40 @@ class Reciter {
     _hidden = Set.unmodifiable(hidden);
     _order = List.unmodifiable(orderIds);
     _recordingReplaced = Set.unmodifiable(replaced);
+    _remoteEndCaps = endCapsFromJson(json['endCaps']);
   }
+
+  /// Where recordings must stop, sent with this file on top of the bundled
+  /// [recitationEndCaps], so a «صدق الله العظيم» found after a release is
+  /// cut without one (owner, 2026-11-20):
+  /// `"endCaps": {"doukali_qaloun": {"114001.mp3": 29.65}}`.
+  static Map<String, Map<String, double>> _remoteEndCaps = const {};
+
+  static Map<String, Map<String, double>> endCapsFromJson(Object? raw) {
+    if (raw is! Map) return const {};
+    final file = RegExp(r'^\d{3}(\d{3})?\.mp3$');
+    final out = <String, Map<String, double>>{};
+    raw.forEach((id, files) {
+      if (id is! String || files is! Map) return;
+      final caps = <String, double>{};
+      files.forEach((f, sec) {
+        if (f is String && file.hasMatch(f) && sec is num) {
+          if (sec > 0.5 && sec < 36000) caps[f] = sec.toDouble();
+        }
+      });
+      if (caps.isNotEmpty) out[id] = Map.unmodifiable(caps);
+    });
+    return Map.unmodifiable(out);
+  }
+
+  /// Seconds into [file] past which [reciterId]'s recording is never played
+  /// («صدق الله العظيم»), or null. A recording the server replaced under the
+  /// same id is other audio: the bundled caps no longer fit it.
+  static double? endCapFor(String reciterId, String file) =>
+      _remoteEndCaps[reciterId]?[file] ??
+      (_recordingReplaced.contains(reciterId)
+          ? null
+          : recitationEndCaps[reciterId]?[file]);
 
   static const Object _fromFile = Object();
 

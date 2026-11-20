@@ -35,6 +35,11 @@ class AudioClip {
   /// keeps the existing reciters on exactly the code path they had before.
   bool get isClipped => start != null || end != null;
 
+  /// A slice of a timed reciter's whole-surah file (both bounds known), as
+  /// opposed to a per-ayah file that is only cut short at its end (see
+  /// `recitationEndCaps`), which plays like the whole file it is.
+  bool get isSurahSlice => start != null && end != null;
+
   /// How long this clip plays for, when both bounds are known.
   Duration? get duration =>
       (start != null && end != null) ? end! - start! : null;

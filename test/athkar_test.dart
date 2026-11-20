@@ -3,15 +3,21 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:islamic_dawah_mushaf/models/athkar.dart';
+import 'package:islamic_dawah_mushaf/models/reciter.dart';
 import 'package:islamic_dawah_mushaf/services/athkar_audio.dart';
+import 'package:islamic_dawah_mushaf/services/athkar_download_service.dart';
 import 'package:islamic_dawah_mushaf/services/athkar_reminder_service.dart';
 import 'package:islamic_dawah_mushaf/services/athkar_service.dart';
 import 'package:islamic_dawah_mushaf/services/content_update_service.dart';
 import 'package:islamic_dawah_mushaf/widgets/athkar/athkar_home_page.dart';
 import 'package:islamic_dawah_mushaf/widgets/athkar/athkar_reader_page.dart';
 import 'package:islamic_dawah_mushaf/widgets/athkar/athkar_widgets.dart';
+import 'package:islamic_dawah_mushaf/widgets/settings/downloads_management_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Finishes each recording when the test says so.
@@ -19,7 +25,10 @@ class _FakePlayer implements AthkarPlayer {
   final List<String> played = [];
   final List<AthkarSource> sources = [];
   Completer<bool>? _current;
-  bool failNext = false;
+
+  /// The next plays that fail (no network).
+  int failTimes = 0;
+  int tries = 0;
   double speed = 1;
 
   @override
@@ -27,8 +36,9 @@ class _FakePlayer implements AthkarPlayer {
 
   @override
   Future<bool> play(List<AthkarSource> sources) {
-    if (failNext) {
-      failNext = false;
+    tries++;
+    if (failTimes > 0) {
+      failTimes--;
       return Future.error(StateError('no network'));
     }
     played.add(sources.map((s) => s.uri.toString()).join('+'));
@@ -268,6 +278,8 @@ void main() {
       AthkarService.instance.debugSetData(_sample(withReciter: true));
       player = _FakePlayer();
       audio.player = player;
+      audio.retryWaits = const [Duration.zero];
+      audio.retryFor = const Duration(seconds: 60);
     });
 
     tearDown(() => audio.stop());
@@ -487,11 +499,255 @@ void main() {
       expect(audio.isActive, isFalse);
       expect(store.countOf(items[0]), 0);
 
-      player.failNext = true;
+      // given up on only after [AthkarAudio.retryFor]
+      audio.retryFor = Duration.zero;
+      player.failTimes = 1;
       final before = audio.failures.value;
       await audio.start(items, 0);
       expect(audio.failures.value, before + 1);
       expect(audio.isActive, isFalse);
+    });
+
+    group('another voice while listening', () {
+      // a third voice that has every dhikr
+      setUp(() {
+        final map = json.decode(_sampleJson(withReciter: true)) as Map;
+        (map['reciters'] as List).add({
+          'id': 'three',
+          'name': 'القارئ الثالث',
+          'url': 'https://example.com/three/{id}.mp3',
+        });
+        AthkarService.instance.debugSetData(AthkarData.parse(json.encode(map)));
+      });
+
+      test('the dhikr being heard starts again in the new voice, then the '
+          'listening goes on in it', () async {
+        final data = AthkarService.instance.data;
+        final items = data.section(10)!.items;
+        unawaited(audio.start(items, 1)); // dhikr 2, said 3 times
+        await pumpEventQueue();
+        await player.finish(); // heard once, in «one»
+        expect(store.countOf(items[1]), 1);
+        expect(audio.repeat, (2, 3));
+        await audio.chooseReciter(data.reciters[2]);
+        await pumpEventQueue();
+        expect(audio.isActive, isTrue);
+        expect(audio.current!.id, 2);
+        expect(audio.repeat, (2, 3)); // the time cut short, again
+        expect(store.countOf(items[1]), 1);
+        expect(player.played.last, 'https://example.com/three/2.mp3');
+        await player.finish();
+        await player.finish();
+        expect(store.isDone(items[1]), isTrue);
+        expect(audio.current!.id, 3);
+        expect(player.played.last, 'https://example.com/three/3.mp3');
+      });
+
+      test('paused: the new voice starts the dhikr again and plays', () async {
+        final data = AthkarService.instance.data;
+        final items = data.section(10)!.items;
+        unawaited(audio.start(items, 0));
+        await pumpEventQueue();
+        await audio.togglePause();
+        await audio.chooseReciter(data.reciters[2]);
+        await pumpEventQueue();
+        expect(audio.isPaused, isFalse);
+        expect(audio.current!.id, 1);
+        expect(player.played.last, 'https://example.com/three/1.mp3');
+      });
+
+      test('a change that does not touch the one being heard plays on; the '
+          'verses\' reciter starts a verse again', () async {
+        final data = AthkarService.instance.data;
+        final asked = <String>[];
+        final before = audio.quranSources;
+        audio.quranSources = (r, item) async {
+          asked.add(r.id);
+          return [AthkarSource(Uri.parse('https://q.example/${r.id}.mp3'))];
+        };
+        addTearDown(() => audio.quranSources = before);
+        final sleep = data.section(11)!.items; // 4 (voice «two»), 5 (Qur'an)
+        unawaited(audio.start(sleep, 1));
+        await pumpEventQueue();
+        expect(player.tries, 1);
+        // a verse is playing: a new athkar voice leaves it alone
+        await audio.chooseReciter(data.reciters[2]);
+        await pumpEventQueue();
+        expect(player.tries, 1);
+        expect(audio.current!.id, 5);
+        // a new reciter for the verses starts it again in his voice
+        await audio.chooseQuranReciter(Reciter.qaniwahQaloun);
+        await pumpEventQueue();
+        expect(player.tries, 2);
+        expect(asked.last, 'qaniwah_qaloun');
+        expect(player.played.last, 'https://q.example/qaniwah_qaloun.mp3');
+        // the same reciter again: nothing restarts
+        await audio.chooseQuranReciter(Reciter.qaniwahQaloun);
+        await pumpEventQueue();
+        expect(player.tries, 2);
+      });
+
+      test('a verse the chosen reciter has no file of is heard in the '
+          'default one, and the bar says so', () async {
+        final data = AthkarService.instance.data;
+        final before = audio.quranSources;
+        audio.quranSources = (r, item) async => r.id == 'qaniwah_qaloun'
+            ? null // read inside the ayah before
+            : [AthkarSource(Uri.parse('https://q.example/${r.id}.mp3'))];
+        addTearDown(() => audio.quranSources = before);
+        store.chooseQuranReciter('qaniwah_qaloun');
+        final before2 = audio.unavailable.value;
+        unawaited(audio.start([data.item(5)!], 0));
+        await pumpEventQueue();
+        expect(audio.unavailable.value, before2);
+        expect(player.played.last, 'https://q.example/naihi_qaloun.mp3');
+        expect(audio.voiceNameFor(data.item(5)!), Reciter.naihiQaloun.name);
+        expect(audio.quranReciter.id, 'qaniwah_qaloun'); // still the choice
+      });
+
+      test('chosen while nothing plays: nothing starts', () async {
+        final data = AthkarService.instance.data;
+        await audio.chooseReciter(data.reciters[2]);
+        await audio.chooseQuranReciter(Reciter.qaniwahQaloun);
+        await pumpEventQueue();
+        expect(audio.isActive, isFalse);
+        expect(player.tries, 0);
+        expect(store.reciterOf(data)!.id, 'three');
+      });
+    });
+
+    test('↺ replays the recording being heard once, then goes on; full '
+        'times stay counted', () async {
+      final items = AthkarService.instance.data.section(10)!.items;
+      unawaited(audio.start(items, 1)); // dhikr 2, said 3 times
+      await pumpEventQueue();
+      await player.finish(); // the 1st time, heard in full
+      expect(audio.repeat, (2, 3));
+      await audio.replay(); // the 2nd time from its start
+      await pumpEventQueue();
+      expect(audio.repeat, (2, 3));
+      expect(store.countOf(items[1]), 1);
+      expect(player.tries, 3);
+      await player.finish();
+      await player.finish();
+      expect(store.isDone(items[1]), isTrue);
+      expect(audio.current!.id, 3); // went on as usual
+      await audio.stop();
+      await audio.replay(); // nothing playing: nothing happens
+      await pumpEventQueue();
+      expect(audio.isActive, isFalse);
+    });
+
+    test('a recording that cannot be fetched is tried again on the same '
+        'dhikr, never skipped', () async {
+      final items = AthkarService.instance.data.section(10)!.items;
+      final before = audio.failures.value;
+      player.failTimes = 2;
+      unawaited(audio.start(items, 0));
+      await pumpEventQueue();
+      expect(player.tries, 3);
+      expect(audio.current!.id, 1);
+      expect(player.played, ['https://example.com/one/0075.mp3']);
+      expect(audio.isWaiting, isFalse);
+      expect(audio.failures.value, before);
+      await player.finish();
+      expect(store.isDone(items[0]), isTrue);
+      expect(audio.current!.id, 2);
+    });
+
+    test('while it waits: shown, «متابعة» tries now, stop ends it '
+        'quietly', () async {
+      final items = AthkarService.instance.data.section(10)!.items;
+      final before = audio.failures.value;
+      audio.retryWaits = const [Duration(hours: 1)];
+      player.failTimes = 1000;
+      unawaited(audio.start(items, 0));
+      await pumpEventQueue();
+      expect(player.tries, 1);
+      expect(audio.isWaiting, isTrue);
+      expect(audio.statusNote, 'ينتظر الاتصال…');
+      expect(audio.current!.id, 1);
+      await audio.togglePause(); // paused: not tried while paused
+      expect(audio.statusNote, isNull);
+      await audio.togglePause(); // «متابعة»
+      await pumpEventQueue();
+      expect(player.tries, 2);
+      expect(audio.isWaiting, isTrue);
+      await audio.skip(); // «التالي» goes on, as the reader asked
+      await pumpEventQueue();
+      expect(audio.current!.id, 2);
+      await audio.stop();
+      await pumpEventQueue();
+      expect(audio.isActive, isFalse);
+      expect(audio.isWaiting, isFalse);
+      expect(audio.failures.value, before);
+    });
+  });
+
+  group('kept on the phone', () {
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    late Directory tmp;
+    final fetched = <String>[];
+    http.Client client() => MockClient((request) async {
+      fetched.add(request.url.toString());
+      return http.Response.bytes([1, 2, 3, 4], 200);
+    });
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('athkar_keep');
+      messenger.setMockMethodCallHandler(channel, (_) async => tmp.path);
+      fetched.clear();
+      AthkarService.instance.debugSetData(_sample(withReciter: true));
+    });
+    tearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+      tmp.deleteSync(recursive: true);
+      AthkarDownloadService.instance.state.value =
+          const AthkarDownloadState();
+    });
+
+    test('a recording saved on the phone: the save finishes', () async {
+      // it used to wait on itself forever (whenComplete returned its own
+      // future), so every download hung, 2026-11-20
+      const url = 'https://example.com/one/0075.mp3';
+      final ok = await http
+          .runWithClient(() => AthkarAudio.keepOnPhone(url), client)
+          .timeout(const Duration(seconds: 5));
+      expect(ok, isTrue);
+      expect((await AthkarAudio.clipFile(url)).lengthSync(), 4);
+      // there already: not fetched again
+      expect(await AthkarAudio.keepOnPhone(url), isTrue);
+      expect(fetched.length, 1);
+    });
+
+    test('«أصوات الأذكار»: every dhikr in the voice it plays in lands, '
+        'and delete takes them off', () async {
+      final service = AthkarDownloadService.instance;
+      await http
+          .runWithClient(service.download, client)
+          .timeout(const Duration(seconds: 10));
+      final st = service.state.value;
+      // «one» has 1, 2 (span) and 3 (special.mp3); 4 only in «two»
+      expect(fetched.toSet(), {
+        'https://example.com/one/0075.mp3',
+        'https://example.com/one/0076.mp3',
+        'https://example.com/one/special.mp3',
+        'https://example.com/two/4.mp3',
+      });
+      expect(st.total, 4);
+      expect(st.done, 4);
+      expect(st.complete, isTrue);
+      expect(st.downloading, isFalse);
+      expect(st.voices, ['القارئ الأول', 'القارئ الثاني']);
+      expect(st.bytes, 16);
+      await service.delete();
+      expect(
+        Directory('${tmp.path}/${AthkarAudio.clipFolder}').existsSync(),
+        isFalse,
+      );
+      expect(service.state.value.done, 0);
     });
   });
 
@@ -619,6 +875,17 @@ void main() {
       await tester.pump();
       expect(find.text('القارئ الأول'), findsOneWidget);
       expect(find.text('الذكر 1 من 3'), findsOneWidget);
+      // ↺ plays the dhikr again from its beginning
+      expect(player.tries, 1);
+      await tester.tap(find.byTooltip('إعادة الذكر'));
+      await tester.pump();
+      await tester.pump();
+      expect(player.tries, 2);
+      expect(player.played, [
+        'https://example.com/one/0075.mp3',
+        'https://example.com/one/0075.mp3',
+      ]);
+      expect(find.text('الذكر 1 من 3'), findsOneWidget);
       await tester.tap(find.byTooltip('إيقاف'));
       await tester.pumpAndSettle();
       expect(find.text('القارئ الأول'), findsNothing);
@@ -721,6 +988,50 @@ void main() {
         tester.getTopLeft(column).dy,
         lessThan(tester.getTopLeft(find.text('تشغيل متواصل')).dy),
       );
+    });
+
+    testWidgets('«أصوات الأذكار» in the downloads page: size before, a bar '
+        'while it downloads, delete after', (tester) async {
+      final service = AthkarDownloadService.instance;
+      addTearDown(() => service.state.value = const AthkarDownloadState());
+      service.state.value = const AthkarDownloadState(
+        total: 300,
+        estimate: 52 * 1024 * 1024,
+        voices: ['سعد الغامدي', 'حمد الدريهم'],
+      );
+      await pump(tester, const Scaffold(body: AthkarDownloadsCard()));
+      expect(find.text('أصوات الأذكار'), findsOneWidget);
+      expect(
+        find.text(
+          'بصوت سعد الغامدي، وما لم يسجّله بصوت حمد الدريهم، لتسمعها دون إنترنت.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('نحو 52 MB'), findsOneWidget);
+      expect(find.text('تحميل'), findsOneWidget);
+      expect(find.text('حذف'), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+
+      service.state.value = service.state.value.copyWith(
+        downloading: true,
+        done: 150,
+        bytes: 20 * 1024 * 1024,
+      );
+      await tester.pump();
+      expect(find.text('جارٍ التحميل 50%'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(find.text('إيقاف'), findsOneWidget);
+      expect(find.text('تحميل'), findsNothing);
+
+      service.state.value = service.state.value.copyWith(
+        downloading: false,
+        done: 300,
+        bytes: 51 * 1024 * 1024,
+      );
+      await tester.pump();
+      expect(find.text('مكتملة · 51 MB'), findsOneWidget);
+      expect(find.text('تحميل'), findsNothing);
+      expect(find.text('حذف'), findsOneWidget);
     });
 
     testWidgets('the athkar home has the settings too', (tester) async {

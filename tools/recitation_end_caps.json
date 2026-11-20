@@ -1,0 +1,9 @@
+{
+  "note": "Recordings that go on into «صدق الله العظيم». Seconds into the file. Audit: C:/Down/SadaqaAudit (2026-11-20). Regenerate the Dart with tools/build_recitation_end_caps.py.",
+  "cuts": [
+    {"reciter": "doukali_qaloun", "file": "010109.mp3", "last_word_end_s": 11.78, "phrase_start_s": 12.66, "file_duration_s": 16.733, "where": "end of سورة يونس"},
+    {"reciter": "doukali_qaloun", "file": "032030.mp3", "last_word_end_s": 9.02, "phrase_start_s": 9.9, "file_duration_s": 13.115, "where": "end of سورة السجدة"},
+    {"reciter": "doukali_qaloun", "file": "114001.mp3", "last_word_end_s": 29.296, "phrase_start_s": 30.716, "file_duration_s": 35.396, "where": "سورة الناس, read whole in its first file"},
+    {"reciter": "husary_qaloun", "file": "114006.mp3", "last_word_end_s": 6.12, "phrase_start_s": 7.1, "file_duration_s": 13.375, "where": "end of سورة الناس"}
+  ]
+}

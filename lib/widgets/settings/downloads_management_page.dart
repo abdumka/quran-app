@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../services/app_look_service.dart';
+import '../../services/athkar_download_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/tafsir_cache_service.dart';
@@ -258,6 +260,10 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                             ? _deleteAudioDownloads
                             : null,
                       ),
+                      if (!kIsWeb) ...[
+                        const SizedBox(height: 10),
+                        const AthkarDownloadsCard(),
+                      ],
                       const SizedBox(height: 10),
                       // The margin pages ship inside the app now, so the card
                       // keeps its familiar wording but has nothing to delete.
@@ -599,6 +605,189 @@ class _TafsirDownloadsSectionState extends State<TafsirDownloadsSection> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// «أصوات الأذكار»: the athkar's recordings for listening without internet,
+/// in the voices the athkar play in (owner, 2026-11-20: in the downloads
+/// page, one card like the others, nothing more). A thin bar while it
+/// downloads; delete takes every athkar recording off the phone.
+class AthkarDownloadsCard extends StatefulWidget {
+  const AthkarDownloadsCard({super.key});
+
+  @override
+  State<AthkarDownloadsCard> createState() => _AthkarDownloadsCardState();
+}
+
+class _AthkarDownloadsCardState extends State<AthkarDownloadsCard> {
+  final _service = AthkarDownloadService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    afterOpening(_service.refresh);
+  }
+
+  static String _mb(int bytes) {
+    final value = bytes / (1024 * 1024);
+    if (value >= 10) return '${value.toStringAsFixed(0)} MB';
+    return '${value.toStringAsFixed(1)} MB';
+  }
+
+  static String _voicesLine(List<String> voices) {
+    if (voices.isEmpty) return 'لتسمع الأذكار دون إنترنت.';
+    if (voices.length == 1) return 'بصوت ${voices.first}، لتسمعها دون إنترنت.';
+    final others = voices.length == 2 ? 'بصوت ${voices[1]}' : 'بأصوات أخرى';
+    return 'بصوت ${voices.first}، وما لم يسجّله $others، لتسمعها دون إنترنت.';
+  }
+
+  Future<void> _delete() async {
+    final s = AppSurfaces.maybeOf(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: _dialogShape(s),
+        title: const Text(
+          'حذف أصوات الأذكار',
+          textDirection: TextDirection.rtl,
+        ),
+        content: const Text(
+          'سيتم حذف تسجيلات الأذكار من الجهاز، وتُسمع من الإنترنت عند تشغيلها. هل تريد المتابعة؟',
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(
+            style: _quietTextStyle(s),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: _primaryStyle(s),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _service.delete();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppSurfaces.maybeOf(context);
+    final accent = s?.accent ?? const Color(0xFF8D6E3F);
+    return ValueListenableBuilder<AthkarDownloadState>(
+      valueListenable: _service.state,
+      builder: (context, st, _) {
+        final progress = st.total == 0 ? 0.0 : st.done / st.total;
+        // one chip: where it stands and how big it is
+        final status = st.downloading
+            ? 'جارٍ التحميل ${(progress * 100).floor()}%'
+            : st.failed
+            ? 'توقف، تحقق من الاتصال'
+            : st.complete
+            ? 'مكتملة · ${_mb(st.bytes)}'
+            : st.done > 0
+            ? 'جزئية · ${_mb(st.bytes)}'
+            : 'نحو ${_mb(st.estimate)}';
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: s?.card ?? const Color(0xFFF3EFE6),
+            borderRadius: BorderRadius.circular(
+              s == null ? 18 : AppSurfaces.radius,
+            ),
+            border: Border.all(
+              color:
+                  s?.border ?? const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            textDirection: TextDirection.rtl,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.record_voice_over_outlined,
+                  color: s?.icon ?? const Color(0xFF5C4522),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'أصوات الأذكار',
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: s == null
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                        color: s?.text ?? const Color(0xFF2F2418),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _voicesLine(st.voices),
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: s?.muted ?? const Color(0xFF6A5A45),
+                      ),
+                    ),
+                    if (st.downloading) ...[
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 3,
+                          color: accent,
+                          backgroundColor: accent.withValues(alpha: 0.15),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      textDirection: TextDirection.rtl,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        InfoChip(label: status),
+                        if (st.downloading)
+                          FilledButton.tonal(
+                            style: _tonalStyle(s),
+                            onPressed: _service.cancel,
+                            child: const Text('إيقاف'),
+                          )
+                        else if (!st.complete && st.total > 0)
+                          FilledButton.tonal(
+                            style: _tonalStyle(s),
+                            onPressed: _service.download,
+                            child: const Text('تحميل'),
+                          ),
+                        if (!st.downloading && st.bytes > 0)
+                          FilledButton.tonal(
+                            style: _tonalStyle(s),
+                            onPressed: _delete,
+                            child: const Text('حذف'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

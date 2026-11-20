@@ -259,6 +259,16 @@ class SurahTimingsService {
     if (span != null) {
       clips.add(AudioClip(timings.file, start: span.$1, end: span.$2));
     }
-    return clips;
+    // a span that runs on into «صدق الله العظيم» stops before it
+    final cap = Reciter.endCapFor(reciter.id, timings.file);
+    if (cap == null) return clips;
+    final limit = Duration(milliseconds: (cap * 1000).round());
+    return [
+      for (final c in clips)
+        if (c.end != null && c.end! > limit && c.start! < limit)
+          AudioClip(c.file, start: c.start, end: limit)
+        else
+          c,
+    ];
   }
 }

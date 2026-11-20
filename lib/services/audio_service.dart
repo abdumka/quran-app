@@ -197,7 +197,7 @@ class AudioService {
     // A timed surah is one file seeked within, so the position is the file's;
     // every other source starts at 0 (a ClippingAudioSource counts from its
     // own start).
-    final timed = clip.isClipped && clip.end != null;
+    final timed = clip.isSurahSlice;
     final start = timed ? (clip.start ?? Duration.zero) : Duration.zero;
     final end = timed ? clip.end! : _player.duration;
     if (end == null || end <= start) return null;
@@ -757,7 +757,16 @@ class AudioService {
     return _getAudioFilesForAyah(
       ayah,
       pageNumber: pageNumber,
-    ).map(AudioClip.whole).toList();
+    ).map((f) => fileClip(reciter, f)).toList();
+  }
+
+  /// A per-ayah file as a clip: the whole file, or up to where it must stop
+  /// ([Reciter.endCapFor]: no «صدق الله العظيم» after a surah's last ayah).
+  static AudioClip fileClip(Reciter reciter, String file) {
+    final cap = Reciter.endCapFor(reciter.id, file);
+    return cap == null
+        ? AudioClip.whole(file)
+        : AudioClip(file, end: Duration(milliseconds: (cap * 1000).round()));
   }
 
   /// The clips of displayed ayah [surah]:[ayah] for any [reciter], not only
@@ -772,7 +781,7 @@ class AudioService {
     return _getAudioFilesForAyah(
       QuranAyahData(surah: surah, surahName: '', ayah: ayah, text: ''),
       reciterOverride: reciter,
-    ).map(AudioClip.whole).toList();
+    ).map((f) => fileClip(reciter, f)).toList();
   }
 
   /// Whether [ayah] is recited inside the clip of the ayah before it, for
@@ -1272,7 +1281,7 @@ class AudioService {
   MediaItem _mediaItemFor(Uri uri, AudioClip clip) {
     final ayah = currentAyah.value;
     final reciter = ReciterService.instance.selected.value;
-    final wholeSurah = clip.isClipped && clip.end != null;
+    final wholeSurah = clip.isSurahSlice;
     final title = ayah == null
         ? 'القرآن الكريم'
         : wholeSurah
@@ -1322,7 +1331,7 @@ class AudioService {
       // connection). Also before the web reset below: stopping the player
       // would throw away the very source this path exists to reuse.
       final surahKey = '$_baseUrl$fileName';
-      final timedSurah = clip.isClipped && clip.end != null;
+      final timedSurah = clip.isSurahSlice;
       final canSeekWithinSurah = timedSurah && _loadedSurahKey == surahKey;
       if (canSeekWithinSurah) {
         // Consecutive ayat share a boundary — ayah N's end IS ayah N+1's start

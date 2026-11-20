@@ -550,8 +550,11 @@ class AthkarPlayerBar extends StatelessWidget {
         final chrome = AppChrome.of(context);
         final (at, of) = audio.position;
         final repeat = audio.repeat;
-        // one of the two (both on one line mix up their digits in Arabic)
-        final status = repeat != null
+        // one of the two (both on one line mix up their digits in Arabic);
+        // a slow or lost network says so first
+        final status = audio.statusNote != null
+            ? audio.statusNote!
+            : repeat != null
             ? 'المرة ${repeat.$1} من ${repeat.$2}'
             : AthkarStore.instance.continuous && of > 1
             ? 'الذكر $at من $of'
@@ -649,6 +652,18 @@ class AthkarPlayerBar extends StatelessWidget {
                           ),
                         ],
                       ),
+                    ),
+                    // the dhikr again from its beginning, once (owner,
+                    // 2026-11-20)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'إعادة الذكر',
+                      icon: Icon(
+                        Icons.replay_rounded,
+                        size: 22,
+                        color: chrome.barIcon,
+                      ),
+                      onPressed: audio.replay,
                     ),
                     if (audio.hasNext)
                       TextButton.icon(
