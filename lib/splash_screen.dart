@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'quran_pages.dart';
+import 'services/app_tour_service.dart';
 import 'services/daily_page_service.dart';
 import 'services/margin_images_service.dart';
+import 'widgets/tour/welcome_tour_page.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -70,13 +72,45 @@ class _SplashScreenState extends State<SplashScreen> {
     ]);
     if (!mounted) return;
 
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, _, _) => QuranPages(
+    final navigator = Navigator.of(context);
+    Route<void> fadeTo(Widget page) => PageRouteBuilder<void>(
+          transitionDuration: const Duration(milliseconds: 350),
+          pageBuilder: (_, _, _) => page,
+          transitionsBuilder: (_, animation, _, child) {
+            return FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              ),
+              child: child,
+            );
+          },
+        );
+    Widget reader() => QuranPages(
           initialPage: lastPage,
           initialPortraitScrollMode: portraitScrollMode,
+        );
+
+    // A fresh install sees «جولة في التطبيق» first, before the mushaf
+    // (owner, 2026-11-19). Watched or skipped, it then opens the reader.
+    if (dailyPage == null && AppTourService.instance.shouldShowWelcome(prefs)) {
+      navigator.pushReplacement(
+        fadeTo(
+          WelcomeTourPage(
+            onFinish: () async {
+              await AppTourService.instance.markWelcomeSeen();
+              navigator.pushReplacement(fadeTo(reader()));
+            },
+          ),
         ),
+      );
+      return;
+    }
+
+    navigator.pushReplacement(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, _, _) => reader(),
         transitionsBuilder: (_, animation, _, child) {
           return FadeTransition(
             opacity: CurvedAnimation(

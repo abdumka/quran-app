@@ -12,13 +12,25 @@ class WhatsNewService {
   WhatsNewService._();
   static final WhatsNewService instance = WhatsNewService._();
 
-  static const String _lastSeenBuildPrefKey = 'whatsNewLastSeenBuild';
+  static const String lastSeenBuildPrefKey = 'whatsNewLastSeenBuild';
 
   /// Whether the popup ends in «أرني أين», the walkthrough of Settings. Off
   /// since the list was started fresh with تلقين (owner, 2026-11-11): the
   /// popup just says «حسنًا». The tour itself is kept for a release that
   /// wants it again.
   static const bool offerSettingsTour = false;
+
+  /// The cards of the What's New deck, in order (owner, 2026-11-19: تلقين,
+  /// فيديو الآية, الأذكار, أحكام وأصول الرواية, Android Auto for everyone).
+  /// Empty falls back to the plain list popup. [currentReleaseChanges]
+  /// stays the full list, behind the deck's «كل التغييرات».
+  static const List<String> tourCards = [
+    'talqeen',
+    'video',
+    'athkar',
+    'usul',
+    'auto',
+  ];
 
   /// Changes shipped in the current installed build. Update this list (and
   /// nothing else) on each release that should show a "what's new" popup;
@@ -46,7 +58,7 @@ class WhatsNewService {
     final build = AppUpdateService.instance.currentBuild;
     if (build <= 0) return false;
     final prefs = await SharedPreferences.getInstance();
-    final lastSeenBuild = prefs.getInt(_lastSeenBuildPrefKey) ?? 0;
+    final lastSeenBuild = prefs.getInt(lastSeenBuildPrefKey) ?? 0;
     return lastSeenBuild < build;
   }
 
@@ -55,6 +67,6 @@ class WhatsNewService {
     final build = AppUpdateService.instance.currentBuild;
     if (build <= 0) return;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_lastSeenBuildPrefKey, build);
+    await prefs.setInt(lastSeenBuildPrefKey, build);
   }
 }

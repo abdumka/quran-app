@@ -26,6 +26,7 @@ class AppMenuActions {
     required this.openReminders,
     required this.openReports,
     required this.openWhatsNew,
+    this.openTour,
   });
 
   final VoidCallback openSettings;
@@ -35,6 +36,9 @@ class AppMenuActions {
   final VoidCallback openReminders;
   final VoidCallback openReports;
   final VoidCallback openWhatsNew;
+
+  /// «جولة في التطبيق»: replays the full welcome tour. Null hides the row.
+  final VoidCallback? openTour;
 }
 
 /// The side drawer behind the three gold lines in the reader's top bar
@@ -144,6 +148,12 @@ class AppMenuDrawer extends StatelessWidget {
           Icons.update_rounded,
           onTap: () => closeThen(actions.openWhatsNew),
         ),
+        if (actions.openTour != null)
+          _MenuRow(
+            'جولة في التطبيق',
+            Icons.tour_outlined,
+            onTap: () => closeThen(actions.openTour!),
+          ),
         _MenuRow(
           'تواصل معنا',
           Icons.chat_bubble_outline_rounded,
