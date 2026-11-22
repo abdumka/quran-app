@@ -117,10 +117,10 @@ class ContentUpdateService {
   /// level folded into the bundled `output.json` (raise it to the patch
   /// file's `ver` when a release bundles the corrected text).
   static const Map<String, int> bundledVersions = {
-    'tanzilat': 7,
-    'word_masks': 7,
+    'tanzilat': 8,
+    'word_masks': 8,
     'reciters': 0,
-    'tanzilat_paint': 4,
+    'tanzilat_paint': 5,
     'quran_text': 0,
     // Nothing of these is folded into the bundle yet: a release that bundles
     // a fix raises its number to the patch's `ver` (tasmee_data,
