@@ -12,7 +12,8 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'recitation_engine.dart';
 import 'tasmee_report_store.dart'
     show TasmeeMicSource, TasmeeMicSourceSetting;
-import 'zipformer_posterior.dart';
+import 'zipformer_posterior.dart'
+    if (dart.library.js_interop) 'zipformer_posterior_web.dart';
 
 /// Model files of the streaming phoneme recognizer.
 class ZipformerModelPaths {

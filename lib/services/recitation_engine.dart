@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import 'zipformer_posterior.dart' show PosteriorQuery;
-export 'zipformer_posterior.dart' show PosteriorQuery;
+import 'posterior_common.dart' show PosteriorQuery;
+export 'posterior_common.dart' show PosteriorQuery;
 
 /// One piece of recognized speech. [isFinal] is false for interim decodes
 /// of an utterance still in progress (cut mid-air, last word dropped, may
