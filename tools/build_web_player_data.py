@@ -236,6 +236,12 @@ def build_timings_file(reciter: dict) -> int:
             continue
         doc = json.loads(f.read_text(encoding="utf-8"))
         spans = {a: v for a, v in doc["ayat"].items() if v}
+        # A corrected recording is published under a new name (phones keep the
+        # old SSS.mp3 cached), so the file name travels with its spans: the web
+        # player reads it from the table's "file" key (stem, no extension).
+        name = doc.get("file") or f"{surah:03d}.mp3"
+        if name != f"{surah:03d}.mp3":
+            spans["file"] = name[:-4] if name.endswith(".mp3") else name
         out[str(surah)] = spans
         n += len(spans)
     write_json(f"timings_{reciter['id']}.json",

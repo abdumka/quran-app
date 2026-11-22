@@ -23,7 +23,10 @@ export function resolveAyah(overrides, surah, ayah, timings) {
     // signal as an empty file list: the engine advances past it.
     if (!span) return { clips: [], coveredBy: null };
 
-    const clip = (s) => ({ stem: pad3(surah), start: s[0] / 1000, end: s[1] / 1000 });
+    // A corrected recording carries its own file name (e.g. "040_v2"), since
+    // the original SSS.mp3 stays published for phones that cached it.
+    const stem = typeof table.file === 'string' ? table.file : pad3(surah);
+    const clip = (s) => ({ stem, start: s[0] / 1000, end: s[1] / 1000 });
     // Standard is a merged basmala: it lives inside ayah 1's own span, every
     // surah except At-Tawba (which has none), so the fallthrough below already
     // covers it and the build pipeline never emits a "0" key. This branch is
