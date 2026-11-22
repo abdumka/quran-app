@@ -36,6 +36,7 @@ import 'widgets/repeat_count_wheel.dart';
 import 'services/tanzilat_service.dart';
 import 'services/ayah_play_setting.dart';
 import 'services/content_update_service.dart';
+import 'services/surah_file_upgrade.dart';
 import 'services/notification_center.dart';
 import 'services/server_notice_service.dart';
 import 'widgets/quran/spine_shadow.dart';
@@ -951,6 +952,8 @@ class _QuranPagesState extends State<QuranPages>
     // Server-updated data (tanzilat, word colouring, reciters): a silent
     // check well after the first frame, at most once a day.
     ContentUpdateService.instance.scheduleBackgroundCheck();
+    // Downloaded surahs whose recording was corrected get the new file.
+    SurahFileUpgrade.schedule();
     // Tapping a "صفحة اليوم" reminder while the app is already running lands
     // here rather than in SplashScreen, so the reader jumps to the page itself.
     DailyPageService.instance.pendingOpenPage.addListener(

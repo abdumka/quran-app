@@ -114,6 +114,36 @@ release anyway; this is how it is done from now on):
 Replacing a bundled recording (e.g. الحصري with `husary_timed`) is the same
 file; the publisher checks that `001.mp3` and `timings/001.json` are reachable.
 
+### Correcting one surah of a timed reciter (the build after 1.5.8+145)
+Owner, 2026-11-22: "I want to be able to update surats or their files."
+Two keys, in an override, inside `recording`, or on a server-added reciter:
+
+| key | effect |
+|---|---|
+| `surahFiles` | `{"40": "040_v2.mp3"}`: this surah's recording is now that file. The app plays it, downloads it, and on a phone that had downloaded the old file, fetches it about 45 s after launch (the old file keeps playing until then, offline too, then is deleted on a later launch). Only that surah's timings are fetched again. |
+| `surahTimings` | `{"53": 2}`: new spans for a surah whose audio did not change; only that surah re-fetches (the reciter-wide `timingsRevision` re-fetches all 114). Only rises. |
+
+**Never overwrite a published `SSS.mp3` of a live reciter.** Phones keep a
+complete cached copy for good; new spans over the old audio play every later
+ayah early or late. Publish the corrected audio under a NEW name
+(`SSS_v2.mp3`, then `_v3`; letters a-z and digits only), and leave the old
+file on R2: builds without this table, and phones still holding old spans,
+play it. Order, each step only after the one before is live:
+
+1. upload `SSS_v2.mp3` to the audio bucket;
+2. upload `timings/<slug>/SSS.json` with `"file": "SSS_v2.mp3"`;
+3. reciters.json: `"surahFiles": {"<n>": "SSS_v2.mp3"}` for this build and
+   later, AND a `timingsRevision` bump for older builds (they only re-fetch on
+   that, and they play the file the timings name);
+4. bundle the same `surahFiles` (and revision) in `lib/models/reciter.dart`
+   before the next release.
+
+The publisher refuses `surahFiles` whose file or timings are not on the
+server yet. A surah with a page-turn cue or an end cap needs them measured
+on the new file (`pageTurnCues` / `endCaps` name files). Worked example:
+al-Qryw 40:21 (`C:/Down/AlQryw/fix_040_2026-11-22/PUSH.md`, the uploader
+`C:/Down/AlQryw/pipeline/push_fix_040_21.py`).
+
 ## quran_text_patch.json
 Spelling fixes to the Qur'an text, read by builds that have the `quran_text`
 item (the first release after 2026-11-10; older builds ignore it). Applied at

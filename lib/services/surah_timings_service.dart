@@ -83,25 +83,66 @@ class SurahTimings {
 /// mirrored to disk next to that reciter's audio cache so offline playback works
 /// exactly like it does for the per-ayah reciters. On web there is no disk cache
 /// (same as tafsir), so they are fetched over the network and held in memory.
+///
+/// **Corrections.** A surah's timings are current when they were fetched under
+/// the reciter's [Reciter.timingsRevision] and [Reciter.surahTimingsRevision]
+/// and name the file [Reciter.audioFileFor] gives. Anything else on disk is an
+/// older copy: it is never preferred online, but it still pairs with the audio
+/// it names, so it is kept while that audio is downloaded (and used offline
+/// when nothing current can be had). When the current copy's audio is not on
+/// the phone but an older copy's is (a downloaded surah whose recording was
+/// corrected since), the older pair plays until `SurahFileUpgrade` has fetched
+/// the new file: a downloaded surah never stops playing offline because of a
+/// correction.
+///
+/// On disk: `<cacheFolder>/timings[_rN]/<stem>[.tM].json`, where `<stem>` is
+/// the audio file's name without `.mp3` (`040`, `040_v2`) and `.tM` marks a
+/// per-surah revision above 1. A first-revision `SSS.mp3` surah keeps the
+/// plain `SSS.json` every earlier build wrote.
 class SurahTimingsService {
   static final SurahTimingsService instance = SurahTimingsService._();
   SurahTimingsService._();
 
-  /// reciter id → surah → timings.
-  final Map<String, Map<int, SurahTimings>> _memory = {};
+  /// reciter id → surah → (what it was chosen for, timings).
+  final Map<String, Map<int, (String, SurahTimings)>> _memory = {};
 
   /// In-flight fetches, so a page whose ayat all belong to one surah issues a
   /// single request rather than one per ayah.
   final Map<String, Future<SurahTimings?>> _inFlight = {};
 
+  /// The server's name for [surah]'s timings (always the current ones).
   static String fileNameFor(int surah) => '${surah.toString().padLeft(3, '0')}.json';
+
+  /// The on-disk name of [surah]'s timings for audio [file] at per-surah
+  /// revision [rev] (see the class comment).
+  static String cacheNameFor(int surah, String file, int rev) {
+    final stem = file.endsWith('.mp3') ? file.substring(0, file.length - 4) : file;
+    return '$stem${rev > 1 ? '.t$rev' : ''}.json';
+  }
+
+  static final RegExp _cacheNameRe =
+      RegExp(r'^(\d{3})(_[a-z0-9]{1,16})?(?:\.t(\d+))?\.json$');
+
+  /// Everything a choice of timings for ([reciter], [surah]) depends on; a held
+  /// copy chosen under another key is stale.
+  static String _wantKey(Reciter reciter, int surah) =>
+      '${reciter.timingsBaseUrl}|${reciter.timingsRevision}|'
+      '${reciter.audioFileFor(surah)}|${reciter.surahTimingsRevision(surah)}';
 
   /// The timings already held in memory for ([reciter], [surah]), if any.
   /// Synchronous so the audio path can resolve a clip without awaiting when the
   /// surah has already been loaded — which is the common case, since a page's
   /// ayat almost always share one surah.
-  SurahTimings? cached(Reciter reciter, int surah) =>
-      _memory[reciter.id]?[surah];
+  SurahTimings? cached(Reciter reciter, int surah) {
+    final held = _memory[reciter.id]?[surah];
+    if (held == null || held.$1 != _wantKey(reciter, surah)) return null;
+    return held.$2;
+  }
+
+  /// The audio file the held timings of ([reciter], [surah]) play, whatever
+  /// they were chosen for; null when none are held.
+  String? heldFile(Reciter reciter, int surah) =>
+      _memory[reciter.id]?[surah]?.$2.file;
 
   /// Loads ([reciter], [surah])'s timings, from memory, then disk, then network.
   /// Returns null if it cannot be obtained (offline and not yet cached).
@@ -109,7 +150,7 @@ class SurahTimingsService {
     final hit = cached(reciter, surah);
     if (hit != null) return hit;
 
-    final key = '${reciter.id}/$surah';
+    final key = '${reciter.id}/$surah/${_wantKey(reciter, surah)}';
     final pending = _inFlight[key];
     if (pending != null) return pending;
 
@@ -123,25 +164,66 @@ class SurahTimingsService {
   }
 
   Future<SurahTimings?> _load(Reciter reciter, int surah) async {
-    final name = fileNameFor(surah);
-
-    if (!kIsWeb) {
-      try {
-        final file = File(p.join((await _timingsDir(reciter)).path, name));
-        if (await file.exists()) {
-          return _remember(reciter, surah, await file.readAsString());
-        }
-      } catch (_) {}
+    if (kIsWeb) {
+      final fetched = await _fetch(reciter, surah);
+      return fetched == null ? null : _hold(reciter, surah, fetched.$1);
     }
 
+    final want = reciter.audioFileFor(surah);
+    SurahTimings? current = await _readCurrent(reciter, surah);
+    SurahTimings? fetchedOther;
+    if (current == null) {
+      final fetched = await _fetch(reciter, surah);
+      if (fetched != null) {
+        await _store(reciter, surah, fetched.$1, fetched.$2);
+        if (fetched.$1.file == want) {
+          current = fetched.$1;
+        } else {
+          // The server's timings name another file than this build expects
+          // (a correction half published). They still pair with their own
+          // audio, so they play; the next load asks again.
+          fetchedOther = fetched.$1;
+        }
+      }
+    }
+
+    final audioDir = await _audioDir(reciter);
+    bool onPhone(String file) => File(p.join(audioDir, file)).existsSync();
+
+    if (current != null && onPhone(current.file)) {
+      return _hold(reciter, surah, current);
+    }
+    // A downloaded older recording keeps playing until its replacement is on
+    // the phone (see SurahFileUpgrade), online or not.
+    final older = await _olderCopies(reciter, surah, current);
+    for (final c in older) {
+      if (c.file != current?.file && onPhone(c.file)) {
+        return _hold(reciter, surah, c);
+      }
+    }
+    if (current != null) return _hold(reciter, surah, current);
+    if (fetchedOther != null) return _hold(reciter, surah, fetchedOther);
+    // Offline with nothing current: the newest older copy still pairs with
+    // its own audio (partly cached, perhaps).
+    if (older.isNotEmpty) return _hold(reciter, surah, older.first);
+    return null;
+  }
+
+  SurahTimings _hold(Reciter reciter, int surah, SurahTimings t) {
+    (_memory[reciter.id] ??= {})[surah] = (_wantKey(reciter, surah), t);
+    return t;
+  }
+
+  /// GET the server's current timings for [surah]: parsed + raw body.
+  Future<(SurahTimings, String)?> _fetch(Reciter reciter, int surah) async {
     try {
       final response = await http
-          .get(Uri.parse('${reciter.timingsBaseUrl}$name'))
+          .get(Uri.parse('${reciter.timingsBaseUrl}${fileNameFor(surah)}'))
           .timeout(const Duration(seconds: 20));
       if (response.statusCode == 200) {
         final body = utf8.decode(response.bodyBytes);
-        if (!kIsWeb) await _write(reciter, surah, body);
-        return _remember(reciter, surah, body);
+        final t = _parse(body);
+        if (t != null) return (t, body);
       }
     } catch (e) {
       debugPrint('timings fetch failed for ${reciter.id} surah $surah: $e');
@@ -149,16 +231,121 @@ class SurahTimingsService {
     return null;
   }
 
-  SurahTimings? _remember(Reciter reciter, int surah, String body) {
+  SurahTimings? _parse(String body) {
     try {
-      final timings =
-          SurahTimings.fromJson(jsonDecode(body) as Map<String, dynamic>);
-      (_memory[reciter.id] ??= {})[surah] = timings;
-      return timings;
+      return SurahTimings.fromJson(jsonDecode(body) as Map<String, dynamic>);
     } catch (e) {
-      debugPrint('timings parse failed for ${reciter.id} surah $surah: $e');
+      debugPrint('timings parse failed: $e');
       return null;
     }
+  }
+
+  /// The current copy on disk, if there is one and it names the right file.
+  Future<SurahTimings?> _readCurrent(Reciter reciter, int surah) async {
+    try {
+      final name = cacheNameFor(
+        surah,
+        reciter.audioFileFor(surah),
+        reciter.surahTimingsRevision(surah),
+      );
+      final file = File(p.join((await _timingsDir(reciter)).path, name));
+      if (!await file.exists()) return null;
+      final t = _parse(await file.readAsString());
+      return t != null && t.file == reciter.audioFileFor(surah) ? t : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Writes [body] under its own file's name in the current revision folder,
+  /// then drops the copies it supersedes.
+  Future<void> _store(
+    Reciter reciter,
+    int surah,
+    SurahTimings t,
+    String body,
+  ) async {
+    try {
+      final dir = await _timingsDir(reciter);
+      final name = cacheNameFor(surah, t.file, reciter.surahTimingsRevision(surah));
+      await File(p.join(dir.path, name)).writeAsString(body, flush: true);
+      if (t.file == reciter.audioFileFor(surah)) {
+        await prune(reciter, surah);
+      }
+    } catch (_) {}
+  }
+
+  /// Every other copy of [surah]'s timings on disk (all revision folders),
+  /// newest first: current folder before older ones, higher per-surah
+  /// revision first. [current] itself is left out.
+  Future<List<SurahTimings>> _olderCopies(
+    Reciter reciter,
+    int surah,
+    SurahTimings? current,
+  ) async {
+    final out = <(int, int, SurahTimings)>[];
+    final currentName = cacheNameFor(
+      surah,
+      reciter.audioFileFor(surah),
+      reciter.surahTimingsRevision(surah),
+    );
+    for (final (folderRev, dir) in await _timingsFolders(reciter)) {
+      final isCurrentFolder = folderRev == reciter.timingsRevision;
+      try {
+        await for (final e in dir.list()) {
+          if (e is! File) continue;
+          final name = p.basename(e.path);
+          final m = _cacheNameRe.firstMatch(name);
+          if (m == null || int.parse(m.group(1)!) != surah) continue;
+          if (isCurrentFolder && name == currentName && current != null) {
+            continue;
+          }
+          final t = _parse(await e.readAsString());
+          if (t == null) continue;
+          out.add((folderRev, int.tryParse(m.group(3) ?? '') ?? 1, t));
+        }
+      } catch (_) {}
+    }
+    out.sort((a, b) => a.$1 != b.$1 ? b.$1.compareTo(a.$1) : b.$2.compareTo(a.$2));
+    return [for (final e in out) e.$3];
+  }
+
+  /// Drops the copies of [surah]'s timings that the current one supersedes:
+  /// any naming the same file, and any whose audio is not on the phone. A copy
+  /// whose (other) audio IS downloaded stays: it is that recording's only way
+  /// to play until `SurahFileUpgrade` replaces it. Revision folders left
+  /// empty go too.
+  Future<void> prune(Reciter reciter, int surah) async {
+    if (kIsWeb) return;
+    try {
+      final want = reciter.audioFileFor(surah);
+      final currentName =
+          cacheNameFor(surah, want, reciter.surahTimingsRevision(surah));
+      final audioDir = await _audioDir(reciter);
+      for (final (folderRev, dir) in await _timingsFolders(reciter)) {
+        final isCurrentFolder = folderRev == reciter.timingsRevision;
+        final files = <File>[];
+        await for (final e in dir.list()) {
+          if (e is File) files.add(e);
+        }
+        var left = files.length;
+        for (final f in files) {
+          final name = p.basename(f.path);
+          final m = _cacheNameRe.firstMatch(name);
+          if (m == null || int.parse(m.group(1)!) != surah) continue;
+          if (isCurrentFolder && name == currentName) continue;
+          final t = _parse(await f.readAsString());
+          final keep = t != null &&
+              t.file != want &&
+              File(p.join(audioDir, t.file)).existsSync();
+          if (!keep) {
+            await f.delete();
+            left--;
+          }
+        }
+        if (!isCurrentFolder && left == 0) await dir.delete(recursive: true);
+      }
+    } catch (_) {}
   }
 
   /// Folder name for [reciter]'s current [Reciter.timingsRevision]: `timings`
@@ -167,65 +354,58 @@ class SurahTimingsService {
       ? 'timings'
       : 'timings_r${reciter.timingsRevision}';
 
+  Future<String> _audioDir(Reciter reciter) async =>
+      p.join((await getApplicationSupportDirectory()).path, reciter.cacheFolder);
+
+  /// The current revision's folder, created if needed. Older revision folders
+  /// are no longer dropped here: their copies are the offline fallback until
+  /// the current ones arrive, and [prune] removes them surah by surah.
   Future<Directory> _timingsDir(Reciter reciter) async {
-    final appDir = await getApplicationSupportDirectory();
-    final base = p.join(appDir.path, reciter.cacheFolder);
-    final name = timingsFolderName(reciter);
-    final dir = Directory(p.join(base, name));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-      // A new revision: the older folders hold superseded spans -- drop them.
-      try {
-        await for (final e in Directory(base).list()) {
-          final n = p.basename(e.path);
-          if (e is Directory && n != name &&
-              (n == 'timings' || n.startsWith('timings_r'))) {
-            await e.delete(recursive: true);
-          }
-        }
-      } catch (_) {}
-    }
+    final dir = Directory(
+      p.join(await _audioDir(reciter), timingsFolderName(reciter)),
+    );
+    if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
-  Future<void> _write(Reciter reciter, int surah, String body) async {
+  /// Every timings folder of [reciter] on disk: (revision, folder).
+  Future<List<(int, Directory)>> _timingsFolders(Reciter reciter) async {
+    final out = <(int, Directory)>[];
     try {
-      final file =
-          File(p.join((await _timingsDir(reciter)).path, fileNameFor(surah)));
-      await file.writeAsString(body, flush: true);
+      final base = Directory(await _audioDir(reciter));
+      if (!await base.exists()) return out;
+      await for (final e in base.list()) {
+        if (e is! Directory) continue;
+        final n = p.basename(e.path);
+        if (n == 'timings') {
+          out.add((1, e));
+        } else if (n.startsWith('timings_r')) {
+          final rev = int.tryParse(n.substring('timings_r'.length));
+          if (rev != null) out.add((rev, e));
+        }
+      }
     } catch (_) {}
+    return out;
   }
 
-  /// Whether ([reciter], [surah])'s timings are already on disk — used by the
-  /// download flow to report a surah as fully available offline.
+  /// Whether ([reciter], [surah])'s current timings are already on disk — used
+  /// by the download flow to report a surah as fully available offline.
   Future<bool> isCachedOnDisk(Reciter reciter, int surah) async {
     if (kIsWeb) return false;
-    try {
-      final file =
-          File(p.join((await _timingsDir(reciter)).path, fileNameFor(surah)));
-      return await file.exists();
-    } catch (_) {
-      return false;
-    }
+    return await _readCurrent(reciter, surah) != null;
   }
 
-  /// Fetches and stores ([reciter], [surah])'s timings for offline use.
-  /// Returns the bytes written, or 0 if it was already present or failed.
+  /// Fetches and stores ([reciter], [surah])'s current timings for offline
+  /// use. Returns the bytes written, or 0 if they were already present or the
+  /// fetch failed. What is held in memory is left alone: the next load
+  /// chooses again (the audio may not be downloaded yet).
   Future<int> download(Reciter reciter, int surah) async {
     if (kIsWeb) return 0;
     if (await isCachedOnDisk(reciter, surah)) return 0;
-    try {
-      final response = await http
-          .get(Uri.parse('${reciter.timingsBaseUrl}${fileNameFor(surah)}'))
-          .timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) return 0;
-      final body = utf8.decode(response.bodyBytes);
-      await _write(reciter, surah, body);
-      _remember(reciter, surah, body);
-      return response.bodyBytes.length;
-    } catch (_) {
-      return 0;
-    }
+    final fetched = await _fetch(reciter, surah);
+    if (fetched == null) return 0;
+    await _store(reciter, surah, fetched.$1, fetched.$2);
+    return utf8.encode(fetched.$2).length;
   }
 
   /// Drops the in-memory copies for one reciter (used when downloads are

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show mapEquals;
+
 import '../data/recitation_end_caps.dart';
 import 'doukali_covered_ayat.dart';
 
@@ -107,6 +109,25 @@ class Reciter {
   /// re-fetch once; the audio cache is untouched.
   final int timingsRevision;
 
+  /// [AudioScheme.timedSurah] only: surahs whose recording was corrected after
+  /// it was published, surah -> the file that holds it now (`040_v2.mp3`).
+  /// Every other surah is `SSS.mp3`.
+  ///
+  /// A corrected recording is always published under a NEW name and the old
+  /// file stays on the server: a phone keeps a complete `SSS.mp3` for good,
+  /// and new spans over the old audio would play every later ayah early or
+  /// late. Each surah's timings name their own file, so old spans keep the old
+  /// audio and new spans the new. With this table the app also knows which
+  /// file a download should fetch, and `SurahFileUpgrade` replaces a
+  /// downloaded old recording with the corrected one. Only that surah's
+  /// timings are fetched again; the rest of the reciter is untouched.
+  final Map<int, String> surahFiles;
+
+  /// [AudioScheme.timedSurah] only: per-surah timings revision (default 1),
+  /// for a span correction to one surah whose audio did not change. Raising
+  /// it re-fetches that surah's timings only, unlike [timingsRevision].
+  final Map<int, int> surahTimingsRevisions;
+
   /// Folder name (under the app support dir) where this reciter's MP3s are
   /// cached on disk. Kept distinct per reciter because every reciter uses the
   /// same file names (`001001.mp3` …) but different audio.
@@ -158,11 +179,33 @@ class Reciter {
     this.missingAyat = const {},
     this.timingsBaseUrlOverride,
     this.timingsRevision = 1,
+    this.surahFiles = const {},
+    this.surahTimingsRevisions = const {},
   }) : shortName = shortName ?? name;
 
   /// Whether ([surah], [ayah]) is one of this mirror's upstream gaps.
   bool isMissing(int surah, int ayah) =>
       missingAyat[surah]?.contains(ayah) ?? false;
+
+  /// `SSS.mp3`: a timed surah's file before any correction.
+  static String defaultSurahFile(int surah) =>
+      '${surah.toString().padLeft(3, '0')}.mp3';
+
+  /// The file that holds [surah]'s recording now (see [surahFiles]).
+  String audioFileFor(int surah) =>
+      surahFiles[surah] ?? defaultSurahFile(surah);
+
+  /// [surah]'s timings revision (see [surahTimingsRevisions]).
+  int surahTimingsRevision(int surah) => surahTimingsRevisions[surah] ?? 1;
+
+  /// `SSS.mp3` or a corrected `SSS_<tag>.mp3` (tag: 1-16 of a-z, 0-9).
+  static final RegExp surahFileRe = RegExp(r'^(\d{3})(_[a-z0-9]{1,16})?\.mp3$');
+
+  /// Whether [file] can hold [surah]'s recording: its own number, our shape.
+  static bool isSurahFile(int surah, String file) {
+    final m = surahFileRe.firstMatch(file);
+    return m != null && int.parse(m.group(1)!) == surah;
+  }
 
   // ───────────────────────────────────────────────
   //  AVAILABLE RECITERS
@@ -387,6 +430,12 @@ class Reciter {
     // web build could not fetch these from beside the MP3s.
     timingsBaseUrlOverride:
         'https://quran-content.mushaf-qaloon.com/timings/alqryw/',
+    // 2 (2026-11-22, server reciters v4): 040.json names 040_v2.mp3.
+    timingsRevision: 2,
+    // 40:21 had lost the first «كانوا» («الذين كانوا من قبلهم»); the owner's
+    // corrected reading of that phrase was spliced in (+875 ms), 2026-11-22.
+    // Work set: C:/Down/AlQryw/fix_040_2026-11-22/PUSH.md.
+    surahFiles: {40: '040_v2.mp3'},
   );
 
   /// Ahmad Saleh Rajab (أحمد صالح رجب) — Qaloun.
@@ -725,6 +774,12 @@ class Reciter {
   /// fails any check is ignored as a whole and the bundled one stays.
   /// A `timingsRevision` outside `recording` only raises the bundled
   /// recording's revision; inside it, it belongs to the new recording.
+  ///
+  /// A timed recording can also correct single surahs (see [surahFiles]):
+  /// `"surahFiles": {"40": "040_v2.mp3"}` (a new file under a new name) and
+  /// `"surahTimings": {"53": 2}` (new spans for the same file). Both add to
+  /// what the build knows; outside `recording` they apply to the bundled
+  /// recording, inside it to the new one.
   static ReciterOverride overrideFromJson(
     Reciter base,
     Map<String, dynamic> o, {
@@ -766,6 +821,9 @@ class Reciter {
           scheme: AudioScheme.timedSurah,
           timingsBaseUrlOverride: timings as String,
           timingsRevision: rev is int && rev > 0 ? rev : 1,
+          // corrections inside the new recording travel with it
+          surahFiles: surahFileTable(rec['surahFiles']),
+          surahTimingsRevisions: surahRevisionTable(rec['surahTimings']),
         );
       }
     }
@@ -775,6 +833,23 @@ class Reciter {
       final rev = o['timingsRevision'];
       if (rev is int && rev > base.timingsRevision) {
         r = r.copyWith(timingsRevision: rev);
+      }
+      // Corrected surahs of the bundled recording, on top of the ones this
+      // build already knows: a file per surah, a timings revision that only
+      // ever rises.
+      if (base.scheme == AudioScheme.timedSurah) {
+        final files = surahFileTable(o['surahFiles']);
+        final merged = {...base.surahFiles, ...files};
+        if (!mapEquals(merged, base.surahFiles)) {
+          r = r.copyWith(surahFiles: merged);
+        }
+        final revs = {...base.surahTimingsRevisions};
+        surahRevisionTable(o['surahTimings']).forEach((s, v) {
+          if (v > (revs[s] ?? 1)) revs[s] = v;
+        });
+        if (!mapEquals(revs, base.surahTimingsRevisions)) {
+          r = r.copyWith(surahTimingsRevisions: revs);
+        }
       }
       // The per-ayah tables, each replaced whole: which ayat this sheikh
       // reads inside a neighbour ([coveredAyat], covered scheme only) and
@@ -814,7 +889,38 @@ class Reciter {
       cacheFolder == other.cacheFolder &&
       scheme == other.scheme &&
       timingsBaseUrl == other.timingsBaseUrl &&
-      timingsRevision == other.timingsRevision;
+      timingsRevision == other.timingsRevision &&
+      mapEquals(surahFiles, other.surahFiles) &&
+      mapEquals(surahTimingsRevisions, other.surahTimingsRevisions);
+
+  /// `{"40": "040_v2.mp3"}` -> surah -> file. An entry that is not a surah
+  /// number with a file of that surah's own shape ([isSurahFile]) is dropped
+  /// on its own; the rest still apply.
+  static Map<int, String> surahFileTable(Object? v) {
+    if (v is! Map<String, dynamic>) return const {};
+    final out = <int, String>{};
+    for (final e in v.entries) {
+      final s = int.tryParse(e.key);
+      final f = e.value;
+      if (s == null || s < 1 || s > 114 || f is! String) continue;
+      if (!isSurahFile(s, f)) continue;
+      out[s] = f;
+    }
+    return out;
+  }
+
+  /// `{"53": 2}` -> surah -> timings revision (>= 1); bad entries dropped.
+  static Map<int, int> surahRevisionTable(Object? v) {
+    if (v is! Map<String, dynamic>) return const {};
+    final out = <int, int>{};
+    for (final e in v.entries) {
+      final s = int.tryParse(e.key);
+      final rev = e.value;
+      if (s == null || s < 1 || s > 114 || rev is! int || rev < 1) continue;
+      out[s] = rev;
+    }
+    return out;
+  }
 
   /// `{"5": [34], "23": [46]}` -> surah -> ayat, or null when [v] is not
   /// such a table (an empty object is a valid table: nothing listed).
@@ -842,6 +948,8 @@ class Reciter {
     String? riwaya,
     Map<int, Set<int>>? coveredAyat,
     Map<int, Set<int>>? missingAyat,
+    Map<int, String>? surahFiles,
+    Map<int, int>? surahTimingsRevisions,
   }) => Reciter(
     id: id,
     name: name ?? this.name,
@@ -856,6 +964,8 @@ class Reciter {
     missingAyat: missingAyat ?? this.missingAyat,
     timingsBaseUrlOverride: timingsBaseUrlOverride,
     timingsRevision: timingsRevision ?? this.timingsRevision,
+    surahFiles: surahFiles ?? this.surahFiles,
+    surahTimingsRevisions: surahTimingsRevisions ?? this.surahTimingsRevisions,
   );
 
   static final RegExp _idRe = RegExp(r'^[a-z][a-z0-9_]{1,39}$');
@@ -901,6 +1011,8 @@ class Reciter {
       scheme: AudioScheme.timedSurah,
       timingsBaseUrlOverride: timings as String,
       timingsRevision: rev is int && rev > 0 ? rev : 1,
+      surahFiles: surahFileTable(j['surahFiles']),
+      surahTimingsRevisions: surahRevisionTable(j['surahTimings']),
     );
   }
 

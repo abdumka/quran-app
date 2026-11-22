@@ -165,7 +165,8 @@ void main() {
       // only reach them because revision 2 reads from a new folder.
       expect(Reciter.naihiQaloun.timingsRevision, 2);
       expect(SurahTimingsService.timingsFolderName(Reciter.naihiQaloun), 'timings_r2');
-      expect(SurahTimingsService.timingsFolderName(Reciter.alqrywQaloun), 'timings');
+      // al-Qryw: revision 2 since the 40:21 correction (2026-11-22)
+      expect(SurahTimingsService.timingsFolderName(Reciter.alqrywQaloun), 'timings_r2');
     });
 
     test('needs none of the per-ayah scheme tables', () {

@@ -341,7 +341,64 @@ def check_notices(data):
 
 
 RECITER_OVERRIDE_KEYS = {"name", "shortName", "riwaya", "hidden", "timingsRevision", "recording",
-                         "pageTurnCues", "coveredAyat", "missingAyat"}
+                         "pageTurnCues", "coveredAyat", "missingAyat",
+                         "surahFiles", "surahTimings"}
+
+
+def bundled_reciter_urls(src):
+    """id -> (audioBaseUrl, timingsBaseUrl) of the bundled reciters in reciter.dart."""
+    out = {}
+    for block in src.split("static const Reciter ")[1:]:
+        rid = re.search(r"id: '([a-z0-9_]+)'", block)
+        audio = re.search(r"audioBaseUrl: '([^']+)'", block)
+        if not rid or not audio:
+            continue
+        timings = re.search(r"timingsBaseUrlOverride:\s*'([^']+)'", block)
+        out[rid.group(1)] = (audio.group(1),
+                             timings.group(1) if timings else audio.group(1) + "timings/")
+    return out
+
+
+def check_surah_corrections(who, o, urls, problems):
+    """`surahFiles` / `surahTimings` of one timed recording (owner, 2026-11-22). A
+    corrected surah is a NEW file (phones keep a cached SSS.mp3 for good): it must
+    already be on R2, and the surah's timings on R2 must name it, before any phone
+    is told about it."""
+    files, revs = o.get("surahFiles"), o.get("surahTimings")
+    if files is not None:
+        if not isinstance(files, dict):
+            problems.append(f"{who}: surahFiles must be an object")
+            files = {}
+        for k, f in files.items():
+            s = int(k) if str(k).isdigit() else 0
+            if not 1 <= s <= 114 or not isinstance(f, str) or \
+                    not re.fullmatch(rf"{s:03d}(_[a-z0-9]{{1,16}})?\.mp3", f):
+                problems.append(f"{who}: surahFiles {k}: {f!r} is not a file of that surah"
+                                " (SSS_<tag>.mp3, tag a-z 0-9)")
+                continue
+            if f == f"{s:03d}.mp3":
+                continue
+            if urls is None:
+                problems.append(f"{who}: surahFiles {k}: unknown recording URLs")
+                continue
+            audio, timings = urls
+            if not reachable(audio + f):
+                problems.append(f"{who}: surahFiles {k}: {audio}{f} is not on the server (upload it first)")
+            try:
+                req = urllib.request.Request(f"{timings}{s:03d}.json",
+                                             headers={"User-Agent": "Mozilla/5.0 Chrome/120"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    named = json.loads(r.read().decode("utf-8")).get("file")
+            except Exception:  # noqa: BLE001
+                named = None
+            if named != f:
+                problems.append(f"{who}: surahFiles {k}: {timings}{s:03d}.json names {named!r},"
+                                f" not {f!r} (upload the timings first)")
+    if revs is not None:
+        if not isinstance(revs, dict) or any(
+                not (str(k).isdigit() and 1 <= int(k) <= 114 and isinstance(v, int) and v >= 1)
+                for k, v in revs.items()):
+            problems.append(f"{who}: surahTimings must be {{\"<surah>\": <revision 1+>}}")
 
 
 def check_reciters(data):
@@ -353,6 +410,11 @@ def check_reciters(data):
     folders = set(re.findall(r"cacheFolder: '([a-z0-9_]+)'", src))
     folders |= {r.get("cacheFolder") for r in data.get("reciters", []) if isinstance(r, dict)}
     known = bundled_ids | {r.get("id") for r in data.get("reciters", []) if isinstance(r, dict)}
+    urls = bundled_reciter_urls(src)
+    for r in data.get("reciters", []):
+        if isinstance(r, dict) and ("surahFiles" in r or "surahTimings" in r):
+            check_surah_corrections(r.get("id"), r, (r.get("audioBaseUrl"), r.get("timingsBaseUrl")),
+                                    problems)
     for rid, o in (data.get("overrides") or {}).items():
         if rid not in bundled_ids:
             problems.append(f"override for {rid}: not a bundled reciter")
@@ -381,6 +443,10 @@ def check_reciters(data):
             if not isinstance(cf, str) or not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", cf) or cf in folders:
                 problems.append(f"{rid}: recording cacheFolder must be new and unique")
             folders.add(cf)
+            if ok_hosts:
+                check_surah_corrections(f"{rid} recording", rec,
+                                        (rec["audioBaseUrl"], rec["timingsBaseUrl"]), problems)
+        check_surah_corrections(rid, o, urls.get(rid), problems)
     order = data.get("order", [])
     if not isinstance(order, list) or any(i not in known for i in order):
         problems.append("order names an unknown reciter")

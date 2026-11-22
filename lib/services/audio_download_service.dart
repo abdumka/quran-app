@@ -178,8 +178,9 @@ class AudioDownloadService {
       case AudioScheme.timedSurah:
         // One file for the whole surah; the ayah boundaries live in the timing
         // JSON, which is fetched separately (see _downloadTimings) because it is
-        // not an .mp3 and must not be counted as one.
-        return ['${surah.toString().padLeft(3, '0')}.mp3'];
+        // not an .mp3 and must not be counted as one. A corrected surah lives
+        // under its new name (Reciter.surahFiles).
+        return [reciter.audioFileFor(surah)];
       case AudioScheme.mergedTail:
         break;
     }
@@ -315,7 +316,12 @@ class AudioDownloadService {
     _didInitialize = true;
 
     final dir = await _getCacheDir();
-    final total = getAllFilenames().length;
+    final expected = getAllFilenames();
+    final total = expected.length;
+    // Timed reciters: only the files the current recording plays count, so a
+    // corrected surah's old file (still there until SurahFileUpgrade replaces
+    // it) cannot make the download look complete.
+    final countOnly = _isTimedScheme ? expected.toSet() : null;
     int cachedCount = 0;
     int installedBytes = 0;
 
@@ -323,7 +329,10 @@ class AudioDownloadService {
       if (await dir.exists()) {
         await for (final entity in dir.list()) {
           if (entity is File && entity.path.endsWith('.mp3')) {
-            cachedCount++;
+            if (countOnly == null ||
+                countOnly.contains(p.basename(entity.path))) {
+              cachedCount++;
+            }
             try {
               installedBytes += await entity.length();
             } catch (_) {}
