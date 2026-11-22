@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 
 import 'content_update_service.dart';
+import 'index_text.dart';
 
 /// Corrections to the smaller bundled data sets that arrive from our server
 /// after a build shipped (the `quran_data` item of `ContentUpdateService`,
@@ -15,7 +16,9 @@ import 'content_update_service.dart';
 ///                       {"continuations": {"2": [5]}, "basmala_in_ayah1": [1]}},
 ///      "narrationMap": {"2": {"1": [1, 2], "2": 3}},
 ///      "tafsirFixes": [{"edition": "saddi", "surah": 2, "ayah": 5,
-///                       "text": "…"}]}
+///                       "text": "…"}],
+///      "thumnTexts": {"471": "فلا أقسم بالشفق"},
+///      "hizbTitles": {"60": "الأعلى"}}
 ///
 ///   * `ayahRegions`: whole pages of `assets/data/ayah_regions.json` (the
 ///     highlight and Tasmee masks of each ayah), each exactly as in that
@@ -28,6 +31,9 @@ import 'content_update_service.dart';
 ///     by its asset path.
 ///   * `tafsirFixes`: one ayah's text of a bundled tafsir (Hafs numbering, as
 ///     in that edition's file).
+///   * `thumnTexts` / `hizbTitles`: the opening words الفهرس shows for a
+///     thumn (1..480) and a hizb's title (1..60), laid over the bundle by
+///     `IndexText`. Builds before these sections ignore them.
 ///
 /// A file that breaks a rule of shape is refused as a whole ([parse]), at
 /// download and again at load; the bundled data is then used. Read once per
@@ -40,6 +46,8 @@ class QuranDataPatch {
     required this.breathData,
     required this.narrationMap,
     required this.tafsirFixes,
+    this.thumnTexts = const {},
+    this.hizbTitles = const {},
   });
 
   final int ver;
@@ -52,6 +60,12 @@ class QuranDataPatch {
 
   /// edition id -> "surah:ayah" -> text.
   final Map<String, Map<String, String>> tafsirFixes;
+
+  /// Thumn number (1..480) -> its opening words in الفهرس.
+  final Map<int, String> thumnTexts;
+
+  /// Hizb number (1..60) -> its title.
+  final Map<int, String> hizbTitles;
 
   static const Set<String> tafsirEditions = {'saddi', 'muyassar', 'jalalayn'};
 
@@ -67,6 +81,7 @@ class QuranDataPatch {
       final text = await ContentUpdateService.instance.readFor('quran_data');
       if (text == null) return null;
       final patch = parse(text);
+      IndexText.apply(thumn: patch.thumnTexts, hizb: patch.hizbTitles);
       debugPrint('QuranDataPatch: v${patch.ver}');
       return patch;
     } catch (e) {
@@ -257,7 +272,36 @@ class QuranDataPatch {
       breathData: breath,
       narrationMap: narration,
       tafsirFixes: fixes,
+      thumnTexts: _labels(d['thumnTexts'], 'thumnTexts', 480, 200),
+      hizbTitles: _labels(d['hizbTitles'], 'hizbTitles', 60, 60),
     );
+  }
+
+  /// A `{"number": "text"}` section of index labels: numbers 1..[max], each
+  /// text one non-empty line of at most [maxLength] characters.
+  static Map<int, String> _labels(
+    Object? raw,
+    String name,
+    int max,
+    int maxLength,
+  ) {
+    if (raw == null) return const {};
+    if (raw is! Map<String, dynamic>) {
+      throw FormatException('quran_data: bad $name');
+    }
+    final out = <int, String>{};
+    raw.forEach((k, v) {
+      final n = _int(k, 1, max);
+      if (n == null ||
+          v is! String ||
+          v.trim().isEmpty ||
+          v.length > maxLength ||
+          v.contains('\n')) {
+        throw FormatException('quran_data: bad $name $k');
+      }
+      out[n] = v.trim();
+    });
+    return out;
   }
 
   /// Lays [ayahRegions] over the decoded `ayah_regions.json`, in place. A

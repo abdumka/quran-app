@@ -282,6 +282,15 @@ def check_quran_data(data):
             problems.append(f"tafsir fix {e} {s_}:{a_} is not in that edition (Hafs numbering)")
         elif not isinstance(f.get("text"), str) or not f["text"].strip():
             problems.append(f"tafsir fix {e} {s_}:{a_}: empty text")
+    # index labels: thumn openings (1..480) and hizb titles (1..60)
+    for name, top, longest in (("thumnTexts", 480, 200), ("hizbTitles", 60, 60)):
+        for k, v in (data.get(name) or {}).items():
+            if not (k.isascii() and k.isdigit() and 1 <= int(k) <= top):
+                problems.append(f"{name} {k}: not 1..{top}")
+            elif not isinstance(v, str) or not v.strip() or len(v) > longest or "\n" in v:
+                problems.append(f"{name} {k}: one line of 1..{longest} characters")
+            elif any(c.isdigit() and not c.isascii() for c in v):
+                problems.append(f"{name} {k}: Eastern Arabic digits (use 0-9)")
     abort("quran_data.json", problems)
 
 

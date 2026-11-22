@@ -596,15 +596,9 @@ class DailyPageService {
   String _notificationBody(int page) =>
       'اقرأ صفحة اليوم: صفحة $page — ${surahNameForPage(page)}';
 
-  /// Name of the surah a page belongs to, for the reminder text.
-  static String surahNameForPage(int page) {
-    var name = surahList.first['name'] as String;
-    for (final surah in surahList) {
-      if ((surah['page'] as int) > page) break;
-      name = surah['name'] as String;
-    }
-    return name;
-  }
+  /// The surah (or «الانشقاق - البروج» for a shared page) a page holds, for
+  /// the reminder text.
+  static String surahNameForPage(int page) => surahNamesForPage(page);
 
   static const int _maxMinutes = 23 * 60 + 59;
 

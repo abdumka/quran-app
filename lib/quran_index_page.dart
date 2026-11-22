@@ -7,6 +7,8 @@ import 'services/surah_index_view_service.dart';
 import 'services/tv_service.dart';
 import 'theme/app_surfaces.dart';
 import 'thumn_data.dart';
+import 'services/index_text.dart';
+import 'services/quran_data_patch.dart';
 import 'utils/responsive_helper.dart';
 
 enum QuranIndexTab { surahs, juzs, hizbs, pages, sajdas }
@@ -115,6 +117,11 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
   @override
   void initState() {
     super.initState();
+    // Server corrections to thumn openings and hizb titles (IndexText).
+    final seen = IndexText.generation;
+    QuranDataPatch.load().then((_) {
+      if (mounted && IndexText.generation != seen) setState(() {});
+    });
     SurahIndexViewService.instance.grid.addListener(_onSurahLayoutChanged);
     _selectedTab =
         widget.initialTab ?? _lastSelectedTab ?? QuranIndexTab.surahs;
@@ -174,7 +181,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
     bool highlight(ThumnEntry e) {
       if (!hasQuery || textQuery.isEmpty) return false;
-      final t = _normalizeArabic(e.text);
+      final t = _normalizeArabic(IndexText.thumn(e));
       return t.contains(textQuery) ||
           t.replaceAll(' ', '').contains(compactQuery);
     }
@@ -1537,30 +1544,24 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
   /// "•  سورة البقرة  •  صفحة 11" beside a hizb's number.
   String _hizbStartLabel(ThumnEntry start) {
-    var surahName = '';
-    for (final surah in widget.surahs) {
-      if ((surah['number'] as num?)?.toInt() == start.startSurah) {
-        surahName = (surah['name'] ?? '').toString();
-        break;
-      }
-    }
+    final surahName = _surahName(start.startSurah);
     return [
       if (surahName.isNotEmpty) 'سورة $surahName',
       'صفحة ${start.page}',
     ].map((part) => '•  $part').join('  ');
   }
 
-  String _surahNameForPage(int page) {
-    String name = '';
+  /// The name of surah [number], for a thumn row: the surah its first ayah
+  /// is in. Not the last surah to begin on the thumn's page, which names the
+  /// next surah whenever one starts on that page after the thumn (فلا أقسم
+  /// بالشفق, page 587, was labelled البروج).
+  String _surahName(int number) {
     for (final surah in widget.surahs) {
-      final surahPage = (surah['page'] as num?)?.toInt() ?? 0;
-      if (surahPage <= page) {
-        name = (surah['name'] ?? '').toString();
-      } else {
-        break;
+      if ((surah['number'] as num?)?.toInt() == number) {
+        return (surah['name'] ?? '').toString();
       }
     }
-    return name;
+    return '';
   }
 
   // "الصفحات" view: a dense grid of all page numbers, styled like the surah
@@ -1708,9 +1709,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
 
     final result = <int>[];
     for (int hizb = 1; hizb <= 60; hizb++) {
-      final title = hizb - 1 < hizbTitles.length
-          ? _normalizeArabic(hizbTitles[hizb - 1])
-          : '';
+      final title = _normalizeArabic(IndexText.hizbTitle(hizb));
       final athman = thumnEntries.where((e) => e.hizb == hizb);
 
       final numberMatch = queryNumber != null && queryNumber == hizb;
@@ -1721,7 +1720,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
       final thumnMatch =
           normalizedQuery.isNotEmpty &&
           athman.any((e) {
-            final t = _normalizeArabic(e.text);
+            final t = _normalizeArabic(IndexText.thumn(e));
             return t.contains(normalizedQuery) ||
                 t.replaceAll(' ', '').contains(compactQuery);
           });
@@ -1994,9 +1993,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
     int? tvBaseIndex,
     Key? cardKey,
   }) {
-    final hizbTitle = hizbNumber - 1 < hizbTitles.length
-        ? hizbTitles[hizbNumber - 1]
-        : '';
+    final hizbTitle = IndexText.hizbTitle(hizbNumber);
     final athman = _athmanFor(hizbNumber, model);
     // Where the hizb begins: its first thumn, taken from the full list since
     // a search may have filtered [athman].
@@ -2250,7 +2247,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        entry.text,
+                        IndexText.thumn(entry),
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         maxLines: 1,
@@ -2264,7 +2261,7 @@ class _QuranIndexPageState extends State<QuranIndexPage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _surahNameForPage(entry.page),
+                        _surahName(entry.startSurah),
                         textDirection: TextDirection.rtl,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

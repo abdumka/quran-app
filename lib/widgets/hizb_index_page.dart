@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../quran_constants.dart';
 import '../services/app_look_service.dart';
+import '../services/index_text.dart';
 import '../theme/app_surfaces.dart';
 import '../utils/responsive_helper.dart';
 
@@ -61,9 +62,8 @@ class HizbIndexPage extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final hizbNumber = index + 1;
                   final page = hizbStartPages[index];
-                  final title = index < hizbTitles.length
-                      ? hizbTitles[index]
-                      : 'الحزب $hizbNumber';
+                  final named = IndexText.hizbTitle(hizbNumber);
+                  final title = named.isNotEmpty ? named : 'الحزب $hizbNumber';
 
                   return _HizbCard(
                     isTablet: isTablet,

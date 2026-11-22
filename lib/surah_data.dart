@@ -117,3 +117,33 @@ const List<Map<String, dynamic>> surahList = [
 {"number":113,"name":"الفلق","english":"Al-Falaq","type":"مكية","ayahs":5,"page":602,"yOffsetRatio":0.257},
 {"number":114,"name":"الناس","english":"An-Nas","type":"مكية","ayahs":6,"page":602,"yOffsetRatio":0.59},
 ];
+
+/// The surahs that have ayat on [page] (1-based), in order.
+///
+/// A surah that begins part-way down a page (`yOffsetRatio` > 0) shares that
+/// page with the end of the surah before it, so on page 587 this is
+/// الانشقاق then البروج. Naming a page only by the last surah to begin on or
+/// before it gave البروج alone.
+List<Map<String, dynamic>> surahsOnPage(int page) {
+  final starting = [
+    for (final s in surahList)
+      if (s['page'] == page) s,
+  ];
+  final before = [
+    for (final s in surahList)
+      if ((s['page'] as int) < page) s,
+  ];
+  if (starting.isEmpty) return before.isEmpty ? const [] : [before.last];
+  final startsMidPage =
+      ((starting.first['yOffsetRatio'] as num?)?.toDouble() ?? 0) > 0;
+  return [if (startsMidPage && before.isNotEmpty) before.last, ...starting];
+}
+
+/// «الانشقاق - البروج» for a page shared by two or more surahs, else the one
+/// name.
+String surahNamesForPage(int page) {
+  final on = surahsOnPage(page);
+  if (on.isEmpty) return '';
+  final first = on.first['name'] as String;
+  return on.length == 1 ? first : '$first - ${on.last['name']}';
+}

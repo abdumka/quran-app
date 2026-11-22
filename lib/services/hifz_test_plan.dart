@@ -1,10 +1,10 @@
 import 'dart:math';
 
 import '../models/quran_page_data.dart';
-import '../quran_constants.dart';
 import '../surah_data.dart';
 import '../thumn_data.dart';
 import '../utils/quran_display_text.dart' as ar;
+import 'index_text.dart';
 import 'tasmee_weak_point_store.dart';
 
 /// Where the questions of a memorization test come from.
@@ -68,7 +68,7 @@ class HifzRange {
 
   /// «١٢. قال رجلان — المائدة»: number, name and the surah it opens in.
   static String hizbLabel(int h) {
-    final title = h - 1 < hizbTitles.length ? hizbTitles[h - 1] : '';
+    final title = IndexText.hizbTitle(h);
     return '$h. $title — ${surahName(hizbStart(h).startSurah)}';
   }
 
@@ -81,8 +81,9 @@ class HifzRange {
   /// «٣. إن الله لا يستحيي…»: a thumn's place in its hizb and its opening.
   static String thumnLabel(int t) {
     final e = thumnEntries[t.clamp(1, 480) - 1];
-    final words = e.text.split(' ');
-    final opening = words.length > 5 ? '${words.take(5).join(' ')}…' : e.text;
+    final text = IndexText.thumn(e);
+    final words = text.split(' ');
+    final opening = words.length > 5 ? '${words.take(5).join(' ')}…' : text;
     return '${thumnInHizb(t)}. $opening';
   }
 

@@ -5410,41 +5410,10 @@ class _QuranPagesState extends State<QuranPages>
     return 1;
   }
 
-  String _getSurahName(int pageIndex) {
-    final realPage = pageIndex + 1;
-
-    // Collect all surahs that start on this page
-    final List<String> surahsOnPage = [];
-
-    for (int i = 0; i < surahList.length; i++) {
-      final surahPage = surahList[i]['page'] as int;
-
-      // Surah starts on this page
-      if (surahPage == realPage) {
-        surahsOnPage.add(surahList[i]['name'] as String);
-      }
-    }
-
-    // If multiple surahs start on this page, show first and last
-    if (surahsOnPage.length >= 2) {
-      return '${surahsOnPage.first} - ${surahsOnPage.last}';
-    }
-
-    // Otherwise, find which surah this page belongs to
-    if (surahsOnPage.length == 1) {
-      return surahsOnPage.first;
-    }
-
-    // Page doesn't start a new surah — find the surah it belongs to
-    for (int i = surahList.length - 1; i >= 0; i--) {
-      final surahPage = surahList[i]['page'] as int;
-      if (surahPage <= realPage) {
-        return surahList[i]['name'] as String;
-      }
-    }
-
-    return '';
-  }
+  /// The top bar's surah: every surah with ayat on the page, so a page that
+  /// opens with the end of one surah and then starts another reads
+  /// «الانشقاق - البروج», as the mushaf's own page header does.
+  String _getSurahName(int pageIndex) => surahNamesForPage(pageIndex + 1);
 
   void _openSearchPage() {
     if (_isAutoScrollEnabled) {
@@ -5832,22 +5801,24 @@ class _QuranPagesState extends State<QuranPages>
 
   void _syncCurrentSurahForPage(int pageIndex) {
     final realPage = pageIndex + 1;
-    final surahsOnPage = surahList
+    final startingHere = surahList
         .where((surah) => surah['page'] == realPage)
         .toList();
 
-    if (surahsOnPage.isEmpty) {
+    if (startingHere.isEmpty) {
       final derivedIndex = _getCurrentSurahIndexFromPage(pageIndex);
       _currentSurahNumber = surahList[derivedIndex]['number'] as int;
       return;
     }
 
-    final currentStillOnPage = surahsOnPage.any(
+    final currentStillOnPage = surahsOnPage(realPage).any(
       (surah) => surah['number'] == _currentSurahNumber,
     );
     if (currentStillOnPage) return;
 
-    _currentSurahNumber = surahsOnPage.first['number'] as int;
+    // The surah at the top of the page: on a page shared with the end of the
+    // previous surah, that one, not the surah that begins further down.
+    _currentSurahNumber = surahsOnPage(realPage).first['number'] as int;
   }
 
   int _getCurrentSurahIndexFromPage(int pageIndex) {

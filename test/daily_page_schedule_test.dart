@@ -181,7 +181,10 @@ void main() {
       expect(DailyPageService.surahNameForPage(2), 'البقرة');
       expect(DailyPageService.surahNameForPage(49), 'البقرة');
       expect(DailyPageService.surahNameForPage(50), 'آل عمران');
-      expect(DailyPageService.surahNameForPage(602), 'الناس');
+      // الإخلاص, الفلق and الناس all sit on the last page.
+      expect(DailyPageService.surahNameForPage(602), 'الإخلاص - الناس');
+      // الانشقاق ends where البروج begins, part-way down the page.
+      expect(DailyPageService.surahNameForPage(587), 'الانشقاق - البروج');
     });
   });
 }
