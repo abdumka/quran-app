@@ -683,6 +683,14 @@ class AthkarAudio extends ChangeNotifier {
   /// Plays [items] from [index] on.
   Future<void> start(List<AthkarItem> items, int index) async {
     final session = ++_session;
+    // a skip or a move pressed for the listening this one replaces
+    _skip = false;
+    _parked = false;
+    // [current] is the new one at once: while the old one stops and the new
+    // one loads, a page following the audio must not be sent back to the
+    // old one (2026-11-21, emulator)
+    _queue = List.of(items);
+    _index = index;
     await player.stop();
     if (session != _session) return;
     stopOtherAudio();
@@ -718,16 +726,18 @@ class AthkarAudio extends ChangeNotifier {
       if (i != index && listEquals(sources, previous)) continue;
       previous = sources;
       // as many times as it is said: the ones still to say today, counted
-      // as they are heard; a completed one is heard all its times again
-      final left = item.count - store.countOf(item);
-      final counted = left > 0;
-      final times = counted ? left : item.count;
+      // as they are heard; a completed one is heard all its times again.
+      // The reader may count it too, tapping as it plays: once it reaches
+      // «تمّ» it is not repeated any more, the next one comes (owner,
+      // 2026-11-21: it played «المرة 3 من 3» of a dhikr already «تمّ»)
+      final counted = store.countOf(item) < item.count;
       _index = i;
       _fetchAhead(i, session);
-      for (var k = 0; k < times; k++) {
+      for (var k = 0; ; k++) {
+        if (counted ? store.isDone(item) : k >= item.count) break;
         // shown as «المرة 2 من 3» (out of the dhikr's own number)
         _repeatOf = item.count;
-        _repeatAt = item.count - times + k;
+        _repeatAt = counted ? store.countOf(item) : k;
         notifyListeners();
         final finished = await _playTrying(item, sources, session);
         if (finished == null) return;
@@ -800,6 +810,7 @@ class AthkarAudio extends ChangeNotifier {
     _queue = const [];
     _index = -1;
     _paused = false;
+    _parked = false;
     _waiting = false;
     _loading = false;
     _repeatAt = 0;
@@ -812,6 +823,15 @@ class AthkarAudio extends ChangeNotifier {
   /// many times as it is said.
   Future<void> skip() async {
     if (!isActive) return;
+    if (_parked) {
+      // moved while paused and not started yet: the next one, still paused
+      if (hasNext) {
+        _park(_queue, _index + 1);
+      } else {
+        await stop();
+      }
+      return;
+    }
     _skip = true;
     if (_paused) {
       _paused = false;
@@ -823,6 +843,11 @@ class AthkarAudio extends ChangeNotifier {
 
   Future<void> togglePause() async {
     if (!isActive) return;
+    if (_parked) {
+      // «متابعة» on a dhikr the reader moved to while paused
+      unawaited(start(_queue, _index));
+      return;
+    }
     _paused = !_paused;
     notifyListeners();
     if (_paused) {
@@ -848,6 +873,43 @@ class AthkarAudio extends ChangeNotifier {
   Future<void> replay() async {
     if (!isActive) return;
     unawaited(start(_queue, _index));
+  }
+
+  /// The reader went to another dhikr while listening (the page arrows, a
+  /// swipe, a card's «التالي», or completing the count of the one heard):
+  /// the listening goes there too, from that dhikr's beginning (owner,
+  /// 2026-11-21: the page moved on and the old one kept playing). Paused,
+  /// it stays paused on the new one until «متابعة». The times already heard
+  /// in full stay counted.
+  Future<void> moveTo(List<AthkarItem> items, int index) async {
+    if (!isActive || index < 0 || index >= items.length) return;
+    if (!_paused) {
+      unawaited(start(items, index));
+      return;
+    }
+    _park(items, index);
+    await player.stop();
+  }
+
+  /// Paused on [index] of [items], nothing loaded: [togglePause] starts it.
+  bool _parked = false;
+
+  void _park(List<AthkarItem> items, int index) {
+    // the paused listening is over; this one has not begun
+    _session++;
+    _skip = false;
+    _wakeUp();
+    _queue = List.of(items);
+    _index = index;
+    _paused = true;
+    _parked = true;
+    _waiting = false;
+    _loading = false;
+    final item = _queue[index];
+    final left = item.count - AthkarStore.instance.countOf(item);
+    _repeatOf = item.count;
+    _repeatAt = left > 0 ? item.count - left : 0;
+    notifyListeners();
   }
 
   /// Another athkar voice. A dhikr being heard in the old voice starts again

@@ -56,6 +56,14 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
   late PageController _pages;
   final ScrollController _scroll = ScrollController();
   Timer? _advance;
+  Timer? _swiped;
+
+  /// The single view's page is being turned by the app, not by a swipe:
+  /// the turns under way (a second one cuts the first short, and the first
+  /// one's end must not count the second one's pages as swipes; 2026-11-21,
+  /// two quick «السابق» on the emulator sent the audio back one).
+  int _turns = 0;
+  bool get _turning => _turns > 0;
   int _seenFailures = 0;
   int _seenUnavailable = 0;
   int? _followed;
@@ -81,6 +89,7 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
   @override
   void dispose() {
     _advance?.cancel();
+    _swiped?.cancel();
     _audio.failures.removeListener(_onAudioFailure);
     _audio.unavailable.removeListener(_onUnavailable);
     _audio.removeListener(_followAudio);
@@ -119,21 +128,48 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
       ? AthkarService.instance.data.section(item.sectionId)?.name
       : null;
 
-  /// Brings dhikr [i] into view in the current view.
-  void _goTo(int i) {
+  /// Brings dhikr [i] into view in the current view. [byReader]: the
+  /// reader asked for it (an arrow, «التالي», a completed count), so a
+  /// listening under way goes there too.
+  void _goTo(int i, {bool byReader = false}) {
     if (i < 0 || i >= _items.length) return;
     _index = i;
+    if (byReader) _listenTo(i);
     if (_store.view == AthkarView.single) {
       if (_pages.hasClients && _pages.page?.round() != i) {
-        _pages.animateToPage(
-          i,
-          duration: const Duration(milliseconds: 280),
-          curve: Curves.easeOutCubic,
-        );
+        _turns++;
+        _pages
+            .animateToPage(
+              i,
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeOutCubic,
+            )
+            .whenComplete(() => _turns--);
       }
     } else {
       _reveal(i);
     }
+  }
+
+  /// The listening follows the reader to dhikr [i] (owner, 2026-11-21: the
+  /// page moved on and the old dhikr kept playing).
+  void _listenTo(int i) {
+    final id = _items[i].id;
+    if (!_audio.isActive || _audio.current?.id == id) return;
+    // already where the audio is going: [_followAudio] has nothing to do
+    _followed = id;
+    _audio.moveTo(_items, i);
+  }
+
+  /// A swipe in the single view settled on [page].
+  void _onPageChanged(int page) {
+    setState(() => _index = page);
+    if (_turning) return;
+    // a quick run of swipes starts only the dhikr it ends on
+    _swiped?.cancel();
+    _swiped = Timer(const Duration(milliseconds: 300), () {
+      if (mounted && _index == page) _listenTo(page);
+    });
   }
 
   void _reveal(int i) {
@@ -175,7 +211,8 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     _advance?.cancel();
     _advance = Timer(const Duration(milliseconds: 550), () {
       if (!mounted || _index != i) return;
-      _goTo(i + 1);
+      // the one being heard was just completed: its audio moves on too
+      _goTo(i + 1, byReader: _audio.current?.id == item.id);
     });
   }
 
@@ -183,18 +220,9 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
   void _skip(int i) {
     HapticFeedback.selectionClick();
     _advance?.cancel();
-    if (_audio.current?.id == _items[i].id) {
-      // the one being heard: the listening moves on too, and the view
-      // follows it there (the owner pressed «التالي» and it kept repeating)
-      if (_audio.hasNext) {
-        _audio.skip();
-      } else {
-        _audio.stop();
-        _goTo(i + 1);
-      }
-      return;
-    }
-    _goTo(i + 1);
+    // the listening, if any, goes on to it too (the owner pressed «التالي»
+    // and it kept repeating)
+    _goTo(i + 1, byReader: true);
   }
 
   void _play(int i) {
@@ -229,6 +257,7 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(at));
     } else {
       _pages.dispose();
+      _turns = 0;
       _pages = PageController(initialPage: at);
     }
   }
@@ -341,8 +370,13 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     return SingleChildScrollView(
       controller: _scroll,
       padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + bottom),
-      child: Column(
-        children: [for (var i = 0; i < _items.length; i++) _listCard(c, i)],
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _readingWidth),
+          child: Column(
+            children: [for (var i = 0; i < _items.length; i++) _listCard(c, i)],
+          ),
+        ),
       ),
     );
   }
@@ -450,79 +484,140 @@ class _AthkarReaderPageState extends State<AthkarReaderPage> {
     final item = _items[i];
     final count = _store.countOf(item);
     final done = _store.doneIn(_items);
+    final progress = ClipRRect(
+      borderRadius: BorderRadius.circular(2),
+      child: LinearProgressIndicator(
+        value: done / _items.length,
+        minHeight: 4,
+        backgroundColor: c.tile,
+        color: c.accent,
+      ),
+    );
+    final pages = PageView.builder(
+      controller: _pages,
+      itemCount: _items.length,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, page) => _singleCard(c, page),
+    );
+    Widget arrow({required bool next}) => IconButton(
+      tooltip: next ? 'التالي' : 'السابق',
+      icon: Icon(
+        next ? Icons.chevron_right_rounded : Icons.chevron_left_rounded,
+        color: c.icon,
+      ),
+      iconSize: 30,
+      onPressed: next
+          ? (i < _items.length - 1 ? () => _goTo(i + 1, byReader: true) : null)
+          : (i > 0 ? () => _goTo(i - 1, byReader: true) : null),
+    );
+    final note = SizedBox(
+      height: 26,
+      child: count >= item.count
+          ? TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: c.accent,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+              ),
+              onPressed: () => _store.reset(item),
+              child: const Text('إعادة'),
+            )
+          : Text(
+              'اضغط في أي مكان للعدّ',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: c.muted, fontSize: 12),
+            ),
+    );
     return SafeArea(
       top: false,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                value: done / _items.length,
-                minHeight: 4,
-                backgroundColor: c.tile,
-                color: c.accent,
-              ),
-            ),
-          ),
-          Expanded(
-            child: PageView.builder(
-              controller: _pages,
-              itemCount: _items.length,
-              onPageChanged: (page) => setState(() => _index = page),
-              itemBuilder: (context, page) => _singleCard(c, page),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            child: Row(
+      child: LayoutBuilder(
+        builder: (context, box) {
+          // a phone held sideways: under the card the dhikr kept half a
+          // line (emulator, 2026-11-21), so the counter and the arrows go
+          // beside it and the text has the whole height
+          if (box.maxHeight < 420 && box.maxWidth > box.maxHeight * 1.4) {
+            return Row(
               children: [
-                IconButton(
-                  tooltip: 'السابق',
-                  icon: Icon(Icons.chevron_left_rounded, color: c.icon),
-                  iconSize: 30,
-                  onPressed: i > 0 ? () => _goTo(i - 1) : null,
-                ),
-                Expanded(
-                  child: AthkarCounterBar(
-                    count: count,
-                    total: item.count,
-                    height: 56,
-                    onTap: () => _count(i),
+                Expanded(child: pages),
+                SizedBox(
+                  width: 210,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.fromSTEB(
+                      0,
+                      12,
+                      12,
+                      10,
+                    ),
+                    child: Column(
+                      children: [
+                        progress,
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, side) => AthkarCounterBar(
+                              count: count,
+                              total: item.count,
+                              height: side.maxHeight,
+                              onTap: () => _count(i),
+                            ),
+                          ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            arrow(next: false),
+                            Expanded(child: Center(child: note)),
+                            arrow(next: true),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'التالي',
-                  icon: Icon(Icons.chevron_right_rounded, color: c.icon),
-                  iconSize: 30,
-                  onPressed: i < _items.length - 1 ? () => _goTo(i + 1) : null,
                 ),
               ],
-            ),
-          ),
-          SizedBox(
-            height: 26,
-            child: count >= item.count
-                ? TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: c.accent,
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                    ),
-                    onPressed: () => _store.reset(item),
-                    child: const Text('إعادة'),
-                  )
-                : Text(
-                    'اضغط في أي مكان للعدّ',
-                    style: TextStyle(color: c.muted, fontSize: 12),
+            );
+          }
+          return Center(
+            child: ConstrainedBox(
+              // a tablet: lines no longer than a reader's eye takes in
+              constraints: const BoxConstraints(maxWidth: _readingWidth),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: progress,
                   ),
-          ),
-          const SizedBox(height: 6),
-        ],
+                  Expanded(child: pages),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                    child: Row(
+                      children: [
+                        arrow(next: false),
+                        Expanded(
+                          child: AthkarCounterBar(
+                            count: count,
+                            total: item.count,
+                            height: 56,
+                            onTap: () => _count(i),
+                          ),
+                        ),
+                        arrow(next: true),
+                      ],
+                    ),
+                  ),
+                  note,
+                  const SizedBox(height: 6),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
+
+  /// The widest the athkar's text runs (tablets).
+  static const double _readingWidth = 760;
 
   Widget _singleCard(AthkarColors c, int i) {
     final item = _items[i];

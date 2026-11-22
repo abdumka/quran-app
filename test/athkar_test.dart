@@ -53,6 +53,12 @@ class _FakePlayer implements AthkarPlayer {
     await pumpEventQueue();
   }
 
+  /// [finish] for widget tests (their clock does not run the event queue).
+  void end() {
+    _current?.complete(true);
+    _current = null;
+  }
+
   @override
   Future<void> pause() async {}
 
@@ -65,6 +71,29 @@ class _FakePlayer implements AthkarPlayer {
     _current = null;
     if (c != null && !c.isCompleted) c.complete(false);
   }
+}
+
+/// [_FakePlayer], but stopping takes until [hold] completes (a player
+/// letting go of a recording still streaming in).
+class _SlowStopPlayer implements AthkarPlayer {
+  _SlowStopPlayer(this.inner);
+  final _FakePlayer inner;
+  Completer<void>? hold;
+
+  @override
+  Future<bool> play(List<AthkarSource> sources) => inner.play(sources);
+  @override
+  Future<void> pause() => inner.pause();
+  @override
+  Future<void> resume() => inner.resume();
+  @override
+  Future<void> stop() async {
+    await inner.stop();
+    await hold?.future;
+  }
+
+  @override
+  Future<void> setSpeed(double speed) => inner.setSpeed(speed);
 }
 
 AthkarData _sample({bool withReciter = false}) =>
@@ -704,8 +733,7 @@ void main() {
     tearDown(() {
       messenger.setMockMethodCallHandler(channel, null);
       tmp.deleteSync(recursive: true);
-      AthkarDownloadService.instance.state.value =
-          const AthkarDownloadState();
+      AthkarDownloadService.instance.state.value = const AthkarDownloadState();
     });
 
     test('a recording saved on the phone: the save finishes', () async {
@@ -1167,5 +1195,446 @@ void main() {
       expect(store.view, AthkarView.single);
       expect(find.textContaining('ذكر رقم 1 '), findsNothing);
     });
+  });
+
+  // owner, 2026-11-21: in the middle of a dhikr, «التالي» turned the page
+  // but the old dhikr kept playing
+  group('the listening follows the reader', () {
+    late _FakePlayer player;
+    late List<AthkarItem> items;
+
+    Future<void> open(WidgetTester tester, {bool single = true}) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      AthkarService.instance.debugSetData(_sample(withReciter: true));
+      player = _FakePlayer();
+      audio.player = player;
+      store.view = single ? AthkarView.single : AthkarView.list;
+      items = AthkarService.instance.data.section(10)!.items;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AthkarReaderPage(title: 'أذكار الصباح', items: items),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    // the page, not the player bar (it shows the text too)
+    Finder onPage(String text) => find.descendant(
+      of: find
+          .byType(store.view == AthkarView.single ? PageView : Column)
+          .first,
+      matching: find.text(text),
+    );
+
+    Finder inBar(Finder f) =>
+        find.descendant(of: find.byType(AthkarPlayerBar), matching: f);
+
+    tearDown(() => audio.stop());
+
+    Future<void> settle(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    }
+
+    Future<void> done(WidgetTester tester) async {
+      await audio.stop();
+      await tester.pumpAndSettle();
+    }
+
+    // the page arrows, not the player bar's «التالي»
+    Finder arrow(String tip) => find.descendant(
+      of: find.byType(AthkarReaderPage),
+      matching: find.widgetWithIcon(
+        IconButton,
+        tip == 'التالي'
+            ? Icons.chevron_right_rounded
+            : Icons.chevron_left_rounded,
+      ),
+    );
+
+    testWidgets('the page arrows take the audio along, both ways', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      expect(audio.current!.id, 1);
+      await tester.tap(arrow('التالي'));
+      await settle(tester);
+      expect(onPage('الذكر الثاني'), findsOneWidget);
+      expect(audio.current!.id, 2);
+      expect(player.played.last, 'https://example.com/one/0076.mp3');
+      expect(audio.isPaused, isFalse);
+      await tester.tap(arrow('السابق'));
+      await settle(tester);
+      expect(onPage('الذكر الأول'), findsOneWidget);
+      expect(audio.current!.id, 1);
+      expect(player.played.last, 'https://example.com/one/0075.mp3');
+      // skipped, not counted
+      expect(store.countOf(items[0]), 0);
+      expect(store.countOf(items[1]), 0);
+      await done(tester);
+    });
+
+    testWidgets('a swipe takes the audio along; a quick run of swipes '
+        'starts only the last one', (tester) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      final before = player.tries;
+      // right to left reading: the next page comes in from the left
+      await tester.fling(find.byType(PageView), const Offset(500, 0), 2000);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.fling(find.byType(PageView), const Offset(500, 0), 2000);
+      await tester.pumpAndSettle();
+      expect(onPage('الذكر الثالث'), findsOneWidget);
+      expect(audio.current!.id, 3);
+      // dhikr 2 was passed over without being played
+      expect(player.tries, before + 1);
+      expect(player.played.last, 'https://example.com/one/special.mp3');
+      await done(tester);
+    });
+
+    testWidgets('paused: it moves with the page and stays paused until '
+        '«متابعة»', (tester) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      await tester.tap(inBar(find.byTooltip('إيقاف مؤقت')));
+      await settle(tester);
+      final before = player.tries;
+      await tester.tap(arrow('التالي'));
+      await settle(tester);
+      expect(audio.current!.id, 2);
+      expect(audio.isPaused, isTrue);
+      expect(player.tries, before);
+      expect(find.text('المرة 1 من 3'), findsOneWidget);
+      // the player bar's «التالي» while still paused: on again, paused
+      await tester.tap(inBar(find.widgetWithText(TextButton, 'التالي')));
+      await settle(tester);
+      expect(audio.current!.id, 3);
+      expect(audio.isPaused, isTrue);
+      expect(onPage('الذكر الثالث'), findsOneWidget);
+      await tester.tap(inBar(find.byTooltip('متابعة')));
+      await settle(tester);
+      expect(audio.isPaused, isFalse);
+      expect(player.played.last, 'https://example.com/one/special.mp3');
+      player.end();
+      await settle(tester);
+      expect(store.isDone(items[2]), isTrue);
+      expect(audio.isActive, isFalse);
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('completing the count of the one being heard moves it on', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      await tester.tap(onPage('الذكر الأول'));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(onPage('الذكر الثاني'), findsOneWidget);
+      expect(audio.current!.id, 2);
+      expect(player.played.last, 'https://example.com/one/0076.mp3');
+      await done(tester);
+    });
+
+    testWidgets('list: «إتمام» on the one being heard moves the audio on '
+        '(the owner\'s case)', (tester) async {
+      await open(tester, single: false);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      expect(audio.current!.id, 1);
+      await tester.tap(find.text('إتمام').first);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(store.isDone(items[0]), isTrue);
+      expect(audio.current!.id, 2);
+      expect(player.played.last, 'https://example.com/one/0076.mp3');
+      // «إتمام» on another dhikr than the one heard leaves the audio alone
+      // (after the guard against fast taps running on to the next card,
+      // which goes by the real clock)
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 950)),
+      );
+      await tester.ensureVisible(find.text('إتمام').first); // dhikr 3's
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('إتمام').first);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(store.isDone(items[2]), isTrue);
+      expect(audio.current!.id, 2);
+      await done(tester);
+    });
+
+    testWidgets('two quick arrows: the audio lands where the page does '
+        '(emulator, 2026-11-21: it went back one)', (tester) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      await tester.tap(arrow('التالي'));
+      await tester.pump(const Duration(milliseconds: 120)); // mid-turn
+      await tester.tap(arrow('التالي'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(onPage('الذكر الثالث'), findsOneWidget);
+      expect(audio.current!.id, 3);
+      expect(player.played.last, 'https://example.com/one/special.mp3');
+      // and back the same way
+      await tester.tap(arrow('السابق'));
+      await tester.pump(const Duration(milliseconds: 120));
+      await tester.tap(arrow('السابق'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(onPage('الذكر الأول'), findsOneWidget);
+      expect(audio.current!.id, 1);
+      await done(tester);
+    });
+
+    testWidgets('the old one slow to stop: the page does not fall back to '
+        'it meanwhile', (tester) async {
+      await open(tester);
+      final slow = _SlowStopPlayer(player);
+      audio.player = slow;
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      slow.hold = Completer<void>();
+      await tester.tap(arrow('التالي'));
+      await tester.pump(const Duration(milliseconds: 50));
+      // the player says it is loading, again and again
+      for (var k = 0; k < 5; k++) {
+        audio.notifyListeners();
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.pumpAndSettle();
+      expect(onPage('الذكر الثاني'), findsOneWidget);
+      expect(audio.current!.id, 2);
+      slow.hold!.complete();
+      slow.hold = null;
+      await settle(tester);
+      expect(onPage('الذكر الثاني'), findsOneWidget);
+      expect(audio.current!.id, 2);
+      expect(player.played.last, 'https://example.com/one/0076.mp3');
+      await done(tester);
+    });
+
+    testWidgets('counting a dhikr said 3 times to its end while it plays: '
+        'on to the next, page and audio (emulator, 2026-11-21)', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.tap(arrow('التالي'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('استماع').first); // dhikr 2
+      await settle(tester);
+      player.end(); // heard once: counted
+      await settle(tester);
+      expect(store.countOf(items[1]), 1);
+      expect(find.text('المرة 2 من 3'), findsOneWidget);
+      final counter = find.byType(AthkarCounterBar);
+      await tester.tap(counter);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(counter);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(counter); // one too many, as fingers do
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(store.isDone(items[1]), isTrue);
+      expect(onPage('الذكر الثالث'), findsOneWidget);
+      expect(audio.current!.id, 3);
+      expect(store.countOf(items[2]), 0);
+      await done(tester);
+    });
+
+    testWidgets('«تمّ» reached by taps and hearing together: no more repeats, '
+        'on to the next (owner, 2026-11-21)', (tester) async {
+      await open(tester);
+      await tester.tap(arrow('التالي'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('استماع').first); // dhikr 2, 3 times
+      await settle(tester);
+      expect(find.text('المرة 1 من 3'), findsOneWidget);
+      player.end(); // heard once
+      await settle(tester);
+      expect(find.text('المرة 2 من 3'), findsOneWidget);
+      // the reader taps once while the second time plays
+      await tester.tap(find.byType(AthkarCounterBar));
+      await tester.pumpAndSettle();
+      expect(store.countOf(items[1]), 2);
+      player.end(); // the second time ends: 3 of 3, «تمّ»
+      await settle(tester);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(store.isDone(items[1]), isTrue);
+      // no third time: on to dhikr 3, the page with it
+      expect(audio.current!.id, 3);
+      expect(onPage('الذكر الثالث'), findsOneWidget);
+      expect(player.played.where((u) => u.endsWith('0076.mp3')).length, 2);
+      await done(tester);
+    });
+
+    testWidgets('going on by itself: the page follows, nothing restarts', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      player.end();
+      await settle(tester);
+      expect(audio.current!.id, 2);
+      expect(onPage('الذكر الثاني'), findsOneWidget);
+      expect(player.played, [
+        'https://example.com/one/0075.mp3',
+        'https://example.com/one/0076.mp3',
+      ]);
+      await done(tester);
+    });
+
+    testWidgets('list: a card\'s «التالي» on another dhikr takes the audio '
+        'there', (tester) async {
+      await open(tester, single: false);
+      unawaited(audio.start(items, 0));
+      await settle(tester);
+      expect(audio.current!.id, 1);
+      // dhikr 2's card (said 3 times) has the only card «التالي»
+      await tester.tap(find.widgetWithText(OutlinedButton, 'التالي'));
+      await settle(tester);
+      expect(audio.current!.id, 3);
+      expect(player.played.last, 'https://example.com/one/special.mp3');
+      await done(tester);
+    });
+
+    testWidgets('«تشغيل متواصل» off: the arrow plays that one dhikr, then '
+        'stops', (tester) async {
+      store.continuous = false;
+      addTearDown(() => store.continuous = true);
+      await open(tester);
+      await tester.tap(find.byTooltip('استماع').first);
+      await settle(tester);
+      await tester.tap(arrow('التالي'));
+      await settle(tester);
+      expect(audio.current!.id, 2);
+      for (var k = 0; k < 3; k++) {
+        player.end();
+        await settle(tester);
+      }
+      expect(store.isDone(items[1]), isTrue);
+      expect(audio.isActive, isFalse);
+      await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
+  // phones held sideways, tablets, the largest text: nothing overflows
+  group('every screen size', () {
+    final data = AthkarData.parse(
+      File('assets/data/athkar.json').readAsStringSync(),
+    );
+    // widths as on a phone: the test font draws every letter as a full
+    // square, about twice as wide as Arabic letters really are
+    setUpAll(() async {
+      final naskh = File('test/fixtures/fonts/NotoNaskhArabic.ttf');
+      await (FontLoader('Roboto')..addFont(
+            Future.value(ByteData.sublistView(naskh.readAsBytesSync())),
+          ))
+          .load();
+    });
+
+    const sizes = <String, (Size, double)>{
+      'small phone': (Size(720, 1280), 2.0),
+      'phone sideways': (Size(2400, 1080), 2.75),
+      'small phone sideways': (Size(1280, 720), 2.0),
+      'tablet': (Size(1600, 2560), 2.0),
+      'tablet sideways': (Size(2560, 1600), 2.0),
+      'big tablet sideways': (Size(2732, 2048), 2.0),
+    };
+
+    for (final e in sizes.entries) {
+      for (final scale in [1.0, 2.0]) {
+        testWidgets('${e.key}, text x$scale', (tester) async {
+          tester.view.physicalSize = e.value.$1;
+          tester.view.devicePixelRatio = e.value.$2;
+          addTearDown(tester.view.reset);
+          AthkarService.instance.debugSetData(data);
+          final player = _FakePlayer();
+          audio.player = player;
+          Future<void> show(Widget page) async {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: MediaQuery(
+                  data: MediaQueryData.fromView(
+                    tester.view,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: page,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull, reason: '$page');
+          }
+
+          await show(const AthkarHomePage());
+          // the morning athkar: long ones, a verse, counts
+          final morning = data.sections.firstWhere(
+            (s) => s.name.contains('الصباح'),
+          );
+          for (final view in AthkarView.values) {
+            store.view = view;
+            await show(
+              AthkarReaderPage(
+                key: ValueKey(view),
+                title: morning.name,
+                items: morning.items,
+                section: morning,
+              ),
+            );
+            await tester.tap(find.byTooltip('استماع').first);
+            await tester.pump();
+            await tester.pump();
+            await tester.pumpAndSettle();
+            expect(audio.isActive, isTrue);
+            expect(tester.takeException(), isNull, reason: '$view bar');
+            if (view == AthkarView.single) {
+              for (var k = 0; k < 4; k++) {
+                await tester.tap(
+                  find.descendant(
+                    of: find.byType(AthkarReaderPage),
+                    matching: find.widgetWithIcon(
+                      IconButton,
+                      Icons.chevron_right_rounded,
+                    ),
+                  ),
+                );
+                await tester.pumpAndSettle();
+                expect(tester.takeException(), isNull, reason: 'page $k');
+              }
+            }
+            await tester.tap(find.byTooltip('إعدادات الأذكار'));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull, reason: '$view sheet');
+            // the voice lists leave room to drag the sheet to what is
+            // under them (sideways, they took it all)
+            final screen =
+                tester.view.physicalSize.height / tester.view.devicePixelRatio;
+            expect(
+              tester.getSize(find.byType(AthkarVoiceColumn).first).height,
+              lessThan(screen * 0.6),
+              reason: 'voice lists',
+            );
+            await tester.ensureVisible(find.text('تشغيل متواصل'));
+            await tester.pumpAndSettle();
+            expect(find.text('تشغيل متواصل').hitTestable(), findsOneWidget);
+            await tester.tapAt(const Offset(5, 5));
+            await tester.pumpAndSettle();
+            await audio.stop();
+            await tester.pumpAndSettle();
+          }
+          store.view = AthkarView.list;
+        });
+      }
+    }
   });
 }

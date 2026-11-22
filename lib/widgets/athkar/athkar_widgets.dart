@@ -713,7 +713,14 @@ Future<void> showAthkarSettingsSheet(
   final quranReciters = ReciterService.instance.reciters;
   // every athkar voice in sight without scrolling (up to 7); the verses'
   // reciters, a longer list, scroll inside a list of the same height
-  final rows = (voices.isEmpty ? 6 : voices.length).clamp(4, 7).toDouble();
+  final wanted = (voices.isEmpty ? 6 : voices.length).clamp(4, 7);
+  // a phone held sideways: lists that tall left no room to drag the sheet
+  // up to the switches under them (emulator, 2026-11-21), so they keep
+  // only what leaves the rest of the sheet within reach
+  final fit = ((MediaQuery.sizeOf(context).height * 0.85 - 150) / 48)
+      .floor()
+      .clamp(2, 7);
+  final rows = math.min(wanted, fit).toDouble();
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: c.card,
