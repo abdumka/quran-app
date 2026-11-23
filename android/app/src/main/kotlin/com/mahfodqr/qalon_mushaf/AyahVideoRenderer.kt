@@ -49,6 +49,7 @@ import java.util.concurrent.Executors
  *   isSupported -> Boolean
  *   render(args) -> {"path": String, "durationMs": Int}  (or an error)
  *   progress -> Double in 0..1, or null before it starts
+ *   freeBytes -> Long, the free space of the cache folder (or null)
  *   cancel
  */
 @UnstableApi
@@ -67,6 +68,14 @@ class AyahVideoRenderer(private val context: Context) : MethodChannel.MethodCall
             "isSupported" -> result.success(true)
             "render" -> render(call.arguments as? Map<*, *>, result)
             "progress" -> result.success(progress())
+            // Before a long video: is there room for it where it is made?
+            "freeBytes" -> result.success(
+                try {
+                    android.os.StatFs(context.cacheDir.path).availableBytes
+                } catch (_: Exception) {
+                    null
+                },
+            )
             "cancel" -> {
                 cancel()
                 result.success(null)

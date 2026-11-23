@@ -20,6 +20,7 @@ import UIKit
 ///   isSupported -> Bool
 ///   render(args) -> {"path": String, "durationMs": Int}  (or an error)
 ///   progress -> Double in 0..1, or nil before it starts
+///   freeBytes -> Int, the free space of the temporary folder (or nil)
 ///   cancel
 final class AyahVideoRenderer: NSObject {
   static let channelName = "com.mahfodqr.qalon_mushaf/ayah_video"
@@ -41,6 +42,16 @@ final class AyahVideoRenderer: NSObject {
       result(true)
     case "progress":
       result(job?.progress)
+    case "freeBytes":
+      // Before a long video: is there room for it where it is made? The
+      // "important" figure counts what iOS would clear to make room.
+      let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+      let values = try? tmp.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+      if let n = values?.volumeAvailableCapacityForImportantUsage {
+        result(NSNumber(value: n))
+      } else {
+        result(nil)
+      }
     case "cancel":
       job?.cancel()
       job = nil

@@ -396,6 +396,41 @@ publish. Phones read it the next time a share sheet opens.
     drops that font only. `scale` enlarges fonts that draw small (Thuluth
     1.5, Diwani 1.8). A changed font needs a new path, like clips.
   - Uploaded with `tools\upload_v5.py` (it also writes this part of the json).
+- Whole-surah videos, «السورة كاملة» (the first release with it, 172+; older
+  builds ignore both keys and stay at `maxAyat` / `maxSeconds`):
+  - `video.wholeSurah`: `false` (default, the button is hidden), `true`
+    (Android and iPhone) or `["android"]` (one platform first). The button
+    sits beside «الآيات» and sets the range to the whole surah in one tap,
+    skipping `maxAyat` and `maxSeconds`.
+  - `video.wholeSurahMaxSeconds` (60 to 10800, default 10800 = 3 hours, every
+    surah): the longest surah it makes, in seconds of recitation. Example:
+    1800 allows surahs up to 30 minutes and refuses البقرة with «المقطع أطول
+    من 30 دقيقة».
+  - `video.wholeSurahBitrate` (1000000 to 20000000, default `bitrate`): the
+    video bitrate of a whole surah only. 2500000 halves the worst-case size
+    of an hour-long file; the text over a slow background still looks clean.
+  - `video.maxSeconds` itself may now go up to 10800 too (it was capped at
+    3600), for long picked ranges.
+  - Every video over 10 minutes gets the long-video care, whatever the keys
+    say: a note with its likely size before it starts, the surah file
+    downloaded first instead of streamed, a free-space check (the whole
+    bitrate plus sound, plus 200 MB: some encoders use all of it), «بقي نحو …» on the progress line, and
+    a question before back, a pull down or «إلغاء» stops it. Every video now
+    keeps the screen on while it is made (then the reader's own choice again).
+  - Measured on a Galaxy S10e (2026-11-22): encoding runs about 3.8x faster
+    than the recitation and the file is about 16 MB a minute (2.1 of 5 Mbps),
+    so البقرة is about 32 minutes and 1.9 GB. The emulator's encoder uses the
+    full 5 Mbps (38 MB a minute): يس whole, 12:47, came to 492 MB with the
+    memory flat at 210-240 MB throughout.
+  - Wording keys: `wholeSurah` «السورة كاملة», `longNote` «فيديو طويل: قد يصل
+    حجمه إلى {size}، ويستغرق إنشاؤه دقائق. أبقِ التطبيق مفتوحًا حتى ينتهي.»,
+    `remaining` «بقي نحو {time}», `stopTitle` «إيقاف إنشاء الفيديو؟»,
+    `stopBody` «سيضيع ما أُنجز منه حتى الآن.», `keepGoing` «متابعة», `stop`
+    «إيقاف», `noSpace` «لا توجد مساحة كافية في الهاتف: يحتاج هذا الفيديو نحو
+    {size}», `noSpaceLeft` «امتلأت ذاكرة الهاتف قبل أن يكتمل الفيديو»,
+    `minutesMany` «{n} دقيقة», `hour` «ساعة», `twoHours` «ساعتين», `hours`
+    «{n} ساعات», `hoursMany` «{n} ساعة», `hoursAndMinutes` «{h} و{m}» (over
+    an hour, to the nearest 5 minutes).
 
 ## Still needs a store release
 New screens or behaviour (code); joining or splitting words; moving an ayah

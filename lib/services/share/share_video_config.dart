@@ -306,7 +306,8 @@ class ShareVideoConfig {
           ? defFont as String
           : (fonts.isEmpty ? 'system' : fonts.first.id),
       fontNone: fontsJ['allowNone'] == true,
-      fontSample: sample is String && sample.trim().isNotEmpty && sample.length <= 60
+      fontSample:
+          sample is String && sample.trim().isNotEmpty && sample.length <= 60
           ? sample
           : defaultFontSample,
     );
@@ -377,10 +378,33 @@ class ShareVideoLook {
     required this.closingSubtitle,
     required this.closingStores,
     required this.closingLink,
-  });
+    this.wholeSurahPlatforms = const {},
+    this.wholeSurahMaxSeconds = wholeSurahCeiling,
+    int? wholeSurahBitrate,
+  }) : wholeSurahBitrate = wholeSurahBitrate ?? bitrate;
 
+  /// The limits of a range the sharer picks with the steppers.
   final int maxAyat;
   final int maxSeconds;
+
+  /// «السورة كاملة» (`video.wholeSurah`): the platforms that offer the
+  /// button, empty = off. `true` is both, `["android"]` one of them. Off in
+  /// the bundled config: the server turns it on without a release. A whole
+  /// surah skips [maxAyat] and [maxSeconds] and has its own limit,
+  /// [wholeSurahMaxSeconds] (`video.wholeSurahMaxSeconds`), so the server can
+  /// allow the short surahs first and the long ones later.
+  final Set<String> wholeSurahPlatforms;
+  final int wholeSurahMaxSeconds;
+
+  /// The video bitrate of a whole surah (`video.wholeSurahBitrate`, default
+  /// [bitrate]): a lower one keeps an hour-long file within reason.
+  final int wholeSurahBitrate;
+
+  /// The longest video the app will make, whatever the server says: البقرة
+  /// is about 2 hours with the slowest reciter.
+  static const int wholeSurahCeiling = 3 * 3600;
+
+  bool wholeSurahOn(String platform) => wholeSurahPlatforms.contains(platform);
   final int fps;
   final int bitrate;
   final double dim;
@@ -510,7 +534,24 @@ class ShareVideoLook {
     }
     return ShareVideoLook(
       maxAyat: i(m['maxAyat'], 30, 1, 300),
-      maxSeconds: i(m['maxSeconds'], 600, 10, 3600),
+      maxSeconds: i(m['maxSeconds'], 600, 10, wholeSurahCeiling),
+      wholeSurahPlatforms: switch (m['wholeSurah']) {
+        true => const {'android', 'ios'},
+        final List l => {
+          for (final x in l)
+            if (x == 'android' || x == 'ios') x as String,
+        },
+        _ => const {},
+      },
+      wholeSurahMaxSeconds: i(
+        m['wholeSurahMaxSeconds'],
+        wholeSurahCeiling,
+        60,
+        wholeSurahCeiling,
+      ),
+      wholeSurahBitrate: m['wholeSurahBitrate'] is num
+          ? i(m['wholeSurahBitrate'], 5000000, 1000000, 20000000)
+          : null,
       fps: i(m['fps'], 30, 15, 60),
       bitrate: i(m['bitrate'], 5000000, 1000000, 20000000),
       dim: d(m['dim'], 0.38, 0, 0.9),
@@ -531,7 +572,8 @@ class ShareVideoLook {
       closingText: color(colors['closingText'], 0xFFF6ECD6),
       icon: ShareVideoConfig.safePath(m['icon']),
       showCredit: credit is Map && cr['show'] != false,
-      creditTemplate: cr['template'] is String &&
+      creditTemplate:
+          cr['template'] is String &&
               (cr['template'] as String).trim().isNotEmpty &&
               (cr['template'] as String).length <= 120
           ? cr['template'] as String
@@ -539,12 +581,7 @@ class ShareVideoLook {
       creditSize: d(cr['size'], 0.026, 0.012, 0.06),
       creditOpacity: d(cr['opacity'], 0.8, 0.2, 1),
       creditHalo: d(cr['halo'], 0, 0, 1),
-      creditHaloWide: d(
-        cr['haloWide'],
-        0.7 * d(cr['halo'], 0, 0, 1),
-        0,
-        1,
-      ),
+      creditHaloWide: d(cr['haloWide'], 0.7 * d(cr['halo'], 0, 0, 1), 0, 1),
       creditDrop: d(cr['drop'], 0, 0, 1),
       creditGap: d(cr['gap'], 0.01, 0, 0.06),
       creditSizes: _creditSizes(cr['sizes']),

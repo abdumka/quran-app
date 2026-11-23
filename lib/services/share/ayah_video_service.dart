@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show max;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -8,13 +9,16 @@ import 'package:gal/gal.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../models/audio_clip.dart';
 import '../../models/reciter.dart';
 import '../audio_ayah_map_service.dart';
 import '../audio_service.dart';
+import '../keep_screen_awake_service.dart';
 import '../quran_json_service.dart';
 import '../surah_timings_service.dart';
+import '../tv_service.dart';
 import 'ayah_share_text.dart';
 import 'ayah_video_art.dart';
 import 'mp3_length.dart';
@@ -220,7 +224,8 @@ class AyahVideoService {
             expectBytes: font.bytes,
           );
         }
-        final family = 'share_video_${path.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_')}';
+        final family =
+            'share_video_${path.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_')}';
         await ui.loadFontFromList(await f.readAsBytes(), fontFamily: family);
         return family;
       } catch (e) {
@@ -428,11 +433,18 @@ class AyahVideoService {
     int from,
     int to,
   ) async {
+    // Eight at a time: a whole surah of per-ayah files reads hundreds of
+    // MP3 headers from the mirror the first time.
+    final list = breaths.within(from, to).toList();
     var total = Duration.zero;
-    for (final b in breaths.within(from, to)) {
-      final d = await clipsLength(reciter, b.clips);
-      if (d == null) return null;
-      total += d;
+    for (var i = 0; i < list.length; i += 8) {
+      final lengths = await Future.wait([
+        for (final b in list.skip(i).take(8)) clipsLength(reciter, b.clips),
+      ]);
+      for (final d in lengths) {
+        if (d == null) return null;
+        total += d;
+      }
     }
     return total;
   }
@@ -455,10 +467,13 @@ class AyahVideoService {
   /// straight from the server, only the part needed. iPhone's reader cannot
   /// stream, so there it is downloaded whole, like a per-ayah file, into the
   /// player's own cache (where it also serves offline listening later).
+  /// [stream] false downloads a whole-surah file even on Android: a long
+  /// video reads it for many minutes, and one network drop would end it.
   Future<Map<String, Object?>> _clipArg(
     Reciter reciter,
     AudioClip c, {
     void Function(double)? onProgress,
+    bool stream = true,
   }) async {
     final dir = Directory(
       p.join(
@@ -470,7 +485,7 @@ class AyahVideoService {
     String uri;
     if (await local.exists() && await local.length() > 0) {
       uri = Uri.file(local.path).toString();
-    } else if (c.isClipped && !Platform.isIOS) {
+    } else if (stream && c.isClipped && !Platform.isIOS) {
       uri = '${reciter.audioBaseUrl}${c.file}';
     } else {
       await _download(
@@ -487,17 +502,73 @@ class AyahVideoService {
     };
   }
 
-  /// «4 دقائق», «90 ثانية»: the limit as the sheet words it.
+  /// «4 دقائق», «30 دقيقة», «ساعتين», «90 ثانية»: the limit as the sheet
+  /// words it (3 to 10 take the plural, 11 and up the singular).
   static String formatLimit(int seconds) {
+    if (seconds % 3600 == 0) {
+      final h = seconds ~/ 3600;
+      return switch (h) {
+        1 => _t('hour', 'ساعة'),
+        2 => _t('twoHours', 'ساعتين'),
+        <= 10 => _t('hours', '{n} ساعات', {'n': h}),
+        _ => _t('hoursMany', '{n} ساعة', {'n': h}),
+      };
+    }
     if (seconds % 60 == 0) {
       final m = seconds ~/ 60;
-      return m == 1
-          ? _t('minute', 'دقيقة')
-          : (m == 2
-                ? _t('twoMinutes', 'دقيقتين')
-                : _t('minutes', '{n} دقائق', {'n': m}));
+      return switch (m) {
+        1 => _t('minute', 'دقيقة'),
+        2 => _t('twoMinutes', 'دقيقتين'),
+        <= 10 => _t('minutes', '{n} دقائق', {'n': m}),
+        _ => _t('minutesMany', '{n} دقيقة', {'n': m}),
+      };
     }
     return _t('seconds', '{n} ثانية', {'n': seconds});
+  }
+
+  /// A video longer than this (seconds of recitation) gets the long-video
+  /// care: a note with its size, the surah file downloaded first, a check
+  /// of the free space, and a question before it is stopped.
+  static const int longVideoSeconds = 600;
+
+  /// The most [length] of video can come to at [bitrate], plus the 128 kbps
+  /// sound. Encoders differ: a Galaxy S10e stayed at 2.1 of 5 Mbps on calm
+  /// backgrounds, the emulator's encoder used all 5 (2026-11-22), so the
+  /// free-space check and the note count the whole rate.
+  static int estimateBytes(Duration length, int bitrate) =>
+      (length.inMilliseconds / 1000 * (bitrate + 128000) / 8).round();
+
+  /// «450 MB», «1.9 GB», kept left to right inside Arabic text (without
+  /// the isolate marks it shows as «GB 1.9»).
+  static String formatBytes(int bytes) {
+    final mb = bytes / 1000000;
+    final s = mb < 1000
+        ? '${(mb / 10).ceil() * 10} MB'
+        : '${(mb / 1000).toStringAsFixed(1)} GB';
+    return String.fromCharCodes([0x2066, ...s.codeUnits, 0x2069]);
+  }
+
+  /// Free space where the video is made, or null if the phone cannot say.
+  Future<int?> freeBytes() async {
+    try {
+      return await _channel.invokeMethod<int>('freeBytes');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Keeps the screen on while a video is made: a phone that locks pauses
+  /// the app, and an iPhone then stops the encoder. Afterwards the screen
+  /// goes back to the reader's own «إبقاء الشاشة مضاءة» choice.
+  static Future<void> _keepAwake(bool on) async {
+    try {
+      await WakelockPlus.toggle(
+        enable:
+            on ||
+            KeepScreenAwakeService.instance.enabled.value ||
+            TvService.instance.isTv,
+      );
+    } catch (_) {}
   }
 
   // ───────────────────── making the video ─────────────────────
@@ -512,6 +583,38 @@ class AyahVideoService {
     required AyahVideoProgress progress,
     ShareVideoFont? font,
     double creditSize = 1,
+    bool wholeSurah = false,
+  }) async {
+    await _keepAwake(true);
+    try {
+      return await _render(
+        config: config,
+        reciter: reciter,
+        plan: plan,
+        shape: shape,
+        background: background,
+        effect: effect,
+        progress: progress,
+        font: font,
+        creditSize: creditSize,
+        wholeSurah: wholeSurah,
+      );
+    } finally {
+      await _keepAwake(false);
+    }
+  }
+
+  Future<File> _render({
+    required ShareVideoConfig config,
+    required Reciter reciter,
+    required AyahVideoPlan plan,
+    required ShareVideoShape shape,
+    required ShareVideoBackground background,
+    required ShareVideoEffect effect,
+    required AyahVideoProgress progress,
+    required ShareVideoFont? font,
+    required double creditSize,
+    required bool wholeSurah,
   }) async {
     void check() {
       if (progress.cancelled) throw const AyahVideoCancelled();
@@ -523,27 +626,32 @@ class AyahVideoService {
         _t('noRecitation', 'لا تتوفر تلاوة هذه الآيات بصوت هذا القارئ'),
       );
     }
-    // The limit (owner, 2026-11-18: 4 minutes) never refuses a single
-    // breath: the longest ayah alone is always allowed.
+    // The limit (owner, 2026-11-18: 4 minutes; a whole surah has its own,
+    // [ShareVideoLook.wholeSurahMaxSeconds]) never refuses a single breath:
+    // the longest ayah alone is always allowed.
+    final limit = wholeSurah ? look.wholeSurahMaxSeconds : look.maxSeconds;
+    final bitrate = wholeSurah ? look.wholeSurahBitrate : look.bitrate;
+    Duration? total;
     if (plan.groups.length > 1) {
-      var total = Duration.zero;
+      total = Duration.zero;
       for (final g in plan.groups) {
         final d = await clipsLength(reciter, g.clips);
         if (d == null) {
-          total = Duration.zero;
+          total = null;
           break;
         }
-        total += d;
+        total = total! + d;
       }
-      if (total.inMilliseconds > look.maxSeconds * 1000 * 1.05) {
+      if (total != null && total.inMilliseconds > limit * 1000 * 1.05) {
         throw AyahVideoError(
           _t('tooLongPick', 'المقطع أطول من {limit}، اختر آيات أقل', {
-            'limit': formatLimit(look.maxSeconds),
+            'limit': formatLimit(limit),
           }),
         );
       }
     }
-
+    // The last video goes first (it is in the gallery by now), so its
+    // space counts as free below.
     final work = Directory(
       p.join((await getTemporaryDirectory()).path, 'ayah_video'),
     );
@@ -553,6 +661,23 @@ class AyahVideoService {
       } catch (_) {}
     }
     await work.create(recursive: true);
+
+    final long = total != null && total.inSeconds > longVideoSeconds;
+    if (long) {
+      // Room for the video and a little over; the gallery copy is checked
+      // by the gallery itself (GallerySave.noSpace).
+      final need = estimateBytes(total, bitrate) + 200000000;
+      final free = await freeBytes();
+      if (free != null && free < need) {
+        throw AyahVideoError(
+          _t(
+            'noSpace',
+            'لا توجد مساحة كافية في الهاتف: يحتاج هذا الفيديو نحو {size}',
+            {'size': formatBytes(need)},
+          ),
+        );
+      }
+    }
 
     // 1. the recitation
     progress._set(_t('stepRecitation', 'تجهيز التلاوة'), 0.02);
@@ -569,9 +694,12 @@ class AyahVideoService {
             await _clipArg(
               reciter,
               c,
+              stream: !long,
+              // A whole-surah file is every clip's file at once: its
+              // download fills the step by itself.
               onProgress: (f) => progress._set(
                 _t('stepDownloadRecitation', 'تنزيل التلاوة'),
-                0.02 + 0.1 * (done + f) / allClips,
+                0.02 + 0.1 * (c.isClipped ? f : (done + f) / allClips),
               ),
             ),
           );
@@ -584,9 +712,10 @@ class AyahVideoService {
           );
         }
         done++;
+        // Never back: after a whole-surah file the bar is already full here.
         progress._set(
           _t('stepRecitation', 'تجهيز التلاوة'),
-          0.02 + 0.1 * done / allClips,
+          max(progress.fraction.value ?? 0, 0.02 + 0.1 * done / allClips),
         );
       }
       clipArgs.add(args);
@@ -712,7 +841,7 @@ class AyahVideoService {
       await _channel.invokeMethod('render', {
         'output': out.path,
         'fps': look.fps,
-        'bitrate': look.bitrate,
+        'bitrate': bitrate,
         'width': shape.width,
         'height': shape.height,
         'background': {'uri': Uri.file(bg.path).toString()},
@@ -725,6 +854,16 @@ class AyahVideoService {
         throw const AyahVideoCancelled();
       }
       debugPrint('AyahVideo: render failed: ${e.code} ${e.message}');
+      // A long video can fill the phone part way through.
+      final free = await freeBytes();
+      if (free != null && free < 100000000) {
+        try {
+          await out.delete();
+        } catch (_) {}
+        throw AyahVideoError(
+          _t('noSpaceLeft', 'امتلأت ذاكرة الهاتف قبل أن يكتمل الفيديو'),
+        );
+      }
       throw AyahVideoError(_t('renderFailed', 'تعذّر إنشاء الفيديو'));
     } finally {
       poll.cancel();

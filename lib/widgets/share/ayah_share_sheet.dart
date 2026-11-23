@@ -432,8 +432,14 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     _measure();
   }
 
-  static String _clock(Duration d) =>
-      '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+  /// «0:14», «12:47», «2:00:41».
+  static String _clock(Duration d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    final s = two(d.inSeconds % 60);
+    return d.inHours > 0
+        ? '${d.inHours}:${two(d.inMinutes % 60)}:$s'
+        : '${d.inMinutes}:$s';
+  }
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
@@ -488,15 +494,29 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     super.dispose();
   }
 
+  /// The video being made is a long one ([_isLong], or a whole surah whose
+  /// length is not known yet): stopping it asks first.
+  bool _longRender = false;
+
+  /// When the encoder started (progress 0.35), for «بقي نحو …».
+  DateTime? _encodeStart;
+
   Future<void> _make() async {
     _remember();
     final progress = AyahVideoProgress();
+    progress.fraction.addListener(() {
+      if (_encodeStart == null && (progress.fraction.value ?? 0) >= 0.35) {
+        _encodeStart = DateTime.now();
+      }
+    });
     setState(() {
       _phase = _Phase.working;
       _progress?.dispose();
       _progress = progress;
       _error = '';
       _note = '';
+      _encodeStart = null;
+      _longRender = _isLong || (_wholeOn && _isWhole && _length == null);
     });
     try {
       final plan = await AyahVideoService.instance.plan(
@@ -524,6 +544,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         progress: progress,
         font: _font,
         creditSize: config.video.creditSizes[_fontSize],
+        wholeSurah: _wholeOn && _isWhole,
       );
       if (!mounted) return;
       setState(() {
@@ -582,8 +603,67 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
 
   // ───────────────────── layout ─────────────────────
 
+  /// Asks before a long video is stopped: back, a tap outside the sheet, a
+  /// pull down and «إلغاء» would each throw away minutes of work.
+  Future<bool> _confirmStop() async {
+    final stop = await showDialog<bool>(
+      context: context,
+      builder: (context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: c.sheet,
+          title: Text(
+            _t('stopTitle', 'إيقاف إنشاء الفيديو؟'),
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: c.text,
+            ),
+          ),
+          content: Text(
+            _t('stopBody', 'سيضيع ما أُنجز منه حتى الآن.'),
+            style: TextStyle(fontSize: 14, color: c.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(
+                _t('keepGoing', 'متابعة'),
+                style: TextStyle(color: c.accent, fontWeight: FontWeight.w800),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(_t('stop', 'إيقاف'), style: TextStyle(color: c.text)),
+            ),
+          ],
+        ),
+      ),
+    );
+    return stop == true;
+  }
+
+  Future<void> _stop({required bool close}) async {
+    final pr = _progress;
+    if (pr == null || _phase != _Phase.working) return;
+    if (_longRender && !await _confirmStop()) return;
+    if (!mounted || _phase != _Phase.working) return;
+    AyahVideoService.instance.cancel(pr);
+    if (close) Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !(_phase == _Phase.working && _longRender),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _stop(close: true);
+      },
+      child: _sheet(context),
+    );
+  }
+
+  Widget _sheet(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SingleChildScrollView(
@@ -743,6 +823,10 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               _t('ayat', 'الآيات'),
               style: TextStyle(fontSize: 13, color: c.muted),
             ),
+            if (_wholeOn && _count > 1) ...[
+              const SizedBox(width: 8),
+              _wholeChip(),
+            ],
             const Spacer(),
             ?_lengthText(),
           ],
@@ -837,6 +921,68 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         : null;
   }
 
+  /// «السورة كاملة» is offered on this platform (server: `video.wholeSurah`).
+  bool get _wholeOn =>
+      config.video.wholeSurahOn(Platform.isIOS ? 'ios' : 'android');
+
+  /// The range is the whole surah.
+  bool get _isWhole => _count > 0 && _from == 1 && _to == _count;
+
+  /// The limit of the range as it stands: a whole surah has its own.
+  int get _limitSeconds => _wholeOn && _isWhole
+      ? config.video.wholeSurahMaxSeconds
+      : config.video.maxSeconds;
+
+  /// The range before «السورة كاملة» was tapped, to go back to.
+  (int, int)? _beforeWhole;
+
+  /// The chip beside «الآيات»: the whole surah at once, past the ayat and
+  /// time limits of the steppers; tapped again, the range before it.
+  Widget _wholeChip() {
+    final on = _isWhole;
+    return Material(
+      color: on ? c.chipOn : c.chip,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _stepping
+            ? null
+            : () {
+                final back = _beforeWhole;
+                setState(() {
+                  if (on) {
+                    _from = back?.$1 ?? widget.ayah;
+                    _to = back?.$2 ?? widget.ayah;
+                    final b = _breaths;
+                    if (b != null) {
+                      _from = b.at(_from).from;
+                      _to = b.at(_to).to;
+                    }
+                    _beforeWhole = null;
+                  } else {
+                    _beforeWhole = (_from, _to);
+                    _from = 1;
+                    _to = _count;
+                  }
+                  _limitNote = '';
+                });
+                _measure();
+              },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          child: Text(
+            _t('wholeSurah', 'السورة كاملة'),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: on ? FontWeight.w800 : FontWeight.w600,
+              color: on ? c.onChipOn : c.text,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Making the video waits for a range that fits the limit.
   bool get _tooLong {
     final b = _breaths;
@@ -844,8 +990,13 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
     return b != null &&
         len != null &&
         b.indexOf(_from) != b.indexOf(_to) &&
-        len.inMilliseconds > config.video.maxSeconds * 1000;
+        len.inMilliseconds > _limitSeconds * 1000;
   }
+
+  /// Longer than [AyahVideoService.longVideoSeconds]: the sheet says how
+  /// big it will be and asks before stopping it.
+  bool get _isLong =>
+      (_length?.inSeconds ?? 0) > AyahVideoService.longVideoSeconds;
 
   /// Under the ayat: the length, the reciter's joined ayat at the range's
   /// edges, and why a button stopped.
@@ -882,13 +1033,33 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
           child: Text(
             over
                 ? _t('tooLong', 'المقطع أطول من {limit}، قصّره', {
-                    'limit': AyahVideoService.formatLimit(
-                      config.video.maxSeconds,
-                    ),
+                    'limit': AyahVideoService.formatLimit(_limitSeconds),
                   })
                 : _limitNote,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12.5, color: Colors.red.shade700),
+          ),
+        ),
+      if (!over && _isLong && !_measuring)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            _t(
+              'longNote',
+              'فيديو طويل: قد يصل حجمه إلى {size}، ويستغرق إنشاؤه دقائق. أبقِ التطبيق مفتوحًا حتى ينتهي.',
+              {
+                'size': AyahVideoService.formatBytes(
+                  AyahVideoService.estimateBytes(
+                    _length!,
+                    _wholeOn && _isWhole
+                        ? config.video.wholeSurahBitrate
+                        : config.video.bitrate,
+                  ),
+                ),
+              },
+            ),
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, color: c.muted),
           ),
         ),
     ];
@@ -1152,7 +1323,9 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             ),
             const SizedBox(height: 6),
             Text(
-              f == null ? '' : '${(f * 100).round()}%',
+              f == null
+                  ? ''
+                  : ['${(f * 100).round()}%', ?_remaining(f)].join('  ·  '),
               style: TextStyle(fontSize: 12.5, color: c.muted),
             ),
           ],
@@ -1167,11 +1340,35 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
       const SizedBox(height: 16),
       Center(
         child: TextButton(
-          onPressed: () => AyahVideoService.instance.cancel(pr),
+          onPressed: () => _stop(close: false),
           child: Text(_t('cancel', 'إلغاء'), style: TextStyle(color: c.text)),
         ),
       ),
     ];
+  }
+
+  /// «بقي نحو 6 دقائق», from how fast the encoder has gone so far; only
+  /// when more than a minute is left, so short videos show just the percent.
+  String? _remaining(double f) {
+    final start = _encodeStart;
+    final done = (f - 0.35) / 0.65;
+    if (start == null || done < 0.03) return null;
+    final elapsed = DateTime.now().difference(start).inMilliseconds;
+    final left = elapsed * (1 - done) / done / 1000;
+    if (left < 60) return null;
+    var minutes = (left / 60).ceil();
+    // Over an hour: «ساعتين و15 دقيقة», to the nearest 5 minutes.
+    if (minutes >= 60) minutes = (minutes / 5).round() * 5;
+    final h = minutes ~/ 60, m = minutes % 60;
+    final time = h == 0
+        ? AyahVideoService.formatLimit(m * 60)
+        : m == 0
+        ? AyahVideoService.formatLimit(h * 3600)
+        : _t('hoursAndMinutes', '{h} و{m}', {
+            'h': AyahVideoService.formatLimit(h * 3600),
+            'm': AyahVideoService.formatLimit(m * 60),
+          });
+    return _t('remaining', 'بقي نحو {time}', {'time': time});
   }
 
   List<Widget> _done() => [

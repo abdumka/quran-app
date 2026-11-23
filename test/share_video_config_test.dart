@@ -115,6 +115,46 @@ void main() {
     expect(c.videoOn(platform: 'android', build: 2158), isFalse);
   });
 
+  test('«السورة كاملة» is off until the server turns it on', () {
+    final off = ShareVideoConfig.parse(bundled).video;
+    expect(off.wholeSurahOn('android'), isFalse);
+    expect(off.wholeSurahOn('ios'), isFalse);
+    expect(off.wholeSurahMaxSeconds, ShareVideoLook.wholeSurahCeiling);
+
+    ShareVideoLook look(Object? on, [Object? max]) {
+      final j = base();
+      final v = j['video'] as Map;
+      v['wholeSurah'] = on;
+      if (max != null) v['wholeSurahMaxSeconds'] = max;
+      return ShareVideoConfig.parse(jsonEncode(j)).video;
+    }
+
+    expect(look(true).wholeSurahOn('android'), isTrue);
+    expect(look(true).wholeSurahOn('ios'), isTrue);
+    final android = look(['android', 'web', 7]);
+    expect(android.wholeSurahOn('android'), isTrue);
+    expect(android.wholeSurahOn('ios'), isFalse);
+    expect(look('yes').wholeSurahOn('android'), isFalse);
+    // short surahs first: 30 minutes
+    expect(look(true, 1800).wholeSurahMaxSeconds, 1800);
+    // never past 3 hours, never under a minute
+    expect(look(true, 99999).wholeSurahMaxSeconds, 10800);
+    expect(look(true, 5).wholeSurahMaxSeconds, 60);
+    // the bitrate of a whole surah: the normal one unless the server says
+    expect(off.wholeSurahBitrate, off.bitrate);
+    final j = base();
+    (j['video'] as Map)['wholeSurahBitrate'] = 2500000;
+    final low = ShareVideoConfig.parse(jsonEncode(j)).video;
+    expect(low.wholeSurahBitrate, 2500000);
+    expect(low.bitrate, 5000000);
+  });
+
+  test('the stepper limit can go up to 3 hours, no further', () {
+    final j = base();
+    (j['video'] as Map)['maxSeconds'] = 50000;
+    expect(ShareVideoConfig.parse(jsonEncode(j)).video.maxSeconds, 10800);
+  });
+
   test('server wording replaces the built-in text, placeholders filled', () {
     final j = base()
       ..['strings'] = {'limitAyat': 'حد الآيات {n}', 'bad': 5, 'empty': '  '};
@@ -161,8 +201,7 @@ void main() {
   );
 
   test('without credit or fonts the video has no reciter line', () {
-    final j = base()
-      ..remove('fonts');
+    final j = base()..remove('fonts');
     (j['video'] as Map).remove('credit');
     final c = ShareVideoConfig.parse(jsonEncode(j));
     expect(c.video.showCredit, isFalse);

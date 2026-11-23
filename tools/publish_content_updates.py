@@ -511,6 +511,16 @@ def check_share_video(data):
     if not all(isinstance(b, int) for b in data.get("videoOffBuilds", [])):
         sys.exit("ABORT: share_video videoOffBuilds must be build numbers")
     look = data.get("video", {})
+    # «السورة كاملة» (build 172+): true, or the platforms that offer it.
+    whole = look.get("wholeSurah", False)
+    if not (isinstance(whole, bool) or (isinstance(whole, list) and set(whole) <= {"android", "ios"})):
+        sys.exit("ABORT: share_video video.wholeSurah takes true / false / [\"android\", \"ios\"]")
+    whole_max = look.get("wholeSurahMaxSeconds", 10800)
+    if not (isinstance(whole_max, int) and 60 <= whole_max <= 10800):
+        sys.exit("ABORT: share_video video.wholeSurahMaxSeconds must be 60-10800")
+    whole_rate = look.get("wholeSurahBitrate", 5000000)
+    if not (isinstance(whole_rate, int) and 1000000 <= whole_rate <= 20000000):
+        sys.exit("ABORT: share_video video.wholeSurahBitrate must be 1000000-20000000")
     for k, v in (look.get("colors") or {}).items():
         if k not in ("title", "closingTop", "closingBottom", "closingText") or not re.fullmatch(r"#?([0-9a-fA-F]{6}|[0-9a-fA-F]{8})", str(v)):
             sys.exit(f"ABORT: share_video video.colors {k}: {v!r}")
