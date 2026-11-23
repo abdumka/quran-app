@@ -422,7 +422,7 @@ publish. Phones read it the next time a share sheet opens.
     so البقرة is about 32 minutes and 1.9 GB. The emulator's encoder uses the
     full 5 Mbps (38 MB a minute): يس whole, 12:47, came to 492 MB with the
     memory flat at 210-240 MB throughout.
-  - Wording keys: `wholeSurah` «السورة كاملة», `longNote` «فيديو طويل: قد يصل
+  - Wording keys: `wholeSurah` «السورة كاملة», `someAyat` «آيات محددة», `longNote` «فيديو طويل: قد يصل
     حجمه إلى {size}، ويستغرق إنشاؤه دقائق. أبقِ التطبيق مفتوحًا حتى ينتهي.»,
     `remaining` «بقي نحو {time}», `stopTitle` «إيقاف إنشاء الفيديو؟»,
     `stopBody` «سيضيع ما أُنجز منه حتى الآن.», `keepGoing` «متابعة», `stop`

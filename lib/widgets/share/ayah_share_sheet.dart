@@ -846,14 +846,13 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         padding: const EdgeInsets.fromLTRB(2, 14, 2, 6),
         child: Row(
           children: [
-            Text(
-              _t('ayat', 'الآيات'),
-              style: TextStyle(fontSize: 13, color: c.muted),
-            ),
-            if (_wholeOn && _count > 1) ...[
-              const SizedBox(width: 8),
-              _wholeChip(),
-            ],
+            if (_wholeOn && _count > 1)
+              _rangeModes()
+            else
+              Text(
+                _t('ayat', 'الآيات'),
+                style: TextStyle(fontSize: 13, color: c.muted),
+              ),
             const Spacer(),
             ?_lengthText(),
           ],
@@ -963,49 +962,79 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   /// The range before «السورة كاملة» was tapped, to go back to.
   (int, int)? _beforeWhole;
 
-  /// The chip beside «الآيات»: the whole surah at once, past the ayat and
-  /// time limits of the steppers; tapped again, the range before it.
-  Widget _wholeChip() {
-    final on = _isWhole;
-    return Material(
-      color: on ? c.chipOn : c.chip,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: _stepping
-            ? null
-            : () {
-                final back = _beforeWhole;
-                setState(() {
-                  if (on) {
-                    _from = back?.$1 ?? widget.ayah;
-                    _to = back?.$2 ?? widget.ayah;
-                    final b = _breaths;
-                    if (b != null) {
-                      _from = b.at(_from).from;
-                      _to = b.at(_to).to;
-                    }
-                    _beforeWhole = null;
-                  } else {
-                    _beforeWhole = (_from, _to);
-                    _from = 1;
-                    _to = _count;
-                  }
-                  _limitNote = '';
-                });
-                _measure();
-              },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          child: Text(
-            _t('wholeSurah', 'السورة كاملة'),
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: on ? FontWeight.w800 : FontWeight.w600,
-              color: on ? c.onChipOn : c.text,
+  /// Two joined buttons in place of the «الآيات» label: «آيات محددة»
+  /// (the default) and «السورة كاملة», the chosen one filled. The whole
+  /// surah goes past the ayat and time limits of the steppers; going back
+  /// restores the range before it.
+  Widget _rangeModes() {
+    final whole = _isWhole;
+    void choose(bool toWhole) {
+      if (_stepping || toWhole == whole) return;
+      final back = _beforeWhole;
+      setState(() {
+        if (!toWhole) {
+          _from = back?.$1 ?? widget.ayah;
+          _to = back?.$2 ?? widget.ayah;
+          final b = _breaths;
+          if (b != null) {
+            _from = b.at(_from).from;
+            _to = b.at(_to).to;
+          }
+          _beforeWhole = null;
+        } else {
+          _beforeWhole = (_from, _to);
+          _from = 1;
+          _to = _count;
+        }
+        _limitNote = '';
+      });
+      _measure();
+    }
+
+    Widget half(String label, bool on, bool toWhole) => Semantics(
+      button: true,
+      selected: on,
+      child: Material(
+        color: on ? c.chipOn : Colors.transparent,
+        child: InkWell(
+          onTap: () => choose(toWhole),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (on) ...[
+                  Icon(Icons.check_rounded, size: 16, color: c.onChipOn),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: on ? FontWeight.w800 : FontWeight.w500,
+                    color: on ? c.onChipOn : c.text,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
+      ),
+    );
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: c.hair),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          half(_t('someAyat', 'آيات محددة'), !whole, false),
+          half(_t('wholeSurah', 'السورة كاملة'), whole, true),
+        ],
       ),
     );
   }
