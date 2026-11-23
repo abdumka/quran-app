@@ -118,9 +118,9 @@ class ContentUpdateService {
   /// file's `ver` when a release bundles the corrected text).
   static const Map<String, int> bundledVersions = {
     'tanzilat': 8,
-    'word_masks': 8,
+    'word_masks': 9,
     'reciters': 0,
-    'tanzilat_paint': 5,
+    'tanzilat_paint': 6,
     'quran_text': 0,
     // Nothing of these is folded into the bundle yet: a release that bundles
     // a fix raises its number to the patch's `ver` (tasmee_data,
