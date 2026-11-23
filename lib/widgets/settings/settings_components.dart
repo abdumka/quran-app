@@ -2525,6 +2525,8 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
                 Text(
                   isThisDownloading
                       ? 'جارٍ التحميل · ${(surahState.progressFraction * 100).round()}%'
+                      : (status?.hasFiles ?? false)
+                      ? '${_ayahLabel(ayahs)} · ${formatStorageBytes(status!.bytes)} على الجهاز'
                       : _ayahLabel(ayahs),
                   style: TextStyle(
                     fontSize: 11.5,
@@ -2537,6 +2539,19 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
             ),
           ),
           const SizedBox(width: 8),
+          // Delete per surah (owner, 2026-11-22): whatever of it is on the
+          // phone, downloaded or kept while listening.
+          if ((status?.hasFiles ?? false) && !isThisDownloading) ...[
+            IconButton(
+              tooltip: 'حذف السورة من الجهاز',
+              icon: const Icon(Icons.delete_outline_rounded, size: 22),
+              color: const Color(0xFF8A7A62),
+              onPressed: anyDownloadActive
+                  ? null
+                  : () => _deleteSurah(number, name, status!),
+            ),
+            const SizedBox(width: 2),
+          ],
           _surahTrailing(
             number,
             status,
@@ -2547,6 +2562,46 @@ class _SurahDownloadSheetState extends State<SurahDownloadSheet> {
         ],
       ),
     );
+  }
+
+  Future<void> _deleteSurah(
+    int number,
+    String name,
+    SurahDownloadStatus status,
+  ) async {
+    final reciter = ReciterService.instance.selected.value;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFFFBF7EF),
+          title: Text('حذف سورة $name'),
+          content: Text(
+            'سيُحذف ${formatStorageBytes(status.bytes)} من تلاوة ${reciter.name} لهذه السورة. يمكنك تحميلها أو الاستماع إليها لاحقًا. هل تريد المتابعة؟',
+          ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF2C2C2C),
+              ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: SurahDownloadSheet._gold,
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _service.deleteSurah(number);
+    await _refreshStatuses();
   }
 
   Widget _surahTrailing(

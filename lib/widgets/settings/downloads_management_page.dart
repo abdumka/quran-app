@@ -4,6 +4,7 @@ import '../../services/app_look_service.dart';
 import '../../services/athkar_download_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
+import '../../services/reciter_service.dart';
 import '../../services/tafsir_cache_service.dart';
 import '../../models/tafsir_edition.dart';
 import '../../theme/app_surfaces.dart';
@@ -51,14 +52,105 @@ class DownloadsManagementPage extends StatefulWidget {
       _DownloadsManagementPageState();
 }
 
+/// «23 سورة كاملة، وأجزاء من 4 سور»: what a reciter has on the phone.
+String recitationStorageDetail(int complete, int partial) {
+  String count(int n, String one, String two, String few, String many) =>
+      n == 1 ? one : n == 2 ? two : n <= 10 ? '$n $few' : '$n $many';
+  final whole = count(
+    complete,
+    'سورة واحدة كاملة',
+    'سورتان كاملتان',
+    'سور كاملة',
+    'سورة كاملة',
+  );
+  final parts = count(
+    partial,
+    'أجزاء من سورة واحدة',
+    'أجزاء من سورتين',
+    'سور',
+    'سورة',
+  );
+  final partsText = partial <= 2 ? parts : 'أجزاء من $parts';
+  if (complete > 0 && partial > 0) return '$whole، و$partsText';
+  return complete > 0 ? whole : partsText;
+}
+
+/// «قارئَين», «3 قرّاء», «11 قارئًا».
+String recitersCountLabel(int n) => n == 1
+    ? 'قارئ واحد'
+    : n == 2
+    ? 'قارئَين'
+    : n <= 10
+    ? '$n قرّاء'
+    : '$n قارئًا';
+
 class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
-  String _formatBytes(int bytes) {
-    const mb = 1024 * 1024;
-    if (bytes <= 0) return '0 MB';
-    final value = bytes / mb;
-    if (value >= 100) return '${value.toStringAsFixed(0)} MB';
-    if (value >= 10) return '${value.toStringAsFixed(1)} MB';
-    return '${value.toStringAsFixed(2)} MB';
+  String _formatBytes(int bytes) => formatStorageBytes(bytes);
+
+  /// What each reciter has on the phone; null until counted.
+  List<ReciterStorage>? _recitations;
+  int _countToken = 0;
+
+  /// The folder being deleted ('*' for all of them), so its row shows it and
+  /// no other delete starts meanwhile.
+  String? _deleting;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.audioDownloadService.storageRevision.addListener(
+      _countRecitations,
+    );
+    // Counting every reciter's files waits until the page has slid in.
+    afterOpening(_countRecitations);
+  }
+
+  @override
+  void dispose() {
+    widget.audioDownloadService.storageRevision.removeListener(
+      _countRecitations,
+    );
+    super.dispose();
+  }
+
+  Future<void> _countRecitations() async {
+    final token = ++_countToken;
+    final rows = await widget.audioDownloadService.reciterStorage();
+    if (!mounted || token != _countToken) return;
+    setState(() => _recitations = rows);
+  }
+
+  Future<void> _deleteReciter(ReciterStorage row) async {
+    final confirmed = await _confirmDelete(
+      title: 'حذف تلاوة ${row.reciter.name}',
+      body:
+          'سيُحذف ${_formatBytes(row.bytes)} (${recitationStorageDetail(row.completeSurahs, row.partialSurahs)}). تلاوات القرّاء الآخرين تبقى كما هي. هل تريد المتابعة؟',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _deleting = row.reciter.cacheFolder);
+    try {
+      await widget.audioDownloadService.deleteReciter(row.reciter);
+    } finally {
+      if (mounted) setState(() => _deleting = null);
+    }
+    await _countRecitations();
+  }
+
+  Future<void> _deleteAllRecitations(List<ReciterStorage> rows) async {
+    final bytes = rows.fold<int>(0, (a, r) => a + r.bytes);
+    final confirmed = await _confirmDelete(
+      title: 'حذف جميع التلاوات',
+      body:
+          'سيُحذف ${_formatBytes(bytes)} من تلاوات ${recitersCountLabel(rows.length)}. يمكنك تحميلها أو الاستماع إليها لاحقًا. هل تريد المتابعة؟',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _deleting = '*');
+    try {
+      await widget.audioDownloadService.deleteAllRecitations();
+    } finally {
+      if (mounted) setState(() => _deleting = null);
+    }
+    await _countRecitations();
   }
 
   Future<bool> _confirmDelete({
@@ -91,14 +183,212 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
     return result ?? false;
   }
 
-  Future<void> _deleteAudioDownloads() async {
-    final confirmed = await _confirmDelete(
-      title: 'حذف ملفات الصوت',
-      body:
-          'سيتم حذف جميع ملفات الصوت المحملة من الجهاز. يمكنك إعادة تحميلها لاحقًا. هل تريد المتابعة؟',
+  /// «التلاوات المحفوظة على الجهاز» (owner, 2026-11-22): one row per reciter
+  /// with audio on the phone, downloaded or kept while listening, each with
+  /// its own delete, and one delete for all of them.
+  Widget _recitationsCard(
+    List<ReciterStorage>? rows,
+    AudioDownloadState audioState,
+  ) {
+    // null in the previous look and in night mode: the old colours stay
+    final s = AppSurfaces.maybeOf(context);
+    final text = s?.text ?? const Color(0xFF2F2418);
+    final muted = s?.muted ?? const Color(0xFF6A5A45);
+    final hair = s?.hair ?? const Color(0xFF8D6E3F).withValues(alpha: 0.16);
+    final selectedFolder = ReciterService.instance.selected.value.cacheFolder;
+
+    Widget note(String t) => Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.only(top: 12, bottom: 6),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: hair))),
+      child: Text(t, style: TextStyle(fontSize: 13.5, color: muted)),
     );
-    if (!confirmed) return;
-    await widget.audioDownloadService.deleteDownloads();
+
+    Widget row(ReciterStorage r) {
+      final current = r.reciter.cacheFolder == selectedFolder;
+      final deletingThis =
+          _deleting == '*' || _deleting == r.reciter.cacheFolder;
+      // the selected reciter's download writes into its folder
+      final canDelete =
+          _deleting == null && !(current && audioState.isDownloading);
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(border: Border(top: BorderSide(color: hair))),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        r.reciter.name,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: s == null
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                          color: text,
+                        ),
+                      ),
+                      if (current)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: s?.highlight ?? const Color(0xFFF1E3BE),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'القارئ الحالي',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              color: text,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    recitationStorageDetail(r.completeSurahs, r.partialSurahs),
+                    style: TextStyle(fontSize: 12.5, color: muted),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              _formatBytes(r.bytes),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: text,
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 64,
+              height: 44,
+              child: deletingThis
+                  ? Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: s?.accent ?? const Color(0xFF8D6E3F),
+                        ),
+                      ),
+                    )
+                  : FilledButton.tonal(
+                      style: (_tonalStyle(s) ?? const ButtonStyle()).copyWith(
+                        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                      ),
+                      onPressed: canDelete ? () => _deleteReciter(r) : null,
+                      child: const Text('حذف'),
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final children = <Widget>[
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.audio_file_rounded,
+              color: s?.icon ?? const Color(0xFF5C4522),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'التلاوات المحفوظة على الجهاز',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                    color: text,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'لكل قارئ ما حمّلته وما حُفظ أثناء الاستماع. الحذف لا يمسّ الإعدادات ولا العلامات.',
+                  style: TextStyle(fontSize: 13, height: 1.35, color: muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ];
+    if (rows == null) {
+      children.add(note('جارٍ حساب المساحة…'));
+    } else if (rows.isEmpty) {
+      children.add(note('لا توجد تلاوات محفوظة على الجهاز.'));
+    } else {
+      children.add(const SizedBox(height: 6));
+      children.addAll(rows.map(row));
+      if (rows.length > 1) {
+        children.add(
+          Container(
+            alignment: AlignmentDirectional.centerStart,
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: hair)),
+            ),
+            padding: const EdgeInsets.only(top: 4),
+            child: TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: s?.accent ?? const Color(0xFF8D6E3F),
+                minimumSize: const Size(0, 44),
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              onPressed: _deleting == null && !audioState.isDownloading
+                  ? () => _deleteAllRecitations(rows)
+                  : null,
+              child: const Text('حذف جميع التلاوات'),
+            ),
+          ),
+        );
+      }
+    }
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+        decoration: BoxDecoration(
+          color: s?.card ?? const Color(0xFFF3EFE6),
+          borderRadius: BorderRadius.circular(
+            s == null ? 18 : AppSurfaces.radius,
+          ),
+          border: Border.all(
+            color: s?.border ?? const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      ),
+    );
   }
 
   @override
@@ -112,8 +402,14 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
             return ValueListenableBuilder<TafsirCacheState>(
               valueListenable: widget.tafsirCacheService.state,
               builder: (context, tafsirState, _) {
+                final recitations = _recitations;
+                // every reciter's recitation once counted; until then the
+                // selected one's downloads, as before
+                final recitationBytes = recitations == null
+                    ? audioState.installedBytes
+                    : recitations.fold<int>(0, (a, r) => a + r.bytes);
                 final totalBytes =
-                    audioState.installedBytes + tafsirState.installedBytes;
+                    recitationBytes + tafsirState.installedBytes;
                 // null in the previous look and in night mode: the old colours
                 // stay
                 final s = AppSurfaces.maybeOf(context);
@@ -235,31 +531,7 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                         icon: Icons.image_outlined,
                       ),
                       const SizedBox(height: 10),
-                      DownloadedPackageCard(
-                        title: 'ملفات الصوت',
-                        subtitle: audioState.isComplete
-                            ? 'جميع ملفات التلاوة محملة، يمكن الاستماع بدون إنترنت.'
-                            : audioState.downloadedFiles > 0
-                            ? 'تم تحميل ${audioState.downloadedFiles} من ${audioState.totalFiles} ملف.'
-                            : 'غير محملة حاليًا.',
-                        sizeLabel: audioState.installedBytes > 0
-                            ? audioState.installedSizeLabel
-                            : '0 MB',
-                        statusLabel: audioState.isComplete
-                            ? 'مكتملة'
-                            : audioState.downloadedFiles > 0
-                            ? 'جزئية'
-                            : 'غير محملة',
-                        icon: Icons.audio_file_rounded,
-                        actionLabel: audioState.downloadedFiles > 0
-                            ? 'حذف'
-                            : null,
-                        onAction:
-                            audioState.downloadedFiles > 0 &&
-                                !audioState.isDownloading
-                            ? _deleteAudioDownloads
-                            : null,
-                      ),
+                      _recitationsCard(recitations, audioState),
                       if (!kIsWeb) ...[
                         const SizedBox(height: 10),
                         const AthkarDownloadsCard(),
@@ -629,10 +901,11 @@ class _AthkarDownloadsCardState extends State<AthkarDownloadsCard> {
     afterOpening(_service.refresh);
   }
 
+  // isolated left-to-right, so the Arabic around it never shows `MB 61`
   static String _mb(int bytes) {
     final value = bytes / (1024 * 1024);
-    if (value >= 10) return '${value.toStringAsFixed(0)} MB';
-    return '${value.toStringAsFixed(1)} MB';
+    if (value >= 10) return '\u2066${value.toStringAsFixed(0)} MB\u2069';
+    return '\u2066${value.toStringAsFixed(1)} MB\u2069';
   }
 
   static String _voicesLine(List<String> voices) {
