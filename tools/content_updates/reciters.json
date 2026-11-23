@@ -1,6 +1,50 @@
 {
-  "ver": 4,
-  "reciters": [],
+  "ver": 5,
+  "reciters": [
+    {
+      "id": "younsi_qaloun",
+      "name": "علي اليونسي",
+      "shortName": "علي اليونسي",
+      "riwaya": "رواية قالون",
+      "scheme": "timedSurah",
+      "audioBaseUrl": "https://audio.mushaf-qaloon.com/younsi/",
+      "timingsBaseUrl": "https://quran-content.mushaf-qaloon.com/timings/younsi/",
+      "cacheFolder": "audio_cache_younsi",
+      "timingsRevision": 1,
+      "pageTurnCues": {
+        "35": {
+          "surah": 2,
+          "ayah": 217,
+          "file": "002.mp3",
+          "ms": 5168055
+        },
+        "86": {
+          "surah": 4,
+          "ayah": 44,
+          "file": "004.mp3",
+          "ms": 1326860
+        },
+        "259": {
+          "surah": 14,
+          "ayah": 27,
+          "file": "014.mp3",
+          "ms": 606940
+        },
+        "355": {
+          "surah": 24,
+          "ayah": 36,
+          "file": "024.mp3",
+          "ms": 975500
+        },
+        "356": {
+          "surah": 24,
+          "ayah": 42,
+          "file": "024.mp3",
+          "ms": 1186230
+        }
+      }
+    }
+  ],
   "overrides": {
     "zarrouq_qaloun": {
       "timingsRevision": 2
