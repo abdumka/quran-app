@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'hifz_palette.dart';
+import 'skip_ayah_icon.dart';
 
 const String _micSeenPref = 'hifz_test_guide_seen';
 const String _silentSeenPref = 'hifz_silent_test_guide_seen';
@@ -251,7 +252,8 @@ class _Guide extends StatelessWidget {
 
   /// The session bar, with a number on every button.
   Widget _barPicture(HifzPalette p) {
-    final items = silent
+    // A null icon is «تخطَّ», drawn with [SkipAyahIcon] as on the bar.
+    final List<(IconData?, String)> items = silent
         ? const [
             (Icons.lightbulb_outline_rounded, 'كلمة'),
             (Icons.visibility_rounded, 'الآية'),
@@ -263,7 +265,7 @@ class _Guide extends StatelessWidget {
             (Icons.lightbulb_outline_rounded, 'كلمة'),
             (Icons.visibility_rounded, 'الآية'),
             (Icons.replay_circle_filled_rounded, 'أعد الآية'),
-            (Icons.skip_next_rounded, 'تخطَّ'),
+            (null, 'تخطَّ'),
             (Icons.restart_alt_rounded, 'الصفحة'),
             (Icons.close_rounded, 'إنهاء'),
           ];
@@ -305,7 +307,10 @@ class _Guide extends StatelessWidget {
                       decoration: BoxDecoration(color: p.selected, shape: BoxShape.circle),
                       child: Text('${i + 1}', style: TextStyle(color: p.onSelected, fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
-                    Icon(items[i].$1, size: 20, color: barIcon),
+                    if (items[i].$1 == null)
+                      SkipAyahIcon(size: 20, color: barIcon)
+                    else
+                      Icon(items[i].$1, size: 20, color: barIcon),
                     Text(items[i].$2, style: TextStyle(color: barIcon, fontSize: 8, fontWeight: FontWeight.w600)),
                   ],
                 ),

@@ -15,6 +15,7 @@ import '../../services/word_region_service.dart';
 import '../../theme/app_surfaces.dart';
 import '../../utils/quran_word_aligner.dart';
 import '../../utils/quran_display_text.dart';
+import '../hifz/skip_ayah_icon.dart';
 
 /// The reveal layer of the memorization test: covers every not-yet-recited
 /// ayah with paper-colored boxes drawn directly on top of the page image, so
@@ -1070,8 +1071,10 @@ class _SessionBarState extends State<_SessionBar> {
                     // A self-test has nothing to skip past: the reader
                     // uncovers the page at their own pace.
                     if (!service.silent)
-                      _action(
-                        Icons.skip_next_rounded,
+                      // Hops LEFT over an ayah marker: the next ayah lies
+                      // to the left in this right-to-left mushaf.
+                      _actionWith(
+                        SkipAyahIcon.builder,
                         'تخطَّ',
                         service.skipCurrentAyah,
                       ),
@@ -1149,7 +1152,18 @@ class _SessionBarState extends State<_SessionBar> {
     );
   }
 
-  Widget _action(IconData icon, String label, VoidCallback onTap) {
+  Widget _action(IconData icon, String label, VoidCallback onTap) =>
+      _actionWith(
+        (size, color) => Icon(icon, size: size, color: color),
+        label,
+        onTap,
+      );
+
+  Widget _actionWith(
+    Widget Function(double size, Color color) glyph,
+    String label,
+    VoidCallback onTap,
+  ) {
     // The slim style: smaller icons and a little less height, labels kept.
     final slim = _look != null && _style == TasmeeBarStyle.slim;
     return InkWell(
@@ -1163,7 +1177,7 @@ class _SessionBarState extends State<_SessionBar> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: slim ? 20 : 23, color: _iconColor),
+            glyph(slim ? 20 : 23, _iconColor),
             Text(
               label,
               style: TextStyle(

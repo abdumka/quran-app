@@ -447,6 +447,52 @@ class _QuranPagesState extends State<QuranPages>
       ? const BoxConstraints(minWidth: 40, minHeight: 40)
       : const BoxConstraints();
 
+  /// One of the recitation bar's two ayah-step buttons: an arrow pointing
+  /// where the step goes, with its name under it. Icon plus label stays
+  /// shorter than the play circle, so the bar keeps its height.
+  Widget _barAyahStepButton({
+    required IconData glyph,
+    required String label,
+    required String tooltip,
+    required Color color,
+    required double iconSize,
+    required bool isLandscape,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      padding: EdgeInsets.zero,
+      constraints: _barIconConstraints,
+      icon: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(glyph, color: color, size: iconSize),
+          Text(
+            label,
+            textDirection: TextDirection.rtl,
+            // Capped so the largest system text cannot make the bar taller.
+            textScaler: MediaQuery.textScalerOf(
+              context,
+            ).clamp(maxScaleFactor: 1.2),
+            style: TextStyle(
+              color: color,
+              fontSize: isLandscape ? 9.5 : 10.5,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
+      onPressed: () {
+        _resetHideTimer();
+        onPressed();
+      },
+      tooltip: tooltip,
+    );
+  }
+
   final GlobalKey<ContinuousQuranViewState> _continuousViewKey =
       GlobalKey<ContinuousQuranViewState>();
 
@@ -3125,16 +3171,17 @@ class _QuranPagesState extends State<QuranPages>
     return true;
   }
 
-  /// Recitation-bar controls the remote can reach, in on-screen order.
-  /// خيارات التلاوة is included: its sheet is wrapped in a TvFocusScope, so
-  /// the options inside it are reachable too.
+  /// Recitation-bar controls the remote can reach, in on-screen order
+  /// (left to right, so Right steps +1). خيارات التلاوة is included: its
+  /// sheet is wrapped in a TvFocusScope, so the options inside it are
+  /// reachable too. التالية sits LEFT of play, السابقة right of it.
   List<_TvBarControl> get _tvBarControls => [
     if (_spreadPages.length == 2) _TvBarControl.spreadToggle,
     _TvBarControl.repeatPage,
-    _TvBarControl.prevAyah,
+    _TvBarControl.nextAyah,
     _TvBarControl.ayahPicker,
     _TvBarControl.playPause,
-    _TvBarControl.nextAyah,
+    _TvBarControl.prevAyah,
     _TvBarControl.repeatAyah,
     _TvBarControl.close,
     _TvBarControl.optionsSheet,
@@ -7793,9 +7840,11 @@ class _QuranPagesState extends State<QuranPages>
                     textColor,
                     borderColor,
                   ),
+                  // The same glyphs as the bar: each arrow points where its
+                  // step goes in this right-to-left mushaf.
                   _guideRow(
                     Icons.skip_next_rounded,
-                    'الآية السابقة',
+                    'الآية السابقة (إلى اليمين)',
                     textColor,
                     borderColor,
                   ),
@@ -7807,7 +7856,7 @@ class _QuranPagesState extends State<QuranPages>
                   ),
                   _guideRow(
                     Icons.skip_previous_rounded,
-                    'الآية التالية',
+                    'الآية التالية (إلى اليسار)',
                     textColor,
                     borderColor,
                   ),
@@ -10283,6 +10332,9 @@ class _QuranPagesState extends State<QuranPages>
                     bottom: systemBottom > 0 ? systemBottom : barBottomPadding,
                   ),
                   child: Row(
+                    // Children run left to right on every device: التالية
+                    // must stay on the left, the reading direction.
+                    textDirection: TextDirection.ltr,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // تكرار الصفحة
@@ -10405,25 +10457,21 @@ class _QuranPagesState extends State<QuranPages>
                         ),
                       ),
 
-                      // السابق
+                      // التالي: on the LEFT, where the next ayah and the
+                      // next page lie in this right-to-left mushaf, its arrow
+                      // pointing that way. Named under the arrow, since a
+                      // player's ⏮ shape otherwise reads as "previous".
                       _tvBarFocus(
-                        _TvBarControl.prevAyah,
-                        IconButton(
-                          style: IconButton.styleFrom(
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          padding: EdgeInsets.zero,
-                          constraints: _barIconConstraints,
-                          icon: Icon(
-                            Icons.skip_previous_rounded,
-                            color: iconColor,
-                            size: skipIconSize,
-                          ),
-                          onPressed: () {
-                            _resetHideTimer();
-                            audio.previousAyah();
-                          },
-                          tooltip: 'الآية السابقة',
+                        _TvBarControl.nextAyah,
+                        circular: false,
+                        _barAyahStepButton(
+                          glyph: Icons.skip_previous_rounded,
+                          label: 'التالية',
+                          tooltip: 'الآية التالية',
+                          color: iconColor,
+                          iconSize: skipIconSize,
+                          isLandscape: isLandscape,
+                          onPressed: audio.nextAyah,
                         ),
                       ),
 
@@ -10563,25 +10611,19 @@ class _QuranPagesState extends State<QuranPages>
                         ),
                       ),
 
-                      // التالي
+                      // السابق: on the RIGHT, back towards the ayah already
+                      // read, its arrow pointing that way.
                       _tvBarFocus(
-                        _TvBarControl.nextAyah,
-                        IconButton(
-                          style: IconButton.styleFrom(
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          padding: EdgeInsets.zero,
-                          constraints: _barIconConstraints,
-                          icon: Icon(
-                            Icons.skip_next_rounded,
-                            color: iconColor,
-                            size: skipIconSize,
-                          ),
-                          onPressed: () {
-                            _resetHideTimer();
-                            audio.nextAyah();
-                          },
-                          tooltip: 'الآية التالية',
+                        _TvBarControl.prevAyah,
+                        circular: false,
+                        _barAyahStepButton(
+                          glyph: Icons.skip_next_rounded,
+                          label: 'السابقة',
+                          tooltip: 'الآية السابقة',
+                          color: iconColor,
+                          iconSize: skipIconSize,
+                          isLandscape: isLandscape,
+                          onPressed: audio.previousAyah,
                         ),
                       ),
 

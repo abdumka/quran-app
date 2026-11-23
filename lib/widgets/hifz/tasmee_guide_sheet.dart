@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'hifz_palette.dart';
+import 'skip_ayah_icon.dart';
 
 const String _seenPref = 'tasmee_guide_seen';
 
@@ -17,8 +18,10 @@ Future<void> showTasmeeGuideOnce(BuildContext context) async {
 
 /// One button of the bar as the guide draws it.
 class _Item {
-  const _Item(this.icon, this.label, this.what);
-  final IconData? icon; // null = the listening dot
+  const _Item(this.icon, this.label, this.what, {this.skipGlyph = false});
+  final IconData? icon; // null = the listening dot (unless [skipGlyph])
+  /// Drawn with [SkipAyahIcon], as on the bar itself.
+  final bool skipGlyph;
   final String label;
   final String what;
 }
@@ -45,9 +48,10 @@ const List<_Item> _items = [
     'تُخفي الآية الحالية من جديد لتقرأها من أولها.',
   ),
   _Item(
-    Icons.skip_next_rounded,
+    null,
     'تخطَّ',
     'تتجاوز الآية الحالية إلى التي بعدها.',
+    skipGlyph: true,
   ),
   _Item(Icons.restart_alt_rounded, 'الصفحة', 'تبدأ الصفحة من أولها.'),
   _Item(Icons.close_rounded, 'إنهاء', 'ينهي التسميع ويعرض تقرير الجلسة.'),
@@ -121,7 +125,9 @@ Future<void> showTasmeeGuide(BuildContext context) {
                     children: [
                       badge(i + 1),
                       Container(width: 1.5, height: 8, color: p.selected),
-                      if (_items[i].icon == null)
+                      if (_items[i].skipGlyph)
+                        SkipAyahIcon(size: 22, color: barIcon)
+                      else if (_items[i].icon == null)
                         Container(
                           width: 22,
                           height: 22,
