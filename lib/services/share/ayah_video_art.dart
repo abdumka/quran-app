@@ -265,7 +265,13 @@ class AyahVideoArt {
       final mr = Rect.fromLTWH(m.x, m.y, m.width, m.height);
       nearest(mr.center.dy).markers.add(mr);
     }
+    final hasWords = own.any((l) => l.parts.isNotEmpty);
     for (final l in own) {
+      // A line band holding none of the ayah's words is the region data's
+      // sliver at the end of the line before (229 ayat; 110:1 had one on
+      // 109:6's line, so the video kept the header and basmala as empty
+      // space above the ayah): left out.
+      if (l.parts.isEmpty && l.markers.isEmpty && hasWords) continue;
       // No word boxes for this ayah: fall back to the line's own band.
       if (l.parts.isEmpty) l.parts.add(l.band);
       // The same printed line already holds the ayah before (an ayah that
