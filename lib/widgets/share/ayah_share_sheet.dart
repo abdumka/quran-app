@@ -282,6 +282,10 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   static const _prefFont = 'shareVideo.font';
   static const _prefFontSize = 'shareVideo.fontSize';
 
+  /// Set only when the reciter is picked in this sheet: until then the
+  /// video follows the app's reciter.
+  static const _prefReciter = 'shareVideo.reciter';
+
   /// The «بدون سطر القارئ» choice of the font picker.
   static const _noFont = 'none';
 
@@ -330,11 +334,13 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   @override
   void initState() {
     super.initState();
-    _restore();
     AyahVideoService.instance.ayahCount(widget.surah).then((n) {
       if (mounted) setState(() => _count = n);
     });
-    _loadBreaths();
+    // The breaths belong to the reciter, so they wait for the saved one.
+    _restore().whenComplete(() {
+      if (mounted) _loadBreaths();
+    });
   }
 
   /// The reciter's breaths, then the range moved out to whole breaths: a
@@ -442,7 +448,13 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
   }
 
   Future<void> _restore() async {
-    final prefs = await SharedPreferences.getInstance();
+    final SharedPreferences prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+    } catch (e) {
+      debugPrint('AyahVideo: restore: $e');
+      return;
+    }
     if (!mounted) return;
     setState(() {
       final bg = config.background(prefs.getString(_prefBg));
@@ -463,16 +475,31 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         _fontId = font!;
       }
       _fontSize = (prefs.getInt(_prefFontSize) ?? 1).clamp(0, 2);
+      final reciter = prefs.getString(_prefReciter);
+      for (final r in ReciterService.instance.reciters) {
+        if (r.id == reciter) _reciter = r;
+      }
     });
   }
 
+  /// [change] applied, then every choice saved at once, so the sheet opens
+  /// the next time as it was left (made or not).
+  void _pick(VoidCallback change) {
+    setState(change);
+    _remember();
+  }
+
   Future<void> _remember() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefBg, _bg.id);
-    await prefs.setString(_prefShape, _shape.id);
-    await prefs.setString(_prefEffect, _effect.id);
-    await prefs.setString(_prefFont, _fontId);
-    await prefs.setInt(_prefFontSize, _fontSize);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefBg, _bg.id);
+      await prefs.setString(_prefShape, _shape.id);
+      await prefs.setString(_prefEffect, _effect.id);
+      await prefs.setString(_prefFont, _fontId);
+      await prefs.setInt(_prefFontSize, _fontSize);
+    } catch (e) {
+      debugPrint('AyahVideo: remember: $e');
+    }
   }
 
   /// The font of the reciter line; null = no line («بدون سطر القارئ»). A
@@ -751,7 +778,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               background: _bg,
               selected: s.id == _shape.id,
               colors: c,
-              onTap: () => setState(() => _shape = s),
+              onTap: () => _pick(() => _shape = s),
             ),
         ],
       ),
@@ -793,7 +820,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
                 selected: b.id == _bg.id,
                 accent: c.accent,
                 placeholder: c.chip,
-                onTap: () => setState(() => _bg = b),
+                onTap: () => _pick(() => _bg = b),
               ),
           ],
         ),
@@ -809,7 +836,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             _chip(
               e.title,
               e.id == _effect.id,
-              () => setState(() => _effect = e),
+              () => _pick(() => _effect = e),
             ),
         ],
       ),
@@ -1100,6 +1127,12 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
             for (final r in reciters) {
               if (r.id == id && r.id != _reciter.id) {
                 setState(() => _reciter = r);
+                SharedPreferences.getInstance()
+                    .then((p) => p.setString(_prefReciter, r.id))
+                    .catchError((Object e) {
+                      debugPrint('AyahVideo: remember reciter: $e');
+                      return false;
+                    });
                 _loadBreaths();
               }
             }
@@ -1203,7 +1236,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
         minWidth: 300,
         maxHeight: ReciterService.pickerMenuMaxHeight(52),
       ),
-      onSelected: (id) => setState(() => _fontId = id),
+      onSelected: (id) => _pick(() => _fontId = id),
       itemBuilder: (_) => [
         ScrollingMenuEntry<String>(
           values: ids,
@@ -1268,7 +1301,7 @@ class _AyahVideoSheetState extends State<_AyahVideoSheet> {
               child: Material(
                 color: i == _fontSize ? c.chipOn : Colors.transparent,
                 child: InkWell(
-                  onTap: () => setState(() => _fontSize = i),
+                  onTap: () => _pick(() => _fontSize = i),
                   child: SizedBox(
                     width: 38,
                     height: _fieldHeight,
