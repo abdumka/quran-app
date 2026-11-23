@@ -53,7 +53,13 @@ class AyahVideoArt {
       final before = regions[page - 1]?.continuing;
       if (before != null && before.surah == surah && before.ayah == ayah) {
         final w = words[page - 1]?.continued;
-        _addLines(lines, page - 1, before, w?.ayah == ayah ? w : null);
+        _addLines(
+          lines,
+          page - 1,
+          before,
+          w?.ayah == ayah ? w : null,
+          _textSides(regions[page - 1]),
+        );
       }
       final region = regions[page]?.ayahs
           .where((r) => r.surah == surah && r.ayah == ayah)
@@ -62,7 +68,7 @@ class AyahVideoArt {
       final w = words[page]?.ayahs
           .where((x) => x.surah == surah && x.ayah == ayah)
           .firstOrNull;
-      _addLines(lines, page, region, w);
+      _addLines(lines, page, region, w, _textSides(regions[page]));
     }
     if (lines.isEmpty) return null;
     lines.sort((a, b) {
@@ -199,17 +205,59 @@ class AyahVideoArt {
     return out;
   }
 
+  /// The left and right edges of a page's text block (every ayah's line
+  /// boxes), with the room a letter may stick out: past them is the border.
+  static (double, double) _textSides(AyahRegionPageData? page) {
+    var left = 1.0, right = 0.0;
+    for (final a in [...?page?.ayahs, ?page?.continuing]) {
+      for (final r in a.rects) {
+        left = math.min(left, r.x);
+        right = math.max(right, r.x + r.width);
+      }
+    }
+    // The two opening pages set their text in a narrow ornament frame,
+    // with no border beside the lines: nothing to cut there.
+    return right - left > 0.9
+        ? (left - _strayMargin, right + _strayMargin)
+        : (0.0, 1.0);
+  }
+
   static void _addLines(
     List<_Line> lines,
     int page,
     AyahRegion region,
     WordRegionAyah? words,
+    (double, double) sides,
   ) {
     if (region.rects.isEmpty) return;
     final own = <_Line>[
       for (final r in region.rects)
         _Line(page, Rect.fromLTWH(r.x, r.y, r.width, r.height)),
     ];
+    // An ayah's lines follow one another, so a gap of one line between two
+    // of its boxes is a line the region data left without a box (4:91,
+    // 6:131): given one, or its words are taken for stray ink. A larger gap
+    // is a surah header (the slivers above, skipped further down).
+    final byTop = [...own]..sort((a, b) => a.band.top.compareTo(b.band.top));
+    for (var i = 0; i + 1 < byTop.length; i++) {
+      final a = byTop[i].band;
+      final b = byTop[i + 1].band;
+      final gap = b.top - a.bottom;
+      if (gap > a.height * 0.5 && gap < a.height * 1.6) {
+        own.add(
+          _Line(
+            page,
+            Rect.fromLTRB(
+              math.min(a.left, b.left),
+              a.bottom,
+              math.max(a.right, b.right),
+              b.top,
+            ),
+          ),
+        );
+      }
+    }
+    final (left, right) = sides;
     _Line nearest(double y) {
       var best = own.first;
       var dist = double.infinity;
@@ -247,7 +295,7 @@ class AyahVideoArt {
     for (final w in words?.words ?? const <WordBox>[]) {
       // A piece outside every line of the ayah is the page's frame rule,
       // not a letter (25:73 had a sliver of it at the right edge).
-      final parts = [
+      var parts = [
         for (final p in w.parts)
           if (own.any(
             (l) =>
@@ -256,9 +304,67 @@ class AyahVideoArt {
           ))
             p,
       ];
+      // A piece whose centre is in no line of the ayah is another ayah's
+      // ink, the next surah's header frame or the page border, listed with
+      // this word by the word-box data (4:144 drew «إلا الذين تابوا» over
+      // its own last line; 109:6 and 4:175 pulled a hairline of the frame
+      // lines below them). Left out, unless that is most of the word: then
+      // it is the line boxes that are off (4:91 has a line without one).
+      final inside = [for (final p in parts) if (_inAyah(p, own)) p];
+      if (inside.length < parts.length &&
+          _area(inside) >= _area(parts) * 0.5) {
+        parts = inside;
+      }
+      // The page border touches the first or last letter of some lines, and
+      // the word data then gives both one box reaching the page edge (35:18,
+      // 30:32, 5:48 drew a bar beside the line): cut at the page's text
+      // block, never inside it (a letter's tail may reach past its ayah).
+      parts = [
+        for (final p in parts)
+          if (p.right > left && p.left < right)
+            Rect.fromLTRB(
+              math.max(p.left, left),
+              p.top,
+              math.min(p.right, right),
+              p.bottom,
+            ),
+      ];
       if (parts.isEmpty) continue;
       final box = parts.reduce((a, b) => a.expandToInclude(b));
-      lineOf(box).parts.addAll(parts);
+      final line = lineOf(box);
+      // A letter's body lying inside another line of the ayah, well clear
+      // of this word's own, is that line's ink listed with this word as
+      // well (10:60, 19:93): it goes with that line, or centring the lines
+      // draws it off its place, over the text. Marks go with the body
+      // nearest to them, so they stay with their word when it reaches into
+      // the line above (25:73 above) and follow a body that moved.
+      final bodies = <(Rect, _Line)>[];
+      final marks = <Rect>[];
+      for (final p in parts) {
+        if (_isSmallPiece(p)) {
+          marks.add(p);
+          continue;
+        }
+        final other = _inBand(p, line.band, _bandSlack)
+            ? null
+            : own.where((l) => l != line && _inBand(p, l.band, 0)).firstOrNull;
+        bodies.add((p, other ?? line));
+      }
+      for (final (p, l) in bodies) {
+        l.parts.add(p);
+      }
+      for (final m in marks) {
+        var to = line;
+        var best = double.infinity;
+        for (final (p, l) in bodies) {
+          final d = (p.center - m.center).distanceSquared;
+          if (d < best) {
+            best = d;
+            to = l;
+          }
+        }
+        to.parts.add(m);
+      }
     }
     final m = region.marker;
     if (m != null) {
@@ -292,6 +398,28 @@ class AyahVideoArt {
       }
     }
   }
+
+  /// How far (share of a line's height) a piece's centre may sit above or
+  /// below the line and still belong to it: marks over tall letters do.
+  static const double _bandSlack = 0.25;
+
+  /// [p]'s centre lies in one of [own]'s lines.
+  static bool _inAyah(Rect p, List<_Line> own) =>
+      own.any((l) => _inBand(p, l.band, _bandSlack));
+
+  /// [p]'s centre lies in [band], [slack] line heights above or below
+  /// counted in.
+  static bool _inBand(Rect p, Rect band, double slack) {
+    final c = p.center;
+    final m = band.height * slack;
+    return c.dx >= band.left - _strayMargin &&
+        c.dx <= band.right + _strayMargin &&
+        c.dy >= band.top - m &&
+        c.dy <= band.bottom + m;
+  }
+
+  static double _area(List<Rect> rs) =>
+      rs.fold(0.0, (s, r) => s + r.width * r.height);
 
   /// A diacritic-sized piece (share of the page): never a letter's body.
   static bool _isSmallPiece(Rect r) => r.width < 0.03 && r.height < 0.03;
