@@ -131,7 +131,7 @@ class ContentUpdateService {
     'notices': 0,
     // matches the `ver` of `assets/data/athkar.json` (a test keeps them in
     // step)
-    'athkar': 6,
+    'athkar': 7,
     // matches the `ver` of `assets/data/share_video.json`
     'share_video': 9,
     // matches the `ver` of `assets/data/khilaf.json` (a test keeps them in step)

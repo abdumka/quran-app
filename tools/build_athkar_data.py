@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, 'assets', 'data', 'athkar.json')
 
 # Raise when the content changes; ContentUpdateService.bundledVersions
 # ['athkar'] must match (a test keeps them in step).
-VER = 6
+VER = 7
 
 # The themed groups of the home screen (ours: the book is one flat list).
 # Numbers are the book's section order; the order inside a group is the
@@ -76,6 +76,12 @@ QURAN_WITH_NOTES = {137}
 # numbers are rewritten to our count).
 SURAH_NUMBERS = {'البقرة': 2, 'آل عمران': 3, 'الأعراف': 7, 'المؤمنون': 23,
                  'الأحزاب': 33, 'الزخرف': 43, 'الحديد': 57}
+
+# Words taken out of a dhikr's text: content id -> exact text removed. The
+# build stops if the text is no longer there.
+# 32: the greeting to the family is not part of the supplication and no
+# reader says it (owner, 2026-11-23).
+TEXT_CUTS = {32: '، وَالسَّلاَمُ عَلَيْكُمْ وَرَحْمَةُ اللهِ وَبَرَكَاتُهُ يا أهلي'}
 
 # Whole surahs too long to print inside a card: the card names the surah.
 WHOLE_SURAH = {32: 'سورة السجدة', 67: 'سورة الملك'}
@@ -336,6 +342,10 @@ def main():
             if text.startswith(b + ' '):
                 text = b + NL + text[len(b) + 1:]
             text = text.replace(NL + b + ' ', NL + b + NL)
+            if cid in TEXT_CUTS:
+                if TEXT_CUTS[cid] not in text:
+                    raise SystemExit(f'TEXT_CUTS {cid}: text not found')
+                text = text.replace(TEXT_CUTS[cid], '').strip()
             item = {'id': cid, 't': text, 'n': max(1, int(count or 1))}
             if cid in UNMARKED_VERSES:
                 item['q'] = [[UNMARKED_VERSES[cid], 35, 35]]
