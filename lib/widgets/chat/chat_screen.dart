@@ -692,13 +692,25 @@ class _AttachmentView extends StatelessWidget {
               ),
             );
           }
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(9),
-            child: Image.memory(
-              bytes,
-              height: 170,
-              fit: BoxFit.contain,
-              cacheHeight: 500,
+          return Semantics(
+            button: true,
+            label: 'عرض الصورة كاملة',
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  fullscreenDialog: true,
+                  builder: (_) => ChatPhotoViewer(bytes: bytes),
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: Image.memory(
+                  bytes,
+                  height: 170,
+                  fit: BoxFit.contain,
+                  cacheHeight: 500,
+                ),
+              ),
             ),
           );
         },
@@ -716,6 +728,82 @@ class _AttachmentView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A chat photo on a black screen: pinch or double-tap to zoom, drag to look
+/// around, the close button or Back to return.
+class ChatPhotoViewer extends StatefulWidget {
+  final Uint8List bytes;
+
+  const ChatPhotoViewer({super.key, required this.bytes});
+
+  @override
+  State<ChatPhotoViewer> createState() => _ChatPhotoViewerState();
+}
+
+class _ChatPhotoViewerState extends State<ChatPhotoViewer> {
+  final _zoom = TransformationController();
+  TapDownDetails? _lastTap;
+
+  @override
+  void dispose() {
+    _zoom.dispose();
+    super.dispose();
+  }
+
+  void _toggleZoom() {
+    if (_zoom.value.getMaxScaleOnAxis() > 1.01) {
+      _zoom.value = Matrix4.identity();
+      return;
+    }
+    final point = _lastTap?.localPosition ?? Offset.zero;
+    const scale = 2.5;
+    _zoom.value = Matrix4.identity()
+      ..translateByDouble(-point.dx * (scale - 1), -point.dy * (scale - 1), 0, 1)
+      ..scaleByDouble(scale, scale, 1, 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onDoubleTapDown: (details) => _lastTap = details,
+              onDoubleTap: _toggleZoom,
+              child: InteractiveViewer(
+                transformationController: _zoom,
+                minScale: 1,
+                maxScale: 5,
+                child: Center(
+                  child: Image.memory(widget.bytes, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Align(
+              alignment: AlignmentDirectional.topEnd,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: IconButton(
+                  tooltip: 'إغلاق',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black54,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
