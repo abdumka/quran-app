@@ -37,6 +37,7 @@ enum TourScene {
   video,
   athkar,
   usul,
+  khilaf,
   remind,
   auto,
   finish,
@@ -85,6 +86,10 @@ const Map<TourScene, TourText> kTourText = {
     'أحكام وأصول الرواية',
     'شرح ميسّر لأصول رواية قالون في القائمة الجانبية، ولكل حكم أمثلة تفتح موضعها في صفحتها.',
   ),
+  TourScene.khilaf: TourText(
+    'خلافات القراء',
+    'اضغط مطوّلًا على الآية ثم «خلافات القراء»، لترى كيف قرأ القراء العشرة ورواتهم كل كلمة فيها.',
+  ),
   TourScene.remind: TourText(
     'صفحة كل يوم',
     'تصلك «صفحة اليوم» وتذكير الأذكار في وقتهما، ويمكنك تغيير الوقت أو الإيقاف من الإعدادات.',
@@ -112,6 +117,7 @@ extension TourSceneTiming on TourScene {
       TourScene.video => 11000,
       TourScene.athkar => 5600,
       TourScene.usul => 6800,
+      TourScene.khilaf => 8200,
       TourScene.remind => 5600,
       TourScene.auto => 6800,
       TourScene.finish => 3000,
@@ -203,6 +209,7 @@ Widget _sceneAt(TourScene scene, double ms) => switch (scene) {
   TourScene.video => _Video(ms),
   TourScene.athkar => _Athkar(ms),
   TourScene.usul => _Usul(ms),
+  TourScene.khilaf => _Khilaf(ms),
   TourScene.remind => _Remind(ms),
   TourScene.auto => _Auto(ms),
   TourScene.finish => _Finish(ms),
@@ -1724,6 +1731,277 @@ class _Usul extends StatelessWidget {
             ),
             bar(0.78),
             bar(0.7),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// «خلافات القراء»: a long press on ayah 43, the menu row, then the sheet
+/// with three of the ayah's real cards (assets/data/khilaf.json, word for word).
+class _Khilaf extends StatelessWidget {
+  const _Khilaf(this.ms);
+  final double ms;
+
+  static const _row = 'خلافات القراء';
+
+  static const _menu = [
+    (Icons.menu_book_rounded, 'تفسير الآية'),
+    (Icons.compare_arrows_rounded, 'تنزيلات ومتشابهات'),
+    (Icons.groups_rounded, _row),
+    (Icons.play_arrow_rounded, 'تلاوة'),
+  ];
+
+  static const _cards = [
+    (
+      'خلق',
+      [
+        (
+          'باقي الرواة',
+          'قرؤوا ( خـَـلـَـقَ ) بفتح الخاء، واللام، بلا ألف، وفتح القاف، فعلا ماضيا.',
+        ),
+        (
+          'حمزة، الكسائي، خلف العاشر',
+          'قرأ ( خـَـالـِـقُ ) بفتح الخاء، وألف بعدها، وكسر اللام، وضم القاف، اسم فاعل.',
+        ),
+      ],
+    ),
+    (
+      'كل',
+      [
+        ('باقي الرواة', 'قرؤوا بالنصب على المفعولية.'),
+        ('حمزة، الكسائي، خلف العاشر', 'قرأ بالجر.'),
+      ],
+    ),
+    (
+      'فمنهم من',
+      [
+        ('قالون عن نافع', 'قرأ بصلة ميم الجمع وصلاً بخلف عنه.'),
+        ('أبو جعفر، ابن كثير', 'قرأ بصلة ميم الجمع وصلا.'),
+        ('باقي الرواة', 'قرؤوا بترك صلة ميم الجمع.'),
+      ],
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final finger = _window(ms, 300, 1500, 250);
+    final press = ms >= 600 && ms < 1500 ? (ms - 600) / 900 : -1.0;
+    final glow = _p(ms, 1100, 350);
+    final menu = _p(ms, 1500, 450, Curves.easeOutBack);
+    final tap = _window(ms, 2050, 2550, 150);
+    final sheet = _p(ms, 2650, 500, _swift);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Center(
+          child: _Page(
+            overlay: (s) => [
+              ..._ayahBoxes(s, 43, TourColors.highlight, opacity: glow),
+              if (press >= 0)
+                Positioned(
+                  left: 0.55 * s.width - 10,
+                  top: 0.115 * s.height - 10,
+                  child: Opacity(
+                    opacity: 1 - press,
+                    child: Transform.scale(
+                      scale: 0.6 + 2.6 * press,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: TourColors.gold, width: 2),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              _fingerAt(s, 0.55, 0.115, finger),
+            ],
+          ),
+        ),
+        if (menu > 0 && sheet < 1)
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: 8,
+            child: FractionalTranslation(
+              translation: Offset(0, 1.2 * (1 - menu)),
+              child: _menuCard(tap),
+            ),
+          ),
+        if (sheet > 0)
+          FractionalTranslation(
+            translation: Offset(0, 1.02 * (1 - sheet)),
+            child: _sheet(),
+          ),
+      ],
+    );
+  }
+
+  Widget _menuCard(double tap) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+      decoration: BoxDecoration(
+        color: TourColors.card,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x40000000),
+            blurRadius: 28,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'سورة النور · الآية 43',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _t(13, weight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 10, color: Color(0xFFEEE3C8)),
+          for (final (icon, label) in _menu)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 3.5, horizontal: 4),
+              decoration: BoxDecoration(
+                color: label == _row
+                    ? TourColors.gold.withValues(alpha: 0.55 * tap)
+                    : null,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 17, color: TourColors.deepGold),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _t(12.5),
+                    ),
+                  ),
+                  if (label == _row) ...[
+                    const SizedBox(width: 10),
+                    Opacity(opacity: tap, child: const _Finger(scale: 0.7)),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheet() {
+    Widget card(int i) {
+      final (word, rows) = _cards[i];
+      final start = 3200.0 + i * 1300;
+      final rise = _p(ms, start, 400);
+      return Opacity(
+        opacity: rise,
+        child: Transform.translate(
+          offset: Offset(0, 14 * (1 - rise)),
+          child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2D2A5)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  word,
+                  style: _t(
+                    16,
+                    weight: FontWeight.w700,
+                    color: TourColors.deepGold,
+                  ),
+                ),
+                for (var r = 0; r < rows.length; r++)
+                  Opacity(
+                    opacity: _p(ms, start + 300 + r * 350, 350),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          top: BorderSide(color: Color(0xFFEFE5CC)),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            rows[r].$1,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: _t(
+                              10.5,
+                              weight: FontWeight.w700,
+                              color: TourColors.muted,
+                            ),
+                          ),
+                          Text(
+                            rows[r].$2,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: _t(11.5, height: 1.45),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: const Color(0xFFF8F1DE),
+      child: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 34,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2D2A5),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _row,
+              textAlign: TextAlign.center,
+              style: _t(15, weight: FontWeight.w700),
+            ),
+            Text(
+              'سورة النور، الآية 43',
+              textAlign: TextAlign.center,
+              style: _t(11.5, color: TourColors.deepGold),
+            ),
+            for (var i = 0; i < _cards.length; i++) card(i),
           ],
         ),
       ),

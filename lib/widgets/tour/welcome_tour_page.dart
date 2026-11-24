@@ -26,6 +26,7 @@ class WelcomeTourPage extends StatefulWidget {
     TourScene.video,
     TourScene.athkar,
     TourScene.usul,
+    TourScene.khilaf,
     TourScene.remind,
     TourScene.auto,
     TourScene.finish,

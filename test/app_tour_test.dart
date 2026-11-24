@@ -241,7 +241,7 @@ void main() {
       expect(find.text('menu'), findsOneWidget);
     }
 
-    testWidgets('after all 12 stories, «ابدأ القراءة»', (tester) async {
+    testWidgets('after all the stories, «ابدأ القراءة»', (tester) async {
       await openReplay(tester);
       for (var i = 1; i < WelcomeTourPage.stories.length; i++) {
         await tester.tap(find.text('التالي'));

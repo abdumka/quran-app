@@ -20,6 +20,7 @@ class WhatsNewDeck extends StatefulWidget {
     'video' => TourScene.video,
     'athkar' => TourScene.athkar,
     'usul' => TourScene.usul,
+    'khilaf' => TourScene.khilaf,
     'auto' => TourScene.auto,
     _ => null,
   };
