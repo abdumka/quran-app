@@ -254,11 +254,6 @@ class AppMenuDrawer extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'برواية قالون',
-                            style: TextStyle(color: c.drawerIcon, fontSize: 13),
-                          ),
                         ],
                       ),
                     ),
