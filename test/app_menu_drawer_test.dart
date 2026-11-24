@@ -157,13 +157,13 @@ void main() {
           ),
         );
 
-    testWidgets('phones: menu button and full screen, no gear, no eye', (
+    testWidgets('phones: menu button and full screen, eye, no gear', (
       tester,
     ) async {
       var menuTaps = 0;
       await tester.pumpWidget(bar(onMenu: () => menuTaps++, onSettings: () {}));
       expect(find.byIcon(Icons.settings_outlined), findsNothing);
-      expect(find.byIcon(Icons.visibility_rounded), findsNothing);
+      expect(find.byIcon(Icons.visibility_rounded), findsOneWidget);
       expect(find.byIcon(Icons.visibility_off_rounded), findsNothing);
       expect(find.byIcon(Icons.fullscreen_rounded), findsOneWidget);
       await tester.tap(find.bySemanticsLabel('القائمة'));

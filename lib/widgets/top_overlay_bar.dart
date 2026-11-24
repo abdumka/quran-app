@@ -181,16 +181,21 @@ class TopOverlayBar extends StatelessWidget {
                     onTap: onSurahAreaPressed,
                     label: '$surahLabel. فتح فهرس السور',
                     padding: EdgeInsets.symmetric(vertical: verticalPadding),
+                    // a long name on a narrow phone (or with large system
+                    // text) shrinks to fit instead of being cut with «…»
                     child: Center(
-                      child: Text(
-                        surahLabel,
-                        textAlign: TextAlign.center,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: surahFontSize,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Tajawal',
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          surahLabel,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: surahFontSize,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Tajawal',
+                          ),
                         ),
                       ),
                     ),
@@ -222,6 +227,27 @@ class TopOverlayBar extends StatelessWidget {
                           tooltip: isFullScreenMode
                               ? 'إيقاف وضع ملء الشاشة'
                               : 'تفعيل وضع ملء الشاشة',
+                        ),
+                        // «شريط الإخفاء»: bright while on, dimmed while off
+                        IconButton(
+                          icon: Icon(
+                            isHideBarEnabled
+                                ? Icons.visibility_off_rounded
+                                : Icons.visibility_rounded,
+                            color: isHideBarEnabled
+                                ? chrome.barIcon
+                                : chrome.barIcon.withValues(alpha: 0.5),
+                            size: isLandscape ? 20 : 24,
+                          ),
+                          onPressed: () => onToggleHideBar(!isHideBarEnabled),
+                          padding: EdgeInsets.all(isLandscape ? 2 : 6),
+                          constraints: BoxConstraints(
+                            minWidth: isLandscape ? 36 : 44,
+                            minHeight: isLandscape ? 36 : 44,
+                          ),
+                          tooltip: isHideBarEnabled
+                              ? 'إخفاء شريط الإخفاء'
+                              : 'إظهار شريط الإخفاء',
                         ),
                         _MenuButton(
                           key: settingsKey,
