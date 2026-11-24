@@ -691,7 +691,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case SettingsCoachStep.autoScroll:
         return 'شغّل التمرير التلقائي من هنا، وسيحوّل التطبيق القراءة إلى وضع التمرير تلقائيًا ثم يمكنك التحكم في السرعة من الشريط المخصص. ويمكن تشغيله مع التلاوة في الوقت نفسه، فخفّض السرعة حتى تناسب سرعة القارئ.';
       case SettingsCoachStep.marginImages:
-        return 'من هذا القسم يمكنك تنزيل عرض الهوامش ثم تفعيله لاحقًا. عند التفعيل ستظهر الصفحة كاملة بإطارها ويختفي الشريط العلوي في هذا العرض.';
+        return 'فعّل عرض الهوامش لتظهر الصفحة كاملة بإطارها. وعند التفعيل يختفي الشريط العلوي في هذا العرض.';
       case SettingsCoachStep.hideBar:
         return 'شريط الإخفاء يُغطي نص الصفحة ويترك نافذة صغيرة قابلة للسحب لكشف السطور تدريجياً. مفيد لمراجعة الحفظ. أثناء التلاوة، يتحرك الشريط تلقائياً مع سرعة القراءة ويتسع ليشمل سطرين.';
       case SettingsCoachStep.screenBrightness:
@@ -1362,7 +1362,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   String get _marginImagesInfoText =>
-      'بعد تنزيل صور الهوامش يمكنك التبديل بين العرض بالهوامش والعرض العادي.';
+      'يعرض الصفحة كاملة بهوامشها يمينًا ويسارًا، ويمكنك التبديل بينه وبين العرض العادي في أي وقت.';
 
   String get _audioDownloadInfoText {
     final audioState = _audioDownloadService.state.value;

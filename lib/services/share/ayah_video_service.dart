@@ -242,6 +242,43 @@ class AyahVideoService {
       .replaceAll('{reciter}', reciter.name.trim())
       .replaceAll('{riwaya}', reciter.riwaya.trim());
 
+  /// The background clips kept on the phone (every `.mp4` under `video_bg`,
+  /// plus any half-finished `.part`). Pictures, fonts and surah names are
+  /// small and stay.
+  Future<List<File>> _cachedClips() async {
+    final d = await _backgrounds();
+    final out = <File>[];
+    await for (final e in d.list(recursive: true, followLinks: false)) {
+      if (e is File && (e.path.endsWith('.mp4') || e.path.endsWith('.part'))) {
+        out.add(e);
+      }
+    }
+    return out;
+  }
+
+  /// Total size of the cached background clips, for «إدارة الملفات المحمّلة».
+  Future<int> cachedClipsBytes() async {
+    var total = 0;
+    for (final f in await _cachedClips()) {
+      try {
+        total += await f.length();
+      } catch (_) {}
+    }
+    return total;
+  }
+
+  /// Deletes the cached background clips; each is downloaded again the next
+  /// time a video uses it.
+  Future<void> deleteCachedClips() async {
+    for (final f in await _cachedClips()) {
+      try {
+        await f.delete();
+      } catch (e) {
+        debugPrint('AyahVideo: delete ${f.path}: $e');
+      }
+    }
+  }
+
   Future<bool> isClipCached(ShareVideoBackground bg, String shape) async {
     final file = bg.files[shape];
     if (file == null) return false;

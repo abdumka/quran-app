@@ -5,6 +5,7 @@ import '../../services/athkar_download_service.dart';
 import '../../services/audio_download_service.dart';
 import '../../services/margin_images_service.dart';
 import '../../services/reciter_service.dart';
+import '../../services/share/ayah_video_service.dart';
 import '../../services/tafsir_cache_service.dart';
 import '../../models/tafsir_edition.dart';
 import '../../theme/app_surfaces.dart';
@@ -535,19 +536,11 @@ class _DownloadsManagementPageState extends State<DownloadsManagementPage> {
                       if (!kIsWeb) ...[
                         const SizedBox(height: 10),
                         const AthkarDownloadsCard(),
+                        const SizedBox(height: 10),
+                        const AyahVideoBackgroundsCard(),
                       ],
-                      const SizedBox(height: 10),
-                      // The margin pages ship inside the app now, so the card
-                      // keeps its familiar wording but has nothing to delete.
-                      DownloadedPackageCard(
-                        title: 'عرض الهوامش',
-                        subtitle: marginState.isEnabled
-                            ? 'محمل ومفعّل الآن.'
-                            : 'محمل على الجهاز ويمكن تفعيله من الإعدادات.',
-                        sizeLabel: 'ضمن التطبيق',
-                        statusLabel: marginState.isEnabled ? 'مفعّل' : 'محمل',
-                        icon: Icons.photo_size_select_large_rounded,
-                      ),
+                      // No «عرض الهوامش» card: the margin pages ship inside
+                      // the app, so there is nothing here to delete.
                       const SizedBox(height: 10),
                       TafsirDownloadsSection(
                         service: widget.tafsirCacheService,
@@ -1061,6 +1054,153 @@ class _AthkarDownloadsCardState extends State<AthkarDownloadsCard> {
           ),
         );
       },
+    );
+  }
+}
+
+/// «خلفيات فيديو الآية»: the background clips «فيديو الآية» downloaded and
+/// keeps (one per background and shape used). Delete frees the space; a clip
+/// comes back from the server the next time a video uses it.
+class AyahVideoBackgroundsCard extends StatefulWidget {
+  const AyahVideoBackgroundsCard({super.key});
+
+  @override
+  State<AyahVideoBackgroundsCard> createState() =>
+      _AyahVideoBackgroundsCardState();
+}
+
+class _AyahVideoBackgroundsCardState extends State<AyahVideoBackgroundsCard> {
+  int? _bytes;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    afterOpening(_count);
+  }
+
+  Future<void> _count() async {
+    int bytes;
+    try {
+      bytes = await AyahVideoService.instance.cachedClipsBytes();
+    } catch (_) {
+      bytes = 0;
+    }
+    if (mounted) setState(() => _bytes = bytes);
+  }
+
+  Future<void> _delete() async {
+    final s = AppSurfaces.maybeOf(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: s?.sheet,
+        shape: _dialogShape(s),
+        title: const Text(
+          'حذف خلفيات فيديو الآية',
+          textDirection: TextDirection.rtl,
+        ),
+        content: const Text(
+          'سيتم حذف مقاطع الخلفيات المحفوظة، وتُنزَّل من جديد عند استعمالها في فيديو. هل تريد المتابعة؟',
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(
+            style: _quietTextStyle(s),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: _primaryStyle(s),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    await AyahVideoService.instance.deleteCachedClips();
+    await _count();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppSurfaces.maybeOf(context);
+    final bytes = _bytes;
+    final status = bytes == null
+        ? '…'
+        : bytes == 0
+        ? 'لا توجد خلفيات محفوظة'
+        : 'محفوظة · ${_AthkarDownloadsCardState._mb(bytes)}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: s?.card ?? const Color(0xFFF3EFE6),
+        borderRadius: BorderRadius.circular(
+          s == null ? 18 : AppSurfaces.radius,
+        ),
+        border: Border.all(
+          color: s?.border ?? const Color(0xFF8D6E3F).withValues(alpha: 0.10),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        textDirection: TextDirection.rtl,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.movie_outlined,
+              color: s?.icon ?? const Color(0xFF5C4522),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'خلفيات فيديو الآية',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: s == null ? FontWeight.w800 : FontWeight.w600,
+                    color: s?.text ?? const Color(0xFF2F2418),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'مقاطع الخلفيات التي استعملتها في فيديو الآية، محفوظة لتُصنع الفيديوهات التالية دون تنزيلها مجددًا.',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: s?.muted ?? const Color(0xFF6A5A45),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  textDirection: TextDirection.rtl,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    InfoChip(label: status),
+                    if ((bytes ?? 0) > 0)
+                      FilledButton.tonal(
+                        style: _tonalStyle(s),
+                        onPressed: _busy ? null : _delete,
+                        child: const Text('حذف'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
