@@ -161,14 +161,6 @@ class ContactContent extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         buildContactButton(
-          title: 'واتساب',
-          subtitle: 'مجتمع واتساب',
-          icon: Icons.chat_rounded,
-          accentColor: const Color(0xFF25D366),
-          onTap: () => onOpenLink('https://chat.whatsapp.com/Bqyg5vkh8KN8ISOMESk67N'),
-        ),
-        const SizedBox(height: 12),
-        buildContactButton(
           title: 'البريد الإلكتروني',
           subtitle: 'mahfodqr@gmail.com',
           icon: Icons.email_rounded,
