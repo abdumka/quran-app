@@ -6,6 +6,7 @@ import '../../services/athkar_service.dart';
 import '../../services/content_update_service.dart';
 import '../../services/notification_center.dart';
 import '../../services/push_notification_service.dart';
+import '../../services/update_check.dart';
 
 const Color _gold = Color(0xFF8B7355);
 const Color _border = Color(0xFFE8DCC8);
@@ -36,6 +37,7 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
     super.initState();
     // the athkar speed below is saved through the athkar store
     AthkarStore.instance.load();
+    PushUpdateCheck.instance.load();
     _refresh();
   }
 
@@ -88,6 +90,23 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
     _notify(
       shown
           ? 'تم إرسال إشعار تجريبي.'
+          : 'الإشعارات غير مسموح بها لهذا التطبيق في إعدادات النظام.',
+    );
+  }
+
+  /// The same notification a Firebase `check:` message makes, posted here, so
+  /// the tap and the check can be tried without sending anything.
+  Future<void> _sendLocalCheckTest() async {
+    final shown = await _push.showLocalTestNotification(
+      title: 'التحقق من وجود تحديث',
+      body: 'اضغط هنا ليتحقق التطبيق من وجود تحديث.',
+      payload:
+          '${PushUpdateCheck.prefix}:${PushUpdateCheck.localTestValue}',
+    );
+    if (!mounted) return;
+    _notify(
+      shown
+          ? 'تم إرسال الإشعار. اضغط عليه من شريط الإشعارات.'
           : 'الإشعارات غير مسموح بها لهذا التطبيق في إعدادات النظام.',
     );
   }
@@ -194,6 +213,51 @@ class _DeveloperToolsPageState extends State<DeveloperToolsPage> {
                         side: const BorderSide(color: _border),
                       ),
                     ),
+                  ),
+                ),
+              ],
+            ),
+            // A Firebase message whose custom data is payload = check: runs
+            // «التحقق من وجود تحديث» when tapped (PushUpdateCheck). The last
+            // run is shown here, so a test message can be seen to work.
+            _Section(
+              title: 'إشعار «التحقق من وجود تحديث»',
+              children: [
+                ValueListenableBuilder<PushUpdateCheckRecord?>(
+                  valueListenable: PushUpdateCheck.instance.lastRun,
+                  builder: (context, record, _) {
+                    return _InfoRow(
+                      label: 'آخر تشغيل على هذا الجهاز',
+                      value: record == null
+                          ? 'لم يُشغَّل بعد.'
+                          : '${record.timeLabel} '
+                                '(${record.fromLocalTest ? 'تجربة محلية' : 'من Firebase'})\n'
+                                '${record.result}',
+                    );
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: OutlinedButton.icon(
+                      onPressed: _sendLocalCheckTest,
+                      icon: const Icon(Icons.system_update_rounded),
+                      label: const Text('تجربة الإشعار الآن'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _gold,
+                        side: const BorderSide(color: _border),
+                      ),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Text(
+                    // the isolates keep "check:" from showing as ":check"
+                    'من Firebase: أرسل إلى مجموعة test، وفي «البيانات المخصّصة» '
+                    'اجعل المفتاح \u2066payload\u2069 والقيمة \u2066check:\u2069',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF888888)),
                   ),
                 ),
               ],

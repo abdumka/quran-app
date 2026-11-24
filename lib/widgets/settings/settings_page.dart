@@ -14,7 +14,7 @@ import '../../services/tv_service.dart';
 import '../../models/reciter.dart';
 import '../../models/tafsir_edition.dart';
 import '../../services/app_update_service.dart';
-import '../../services/content_update_service.dart';
+import '../../services/update_check.dart';
 import '../../services/update_notification_service.dart';
 import '../update_available_dialog.dart';
 import '../whats_new_dialog.dart';
@@ -1386,33 +1386,14 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_isCheckingForUpdate) return;
     setState(() => _isCheckingForUpdate = true);
     try {
-      // The store release and the server-updated data (tanzilat, word
-      // colouring, reciters) are checked together; the data check never
-      // throws and installs whatever is newer on its own.
-      final content = ContentUpdateService.instance.check(manual: true);
-      AppUpdateInfo? info;
-      Object? appError;
-      try {
-        info = await _appUpdateService.fetchIfUpdateAvailable();
-      } catch (e) {
-        appError = e;
-      }
-      final data = await content;
+      // The store release and the server-updated data, checked together; a
+      // tapped `check:` notification runs the same (UpdateCheck).
+      final outcome = await UpdateCheck.run();
       if (!mounted) return;
-      final dataMessage = data.message;
-      if (info == null) {
-        if (dataMessage != null) {
-          _showSettingsNotice(dataMessage);
-        } else if (appError != null || data.failed) {
-          _showSettingsNotice(
-            'تعذر التحقق من التحديثات. تحقق من اتصالك بالإنترنت.',
-          );
-        } else {
-          _showSettingsNotice('أنت تستخدم أحدث إصدار من التطبيق وبياناته.');
-        }
-        return;
-      }
-      if (dataMessage != null) _showSettingsNotice(dataMessage);
+      final notice = outcome.notice;
+      if (notice != null) _showSettingsNotice(notice);
+      final info = outcome.appUpdate;
+      if (info == null) return;
       await _appUpdateService.markSurfaced(info);
       if (!mounted) return;
       await UpdateAvailableDialog.show(context, info);
@@ -1650,9 +1631,13 @@ class _SettingsPageState extends State<SettingsPage> {
     final children = <Widget>[
       Container(
         key: _reciterKey,
-        child: ValueListenableBuilder<Reciter>(
-          valueListenable: _reciterService.selected,
-          builder: (context, selectedReciter, _) {
+        child: ListenableBuilder(
+          listenable: Listenable.merge([
+            _reciterService.selected,
+            _reciterService.revision,
+          ]),
+          builder: (context, _) {
+            final selectedReciter = _reciterService.selected.value;
             return ReciterTile(
               reciters: _reciterService.reciters,
               selected: selectedReciter,

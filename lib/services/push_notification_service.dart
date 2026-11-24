@@ -13,6 +13,7 @@ import 'chat_service.dart';
 import 'daily_page_service.dart';
 import 'debug_log_service.dart';
 import 'notification_center.dart';
+import 'update_check.dart';
 
 /// Receives push notifications sent through Firebase Cloud Messaging.
 ///
@@ -36,6 +37,10 @@ import 'notification_center.dart';
 ///  * `page:<1-602>` — opens that mushaf page.
 ///  * `chat:<id>` opens the «راسلنا مباشرة» conversation. These are the only
 ///    messages sent to one device's token rather than to a topic.
+///  * `check:` runs «التحقق من وجود تحديث», as the settings button does:
+///    newer server data is installed and a newer store release opens the
+///    update dialog ([PushUpdateCheck]). Builds older than 2026-11-23 have
+///    no handler for it, so a tap there only opens the app.
 ///
 /// While the app is closed or in the background the OS displays the
 /// notification itself, so no Dart background handler is registered (that
@@ -167,6 +172,10 @@ class PushNotificationService {
     center.registerTapHandler('chat', (_) {
       ChatService.instance.requestOpen();
     });
+    center.registerTapHandler(
+      PushUpdateCheck.prefix,
+      PushUpdateCheck.instance.request,
+    );
   }
 
   static bool _isChatPush(RemoteMessage message) =>

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../models/reciter.dart';
 import '../../services/ayah_play_setting.dart';
 import '../../services/reciter_service.dart';
 import '../../theme/app_surfaces.dart';
@@ -146,9 +145,12 @@ class AyahReciteRow extends StatelessWidget {
 
   Widget _reciterPicker(_ReciteRowColors c) {
     final service = ReciterService.instance;
-    return ValueListenableBuilder<Reciter>(
-      valueListenable: service.selected,
-      builder: (context, selected, _) {
+    // Also rebuilt when a server update adds a reciter, so a bar already on
+    // screen offers it without waiting for something else to redraw it.
+    return ListenableBuilder(
+      listenable: Listenable.merge([service.selected, service.revision]),
+      builder: (context, _) {
+        final selected = service.selected.value;
         final reciters = service.reciters;
         return PopupMenuButton<String>(
           tooltip: 'اختيار القارئ',

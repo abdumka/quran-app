@@ -65,6 +65,7 @@ import 'services/recitation_bar_opacity_service.dart';
 import 'services/tv_service.dart';
 
 import 'services/app_update_service.dart';
+import 'services/update_check.dart';
 import 'services/update_notification_service.dart';
 import 'services/whats_new_service.dart';
 import 'services/theme_service.dart';
@@ -169,6 +170,11 @@ class _QuranPagesState extends State<QuranPages>
   ]);
   static const double _defaultPageAspectRatio = 720 / 1640;
   static const double _marginPageAspectRatio = 1178 / 1878;
+
+  /// The launch's popups (what's new, update, server notice, permission),
+  /// which a tapped `check:` notification waits for so dialogs never stack.
+  Future<void> _startupPopups = Future<void>.value();
+  bool _updateDialogShownAtStartup = false;
   static const String _portraitScrollModePrefKey = 'portraitScrollMode';
   static const String _tabletLayoutModePrefKey = 'tabletLayoutMode';
   static const String _hifzModePrefKey = 'enableHifzMode';
@@ -994,7 +1000,7 @@ class _QuranPagesState extends State<QuranPages>
     TanzilatSetting.load();
     _loadBookmark();
     _loadBookmarkGuidePreference();
-    _checkForUpdate();
+    _startupPopups = _checkForUpdate();
     // Server-updated data (tanzilat, word colouring, reciters): a silent
     // check well after the first frame, at most once a day.
     ContentUpdateService.instance.scheduleBackgroundCheck();
@@ -1039,6 +1045,7 @@ class _QuranPagesState extends State<QuranPages>
       // Firebase too stays off the launch path. A push tapped while the app was
       // closed is still delivered: FCM holds it until getInitialMessage asks.
       ChatService.instance.attachOpener(_openChatFromNotification);
+      PushUpdateCheck.instance.attachRunner(_runUpdateCheckFromNotification);
       ChatService.instance.start();
       PushNotificationService.instance.start();
     });
@@ -1175,6 +1182,43 @@ class _QuranPagesState extends State<QuranPages>
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const ChatScreen()),
     );
+  }
+
+  /// A tapped notification whose payload is `check:`: «التحقق من وجود
+  /// تحديث», as from the settings. A line says it is checking, then what was
+  /// found; a newer store release opens the update dialog.
+  Future<void> _runUpdateCheckFromNotification(String value) async {
+    await _startupPopups;
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    SnackBar line(String text, Duration duration) => SnackBar(
+      content: Text(text, textDirection: TextDirection.rtl),
+      duration: duration,
+    );
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      line('جارٍ التحقق من وجود تحديث...', const Duration(seconds: 30)),
+    );
+    final outcome = await UpdateCheck.run();
+    await PushUpdateCheck.instance.record(
+      value: value,
+      result: outcome.summary,
+    );
+    if (!mounted) return;
+    messenger.hideCurrentSnackBar();
+    final notice = outcome.notice;
+    if (notice != null) {
+      messenger.showSnackBar(line(notice, const Duration(seconds: 6)));
+    }
+    final info = outcome.appUpdate;
+    // Not twice in a row (the launch may have just shown it), and not on a
+    // TV, where the dialog can't be driven by the remote.
+    if (info == null || _updateDialogShownAtStartup || TvService.instance.isTv) {
+      return;
+    }
+    await AppUpdateService.instance.markSurfaced(info);
+    if (!mounted) return;
+    await UpdateAvailableDialog.show(context, info);
   }
 
   @override
@@ -5530,6 +5574,7 @@ class _QuranPagesState extends State<QuranPages>
       if (!mounted) return;
       final shownUpdate =
           !shownWhatsNew && await _maybeShowUpdateAvailable();
+      _updateDialogShownAtStartup = shownUpdate;
       if (!mounted) return;
       // A message from our server, only on a launch with no other popup.
       if (!shownWhatsNew && !shownUpdate) await _maybeShowServerNotice();
