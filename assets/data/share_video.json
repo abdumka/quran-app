@@ -1,5 +1,5 @@
 {
- "ver": 9,
+ "ver": 10,
  "enabled": true,
  "videoEnabled": true,
  "baseUrl": "https://quran-content.mushaf-qaloon.com/",
@@ -140,6 +140,78 @@
  ],
  "defaultBackground": "isl51_istanbul_sunset",
  "backgrounds": [
+  {
+   "id": "isl53_mosque_lamps",
+   "title": "قناديل في رواق مسجد",
+   "category": "islamic",
+   "thumb": "video_bg/v6/isl53_mosque_lamps/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/isl53_mosque_lamps/9x16.mp4",
+     "bytes": 770998
+    },
+    "4x5": {
+     "path": "video_bg/v6/isl53_mosque_lamps/4x5.mp4",
+     "bytes": 553296
+    },
+    "1x1": {
+     "path": "video_bg/v6/isl53_mosque_lamps/1x1.mp4",
+     "bytes": 443954
+    },
+    "16x9": {
+     "path": "video_bg/v6/isl53_mosque_lamps/16x9.mp4",
+     "bytes": 810625
+    }
+   }
+  },
+  {
+   "id": "isl54_mosque_aerial",
+   "title": "مسجد من الأعلى",
+   "category": "islamic",
+   "thumb": "video_bg/v6/isl54_mosque_aerial/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/isl54_mosque_aerial/9x16.mp4",
+     "bytes": 5238979
+    },
+    "4x5": {
+     "path": "video_bg/v6/isl54_mosque_aerial/4x5.mp4",
+     "bytes": 4407532
+    },
+    "1x1": {
+     "path": "video_bg/v6/isl54_mosque_aerial/1x1.mp4",
+     "bytes": 3729080
+    },
+    "16x9": {
+     "path": "video_bg/v6/isl54_mosque_aerial/16x9.mp4",
+     "bytes": 5244310
+    }
+   }
+  },
+  {
+   "id": "isl56_haram_aerial",
+   "title": "المسجد الحرام من الأعلى",
+   "category": "islamic",
+   "thumb": "video_bg/v6/isl56_haram_aerial/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/isl56_haram_aerial/9x16.mp4",
+     "bytes": 3753355
+    },
+    "4x5": {
+     "path": "video_bg/v6/isl56_haram_aerial/4x5.mp4",
+     "bytes": 3158938
+    },
+    "1x1": {
+     "path": "video_bg/v6/isl56_haram_aerial/1x1.mp4",
+     "bytes": 2814935
+    },
+    "16x9": {
+     "path": "video_bg/v6/isl56_haram_aerial/16x9.mp4",
+     "bytes": 3728206
+    }
+   }
+  },
   {
    "id": "isl07_faisal_dusk",
    "title": "مسجد فيصل عند الغروب",
@@ -641,6 +713,534 @@
     "16x9": {
      "path": "video_bg/v4/isl52_crescent_clouds/16x9.mp4",
      "bytes": 2225532
+    }
+   }
+  },
+  {
+   "id": "bg32_sunset_surf",
+   "title": "زبد الموج عند الغروب",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg32_sunset_surf/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg32_sunset_surf/9x16.mp4",
+     "bytes": 9083336
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg32_sunset_surf/4x5.mp4",
+     "bytes": 8034794
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg32_sunset_surf/1x1.mp4",
+     "bytes": 6999620
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg32_sunset_surf/16x9.mp4",
+     "bytes": 9060169
+    }
+   }
+  },
+  {
+   "id": "bg34_sea_foam",
+   "title": "زبد البحر",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg34_sea_foam/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg34_sea_foam/9x16.mp4",
+     "bytes": 9261911
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg34_sea_foam/4x5.mp4",
+     "bytes": 8031938
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg34_sea_foam/1x1.mp4",
+     "bytes": 6905861
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg34_sea_foam/16x9.mp4",
+     "bytes": 8548853
+    }
+   }
+  },
+  {
+   "id": "bg35_breaking_waves",
+   "title": "أمواج متكسرة",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg35_breaking_waves/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg35_breaking_waves/9x16.mp4",
+     "bytes": 9016467
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg35_breaking_waves/4x5.mp4",
+     "bytes": 7951659
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg35_breaking_waves/1x1.mp4",
+     "bytes": 6915082
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg35_breaking_waves/16x9.mp4",
+     "bytes": 8975818
+    }
+   }
+  },
+  {
+   "id": "bg37_waves_rock",
+   "title": "موج عند صخرة",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg37_waves_rock/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg37_waves_rock/9x16.mp4",
+     "bytes": 5465284
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg37_waves_rock/4x5.mp4",
+     "bytes": 4858160
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg37_waves_rock/1x1.mp4",
+     "bytes": 4245873
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg37_waves_rock/16x9.mp4",
+     "bytes": 5510119
+    }
+   }
+  },
+  {
+   "id": "bg40_wave_spray",
+   "title": "رذاذ الموج",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg40_wave_spray/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg40_wave_spray/9x16.mp4",
+     "bytes": 6699252
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg40_wave_spray/4x5.mp4",
+     "bytes": 5900363
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg40_wave_spray/1x1.mp4",
+     "bytes": 5121418
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg40_wave_spray/16x9.mp4",
+     "bytes": 6618456
+    }
+   }
+  },
+  {
+   "id": "bg41_snowy_woods",
+   "title": "غابة مثلجة",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg41_snowy_woods/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg41_snowy_woods/9x16.mp4",
+     "bytes": 1661137
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg41_snowy_woods/4x5.mp4",
+     "bytes": 1412827
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg41_snowy_woods/1x1.mp4",
+     "bytes": 1266483
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg41_snowy_woods/16x9.mp4",
+     "bytes": 1671894
+    }
+   }
+  },
+  {
+   "id": "bg42_dark_sea",
+   "title": "بحر داكن",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg42_dark_sea/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg42_dark_sea/9x16.mp4",
+     "bytes": 8647686
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg42_dark_sea/4x5.mp4",
+     "bytes": 7622246
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg42_dark_sea/1x1.mp4",
+     "bytes": 6574722
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg42_dark_sea/16x9.mp4",
+     "bytes": 8542160
+    }
+   }
+  },
+  {
+   "id": "bg45_rose_rain",
+   "title": "وردة تحت المطر",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg45_rose_rain/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg45_rose_rain/9x16.mp4",
+     "bytes": 4789342
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg45_rose_rain/4x5.mp4",
+     "bytes": 4217185
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg45_rose_rain/1x1.mp4",
+     "bytes": 3672007
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg45_rose_rain/16x9.mp4",
+     "bytes": 4748000
+    }
+   }
+  },
+  {
+   "id": "bg46_rain_ripples",
+   "title": "قطرات المطر على الماء",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg46_rain_ripples/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg46_rain_ripples/9x16.mp4",
+     "bytes": 5444713
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg46_rain_ripples/4x5.mp4",
+     "bytes": 4819257
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg46_rain_ripples/1x1.mp4",
+     "bytes": 4186442
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg46_rain_ripples/16x9.mp4",
+     "bytes": 5445180
+    }
+   }
+  },
+  {
+   "id": "bg48_rain_window",
+   "title": "مطر على النافذة",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg48_rain_window/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg48_rain_window/9x16.mp4",
+     "bytes": 4486064
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg48_rain_window/4x5.mp4",
+     "bytes": 3359164
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg48_rain_window/1x1.mp4",
+     "bytes": 3071030
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg48_rain_window/16x9.mp4",
+     "bytes": 5379866
+    }
+   }
+  },
+  {
+   "id": "bg49_sunset_rocks",
+   "title": "غروب بين الصخور",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg49_sunset_rocks/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg49_sunset_rocks/9x16.mp4",
+     "bytes": 7462095
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg49_sunset_rocks/4x5.mp4",
+     "bytes": 6624281
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg49_sunset_rocks/1x1.mp4",
+     "bytes": 5763812
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg49_sunset_rocks/16x9.mp4",
+     "bytes": 7483491
+    }
+   }
+  },
+  {
+   "id": "bg50_rain_glass_blue",
+   "title": "قطرات على الزجاج",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg50_rain_glass_blue/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg50_rain_glass_blue/9x16.mp4",
+     "bytes": 2117853
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg50_rain_glass_blue/4x5.mp4",
+     "bytes": 1788726
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg50_rain_glass_blue/1x1.mp4",
+     "bytes": 1547987
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg50_rain_glass_blue/16x9.mp4",
+     "bytes": 2132954
+    }
+   }
+  },
+  {
+   "id": "bg51_red_rose",
+   "title": "وردة حمراء",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg51_red_rose/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg51_red_rose/9x16.mp4",
+     "bytes": 8868006
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg51_red_rose/4x5.mp4",
+     "bytes": 7010630
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg51_red_rose/1x1.mp4",
+     "bytes": 5641139
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg51_red_rose/16x9.mp4",
+     "bytes": 8997147
+    }
+   }
+  },
+  {
+   "id": "bg53_beach_golden",
+   "title": "شاطئ عند الغروب",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg53_beach_golden/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg53_beach_golden/9x16.mp4",
+     "bytes": 7039303
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg53_beach_golden/4x5.mp4",
+     "bytes": 6235297
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg53_beach_golden/1x1.mp4",
+     "bytes": 5388611
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg53_beach_golden/16x9.mp4",
+     "bytes": 7207238
+    }
+   }
+  },
+  {
+   "id": "bg54_plant_rain",
+   "title": "نبتة ونافذة ماطرة",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg54_plant_rain/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg54_plant_rain/9x16.mp4",
+     "bytes": 2226051
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg54_plant_rain/4x5.mp4",
+     "bytes": 1841585
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg54_plant_rain/1x1.mp4",
+     "bytes": 1664012
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg54_plant_rain/16x9.mp4",
+     "bytes": 2657851
+    }
+   }
+  },
+  {
+   "id": "bg55_underwater_rays",
+   "title": "أشعة تحت الماء",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg55_underwater_rays/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg55_underwater_rays/9x16.mp4",
+     "bytes": 6009207
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg55_underwater_rays/4x5.mp4",
+     "bytes": 4968663
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg55_underwater_rays/1x1.mp4",
+     "bytes": 4271990
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg55_underwater_rays/16x9.mp4",
+     "bytes": 5935130
+    }
+   }
+  },
+  {
+   "id": "bg56_night_waves",
+   "title": "أمواج ليلية",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg56_night_waves/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg56_night_waves/9x16.mp4",
+     "bytes": 5735057
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg56_night_waves/4x5.mp4",
+     "bytes": 5074052
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg56_night_waves/1x1.mp4",
+     "bytes": 4412694
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg56_night_waves/16x9.mp4",
+     "bytes": 5733117
+    }
+   }
+  },
+  {
+   "id": "bg57_drops_foil",
+   "title": "قطرات الماء",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg57_drops_foil/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg57_drops_foil/9x16.mp4",
+     "bytes": 851770
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg57_drops_foil/4x5.mp4",
+     "bytes": 660048
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg57_drops_foil/1x1.mp4",
+     "bytes": 573541
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg57_drops_foil/16x9.mp4",
+     "bytes": 979680
+    }
+   }
+  },
+  {
+   "id": "bg59_flowers_rain",
+   "title": "ورود تحت المطر",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg59_flowers_rain/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg59_flowers_rain/9x16.mp4",
+     "bytes": 3447714
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg59_flowers_rain/4x5.mp4",
+     "bytes": 2520459
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg59_flowers_rain/1x1.mp4",
+     "bytes": 2147036
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg59_flowers_rain/16x9.mp4",
+     "bytes": 4539782
+    }
+   }
+  },
+  {
+   "id": "bg60_jellyfish",
+   "title": "قناديل البحر",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg60_jellyfish/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg60_jellyfish/9x16.mp4",
+     "bytes": 8275656
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg60_jellyfish/4x5.mp4",
+     "bytes": 7243303
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg60_jellyfish/1x1.mp4",
+     "bytes": 6283101
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg60_jellyfish/16x9.mp4",
+     "bytes": 7980953
+    }
+   }
+  },
+  {
+   "id": "bg39_wave_curl",
+   "title": "موجة عالية",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg39_wave_curl/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg39_wave_curl/9x16.mp4",
+     "bytes": 3924049
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg39_wave_curl/4x5.mp4",
+     "bytes": 3488864
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg39_wave_curl/1x1.mp4",
+     "bytes": 3022425
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg39_wave_curl/16x9.mp4",
+     "bytes": 3974352
+    }
+   }
+  },
+  {
+   "id": "bg44_seagulls_sunset",
+   "title": "نوارس عند الغروب",
+   "category": "nature",
+   "thumb": "video_bg/v6/bg44_seagulls_sunset/thumb.jpg",
+   "files": {
+    "9x16": {
+     "path": "video_bg/v6/bg44_seagulls_sunset/9x16.mp4",
+     "bytes": 2320605
+    },
+    "4x5": {
+     "path": "video_bg/v6/bg44_seagulls_sunset/4x5.mp4",
+     "bytes": 2054437
+    },
+    "1x1": {
+     "path": "video_bg/v6/bg44_seagulls_sunset/1x1.mp4",
+     "bytes": 1787908
+    },
+    "16x9": {
+     "path": "video_bg/v6/bg44_seagulls_sunset/16x9.mp4",
+     "bytes": 2314881
     }
    }
   },
