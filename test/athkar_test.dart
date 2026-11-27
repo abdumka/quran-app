@@ -179,6 +179,30 @@ void main() {
     final text = File('assets/data/athkar.json').readAsStringSync();
     final data = AthkarData.parse(text);
 
+    test('a copied dhikr is the dhikr: no other hadith in its source '
+        '(owner, 2026-11-27: copying «الحمد لله وحده…» gave the hadith of Anas)', () {
+      for (final id in [92, 116]) {
+        final item = data.item(id)!;
+        expect(item.source, isEmpty, reason: '$id');
+        expect(
+          athkarShareText(item),
+          '${item.text}\n\nمن تطبيق المصحف الجامع',
+        );
+      }
+      // the source line says who narrated it: no other hadith, virtue,
+      // word meanings or the printed book's own pages
+      final notSource = RegExp(
+        r'يرفعه|هذا الكتاب|انظر: حديث رقم|رقم \(\d+\)|وانظر فضل|من قالها|من قرأ|'
+        r'ومعنى|والمراد|ومما يطرد|وفي الصحيح|أما الفأل|فلما ولّى|\^',
+      );
+      for (final s in data.sections) {
+        for (final i in s.items) {
+          expect(notSource.hasMatch(i.source), isFalse,
+              reason: '${i.id}: ${i.source}');
+        }
+      }
+    });
+
     test('every section is in exactly one group, the tiles resolve', () {
       expect(data.sections.length, greaterThan(120));
       final grouped = [
