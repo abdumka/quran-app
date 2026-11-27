@@ -28,7 +28,7 @@ OUT = os.path.join(ROOT, 'assets', 'data', 'athkar.json')
 
 # Raise when the content changes; ContentUpdateService.bundledVersions
 # ['athkar'] must match (a test keeps them in step).
-VER = 15
+VER = 16
 
 # The themed groups of the home screen (ours: the book is one flat list).
 # Numbers are the book's section order; the order inside a group is the
