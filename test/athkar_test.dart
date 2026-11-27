@@ -1035,7 +1035,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('نحو 52 MB'), findsOneWidget);
+      expect(find.text('نحو \u206652 MB\u2069'), findsOneWidget);
       expect(find.text('تحميل'), findsOneWidget);
       expect(find.text('حذف'), findsNothing);
       expect(find.byType(LinearProgressIndicator), findsNothing);
@@ -1057,7 +1057,7 @@ void main() {
         bytes: 51 * 1024 * 1024,
       );
       await tester.pump();
-      expect(find.text('مكتملة · 51 MB'), findsOneWidget);
+      expect(find.text('مكتملة · \u206651 MB\u2069'), findsOneWidget);
       expect(find.text('تحميل'), findsNothing);
       expect(find.text('حذف'), findsOneWidget);
     });
