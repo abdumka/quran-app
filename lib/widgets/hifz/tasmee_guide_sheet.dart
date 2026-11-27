@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../services/memorization_test_service.dart';
 import 'hifz_palette.dart';
 import 'skip_ayah_icon.dart';
 
@@ -18,20 +19,45 @@ Future<void> showTasmeeGuideOnce(BuildContext context) async {
 
 /// One button of the bar as the guide draws it.
 class _Item {
-  const _Item(this.icon, this.label, this.what, {this.skipGlyph = false});
+  const _Item(
+    this.icon,
+    this.label,
+    this.what, {
+    this.skipGlyph = false,
+    this.pauseGlyph = false,
+  });
   final IconData? icon; // null = the listening dot (unless [skipGlyph])
   /// Drawn with [SkipAyahIcon], as on the bar itself.
   final bool skipGlyph;
+
+  /// The listening dot as the pause button (a green circle with a pause
+  /// sign), as on the bar while the pause is offered.
+  final bool pauseGlyph;
   final String label;
   final String what;
 }
 
-const List<_Item> _items = [
-  _Item(
-    null,
-    'النقطة',
-    'خضراء: التطبيق يسمعك، وتكبر مع صوتك. حمراء: خطأ ينتظر التصويب.',
-  ),
+/// The bar's buttons in order; the first is the dot, a pause button while
+/// the server offers the pause ([MemorizationTestService.pauseEnabled]).
+List<_Item> get _items => [
+  MemorizationTestService.pauseEnabled
+      ? const _Item(
+          null,
+          'الدائرة',
+          'خضراء: التطبيق يسمعك. اضغطها لإيقاف التسميع مؤقتًا: يُغلق '
+              'الميكروفون وتصير برتقالية، ولا يعمل أثناءه إلا «إنهاء» '
+              'و«إخفاء». اضغطها مرة أخرى لتتابع من حيث توقفت.',
+          pauseGlyph: true,
+        )
+      : const _Item(
+          null,
+          'النقطة',
+          'خضراء: التطبيق يسمعك، وتكبر مع صوتك. حمراء: خطأ ينتظر التصويب.',
+        ),
+  ..._buttons,
+];
+
+const List<_Item> _buttons = [
   _Item(
     Icons.lightbulb_outline_rounded,
     'كلمة',
@@ -127,6 +153,21 @@ Future<void> showTasmeeGuide(BuildContext context) {
                       Container(width: 1.5, height: 8, color: p.selected),
                       if (_items[i].skipGlyph)
                         SkipAyahIcon(size: 22, color: barIcon)
+                      else if (_items[i].pauseGlyph)
+                        Container(
+                          width: 22,
+                          height: 22,
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF2E7D32),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.pause_rounded,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                        )
                       else if (_items[i].icon == null)
                         Container(
                           width: 22,

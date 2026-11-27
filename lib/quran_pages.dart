@@ -1299,6 +1299,13 @@ class _QuranPagesState extends State<QuranPages>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.inactive && _isMemorizationTestEnabled) {
+      // A call coming in, the notification shade, the app switcher: a live
+      // Tasmee session pauses and lets go of the microphone at once, so
+      // nothing listens while the app is not in front. Leaving the app
+      // ends the session (below), as before.
+      MemorizationTestService.instance.pauseForAppInactive();
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       // Pause audio instead of stopping — so user can resume when they return.

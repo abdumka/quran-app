@@ -5,6 +5,13 @@ import 'dart:math' as math;
 
 import 'dart:io' show Platform;
 
+import 'package:audio_session/audio_session.dart'
+    show
+        AndroidAudioHardwareMode,
+        AndroidAudioManager,
+        AudioInterruptionEvent,
+        AudioInterruptionType,
+        AudioSession;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -45,6 +52,14 @@ enum MemorizationTestStatus {
 
   /// Live: ayahs reveal as the engine recognizes their words.
   listening,
+
+  /// The reciter paused the session (the bar's green dot), or the app lost
+  /// the screen or the audio for a moment: the microphone and the
+  /// recognizer are stopped and released, and the page, every word's
+  /// status, any held word and the page report stay as they are until
+  /// [MemorizationTestService.resume]. Nothing listens, nothing is judged
+  /// and the help buttons do nothing.
+  paused,
 
   /// Every expected word has been resolved; the engine is stopped but the
   /// overlay stays up so the user can review mistake/skip tints.
@@ -469,7 +484,14 @@ class MemorizationTestService {
     final report = TasmeeReport(
       page: pageNumber,
       at: _pageStartedAt,
-      seconds: DateTime.now().difference(_pageStartedAt).inSeconds,
+      seconds: math.max(
+        0,
+        DateTime.now().difference(_pageStartedAt).inSeconds -
+            _pausedTotal.inSeconds -
+            (_pausedAt == null
+                ? 0
+                : DateTime.now().difference(_pausedAt!).inSeconds),
+      ),
       words: aligner.length,
       correct: correct,
       errors: List.of(_errors),
@@ -820,7 +842,293 @@ class MemorizationTestService {
   bool get isActive =>
       status.value == MemorizationTestStatus.preparing ||
       status.value == MemorizationTestStatus.listening ||
+      status.value == MemorizationTestStatus.paused ||
       status.value == MemorizationTestStatus.completed;
+
+  // ---------------------------------------------------------------------
+  // Pause
+  // ---------------------------------------------------------------------
+
+  /// Whether the bar offers the pause (its green dot is a button), and
+  /// whether the session pauses itself when the app loses the screen or
+  /// the audio. Server switch `tasmee.pauseEnabled`, read at launch: off,
+  /// everything is as before the pause existed.
+  static bool get pauseEnabled =>
+      RemoteConfig.instance.flag('tasmee.pauseEnabled');
+
+  bool get isPaused => status.value == MemorizationTestStatus.paused;
+
+  /// True from the tap on the dot of a paused session until the recognizer
+  /// is live again (the model loads and the microphone opens).
+  final ValueNotifier<bool> resuming = ValueNotifier(false);
+
+  /// Only a live microphone session pauses: not a self-test (nothing
+  /// listens), not a finished page, not while the session moves onto the
+  /// next page (a swap half done would save that page's report twice).
+  bool get canPause =>
+      pauseEnabled &&
+      status.value == MemorizationTestStatus.listening &&
+      !_silent &&
+      _aligner != null &&
+      !_advancing &&
+      !_swapping &&
+      _pausing == null;
+
+  /// The pause under way (the engine stopping), or null.
+  Future<void>? _pausing;
+  DateTime? _pausedAt;
+
+  /// Time spent paused on the active page: not counted in its report.
+  Duration _pausedTotal = Duration.zero;
+
+  /// A recognizer clock starts at 0 each time it starts, so what one heard
+  /// after a resume is laid after everything heard before it: its audio
+  /// times are shifted by this much (ms). Kept across page swaps, which keep
+  /// the recognizer; reset by [start].
+  int _audioOffsetMs = 0;
+
+  /// Silence put between the audio before a pause and the audio after it,
+  /// longer than the judge's settle wait, so the join reads as a pause.
+  static const int _resumeGapMs = 2000;
+
+  /// A test's engine for a session that opened paused (never started).
+  RecitationEngine? _pendingEngine;
+
+  /// Each pause closes the page's session files (audio and log) and a
+  /// resume opens new ones: the files of the parts before, so «السجل»
+  /// shares the whole page.
+  final List<String> _earlierParts = [];
+
+  StreamSubscription<AudioInterruptionEvent>? _interruptSub;
+
+  /// Pauses the session: the microphone and the recognizer stop and are
+  /// released at once. Does nothing when [canPause] is false. [reason] goes
+  /// to the session log ('button', 'inactive', 'interruption').
+  Future<void> pause({String reason = 'button'}) {
+    if (!canPause) return _pausing ?? Future.value();
+    final done = _pause(reason);
+    _pausing = done;
+    return done.whenComplete(() {
+      if (identical(_pausing, done)) _pausing = null;
+    });
+  }
+
+  Future<void> _pause(String reason) async {
+    _recorder?.log('paused', {
+      'reason': reason,
+      'word': currentWordIndex,
+      'hold': _holdWord,
+    });
+    // First, so that nothing heard from now on is judged and every help
+    // button does nothing.
+    status.value = MemorizationTestStatus.paused;
+    _pausedAt = DateTime.now();
+    final verifying = _verifyingWord;
+    if (feedback.value?.kind == FeedbackKind.silent) _setFeedback(null);
+    await _stopEngineOnly(keepParts: true);
+    // A fresh decode cut short by the stop answered nothing about its word:
+    // it is asked again when the word is heard after the resume.
+    if (verifying >= 0) _verified.remove(verifying);
+    _verifyingWord = -1;
+    revision.value++;
+  }
+
+  /// Ends a pause: a new recognizer loads and the microphone opens, and the
+  /// session goes on from the word it was waiting for. The judge keeps what
+  /// it heard before the pause, so a reciter who goes back a few words or to
+  /// the start of the ayah is followed as usual. Returns false when the
+  /// session was not paused, was ended meanwhile, or the recognizer could
+  /// not start (the session then fails, saying why, as a start does).
+  Future<bool> resume() async {
+    final pausing = _pausing;
+    if (pausing != null) await pausing;
+    if (status.value != MemorizationTestStatus.paused || resuming.value) {
+      return false;
+    }
+    final token = _startToken;
+    resuming.value = true;
+    RecitationEngine? engine;
+    try {
+      engine = _pendingEngine;
+      _pendingEngine = null;
+      if (engine == null) {
+        final override = _engineOverride;
+        engine = override != null
+            ? engineFactoryForTest?.call()
+            : await _tryBuildRealEngine();
+      }
+      if (token != _startToken || status.value != MemorizationTestStatus.paused) {
+        await engine?.stop();
+        return false;
+      }
+      // The session was built for one kind of recognizer (phonemes and the
+      // tracker, or words and the aligner); a different one cannot go on.
+      if (engine == null || engine.emitsPhonemes != (_tracker != null)) {
+        await engine?.stop();
+        _saveReport(finished: false);
+        status.value = MemorizationTestStatus.failed;
+        return false;
+      }
+      _audioOffsetMs = _lastAudioEndMs + _resumeGapMs;
+      _lastAudioEndMs = _audioOffsetMs;
+      _engine = engine;
+      usingRealEngine.value = _engineOverride == null;
+      _listenTo(engine);
+      if (_engineOverride == null) {
+        final page = _page;
+        final recorder = await TasmeeSessionRecorder.begin(
+          page: _activePage ?? 0,
+          installId: _installId,
+          info: {
+            ..._recorderInfo,
+            'resumed': true,
+            'audioOffsetMs': _audioOffsetMs,
+            if (page != null)
+              'ayahs': [for (final a in page.ayahs) '${a.surah}:${a.ayah}'],
+            'words': _expectedWords.length,
+            'word': currentWordIndex,
+          },
+        );
+        if (token != _startToken || !identical(_engine, engine)) {
+          await recorder?.finish();
+          return false;
+        }
+        _recorder = recorder;
+        final audio = engine.audioChunks;
+        if (audio != null && recorder != null) {
+          _audioSub = audio.listen(recorder.addAudio);
+        }
+      }
+      await engine.start();
+      // Ended (or paused into the background) while the model loaded: the
+      // stop already let go of this engine.
+      if (token != _startToken || !identical(_engine, engine)) return false;
+      final pausedAt = _pausedAt;
+      if (pausedAt != null) {
+        _pausedTotal += DateTime.now().difference(pausedAt);
+      }
+      _pausedAt = null;
+      final now = DateTime.now();
+      _lastSegmentAt = now;
+      _lastSegmentLagMs = 0;
+      // The pause is no silence to warn about, nor a pause in the middle of
+      // a word to judge at once: both clocks start again now.
+      _lastPhonemeAt = now;
+      _lastVoiceOrSegment = now;
+      _silenceWarned = false;
+      status.value = MemorizationTestStatus.listening;
+      _recorder?.log('listening', {'resumed': true, 'word': currentWordIndex});
+      _startTimers();
+      _watchInterruptions();
+      revision.value++;
+      return true;
+    } catch (error, stack) {
+      debugPrint('MemorizationTestService: resume failed: $error\n$stack');
+      if (token == _startToken && status.value == MemorizationTestStatus.paused) {
+        await _stopEngineOnly();
+        _saveReport(finished: false);
+        status.value = MemorizationTestStatus.failed;
+      }
+      return false;
+    } finally {
+      resuming.value = false;
+    }
+  }
+
+  /// The app lost the screen (a call coming in, the notification shade,
+  /// the app switcher): a live session pauses so that nothing listens
+  /// meanwhile. Leaving the app ends the session, as before.
+  void pauseForAppInactive() {
+    if (canPause) unawaited(pause(reason: 'inactive'));
+  }
+
+  /// Another app took the audio (a call, Siri, an alarm): pause too. A
+  /// short "duck" (a notification sound) does not pause.
+  void _watchInterruptions() {
+    if (_interruptSub != null || _engineOverride != null || !pauseEnabled) {
+      return;
+    }
+    AudioSession.instance.then((session) {
+      if (_interruptSub != null) return;
+      _interruptSub = session.interruptionEventStream.listen((event) {
+        if (event.begin && event.type != AudioInterruptionType.duck) {
+          if (canPause) unawaited(pause(reason: 'interruption'));
+        }
+      });
+    }).catchError((Object e) {
+      debugPrint('MemorizationTestService: no audio session events: $e');
+    });
+  }
+
+  /// Android: a phone ringing leaves the app in front (a banner) and sends
+  /// it no interruption, so the session would go on listening. The audio
+  /// mode says it: ringing, in a call, or in an internet call. Checked every
+  /// second while listening; a live session then pauses. (Answering brings
+  /// the call screen up, which ends the session anyway.) Server switch
+  /// `tasmee.pauseOnCall`. iOS pauses through the audio interruption.
+  Future<void> _checkCallMode() async {
+    if (kIsWeb || !Platform.isAndroid || _engineOverride != null) return;
+    if (!canPause || !RemoteConfig.instance.flag('tasmee.pauseOnCall')) return;
+    try {
+      final mode = await AndroidAudioManager().getMode();
+      if (mode == AndroidAudioHardwareMode.ringtone ||
+          mode == AndroidAudioHardwareMode.inCall ||
+          mode == AndroidAudioHardwareMode.inCommunication) {
+        if (canPause) unawaited(pause(reason: 'call'));
+      }
+    } catch (e) {
+      debugPrint('MemorizationTestService: audio mode unknown: $e');
+    }
+  }
+
+  /// Hooks the service to a recognizer: its level, busy and decode-time
+  /// notifiers and its segments.
+  void _listenTo(RecitationEngine engine) {
+    _levelListener = () {
+      audioLevel.value = engine.audioLevel.value;
+      if (engine.audioLevel.value > 0.12) {
+        _lastVoiceAt = DateTime.now();
+        _lastVoiceOrSegment = DateTime.now();
+        _silenceWarned = false;
+      }
+    };
+    _busyListener = () => engineBusy.value = engine.busy.value;
+    _decodeListener = () {
+      lastDecodeMs.value = engine.lastDecodeMs.value;
+      _recorder?.log('decode', {'ms': engine.lastDecodeMs.value});
+    };
+    engine.audioLevel.addListener(_levelListener!);
+    engine.busy.addListener(_busyListener!);
+    engine.lastDecodeMs.addListener(_decodeListener!);
+    _segmentSub = engine.segments.listen(
+      _handleSegment,
+      onError: (Object error) {
+        _recorder?.log('engineError', {'error': '$error'});
+        _setFeedback(
+          RecitationFeedback(FeedbackKind.wrong, 'خطأ في محرك التعرف: $error'),
+          sticky: true,
+          show: true,
+        );
+      },
+    );
+  }
+
+  /// The silence watch and, with the phoneme engine, the judge's clock.
+  void _startTimers() {
+    _silenceTimer?.cancel();
+    _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _checkSilence();
+      unawaited(_checkCallMode());
+    });
+    _trackerTimer?.cancel();
+    _trackerTimer = null;
+    if (_tracker != null) {
+      _trackerTimer = Timer.periodic(
+        const Duration(milliseconds: 250),
+        (_) => _tickTracker(),
+      );
+    }
+  }
 
   /// Starts a session for [pageNumber] (1-based mushaf page). Returns false
   /// (with [status] = failed) when the page has no region data or the
@@ -839,7 +1147,12 @@ class MemorizationTestService {
     TasmeeDrill? drill,
     bool silent = false,
     bool locateAnywhere = false,
+    bool? paused,
   }) async {
+    // A page turned by hand while the session is paused opens paused: the
+    // microphone stays closed until the dot is tapped. A session started
+    // anew (after a stop) is never paused.
+    final openPaused = (paused ?? isPaused) && !silent && pauseEnabled;
     _startsInFlight++;
     try {
       return await _start(
@@ -850,6 +1163,7 @@ class MemorizationTestService {
         drill: drill,
         silent: silent,
         locateAnywhere: locateAnywhere,
+        openPaused: openPaused,
       );
     } finally {
       _startsInFlight--;
@@ -870,9 +1184,14 @@ class MemorizationTestService {
     TasmeeDrill? drill,
     required bool silent,
     required bool locateAnywhere,
+    bool openPaused = false,
   }) async {
     final token = ++_startToken;
     _clearHead();
+    // A pause still stopping the old engine finishes first.
+    final pausing = _pausing;
+    if (pausing != null) await pausing;
+    if (token != _startToken) return false;
     // The page the last session was on: a session opening at the top of
     // the page after it may go back to that page's last ayah.
     final prevPage = _activePage;
@@ -881,6 +1200,7 @@ class MemorizationTestService {
     var parked = _parkedEngine;
     _parkedEngine = null;
     await _endSession();
+    _earlierParts.clear();
     if (token != _startToken) {
       await parked?.stop();
       return false;
@@ -914,6 +1234,9 @@ class MemorizationTestService {
     _verified.clear();
     _verifyingWord = -1;
     _lastAudioEndMs = 0;
+    _audioOffsetMs = 0;
+    _pausedTotal = Duration.zero;
+    _pausedAt = null;
     _ignoreAudioBeforeMs = 0;
     _lastSegmentAt = DateTime.now();
     _lastSegmentLagMs = 0;
@@ -1110,33 +1433,26 @@ class MemorizationTestService {
       lastLagMs.value = -1;
       lastHeard.value = '';
       _setFeedback(null);
-      _levelListener = () {
-        audioLevel.value = engine.audioLevel.value;
-        if (engine.audioLevel.value > 0.12) {
-          _lastVoiceAt = DateTime.now();
-          _lastVoiceOrSegment = DateTime.now();
-          _silenceWarned = false;
+
+      if (openPaused) {
+        // Opened paused (a page turned by hand during a pause): everything
+        // is ready but nothing listens. The recognizer goes (it never
+        // opened the microphone); [resume] builds a new one. A test's own
+        // engine is kept for the resume.
+        _engine = null;
+        usingRealEngine.value = false;
+        if (engineOverride != null) {
+          _pendingEngine = engine;
+        } else {
+          unawaited(engine.stop());
         }
-      };
-      _busyListener = () => engineBusy.value = engine.busy.value;
-      _decodeListener = () {
-        lastDecodeMs.value = engine.lastDecodeMs.value;
-        _recorder?.log('decode', {'ms': engine.lastDecodeMs.value});
-      };
-      engine.audioLevel.addListener(_levelListener!);
-      engine.busy.addListener(_busyListener!);
-      engine.lastDecodeMs.addListener(_decodeListener!);
-      _segmentSub = engine.segments.listen(
-        _handleSegment,
-        onError: (Object error) {
-          _recorder?.log('engineError', {'error': '$error'});
-          _setFeedback(
-            RecitationFeedback(FeedbackKind.wrong, 'خطأ في محرك التعرف: $error'),
-            sticky: true,
-            show: true,
-          );
-        },
-      );
+        _pausedAt = DateTime.now();
+        status.value = MemorizationTestStatus.paused;
+        revision.value++;
+        return true;
+      }
+
+      _listenTo(engine);
 
       // Keep a shareable copy of every session (decisions, plus audio when
       // the real mic engine is running). A self-test has nothing to log.
@@ -1218,15 +1534,8 @@ class MemorizationTestService {
       _recorder?.log('listening', {if (reused) 'engine': 'reused'});
       _lastVoiceOrSegment = DateTime.now();
       _silenceWarned = false;
-      _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        _checkSilence();
-      });
-      if (tracker != null) {
-        _trackerTimer = Timer.periodic(
-          const Duration(milliseconds: 250),
-          (_) => _tickTracker(),
-        );
-      }
+      _startTimers();
+      if (engineOverride == null && !silent) _watchInterruptions();
       revision.value++;
       // A self-test page turned by «كلمة» or «الآية»: the start of this
       // page shows at once.
@@ -1797,8 +2106,15 @@ class MemorizationTestService {
     if (tracker == null) return;
     final tokens = segment.phonemes!;
     if (tokens.isEmpty) return;
-    final times = segment.phonemeTimesMs ?? const <int>[];
-    if (segment.audioEndMs > _lastAudioEndMs) _lastAudioEndMs = segment.audioEndMs;
+    // After a resume the recognizer's clock starts at 0 again: its times
+    // are laid after the audio heard before the pause.
+    final offset = _audioOffsetMs;
+    final rawTimes = segment.phonemeTimesMs ?? const <int>[];
+    final times =
+        offset == 0 ? rawTimes : [for (final t in rawTimes) t + offset];
+    final audioEndMs =
+        segment.audioEndMs < 0 ? segment.audioEndMs : segment.audioEndMs + offset;
+    if (audioEndMs > _lastAudioEndMs) _lastAudioEndMs = audioEndMs;
     _lastSegmentAt = DateTime.now();
     _lastSegmentLagMs = segment.lagMs;
     _lastVoiceOrSegment = DateTime.now();
@@ -1806,7 +2122,7 @@ class MemorizationTestService {
     final chars = <HeardChar>[];
     var stale = 0;
     for (var k = 0; k < tokens.length; k++) {
-      final ms = k < times.length ? times[k] : segment.audioEndMs;
+      final ms = k < times.length ? times[k] : audioEndMs;
       if (ms < _ignoreAudioBeforeMs) {
         stale++;
         continue;
@@ -1816,11 +2132,14 @@ class MemorizationTestService {
         chars.add(HeardChar(String.fromCharCode(r), frame));
       }
     }
+    // The log keeps the recognizer's own times: they match the audio file
+    // of this part of the session (a resume opens new files).
     _recorder?.log('phonemes', {
       'tokens': tokens,
-      'timesMs': times,
+      'timesMs': rawTimes,
       'audioEndMs': segment.audioEndMs,
       'lagMs': segment.lagMs,
+      if (offset > 0) 'offsetMs': offset,
       if (stale > 0) 'stale': stale,
     });
     if (chars.isEmpty) return;
@@ -2416,7 +2735,12 @@ class MemorizationTestService {
     final endIdx = math.max(v.spanFrom, math.min(v.spanTo, heard.length) - 1);
     final endMs = heard[endIdx].frame * 40;
     final toMs = math.min(_lastAudioEndMs, endMs + _verifyAfterMs);
-    final fromMs = math.max(0, math.max(startMs - _verifyBeforeMs, toMs - _verifyMaxMs));
+    // The recognizer running now has heard nothing from before the last
+    // resume ([_audioOffsetMs] in session time).
+    final fromMs = math.max(
+      _audioOffsetMs,
+      math.max(startMs - _verifyBeforeMs, toMs - _verifyMaxMs),
+    );
     if (toMs - fromMs < 800) {
       _verified[v.word] = false;
       return;
@@ -2427,14 +2751,15 @@ class MemorizationTestService {
     _verifyingWord = word;
     // Lab builds may ask for the posterior judgement too; when the engine
     // cannot give one the plain re-decode answers as before.
+    final offset = _audioOffsetMs;
     final Future<ScoredVerify?> scored = _posteriorVerify
         ? engine.verifyScored(
-            fromMs: fromMs,
-            toMs: toMs,
+            fromMs: fromMs - offset,
+            toMs: toMs - offset,
             query: posteriorQueryFor(reference.words, word, (startMs - fromMs) ~/ 40),
           )
         : Future.value(null);
-    scored.then((s) => s != null ? Future.value((s.tokens, s)) : engine.verify(fromMs: fromMs, toMs: toMs).then((t) => (t, null))).then((r) {
+    scored.then((s) => s != null ? Future.value((s.tokens, s)) : engine.verify(fromMs: fromMs - offset, toMs: toMs - offset).then((t) => (t, null))).then((r) {
       final (tokens, s) = r;
       if (token != _startToken || !identical(_tracker, tracker)) return;
       _verifyingWord = -1;
@@ -3134,6 +3459,7 @@ class MemorizationTestService {
       final (clean, flagged) = summary;
       _saveReport(finished: true);
       _pageStartedAt = DateTime.now();
+      _pausedTotal = Duration.zero;
       _recorder?.log('completed', {
         'clean': clean,
         'flagged': flagged,
@@ -3141,6 +3467,8 @@ class MemorizationTestService {
         'statuses': [for (final st in statuses) st.name],
       });
       final oldRecorder = _recorder;
+      final oldParts = List<String>.of(_earlierParts);
+      _earlierParts.clear();
       // A page session is logged only when the run is (tests inject an
       // engine and have no recorder; the flow itself no longer depends on it).
       final newRecorder = oldRecorder == null
@@ -3172,7 +3500,11 @@ class MemorizationTestService {
           : null;
       if (oldRecorder != null) {
         unawaited(oldRecorder.finish().then((_) {
-          lastSessionFiles.value = [oldRecorder.audioPath, oldRecorder.logPath];
+          lastSessionFiles.value = [
+            ...oldParts,
+            oldRecorder.audioPath,
+            oldRecorder.logPath,
+          ];
         }));
       }
 
@@ -3286,42 +3618,51 @@ class MemorizationTestService {
   /// Detaches the session from its engine. With [park] the engine keeps
   /// running (microphone open, model loaded) for the next [start] to pick
   /// up; otherwise it is stopped.
-  Future<void> _stopEngineOnly({bool park = false}) async {
+  Future<void> _stopEngineOnly({bool park = false, bool keepParts = false}) async {
     _silenceTimer?.cancel();
     _silenceTimer = null;
     _trackerTimer?.cancel();
     _trackerTimer = null;
-    await _segmentSub?.cancel();
-    _segmentSub = null;
-    await _audioSub?.cancel();
-    _audioSub = null;
+    // Everything is let go of before the first await: a second call made
+    // meanwhile (a pause, then the app going to the background) finds
+    // nothing left to stop, instead of stopping the same engine twice.
+    final segmentSub = _segmentSub;
+    final audioSub = _audioSub;
     final engine = _engine;
+    final level = _levelListener;
+    final busy = _busyListener;
+    final decode = _decodeListener;
+    final recorder = _recorder;
+    _segmentSub = null;
+    _audioSub = null;
+    _engine = null;
+    _levelListener = null;
+    _busyListener = null;
+    _decodeListener = null;
+    _recorder = null;
     if (engine != null) {
-      if (_levelListener != null) {
-        engine.audioLevel.removeListener(_levelListener!);
-      }
-      if (_busyListener != null) engine.busy.removeListener(_busyListener!);
-      if (_decodeListener != null) {
-        engine.lastDecodeMs.removeListener(_decodeListener!);
-      }
+      if (level != null) engine.audioLevel.removeListener(level);
+      if (busy != null) engine.busy.removeListener(busy);
+      if (decode != null) engine.lastDecodeMs.removeListener(decode);
+    }
+    audioLevel.value = 0;
+    engineBusy.value = false;
+    await segmentSub?.cancel();
+    await audioSub?.cancel();
+    if (engine != null) {
       if (park) {
-        await _parkedEngine?.stop();
+        final old = _parkedEngine;
         _parkedEngine = engine;
+        await old?.stop();
       } else {
         await engine.stop();
       }
     }
-    _levelListener = null;
-    _busyListener = null;
-    _decodeListener = null;
-    _engine = null;
-    audioLevel.value = 0;
-    engineBusy.value = false;
-    final recorder = _recorder;
-    _recorder = null;
     if (recorder != null) {
       await recorder.finish();
-      lastSessionFiles.value = [recorder.audioPath, recorder.logPath];
+      final files = [recorder.audioPath, recorder.logPath];
+      lastSessionFiles.value = [..._earlierParts, ...files];
+      if (keepParts) _earlierParts.addAll(files);
     }
   }
 
@@ -3418,10 +3759,12 @@ class MemorizationTestService {
   }
 
   Future<void> _endSession() async {
-    if (status.value == MemorizationTestStatus.listening) {
+    final live = status.value == MemorizationTestStatus.listening ||
+        status.value == MemorizationTestStatus.paused;
+    if (live) {
       _saveReport(finished: false);
     }
-    if (_recorder != null && status.value == MemorizationTestStatus.listening) {
+    if (_recorder != null && live) {
       _recorder?.log('stopped', {
         'word': currentWordIndex,
         'ayah': currentAyahIndex,
@@ -3434,6 +3777,11 @@ class MemorizationTestService {
     final parked = _parkedEngine;
     _parkedEngine = null;
     await parked?.stop();
+    final pending = _pendingEngine;
+    _pendingEngine = null;
+    await pending?.stop();
+    _pausedAt = null;
+    _audioOffsetMs = 0;
     _feedbackTimer?.cancel();
     _feedbackTimer = null;
     feedback.value = null;

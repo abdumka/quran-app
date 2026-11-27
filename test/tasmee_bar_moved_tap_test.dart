@@ -25,6 +25,7 @@ class _QuietEngine extends RecitationEngine {
 /// being read, none of its buttons worked (it was only painted elsewhere).
 void main() {
   final service = MemorizationTestService.instance;
+  setUp(resetTasmeeBarPlaceForTest);
   tearDown(() async => service.stop());
 
   testWidgets('the bar moves off the line being read and its buttons still work',
@@ -42,6 +43,11 @@ void main() {
       'tasmee_bar_pos': '0.0,${first.y}',
     });
 
+    // The page box is really 400 x 800 (the default test screen is 600
+    // high, which would squeeze it).
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     const size = Size(400, 800);
     await tester.pumpWidget(
       MaterialApp(
@@ -109,6 +115,11 @@ void main() {
       'tasmee_bar_pos': '0.0,${target.y}',
     });
 
+    // The page box is really 400 x 800 (the default test screen is 600
+    // high, which would squeeze it).
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     const size = Size(400, 800);
     await tester.pumpWidget(
       MaterialApp(

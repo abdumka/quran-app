@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../services/memorization_test_service.dart';
 import 'hifz_palette.dart';
 import 'skip_ayah_icon.dart';
 
@@ -288,11 +289,20 @@ class _Guide extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: silent
                   ? const Icon(Icons.visibility_off_rounded, size: 16, color: _gold)
-                  : Container(
-                      width: 12,
-                      height: 12,
-                      decoration: const BoxDecoration(color: _good, shape: BoxShape.circle),
-                    ),
+                  : MemorizationTestService.pauseEnabled
+                      // The dot is the pause button, as on the bar.
+                      ? Container(
+                          width: 20,
+                          height: 20,
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(color: _good, shape: BoxShape.circle),
+                          child: const Icon(Icons.pause_rounded, size: 13, color: Colors.white),
+                        )
+                      : Container(
+                          width: 12,
+                          height: 12,
+                          decoration: const BoxDecoration(color: _good, shape: BoxShape.circle),
+                        ),
             ),
             for (var i = 0; i < items.length; i++)
               Padding(
@@ -464,7 +474,7 @@ class _Guide extends StatelessWidget {
                                 'الكشف هنا للتحقق فقط ولا يُحسب خطأً.'
                             : '1 «كلمة»: تكشف الكلمة التي توقفت عندها (تُحسب ملاحظة). 2 «الآية»: تكشف الآية كلها وتنتقل. '
                                 '3 «أعد الآية»: تخفيها لتقرأها من أولها. 4 «تخطَّ»: تتجاوز الآية. 5 «الصفحة»: يبدأ السؤال من أوله. 6 «إنهاء»: ينهي الاختبار ويعرض النتيجة. '
-                                'النقطة الخضراء تعني أن التطبيق يسمعك.',
+                                '${MemorizationTestService.pauseEnabled ? 'الدائرة الخضراء تعني أن التطبيق يسمعك؛ اضغطها لإيقاف الاختبار مؤقتًا، ومرة أخرى لتتابع.' : 'النقطة الخضراء تعني أن التطبيق يسمعك.'}',
                         _barPicture(p),
                       ),
                       _step(

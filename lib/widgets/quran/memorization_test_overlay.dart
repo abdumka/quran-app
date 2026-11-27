@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -671,6 +672,14 @@ double? tasmeeBarShift({
   return next;
 }
 
+/// Tests only: forgets the bar's saved place, so the next bar reads it
+/// from the preferences again (it is read once per run of the app).
+@visibleForTesting
+void resetTasmeeBarPlaceForTest() {
+  _SessionBarState._pos = null;
+  _SessionBarState._posLoaded = false;
+}
+
 class _SessionBar extends StatefulWidget {
   const _SessionBar({required this.service, this.readingLine});
 
@@ -917,6 +926,10 @@ class _SessionBarState extends State<_SessionBar> {
   static const Color _wrong = Color(0xFFB3261E);
   static const Color _unclear = Color(0xFFB26A00);
 
+  /// A paused session: the dot and its message (darker than [_unclear], so
+  /// the message text keeps its contrast on the bar).
+  static const Color _paused = Color(0xFF9A5B00);
+
   /// The new look's colours and the reader's style for the bar (Settings),
   /// read in [build]. Null in the previous look and in night mode: today's
   /// bar, as it was.
@@ -942,34 +955,44 @@ class _SessionBarState extends State<_SessionBar> {
         service.feedback,
         service.lastSessionFiles,
         service.drillLabel,
+        service.resuming,
       ]),
       builder: (context, _) {
         final status = service.status.value;
         if (status != MemorizationTestStatus.listening &&
+            status != MemorizationTestStatus.paused &&
             status != MemorizationTestStatus.completed &&
             status != MemorizationTestStatus.preparing) {
           return const SizedBox.shrink();
         }
         final fb = service.feedback.value;
         final listening = status == MemorizationTestStatus.listening;
+        final paused = status == MemorizationTestStatus.paused;
         final completed = status == MemorizationTestStatus.completed;
-        final rawMessage =
-            fb?.message ??
-            service.drillLabel.value ??
-            switch (status) {
-              MemorizationTestStatus.preparing => 'جارٍ التحضير…',
-              MemorizationTestStatus.completed => 'اكتملت الصفحة',
-              _ => null,
-            };
+        // While paused the bar says so (and how to go on) in place of any
+        // other message; that message is back once the session goes on.
+        final rawMessage = paused
+            ? (service.resuming.value
+                ? 'جارٍ المتابعة…'
+                : 'متوقّف مؤقتًا: اضغط الدائرة للمتابعة')
+            : fb?.message ??
+                service.drillLabel.value ??
+                switch (status) {
+                  MemorizationTestStatus.preparing => 'جارٍ التحضير…',
+                  MemorizationTestStatus.completed => 'اكتملت الصفحة',
+                  _ => null,
+                };
         // Messages quote mushaf words, which carry KFGQPC tanween marks.
         final message =
             rawMessage == null ? null : quranDisplayText(rawMessage);
-        final messageColor = switch (fb?.kind) {
-          FeedbackKind.good => _good,
-          FeedbackKind.wrong => _wrong,
-          FeedbackKind.unclear || FeedbackKind.silent => _unclear,
-          _ => _gold,
-        };
+        final messageColor = paused
+            ? _paused
+            : switch (fb?.kind) {
+                FeedbackKind.good => _good,
+                FeedbackKind.wrong => _wrong,
+                FeedbackKind.unclear || FeedbackKind.silent => _unclear,
+                _ => _gold,
+              };
 
         if (_collapsed) {
           // Folded: a dot that still shows the mic level and turns red on
@@ -984,11 +1007,11 @@ class _SessionBarState extends State<_SessionBar> {
                   horizontal: 10,
                   vertical: 7,
                 ),
-                decoration: _decoration(fb?.kind == FeedbackKind.wrong),
+                decoration: _decoration(!paused && fb?.kind == FeedbackKind.wrong),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _statusDot(status, fb?.kind == FeedbackKind.wrong),
+                    _statusDot(status, !paused && fb?.kind == FeedbackKind.wrong),
                     Icon(
                       Icons.keyboard_arrow_up_rounded,
                       color: _iconColor,
@@ -1009,7 +1032,11 @@ class _SessionBarState extends State<_SessionBar> {
             behavior: HitTestBehavior.opaque,
             onTap: () => service.logUi('barMiss'),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
+              // A touch less at the sides with the pause dot, so the bar
+              // (its dot now a button) is a touch wider.
+              padding: MemorizationTestService.pauseEnabled
+                  ? const EdgeInsets.fromLTRB(8, 14, 8, 4)
+                  : const EdgeInsets.fromLTRB(14, 14, 14, 4),
               child: _bar(
                 context,
                 status,
@@ -1017,6 +1044,7 @@ class _SessionBarState extends State<_SessionBar> {
                 messageColor,
                 listening,
                 completed,
+                paused,
               ),
             ),
           ),
@@ -1032,7 +1060,14 @@ class _SessionBarState extends State<_SessionBar> {
     Color messageColor,
     bool listening,
     bool completed,
+    bool paused,
   ) {
+    // While paused only the dot (go on), «إنهاء» and «إخفاء» work; the other
+    // buttons stay where they are, dimmed, so nothing moves under a finger.
+    final live = !paused;
+    final pauseDot = MemorizationTestService.pauseEnabled &&
+        !service.silent &&
+        (listening || paused);
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 560),
       child: Column(
@@ -1074,22 +1109,28 @@ class _SessionBarState extends State<_SessionBar> {
                 textDirection: TextDirection.rtl,
                 children: [
                   const SizedBox(width: 4),
-                  _statusDot(status, false),
-                  if (listening) ...[
+                  if (pauseDot)
+                    _pauseDot(paused)
+                  else
+                    _statusDot(status, false),
+                  if (listening || paused) ...[
                     _action(
                       Icons.lightbulb_outline_rounded,
                       'كلمة',
                       service.showHint,
+                      enabled: live,
                     ),
                     _action(
                       Icons.visibility_rounded,
                       'الآية',
                       service.revealCurrentAyah,
+                      enabled: live,
                     ),
                     _action(
                       Icons.replay_circle_filled_rounded,
                       'أعد الآية',
                       service.repeatAyah,
+                      enabled: live,
                     ),
                     // A self-test has nothing to skip past: the reader
                     // uncovers the page at their own pace.
@@ -1100,20 +1141,23 @@ class _SessionBarState extends State<_SessionBar> {
                         SkipAyahIcon.builder,
                         'تخطَّ',
                         service.skipCurrentAyah,
+                        enabled: live,
                       ),
                   ],
                   // An open-ended question ends when the reciter says so.
-                  if (listening && (service.drill?.open ?? false))
+                  if ((listening || paused) && (service.drill?.open ?? false))
                     _action(
                       Icons.done_all_rounded,
                       'سؤال جديد',
                       service.finishDrillNow,
+                      enabled: live,
                     ),
-                  if (listening || completed)
+                  if (listening || completed || paused)
                     _action(
                       Icons.restart_alt_rounded,
                       'الصفحة',
                       () => service.restart(),
+                      enabled: live,
                     ),
                   if (completed && service.lastSessionFiles.value.isNotEmpty)
                     _action(
@@ -1175,25 +1219,41 @@ class _SessionBarState extends State<_SessionBar> {
     );
   }
 
-  Widget _action(IconData icon, String label, VoidCallback onTap) =>
+  Widget _action(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    bool enabled = true,
+  }) =>
       _actionWith(
         (size, color) => Icon(icon, size: size, color: color),
         label,
         onTap,
+        enabled: enabled,
       );
 
+  /// One button of the bar. A button that does nothing right now (the
+  /// session is paused) is drawn dimmed and its taps only reach the log.
   Widget _actionWith(
     Widget Function(double size, Color color) glyph,
     String label,
-    VoidCallback onTap,
-  ) {
+    VoidCallback onTap, {
+    bool enabled = true,
+  }) {
     // The slim style: smaller icons and a little less height, labels kept.
     final slim = _look != null && _style == TasmeeBarStyle.slim;
-    return InkWell(
+    final button = InkWell(
       onTap: () {
+        if (!enabled) {
+          service.logUi('barDimmed', {'action': label});
+          return;
+        }
         service.logUi('bar', {'action': label});
         onTap();
       },
+      // No ripple on a dimmed button: nothing happens there.
+      splashFactory: enabled ? null : NoSplash.splashFactory,
+      highlightColor: enabled ? null : Colors.transparent,
       borderRadius: BorderRadius.circular(10),
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 9, vertical: slim ? 4 : 6),
@@ -1214,6 +1274,76 @@ class _SessionBarState extends State<_SessionBar> {
         ),
       ),
     );
+    if (enabled) return button;
+    return Semantics(
+      enabled: false,
+      child: Opacity(opacity: 0.35, child: button),
+    );
+  }
+
+  /// The green dot as the pause button: a round button with a pause sign
+  /// that pulses with the voice while the session listens; amber with a
+  /// play sign while paused (tap: go on). A spinner while the recognizer
+  /// starts again.
+  Widget _pauseDot(bool paused) {
+    final resuming = service.resuming.value;
+    final slim = _look != null && _style == TasmeeBarStyle.slim;
+    final d = slim ? 30.0 : 34.0;
+    final level = paused ? 0.0 : service.audioLevel.value.clamp(0.0, 1.0);
+    final color = paused ? _paused : _good;
+    final Widget glyph = resuming
+        ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+        : Icon(
+            paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+            size: paused ? 22 : 19,
+            color: Colors.white,
+          );
+    return Semantics(
+      button: true,
+      label: paused ? 'متابعة التسميع' : 'إيقاف التسميع مؤقتًا',
+      excludeSemantics: true,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: resuming
+            ? null
+            : () {
+                service.logUi('bar', {'action': paused ? 'resume' : 'pause'});
+                HapticFeedback.selectionClick();
+                if (paused) {
+                  unawaited(service.resume());
+                } else {
+                  unawaited(service.pause());
+                }
+              },
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 6, vertical: slim ? 3 : 5),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 80),
+            width: d,
+            height: d,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: _good.withValues(alpha: paused ? 0 : 0.24),
+                  spreadRadius: 1 + 5 * level,
+                ),
+              ],
+            ),
+            child: glyph,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _statusDot(MemorizationTestStatus status, bool alarm) {
@@ -1231,6 +1361,7 @@ class _SessionBarState extends State<_SessionBar> {
         : switch (status) {
             MemorizationTestStatus.completed => _good,
             MemorizationTestStatus.preparing => _unclear,
+            MemorizationTestStatus.paused => _paused,
             _ => service.engineBusy.value ? _unclear : _good,
           };
     final size = 9.0 + 8.0 * level.clamp(0.0, 1.0);

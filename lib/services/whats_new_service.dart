@@ -20,31 +20,18 @@ class WhatsNewService {
   /// wants it again.
   static const bool offerSettingsTour = false;
 
-  /// The cards of the What's New deck, in order (owner, 2026-11-19: تلقين,
-  /// فيديو الآية, الأذكار, أحكام وأصول الرواية, Android Auto for everyone).
-  /// Empty falls back to the plain list popup. [currentReleaseChanges]
-  /// stays the full list, behind the deck's «كل التغييرات».
-  static const List<String> tourCards = [
-    'talqeen',
-    'video',
-    'athkar',
-    'usul',
-    'khilaf',
-    'auto',
-  ];
+  /// The cards of the What's New deck, in order. Empty: the plain list
+  /// popup shows [currentReleaseChanges] instead. Started fresh on
+  /// 2026-11-27 (owner); the earlier cards (talqeen, video, athkar, usul,
+  /// khilaf, auto) stay in WhatsNewDeck for a release that wants them.
+  static const List<String> tourCards = [];
 
   /// Changes shipped in the current installed build. Update this list (and
   /// nothing else) on each release that should show a "what's new" popup;
-  /// leave it empty to skip the popup entirely for a release.
+  /// leave it empty to skip the popup entirely for a release. Started fresh
+  /// on 2026-11-27 (owner).
   static const List<String> currentReleaseChanges = [
-    'جديد «أحكام وأصول الرواية» في القائمة الجانبية: شرح ميسّر لأحكام التلاوة وأصول رواية قالون.',
-    'جديد «خلافات القراء»: اضغط مطوّلًا على الآية لترى كيف قرأ القراء العشرة كل كلمة فيها.',
-    'جديد «مشاركة الآية فيديو قصيرًا بخلفية»: تلاوة القارئ الذي تختاره، والآيات واسم السورة بخط المصحف نفسه، على خلفية متحركة من المساجد والمعالم أو من الطبيعة.',
-    'جديد «الأذكار» في القائمة الجانبية: أذكار الصباح والمساء وبعد الصلاة والنوم والاستيقاظ وغيرها.',
-    'جديد «تلقين - استمع ثم ردّد»: يتلو القارئ الآية ثم يسكت لتردّدها بعده.',
-    'جديد «لا تهجر القرآن»: تنبيه لطيف إذا لم تفتح المصحف 5 أيام.',
-    'جديد «المصحف الجامع في السيارة»: يعمل التطبيق مباشرة على السيارات التي تدعم Android Auto.',
-    'شكل جديد للتطبيق: قائمة جانبية، و7 ألوان تختار منها في «إعدادات العرض».',
+    'جديد في التسميع «إيقاف مؤقت»: اضغط الدائرة الخضراء في شريط التسميع ليتوقف الاستماع ويُغلق الميكروفون، واضغطها مرة أخرى لتتابع من حيث توقفت.',
   ];
 
   /// Whether the popup should be shown for the currently installed build:

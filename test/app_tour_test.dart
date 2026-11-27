@@ -7,6 +7,17 @@ import 'package:islamic_dawah_mushaf/widgets/tour/welcome_tour_page.dart';
 import 'package:islamic_dawah_mushaf/widgets/tour/whats_new_deck.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// The deck is tested with the cards it knows, whatever the release lists
+/// ([WhatsNewService.tourCards] is empty between releases).
+const List<String> _deckCards = [
+  'talqeen',
+  'video',
+  'athkar',
+  'usul',
+  'khilaf',
+  'auto',
+];
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -48,7 +59,7 @@ void main() {
     for (final scene in TourScene.values) {
       expect(kTourText[scene], isNotNull, reason: '$scene');
     }
-    for (final id in WhatsNewService.tourCards) {
+    for (final id in _deckCards) {
       expect(WhatsNewDeck.sceneFor(id), isNotNull, reason: id);
     }
   });
@@ -150,7 +161,7 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () async => result = await WhatsNewDeck.show(
                   context,
-                  WhatsNewService.tourCards,
+                  _deckCards,
                 ),
                 child: const Text('open'),
               ),
@@ -162,7 +173,7 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    for (var i = 1; i < WhatsNewService.tourCards.length; i++) {
+    for (var i = 1; i < _deckCards.length; i++) {
       await tester.tap(find.text('التالي'));
       await tester.pump(const Duration(milliseconds: 700));
     }
@@ -186,7 +197,7 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () async => result = await WhatsNewDeck.show(
                   context,
-                  WhatsNewService.tourCards,
+                  _deckCards,
                 ),
                 child: const Text('open'),
               ),
@@ -198,9 +209,9 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    for (var i = 0; i < WhatsNewService.tourCards.length; i++) {
+    for (var i = 0; i < _deckCards.length; i++) {
       expect(find.textContaining('جرّبها'), findsNothing);
-      if (i < WhatsNewService.tourCards.length - 1) {
+      if (i < _deckCards.length - 1) {
         await tester.tap(find.text('التالي'));
         await tester.pump(const Duration(milliseconds: 700));
       }

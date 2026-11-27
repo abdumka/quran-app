@@ -33,6 +33,13 @@ class RemoteConfig {
     'tasmee.drillsEnabled': RemoteKey.flag(false),
     // «التسميع من أي موضع» search over the whole mushaf.
     'tasmee.locateEnabled': RemoteKey.flag(true),
+    // The pause on the Tasmee bar's green dot, and the session pausing
+    // itself when the app loses the screen or the audio. Off: the dot is
+    // the plain listening light again, as before the pause existed.
+    'tasmee.pauseEnabled': RemoteKey.flag(true),
+    // Android: the session also pauses while the phone rings or a call is
+    // under way (read from the audio mode). Off if a phone misreports it.
+    'tasmee.pauseOnCall': RemoteKey.flag(true),
 
     // ── Tasmee judge (see TrackerConfig; defaults = the bundled values) ──
     'tasmee.okDistance': RemoteKey.number(0.15, 0.05, 0.3),
