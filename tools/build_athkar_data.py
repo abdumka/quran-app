@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, 'assets', 'data', 'athkar.json')
 
 # Raise when the content changes; ContentUpdateService.bundledVersions
 # ['athkar'] must match (a test keeps them in step).
-VER = 7
+VER = 10
 
 # The themed groups of the home screen (ours: the book is one flat list).
 # Numbers are the book's section order; the order inside a group is the
@@ -271,7 +271,21 @@ def voices():
     path = os.path.join(ROOT, 'tools', 'athkar_voices.json')
     if not os.path.exists(path):
         return []
-    found = json.load(open(path, encoding='utf-8'))
+    # The app plays copies that hold only the dhikr, silent around it
+    # (athkar_voices_app.json, made by the athkar pipeline's
+    # make_app_clips.py from athkar_voices.json): the padded files left a
+    # tick of the next word at the end on the phone (owner, 2026-11-26).
+    app = os.path.join(ROOT, 'tools', 'athkar_voices_app.json')
+    if os.path.exists(app):
+        import hashlib
+        made = json.load(open(app, encoding='utf-8'))
+        now = hashlib.sha256(open(path, 'rb').read()).hexdigest()[:16]
+        if made.get('_made_from') != now:
+            raise SystemExit('athkar_voices_app.json is older than athkar_voices.json: '
+                             'run make_app_clips.py --upload first')
+        found = made['voices']
+    else:
+        found = json.load(open(path, encoding='utf-8'))
     rank = {v: i for i, v in enumerate(VOICE_ORDER)}
     return sorted(found, key=lambda v: rank.get(v['id'], len(rank)))  # stable: the rest keep their order
 

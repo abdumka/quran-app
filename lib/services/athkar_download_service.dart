@@ -82,15 +82,16 @@ class AthkarDownloadService {
 
   bool _stop = false;
 
-  /// About how big one clip of each voice is (bytes, measured 2026-11-20),
-  /// for the size shown before downloading.
+  /// About how big one clip of each voice is (bytes, measured 2026-11-26 on
+  /// the v3 copies that hold only the dhikr), for the size shown before
+  /// downloading.
   static const Map<String, int> _clipBytes = {
-    'ghamdi': 248000,
-    'duraihem': 191000,
-    'rashid': 203000,
-    'shuwaihi': 217000,
-    'hajwani': 230000,
-    'abbad': 262000,
+    'ghamdi': 164000,
+    'duraihem': 99000,
+    'rashid': 111000,
+    'shuwaihi': 126000,
+    'hajwani': 156000,
+    'abbad': 183000,
   };
   static const int _ayahBytes = 150000;
 
