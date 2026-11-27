@@ -181,26 +181,49 @@ class MemorizationTestOverlay extends StatelessWidget {
     );
   }
 
-  /// The page line (page-box pixels, full line height) of the first word
-  /// still to be uncovered: the line the reciter is on. The bar keeps
-  /// clear of it.
+  /// The page line (page-box pixels, full line height) of the word the
+  /// session waits for: the line the reciter is on. The bar keeps clear of
+  /// it.
+  ///
+  /// Ayahs already passed are skipped whether clean (revealed) or flagged:
+  /// a flagged ayah keeps its skipped or wrong words marked for good, and
+  /// taking the first such word as the reading place pinned the bar to an
+  /// ayah skipped with «تخطَّ», so it never moved again on that page
+  /// (owner, 2026-11-27). Inside the ayah being read the place is the
+  /// cursor word, for the same reason: a word passed over earlier in it
+  /// must not hold the bar back.
   static Rect? _readingLine(
     MemorizationTestService service,
     AyahRegionPageData regions,
     List<AyahRevealState> states,
     _RatioMapper map,
   ) {
+    final cursorAyah = service.currentAyahIndex;
     for (var i = 0; i < regions.ayahs.length; i++) {
-      if (states[i] == AyahRevealState.revealed) continue;
+      if (states[i] == AyahRevealState.revealed ||
+          states[i] == AyahRevealState.flagged) {
+        continue;
+      }
       final rects = regions.ayahs[i].rects;
       if (rects.isEmpty) continue;
       final boxes = service.wordBoxesFor(i);
       final statuses = service.wordStatusesOf(i);
       var line = rects.first;
       if (boxes != null && boxes.length == statuses.length) {
-        final w = statuses.indexWhere(
-          (s) => s != WordStatus.correct && s != WordStatus.revealed,
-        );
+        var w = -1;
+        if (i == cursorAyah) {
+          var start = 0;
+          for (var j = 0; j < i; j++) {
+            start += service.wordStatusesOf(j).length;
+          }
+          final c = service.currentWordIndex - start;
+          if (c >= 0 && c < statuses.length) w = c;
+        }
+        if (w < 0) {
+          w = statuses.indexWhere(
+            (s) => s != WordStatus.correct && s != WordStatus.revealed,
+          );
+        }
         if (w < 0) continue;
         final cy = boxes[w].bounds.center.dy;
         for (final r in rects) {

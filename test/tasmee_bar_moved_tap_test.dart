@@ -82,4 +82,73 @@ void main() {
       reason: '«الآية» uncovered the first ayah',
     );
   });
+
+  // Owner 2026-11-27: after one «تخطَّ» the bar never stepped aside again
+  // on that page: a skipped ayah's words stay marked skipped, and the bar
+  // took the first of them as the line being read.
+  testWidgets('after «تخطَّ» the bar still steps off the line being read',
+      (tester) async {
+    await tester.runAsync(
+      () => service.start(
+        pageNumber: 3,
+        engineOverride: _QuietEngine(),
+        stopPlayback: false,
+      ),
+    );
+    final ayahs = service.regions!.ayahs;
+    // The bar's saved place: on the first line of the first ayah that
+    // starts at least 5 lines below the first one, far from the line
+    // being read at the start.
+    final first = ayahs.first.rects.first;
+    final k = ayahs.indexWhere(
+      (a) => a.rects.first.y > first.y + 5 * first.height,
+    );
+    expect(k, greaterThan(0));
+    final target = ayahs[k].rects.first;
+    SharedPreferences.setMockInitialValues({
+      'tasmee_bar_pos': '0.0,${target.y}',
+    });
+
+    const size = Size(400, 800);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox.fromSize(
+              size: size,
+              child: const MemorizationTestOverlay(pageNumber: 3),
+            ),
+          ),
+        ),
+      ),
+    );
+    Future<void> settle() async {
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    double barTop() => tester.getTopLeft(find.text('كلمة')).dy;
+    await settle();
+    final home = barTop();
+
+    // Skip every ayah before it: the reading reaches the bar's line.
+    for (var i = 0; i < k; i++) {
+      await tester.tap(find.text('تخطَّ'));
+      await settle();
+    }
+    expect(service.currentAyahIndex, k);
+    expect(service.wordStatusesOf(0).first, WordStatus.skipped);
+    final top = barTop();
+    final bottom = tester.getBottomLeft(find.text('تخطَّ')).dy;
+    final lineTop = target.y * size.height;
+    final lineBottom = (target.y + target.height) * size.height;
+    expect(
+      top > lineBottom || bottom < lineTop,
+      isTrue,
+      reason: 'bar $top..$bottom, line $lineTop..$lineBottom',
+    );
+    expect(top, isNot(closeTo(home, 1)), reason: 'the bar moved');
+  });
 }
